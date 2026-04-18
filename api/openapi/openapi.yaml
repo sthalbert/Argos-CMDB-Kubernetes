@@ -30,6 +30,8 @@ tags:
     description: Kubernetes nodes (worker / control-plane machines) within a cluster.
   - name: namespaces
     description: Kubernetes namespaces within a cluster.
+  - name: pods
+    description: Kubernetes pods — the atomic applicative workload units.
 
 security:
   - BearerAuth: []
@@ -461,6 +463,137 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/pods:
+    get:
+      tags: [pods]
+      summary: List pods
+      operationId: listPods
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PodNamespaceIdFilter'
+      responses:
+        '200':
+          description: Paged list of pods.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [pods]
+      summary: Register a pod
+      operationId: createPod
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PodCreate'
+      responses:
+        '201':
+          description: Pod created.
+          headers:
+            Location:
+              description: URI of the newly created pod.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pod'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/pods/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PodId'
+    get:
+      tags: [pods]
+      summary: Get a pod
+      operationId: getPod
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Pod details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pod'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [pods]
+      summary: Update mutable fields of a pod
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id` and `name` are immutable after creation.
+      operationId: updatePod
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/PodUpdate'
+      responses:
+        '200':
+          description: Updated pod.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pod'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [pods]
+      summary: Delete a pod
+      operationId: deletePod
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Pod deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
 
   securitySchemes:
@@ -523,6 +656,24 @@ components:
       in: query
       required: false
       description: Return only namespaces belonging to this cluster.
+      schema:
+        type: string
+        format: uuid
+
+    PodId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned pod identifier.
+      schema:
+        type: string
+        format: uuid
+
+    PodNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only pods belonging to this namespace.
       schema:
         type: string
         format: uuid
@@ -948,6 +1099,112 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Namespace'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    PodMutable:
+      description: Fields on a Pod that clients may set and later update.
+      type: object
+      properties:
+        phase:
+          type: string
+          maxLength: 32
+          description: |
+            Kubernetes pod phase as last observed: Pending, Running, Succeeded,
+            Failed, or Unknown. Open-ended to accommodate any additional phases.
+        node_name:
+          type: string
+          maxLength: 253
+          description: Name of the node the pod is scheduled on.
+        pod_ip:
+          type: string
+          maxLength: 45
+          description: |
+            Pod IP address (IPv4 or IPv6). Informational; not validated as an
+            IP literal.
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    PodCreate:
+      description: Payload to register a new pod under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/PodMutable'
+        - type: object
+          required: [namespace_id, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes pod name (DNS-subdomain style). Unique per namespace.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+
+    PodUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/PodMutable'
+
+    Pod:
+      description: A Kubernetes pod registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/PodMutable'
+        - type: object
+          required: [id, namespace_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for Pod. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    PodList:
+      description: Paged list of pods.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pod'
         next_cursor:
           type: string
           nullable: true

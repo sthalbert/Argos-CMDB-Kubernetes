@@ -10,6 +10,7 @@ const (
 	LayerCluster   = InfrastructureLogical
 	LayerNode      = InfrastructurePhysical
 	LayerNamespace = InfrastructureLogical
+	LayerPod       = Applicative
 )
 
 func withClusterLayer(c Cluster) Cluster {
@@ -28,4 +29,10 @@ func withNamespaceLayer(n Namespace) Namespace {
 	l := LayerNamespace
 	n.Layer = &l
 	return n
+}
+
+func withPodLayer(p Pod) Pod {
+	l := LayerPod
+	p.Layer = &l
+	return p
 }

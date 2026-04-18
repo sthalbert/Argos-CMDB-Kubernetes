@@ -305,6 +305,96 @@ func (s *Server) DeleteNamespace(w http.ResponseWriter, r *http.Request, id Name
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ListPods returns a paged list of pods, optionally filtered by namespace_id.
+func (s *Server) ListPods(w http.ResponseWriter, r *http.Request, params ListPodsParams) {
+	limit := 0
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	cursor := ""
+	if params.Cursor != nil {
+		cursor = *params.Cursor
+	}
+
+	items, next, err := s.store.ListPods(r.Context(), params.NamespaceId, limit, cursor)
+	if err != nil {
+		s.writeStoreError(w, "listPods", err)
+		return
+	}
+
+	for i := range items {
+		items[i] = withPodLayer(items[i])
+	}
+	resp := PodList{Items: items}
+	if next != "" {
+		resp.NextCursor = &next
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// CreatePod registers a new pod under a namespace.
+func (s *Server) CreatePod(w http.ResponseWriter, r *http.Request) {
+	var body PodCreate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.Name == "" {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+
+	p, err := s.store.CreatePod(r.Context(), body)
+	if err != nil {
+		s.writeStoreError(w, "createPod", err)
+		return
+	}
+	p = withPodLayer(p)
+
+	if p.Id != nil {
+		w.Header().Set("Location", "/v1/pods/"+p.Id.String())
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+// GetPod fetches a pod by id.
+func (s *Server) GetPod(w http.ResponseWriter, r *http.Request, id PodId) {
+	p, err := s.store.GetPod(r.Context(), id)
+	if err != nil {
+		s.writeStoreError(w, "getPod", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withPodLayer(p))
+}
+
+// UpdatePod applies merge-patch updates.
+func (s *Server) UpdatePod(w http.ResponseWriter, r *http.Request, id PodId) {
+	var body PodUpdate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	p, err := s.store.UpdatePod(r.Context(), id, body)
+	if err != nil {
+		s.writeStoreError(w, "updatePod", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withPodLayer(p))
+}
+
+// DeletePod removes a pod.
+func (s *Server) DeletePod(w http.ResponseWriter, r *http.Request, id PodId) {
+	if err := s.store.DeletePod(r.Context(), id); err != nil {
+		s.writeStoreError(w, "deletePod", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) writeStoreError(w http.ResponseWriter, op string, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
