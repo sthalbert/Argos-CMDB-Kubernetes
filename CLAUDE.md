@@ -36,4 +36,9 @@ Argos is a CMDB (Configuration Management Database) for Kubernetes environments,
 
 ## Architecture notes
 
-Implementation is currently a skeleton (`cmd/argosd/main.go` only). When the codebase spans multiple subsystems — collector, store, API — expand this section with how they interact, how Kubernetes kinds map to ANSSI cartography layers, and how snapshots are versioned in PostgreSQL.
+The codebase currently covers the API layer only:
+
+- `cmd/argosd/main.go` — daemon entry point: env-based configuration (`ARGOS_ADDR`, `ARGOS_SHUTDOWN_TIMEOUT`), HTTP server startup, graceful shutdown on SIGINT / SIGTERM.
+- `internal/api/` — generated server (`api.gen.go`) + hand-written handlers (`server.go`) implementing `ServerInterface`. Health probes are real; cluster handlers stub to `501 Not Implemented` until the store lands. RFC 7807 `application/problem+json` for all errors.
+
+Remaining subsystems (PostgreSQL store, Kubernetes collector) will arrive with follow-up docs on how K8s kinds map to ANSSI cartography layers and how snapshots are versioned in PostgreSQL.
