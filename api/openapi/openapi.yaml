@@ -1607,6 +1607,17 @@ components:
             IP literal.
         containers:
           $ref: '#/components/schemas/ContainerList'
+        workload_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Top-level Workload that controls this pod (Deployment /
+            StatefulSet / DaemonSet). The collector walks the K8s
+            ownerReference chain — for Deployment-owned pods this resolves
+            Pod -> ReplicaSet -> Deployment. Null for pods with no
+            controller or with an owner kind argosd doesn't model yet
+            (e.g., Job, CronJob).
         labels:
           type: object
           description: Arbitrary user-supplied string key/value labels.

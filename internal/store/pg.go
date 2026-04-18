@@ -743,22 +743,20 @@ func (p *PG) CreatePod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 	const q = `
 		INSERT INTO pods (
 			id, namespace_id, name, phase, node_name, pod_ip,
-			containers, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+			workload_id, containers, labels, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 	`
 	_, err = p.pool.Exec(ctx, q,
 		id, in.NamespaceId, in.Name, in.Phase, in.NodeName, in.PodIp,
-		containersJSON, labelsJSON, now,
+		in.WorkloadId, containersJSON, labelsJSON, now,
 	)
 	if err != nil {
+		if pErr := classifyPodFKError(err, in.NamespaceId, in.WorkloadId); pErr != nil {
+			return api.Pod{}, pErr
+		}
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			switch pgErr.Code {
-			case "23505":
-				return api.Pod{}, fmt.Errorf("pod %q in namespace %s already exists: %w", in.Name, in.NamespaceId, api.ErrConflict)
-			case "23503":
-				return api.Pod{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
-			}
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return api.Pod{}, fmt.Errorf("pod %q in namespace %s already exists: %w", in.Name, in.NamespaceId, api.ErrConflict)
 		}
 		return api.Pod{}, fmt.Errorf("insert pod: %w", err)
 	}
@@ -770,6 +768,7 @@ func (p *PG) CreatePod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 		Phase:       in.Phase,
 		NodeName:    in.NodeName,
 		PodIp:       in.PodIp,
+		WorkloadId:  in.WorkloadId,
 		Containers:  in.Containers,
 		Labels:      in.Labels,
 		CreatedAt:   &now,
@@ -777,11 +776,30 @@ func (p *PG) CreatePod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 	}, nil
 }
 
+// classifyPodFKError disambiguates 23503 foreign-key violations on the pods
+// table into namespace vs workload misses, so the handler can return an
+// accurate 404 message. PG auto-names FK constraints <table>_<column>_fkey;
+// we match on the column name in pgErr.ConstraintName.
+func classifyPodFKError(err error, namespaceID uuid.UUID, workloadID *uuid.UUID) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		return nil
+	}
+	if strings.Contains(pgErr.ConstraintName, "workload_id") {
+		target := "<nil>"
+		if workloadID != nil {
+			target = workloadID.String()
+		}
+		return fmt.Errorf("workload %s does not exist: %w", target, api.ErrNotFound)
+	}
+	return fmt.Errorf("namespace %s does not exist: %w", namespaceID, api.ErrNotFound)
+}
+
 // GetPod fetches a pod by id.
 func (p *PG) GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error) {
 	const q = `
 		SELECT id, namespace_id, name, phase, node_name, pod_ip,
-		       containers, labels, created_at, updated_at
+		       workload_id, containers, labels, created_at, updated_at
 		FROM pods
 		WHERE id = $1
 	`
@@ -807,7 +825,7 @@ func (p *PG) ListPods(ctx context.Context, namespaceID *uuid.UUID, limit int, cu
 
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT id, namespace_id, name, phase, node_name, pod_ip,
-	                       containers, labels, created_at, updated_at
+	                       workload_id, containers, labels, created_at, updated_at
 	                FROM pods`)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 2)
@@ -883,6 +901,9 @@ func (p *PG) UpdatePod(ctx context.Context, id uuid.UUID, in api.PodUpdate) (api
 	if in.PodIp != nil {
 		appendSet("pod_ip", *in.PodIp)
 	}
+	if in.WorkloadId != nil {
+		appendSet("workload_id", *in.WorkloadId)
+	}
 	if in.Containers != nil {
 		b, err := marshalPorts(in.Containers)
 		if err != nil {
@@ -903,6 +924,9 @@ func (p *PG) UpdatePod(ctx context.Context, id uuid.UUID, in api.PodUpdate) (api
 	q := fmt.Sprintf("UPDATE pods SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
 	tag, err := p.pool.Exec(ctx, q, args...)
 	if err != nil {
+		if pErr := classifyPodFKError(err, uuid.Nil, in.WorkloadId); pErr != nil {
+			return api.Pod{}, pErr
+		}
 		return api.Pod{}, fmt.Errorf("update pod: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
@@ -940,27 +964,27 @@ func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 	const q = `
 		INSERT INTO pods (
 			id, namespace_id, name, phase, node_name, pod_ip,
-			containers, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+			workload_id, containers, labels, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			phase      = EXCLUDED.phase,
-			node_name  = EXCLUDED.node_name,
-			pod_ip     = EXCLUDED.pod_ip,
-			containers = EXCLUDED.containers,
-			labels     = EXCLUDED.labels,
-			updated_at = EXCLUDED.updated_at
+			phase       = EXCLUDED.phase,
+			node_name   = EXCLUDED.node_name,
+			pod_ip      = EXCLUDED.pod_ip,
+			workload_id = EXCLUDED.workload_id,
+			containers  = EXCLUDED.containers,
+			labels      = EXCLUDED.labels,
+			updated_at  = EXCLUDED.updated_at
 		RETURNING id, namespace_id, name, phase, node_name, pod_ip,
-		          containers, labels, created_at, updated_at
+		          workload_id, containers, labels, created_at, updated_at
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, in.Phase, in.NodeName, in.PodIp,
-		containersJSON, labelsJSON, now,
+		in.WorkloadId, containersJSON, labelsJSON, now,
 	)
 	pod, err := scanPod(row)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Pod{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+		if pErr := classifyPodFKError(err, in.NamespaceId, in.WorkloadId); pErr != nil {
+			return api.Pod{}, pErr
 		}
 		return api.Pod{}, fmt.Errorf("upsert pod: %w", err)
 	}
@@ -2012,13 +2036,14 @@ func scanPod(row pgx.Row) (api.Pod, error) {
 		phase          sql.NullString
 		nodeName       sql.NullString
 		podIP          sql.NullString
+		workloadID     *uuid.UUID
 		containersJSON []byte
 		labelsJSON     []byte
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &p.Name,
 		&phase, &nodeName, &podIP,
-		&containersJSON, &labelsJSON,
+		&workloadID, &containersJSON, &labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
 		return api.Pod{}, err
@@ -2030,6 +2055,9 @@ func scanPod(row pgx.Row) (api.Pod, error) {
 	p.Phase = nullableString(phase)
 	p.NodeName = nullableString(nodeName)
 	p.PodIp = nullableString(podIP)
+	if workloadID != nil {
+		p.WorkloadId = workloadID
+	}
 	if cs, err := unmarshalContainers(containersJSON); err != nil {
 		return api.Pod{}, fmt.Errorf("unmarshal pod containers: %w", err)
 	} else if cs != nil {

@@ -24,7 +24,7 @@ rules:
     resources: ["nodes", "namespaces", "pods", "services"]
     verbs: ["list"]
   - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets", "daemonsets"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
     verbs: ["list"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]

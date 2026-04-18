@@ -387,6 +387,11 @@ func (m *memStore) CreatePod(_ context.Context, in PodCreate) (Pod, error) {
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
 		return Pod{}, ErrNotFound
 	}
+	if in.WorkloadId != nil {
+		if _, ok := m.workloadsByID[*in.WorkloadId]; !ok {
+			return Pod{}, fmt.Errorf("workload %s does not exist: %w", in.WorkloadId, ErrNotFound)
+		}
+	}
 	key := podNatKey(in.NamespaceId, in.Name)
 	if _, dup := m.podsByNatKey[key]; dup {
 		return Pod{}, fmt.Errorf("duplicate pod: %w", ErrConflict)
@@ -403,6 +408,7 @@ func (m *memStore) CreatePod(_ context.Context, in PodCreate) (Pod, error) {
 		PodIp:       in.PodIp,
 		Containers:  in.Containers,
 		Labels:      in.Labels,
+		WorkloadId:  in.WorkloadId,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
@@ -462,6 +468,12 @@ func (m *memStore) UpdatePod(_ context.Context, id uuid.UUID, in PodUpdate) (Pod
 	if in.Labels != nil {
 		p.Labels = in.Labels
 	}
+	if in.WorkloadId != nil {
+		if _, ok := m.workloadsByID[*in.WorkloadId]; !ok {
+			return Pod{}, fmt.Errorf("workload %s does not exist: %w", in.WorkloadId, ErrNotFound)
+		}
+		p.WorkloadId = in.WorkloadId
+	}
 	now := time.Now().UTC()
 	p.UpdatedAt = &now
 	m.podsByID[id] = p
@@ -486,6 +498,11 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) {
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
 		return Pod{}, ErrNotFound
 	}
+	if in.WorkloadId != nil {
+		if _, ok := m.workloadsByID[*in.WorkloadId]; !ok {
+			return Pod{}, fmt.Errorf("workload %s does not exist: %w", in.WorkloadId, ErrNotFound)
+		}
+	}
 	key := podNatKey(in.NamespaceId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
 	m.createdN++
@@ -497,6 +514,7 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) {
 		p.PodIp = in.PodIp
 		p.Containers = in.Containers
 		p.Labels = in.Labels
+		p.WorkloadId = in.WorkloadId
 		p.UpdatedAt = &now
 		m.podsByID[existingID] = p
 		return p, nil
@@ -512,6 +530,7 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) {
 		PodIp:       in.PodIp,
 		Containers:  in.Containers,
 		Labels:      in.Labels,
+		WorkloadId:  in.WorkloadId,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
