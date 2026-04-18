@@ -27,6 +27,10 @@ type Store interface {
 	// GetCluster fetches a cluster by id. Returns ErrNotFound if absent.
 	GetCluster(ctx context.Context, id uuid.UUID) (Cluster, error)
 
+	// GetClusterByName fetches a cluster by its unique slug-like name.
+	// Returns ErrNotFound when no cluster carries that name.
+	GetClusterByName(ctx context.Context, name string) (Cluster, error)
+
 	// ListClusters returns up to limit clusters after the given opaque cursor,
 	// plus the cursor for the next page (empty when exhausted).
 	ListClusters(ctx context.Context, limit int, cursor string) (items []Cluster, nextCursor string, err error)

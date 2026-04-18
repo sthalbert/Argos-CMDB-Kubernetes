@@ -87,6 +87,16 @@ func (m *memStore) GetCluster(_ context.Context, id uuid.UUID) (Cluster, error) 
 	return c, nil
 }
 
+func (m *memStore) GetClusterByName(_ context.Context, name string) (Cluster, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id, ok := m.byName[name]
+	if !ok {
+		return Cluster{}, ErrNotFound
+	}
+	return m.byID[id], nil
+}
+
 func (m *memStore) ListClusters(_ context.Context, limit int, _ string) ([]Cluster, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

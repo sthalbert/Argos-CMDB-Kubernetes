@@ -129,6 +129,25 @@ func (p *PG) GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error) 
 	return c, nil
 }
 
+// GetClusterByName fetches a cluster by its unique name column.
+func (p *PG) GetClusterByName(ctx context.Context, name string) (api.Cluster, error) {
+	const q = `
+		SELECT id, name, display_name, environment, provider, region,
+		       kubernetes_version, api_endpoint, labels, created_at, updated_at
+		FROM clusters
+		WHERE name = $1
+	`
+	row := p.pool.QueryRow(ctx, q, name)
+	c, err := scanCluster(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.Cluster{}, api.ErrNotFound
+		}
+		return api.Cluster{}, fmt.Errorf("select cluster by name: %w", err)
+	}
+	return c, nil
+}
+
 // ListClusters returns up to limit clusters in (created_at DESC, id DESC) order,
 // starting after the opaque cursor if non-empty.
 func (p *PG) ListClusters(ctx context.Context, limit int, cursor string) ([]api.Cluster, string, error) {

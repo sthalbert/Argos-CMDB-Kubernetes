@@ -315,6 +315,28 @@ func TestPGUpsertNamespace(t *testing.T) {
 	}
 }
 
+func TestPGGetClusterByName(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	created, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "by-name-test"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := pg.GetClusterByName(ctx, "by-name-test")
+	if err != nil {
+		t.Fatalf("lookup by name: %v", err)
+	}
+	if got.Id == nil || *got.Id != *created.Id {
+		t.Errorf("id mismatch: got=%v created=%v", got.Id, created.Id)
+	}
+
+	if _, err := pg.GetClusterByName(ctx, "does-not-exist"); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("missing cluster: want ErrNotFound, got %v", err)
+	}
+}
+
 func TestPGListPagination(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

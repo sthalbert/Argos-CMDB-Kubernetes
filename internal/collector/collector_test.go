@@ -63,15 +63,18 @@ func newFakeStore() *fakeStore {
 	}
 }
 
-func (s *fakeStore) ListClusters(_ context.Context, _ int, _ string) ([]api.Cluster, string, error) {
+func (s *fakeStore) GetClusterByName(_ context.Context, name string) (api.Cluster, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.listErr != nil {
-		return nil, "", s.listErr
+		return api.Cluster{}, s.listErr
 	}
-	out := make([]api.Cluster, len(s.clusters))
-	copy(out, s.clusters)
-	return out, "", nil
+	for _, c := range s.clusters {
+		if c.Name == name {
+			return c, nil
+		}
+	}
+	return api.Cluster{}, api.ErrNotFound
 }
 
 func (s *fakeStore) UpdateCluster(_ context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error) {
@@ -185,7 +188,7 @@ func TestPollSkipsOnVersionError(t *testing.T) {
 	}
 }
 
-func TestPollSkipsOnListClustersError(t *testing.T) {
+func TestPollSkipsOnGetClusterByNameError(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
 	store.listErr = errors.New("db down")
@@ -194,7 +197,7 @@ func TestPollSkipsOnListClustersError(t *testing.T) {
 	c.poll(context.Background())
 
 	if len(store.updates) != 0 || len(store.upsertedNode) != 0 {
-		t.Errorf("expected no store writes on list error")
+		t.Errorf("expected no store writes on lookup error")
 	}
 }
 

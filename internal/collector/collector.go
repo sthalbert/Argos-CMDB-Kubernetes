@@ -6,7 +6,6 @@ package collector
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -58,7 +57,7 @@ type KubeSource interface {
 
 // cmdbStore is the subset of api.Store the collector consumes.
 type cmdbStore interface {
-	ListClusters(ctx context.Context, limit int, cursor string) ([]api.Cluster, string, error)
+	GetClusterByName(ctx context.Context, name string) (api.Cluster, error)
 	UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error)
 	UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error)
 	UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error)
@@ -120,9 +119,9 @@ func (c *Collector) poll(parent context.Context) {
 		return
 	}
 
-	cluster, err := c.findClusterByName(ctx, c.clusterName)
+	cluster, err := c.store.GetClusterByName(ctx, c.clusterName)
 	if err != nil {
-		if errors.Is(err, errClusterNotFound) {
+		if errors.Is(err, api.ErrNotFound) {
 			slog.Warn("collector: cluster not registered; POST /v1/clusters first", "cluster_name", c.clusterName)
 			return
 		}
@@ -216,27 +215,3 @@ func ptrIfNonEmpty(s string) *string {
 	return &s
 }
 
-var errClusterNotFound = errors.New("cluster not found by name")
-
-// findClusterByName scans paginated store output and returns the first match.
-// For v1 scope (a handful of clusters) a linear scan is adequate; a dedicated
-// GetByName store method is a follow-up.
-func (c *Collector) findClusterByName(ctx context.Context, name string) (api.Cluster, error) {
-	const pageSize = 200
-	cursor := ""
-	for {
-		items, next, err := c.store.ListClusters(ctx, pageSize, cursor)
-		if err != nil {
-			return api.Cluster{}, fmt.Errorf("list clusters: %w", err)
-		}
-		for _, cl := range items {
-			if cl.Name == name {
-				return cl, nil
-			}
-		}
-		if next == "" {
-			return api.Cluster{}, errClusterNotFound
-		}
-		cursor = next
-	}
-}
