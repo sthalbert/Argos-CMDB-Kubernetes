@@ -41,6 +41,7 @@ The codebase currently covers the API layer only:
 - `cmd/argosd/main.go` — daemon entry point: env-based configuration (`ARGOS_ADDR`, `ARGOS_DATABASE_URL`, `ARGOS_AUTO_MIGRATE`, `ARGOS_SHUTDOWN_TIMEOUT`), opens the PostgreSQL pool, runs migrations, starts the HTTP server, handles graceful shutdown on SIGINT / SIGTERM.
 - `internal/api/` — generated server (`api.gen.go`), hand-written handlers (`server.go`), `Store` interface (`store.go`) with `ErrNotFound` / `ErrConflict` sentinels. RFC 7807 `application/problem+json` for all errors.
 - `internal/store/` — PostgreSQL implementation of `api.Store` using `pgx/v5`. Cursor-paginated list, merge-patch updates, embedded `goose` migrations.
+- `internal/collector/` — Kubernetes polling collector (v1 scope: fetches the API server version via `client-go` and refreshes the matching cluster record by name). Disabled by default; enable with `ARGOS_COLLECTOR_ENABLED=true` and `ARGOS_CLUSTER_NAME=...`.
 - `migrations/` — timestamped SQL migrations, embedded in the binary via `migrations/embed.go`.
 
-The Kubernetes collector is the next subsystem to land, alongside docs on how K8s kinds map to ANSSI cartography layers and how snapshots are versioned in PostgreSQL.
+Follow-up work: extend the OpenAPI spec and collector to cover Node, Namespace, Workload, Pod; add bearer-token auth middleware; document how K8s kinds map to ANSSI cartography layers and how snapshots are versioned in PostgreSQL.

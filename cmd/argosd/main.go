@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sthalbert/argos/internal/api"
+	"github.com/sthalbert/argos/internal/collector"
 	"github.com/sthalbert/argos/internal/store"
 )
 
@@ -61,6 +62,10 @@ func run() error {
 		slog.Info("migrations applied")
 	}
 
+	if err := maybeStartCollector(rootCtx, pg); err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           api.Handler(api.NewServer(version, pg)),
@@ -92,6 +97,45 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	slog.Info("argosd stopped cleanly")
+	return nil
+}
+
+// maybeStartCollector spawns the Kubernetes collector goroutine when
+// ARGOS_COLLECTOR_ENABLED is truthy. Disabled by default.
+func maybeStartCollector(ctx context.Context, s api.Store) error {
+	enabled, err := parseBoolEnv("ARGOS_COLLECTOR_ENABLED", false)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+
+	clusterName := os.Getenv("ARGOS_CLUSTER_NAME")
+	if clusterName == "" {
+		return errors.New("ARGOS_CLUSTER_NAME is required when ARGOS_COLLECTOR_ENABLED=true")
+	}
+	interval, err := parseDurationEnv("ARGOS_COLLECTOR_INTERVAL", 5*time.Minute)
+	if err != nil {
+		return err
+	}
+	fetchTimeout, err := parseDurationEnv("ARGOS_COLLECTOR_FETCH_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return err
+	}
+	kubeconfig := os.Getenv("ARGOS_KUBECONFIG")
+
+	fetcher, err := collector.NewKubeVersionFetcher(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("init kube fetcher: %w", err)
+	}
+	coll := collector.New(s, fetcher, clusterName, interval, fetchTimeout)
+
+	go func() {
+		if err := coll.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("collector exited with error", "error", err)
+		}
+	}()
 	return nil
 }
 
