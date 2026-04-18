@@ -77,3 +77,24 @@ jobs:
           version: latest
           install-mode: goinstall
           args: --timeout=5m
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build argosd image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: argos:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=ci-${{ github.sha }}

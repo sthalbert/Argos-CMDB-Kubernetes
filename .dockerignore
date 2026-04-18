@@ -1,0 +1,32 @@
+# VCS / project metadata
+.git
+.github
+.gitignore
+.commitlintrc.yml
+
+# Editor / IDE / agent caches
+.claude
+.vscode
+.idea
+
+# Local build output
+bin/
+*.exe
+*.test
+coverage.*
+
+# Env files
+.env
+.env.*
+
+# Human-facing docs aren't shipped in the image.
+docs/
+
+# License and README stay out of the image (unless we need them for
+# compliance; easy to re-include later).
+LICENSE
+README.md
+
+# Dockerfile / dockerignore themselves.
+Dockerfile
+.dockerignore

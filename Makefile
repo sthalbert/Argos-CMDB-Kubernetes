@@ -3,7 +3,10 @@ BIN_DIR := bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: all build generate test test-one vet lint fmt tidy check clean
+IMAGE_NAME ?= argos
+IMAGE_TAG  ?= dev
+
+.PHONY: all build generate test test-one vet lint fmt tidy check clean docker-build
 
 all: build
 
@@ -12,6 +15,12 @@ build:
 
 generate:
 	go generate ./...
+
+docker-build:
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		-t $(IMAGE_NAME):$(IMAGE_TAG) \
+		.
 
 test:
 	go test -race -cover ./...
