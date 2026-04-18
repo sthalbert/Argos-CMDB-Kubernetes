@@ -3,12 +3,15 @@ BIN_DIR := bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: all build test test-one vet lint fmt tidy check clean
+.PHONY: all build generate test test-one vet lint fmt tidy check clean
 
 all: build
 
 build:
 	go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY) ./cmd/$(BINARY)
+
+generate:
+	go generate ./...
 
 test:
 	go test -race -cover ./...
