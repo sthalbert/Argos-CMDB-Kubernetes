@@ -463,10 +463,16 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 
 // DeleteNodesNotIn removes every node of the given cluster whose name is not
 // in keepNames. Used by the collector to reconcile state after a polling
-// cycle. keepNames is allowed to be empty (deletes all for the cluster).
+// cycle. keepNames is allowed to be nil or empty (deletes all for the cluster).
+//
+// COALESCE guards against pgx encoding a nil []string as SQL NULL: without
+// it, 'name <> ALL(NULL)' evaluates to NULL and the DELETE matches nothing
+// instead of clearing the cluster's nodes.
 func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
 	tag, err := p.pool.Exec(ctx,
-		"DELETE FROM nodes WHERE cluster_id = $1 AND name <> ALL($2::text[])",
+		`DELETE FROM nodes
+		 WHERE cluster_id = $1
+		   AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))`,
 		clusterID, keepNames,
 	)
 	if err != nil {
@@ -478,7 +484,9 @@ func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepName
 // DeleteNamespacesNotIn mirrors DeleteNodesNotIn for namespaces.
 func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
 	tag, err := p.pool.Exec(ctx,
-		"DELETE FROM namespaces WHERE cluster_id = $1 AND name <> ALL($2::text[])",
+		`DELETE FROM namespaces
+		 WHERE cluster_id = $1
+		   AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))`,
 		clusterID, keepNames,
 	)
 	if err != nil {

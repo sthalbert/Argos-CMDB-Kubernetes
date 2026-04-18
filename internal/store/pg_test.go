@@ -346,13 +346,26 @@ func TestPGDeleteNodesNotIn(t *testing.T) {
 		t.Errorf("survivors=%v, want [b]", items)
 	}
 
-	// Empty keepNames deletes everything remaining.
+	// Nil keepNames must delete everything remaining (pgx encodes nil as NULL;
+	// the store's COALESCE handles that).
 	deleted, err = pg.DeleteNodesNotIn(ctx, *cluster.Id, nil)
+	if err != nil {
+		t.Fatalf("reconcile nil keep: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted=%d (nil keep), want 1", deleted)
+	}
+
+	// Re-seed and verify the explicit empty-slice path matches the nil path.
+	if _, err := pg.CreateNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "z"}); err != nil {
+		t.Fatalf("re-seed z: %v", err)
+	}
+	deleted, err = pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{})
 	if err != nil {
 		t.Fatalf("reconcile empty keep: %v", err)
 	}
 	if deleted != 1 {
-		t.Errorf("deleted=%d, want 1", deleted)
+		t.Errorf("deleted=%d (empty keep), want 1", deleted)
 	}
 }
 
