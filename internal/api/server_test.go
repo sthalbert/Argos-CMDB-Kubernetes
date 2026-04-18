@@ -807,6 +807,71 @@ func TestNamespaceCRUD(t *testing.T) {
 	}
 }
 
+func TestResponsesCarryAnssiLayer(t *testing.T) {
+	t.Parallel()
+	store := newMemStore()
+	h := newTestHandler(t, store)
+
+	// Cluster.
+	clusterResp := do(h, http.MethodPost, "/v1/clusters", `{"name":"layer-check"}`)
+	if clusterResp.Code != http.StatusCreated {
+		t.Fatalf("create cluster: status=%d body=%q", clusterResp.Code, clusterResp.Body.String())
+	}
+	var cluster Cluster
+	if err := json.Unmarshal(clusterResp.Body.Bytes(), &cluster); err != nil {
+		t.Fatalf("decode cluster: %v", err)
+	}
+	if cluster.Layer == nil || *cluster.Layer != LayerCluster {
+		t.Errorf("cluster layer=%v, want %q", cluster.Layer, LayerCluster)
+	}
+
+	// Node.
+	nodeBody := fmt.Sprintf(`{"cluster_id":%q,"name":"node-a"}`, cluster.Id.String())
+	nodeResp := do(h, http.MethodPost, "/v1/nodes", nodeBody)
+	if nodeResp.Code != http.StatusCreated {
+		t.Fatalf("create node: status=%d body=%q", nodeResp.Code, nodeResp.Body.String())
+	}
+	var node Node
+	if err := json.Unmarshal(nodeResp.Body.Bytes(), &node); err != nil {
+		t.Fatalf("decode node: %v", err)
+	}
+	if node.Layer == nil || *node.Layer != LayerNode {
+		t.Errorf("node layer=%v, want %q", node.Layer, LayerNode)
+	}
+
+	// Namespace.
+	nsBody := fmt.Sprintf(`{"cluster_id":%q,"name":"default"}`, cluster.Id.String())
+	nsResp := do(h, http.MethodPost, "/v1/namespaces", nsBody)
+	if nsResp.Code != http.StatusCreated {
+		t.Fatalf("create namespace: status=%d body=%q", nsResp.Code, nsResp.Body.String())
+	}
+	var ns Namespace
+	if err := json.Unmarshal(nsResp.Body.Bytes(), &ns); err != nil {
+		t.Fatalf("decode namespace: %v", err)
+	}
+	if ns.Layer == nil || *ns.Layer != LayerNamespace {
+		t.Errorf("namespace layer=%v, want %q", ns.Layer, LayerNamespace)
+	}
+
+	// Layer must also be set on GET and on list items.
+	getResp := do(h, http.MethodGet, "/v1/clusters/"+cluster.Id.String(), "")
+	if err := json.Unmarshal(getResp.Body.Bytes(), &cluster); err != nil {
+		t.Fatalf("decode get cluster: %v", err)
+	}
+	if cluster.Layer == nil || *cluster.Layer != LayerCluster {
+		t.Errorf("get cluster layer=%v, want %q", cluster.Layer, LayerCluster)
+	}
+
+	listResp := do(h, http.MethodGet, "/v1/nodes", "")
+	var page NodeList
+	if err := json.Unmarshal(listResp.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode node list: %v", err)
+	}
+	if len(page.Items) == 0 || page.Items[0].Layer == nil || *page.Items[0].Layer != LayerNode {
+		t.Errorf("list node layer=%v, want %q", page.Items, LayerNode)
+	}
+}
+
 func TestCreateClusterValidation(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t, newMemStore())

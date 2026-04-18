@@ -56,6 +56,9 @@ func (s *Server) ListClusters(w http.ResponseWriter, r *http.Request, params Lis
 		return
 	}
 
+	for i := range items {
+		items[i] = withClusterLayer(items[i])
+	}
 	resp := ClusterList{Items: items}
 	if next != "" {
 		resp.NextCursor = &next
@@ -80,6 +83,7 @@ func (s *Server) CreateCluster(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, "createCluster", err)
 		return
 	}
+	c = withClusterLayer(c)
 
 	if c.Id != nil {
 		w.Header().Set("Location", "/v1/clusters/"+c.Id.String())
@@ -94,7 +98,7 @@ func (s *Server) GetCluster(w http.ResponseWriter, r *http.Request, id ClusterId
 		s.writeStoreError(w, "getCluster", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, c)
+	writeJSON(w, http.StatusOK, withClusterLayer(c))
 }
 
 // UpdateCluster applies merge-patch updates to a cluster.
@@ -109,7 +113,7 @@ func (s *Server) UpdateCluster(w http.ResponseWriter, r *http.Request, id Cluste
 		s.writeStoreError(w, "updateCluster", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, c)
+	writeJSON(w, http.StatusOK, withClusterLayer(c))
 }
 
 // DeleteCluster removes a cluster.
@@ -138,6 +142,9 @@ func (s *Server) ListNodes(w http.ResponseWriter, r *http.Request, params ListNo
 		return
 	}
 
+	for i := range items {
+		items[i] = withNodeLayer(items[i])
+	}
 	resp := NodeList{Items: items}
 	if next != "" {
 		resp.NextCursor = &next
@@ -166,6 +173,7 @@ func (s *Server) CreateNode(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, "createNode", err)
 		return
 	}
+	n = withNodeLayer(n)
 
 	if n.Id != nil {
 		w.Header().Set("Location", "/v1/nodes/"+n.Id.String())
@@ -180,7 +188,7 @@ func (s *Server) GetNode(w http.ResponseWriter, r *http.Request, id NodeId) {
 		s.writeStoreError(w, "getNode", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, n)
+	writeJSON(w, http.StatusOK, withNodeLayer(n))
 }
 
 // UpdateNode applies merge-patch updates to a node.
@@ -195,7 +203,7 @@ func (s *Server) UpdateNode(w http.ResponseWriter, r *http.Request, id NodeId) {
 		s.writeStoreError(w, "updateNode", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, n)
+	writeJSON(w, http.StatusOK, withNodeLayer(n))
 }
 
 // DeleteNode removes a node.
@@ -224,6 +232,9 @@ func (s *Server) ListNamespaces(w http.ResponseWriter, r *http.Request, params L
 		return
 	}
 
+	for i := range items {
+		items[i] = withNamespaceLayer(items[i])
+	}
 	resp := NamespaceList{Items: items}
 	if next != "" {
 		resp.NextCursor = &next
@@ -252,6 +263,7 @@ func (s *Server) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, "createNamespace", err)
 		return
 	}
+	n = withNamespaceLayer(n)
 
 	if n.Id != nil {
 		w.Header().Set("Location", "/v1/namespaces/"+n.Id.String())
@@ -266,7 +278,7 @@ func (s *Server) GetNamespace(w http.ResponseWriter, r *http.Request, id Namespa
 		s.writeStoreError(w, "getNamespace", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, n)
+	writeJSON(w, http.StatusOK, withNamespaceLayer(n))
 }
 
 // UpdateNamespace applies merge-patch updates.
@@ -281,7 +293,7 @@ func (s *Server) UpdateNamespace(w http.ResponseWriter, r *http.Request, id Name
 		s.writeStoreError(w, "updateNamespace", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, n)
+	writeJSON(w, http.StatusOK, withNamespaceLayer(n))
 }
 
 // DeleteNamespace removes a namespace.

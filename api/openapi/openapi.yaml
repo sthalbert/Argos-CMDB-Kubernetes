@@ -597,6 +597,19 @@ components:
           type: string
           description: Build version of the running argosd.
 
+    Layer:
+      type: string
+      description: |
+        ANSSI cartography layer the asset belongs to. See ADR-0002 for the
+        kind-to-layer mapping and the rationale behind the six-layer model.
+      enum:
+        - ecosystem
+        - business
+        - applicative
+        - administration
+        - infrastructure_logical
+        - infrastructure_physical
+
     Problem:
       description: RFC 7807 problem details.
       type: object
@@ -694,7 +707,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/ClusterMutable'
         - type: object
-          required: [id, name, created_at, updated_at]
+          required: [id, name, layer, created_at, updated_at]
           properties:
             id:
               type: string
@@ -705,6 +718,11 @@ components:
               pattern: '^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$'
               minLength: 2
               maxLength: 64
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `infrastructure_logical` for Cluster. Set by the server.
             created_at:
               type: string
               format: date-time
@@ -793,7 +811,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/NodeMutable'
         - type: object
-          required: [id, cluster_id, name, created_at, updated_at]
+          required: [id, cluster_id, name, layer, created_at, updated_at]
           properties:
             id:
               type: string
@@ -807,6 +825,11 @@ components:
               pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
               minLength: 2
               maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `infrastructure_physical` for Node. Set by the server.
             created_at:
               type: string
               format: date-time
@@ -888,7 +911,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/NamespaceMutable'
         - type: object
-          required: [id, cluster_id, name, created_at, updated_at]
+          required: [id, cluster_id, name, layer, created_at, updated_at]
           properties:
             id:
               type: string
@@ -902,6 +925,11 @@ components:
               pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
               minLength: 1
               maxLength: 63
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `infrastructure_logical` for Namespace. Set by the server.
             created_at:
               type: string
               format: date-time
