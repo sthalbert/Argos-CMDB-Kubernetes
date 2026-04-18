@@ -62,5 +62,6 @@ At least one token must be configured; `/healthz` and `/readyz` stay open.
 - `internal/store/` — PostgreSQL implementation of `api.Store` using `pgx/v5`. Cursor-paginated list, merge-patch updates, embedded `goose` migrations.
 - `internal/collector/` — Kubernetes polling collector (v1 scope: fetches the API server version via `client-go` and refreshes the matching cluster record by name). Disabled by default; enable with `ARGOS_COLLECTOR_ENABLED=true` and `ARGOS_CLUSTER_NAME=...`.
 - `migrations/` — timestamped SQL migrations, embedded in the binary via `migrations/embed.go`.
+- `.github/workflows/ci.yml` — GitHub Actions pipeline: codegen-drift check, `go vet`, `go build`, `go test -race` against a Postgres service container (so the integration tests gated on `PGX_TEST_DATABASE` run in CI), and `golangci-lint`.
 
 Follow-up work: extend the OpenAPI spec and collector to cover Node, Namespace, Workload, Pod; add bearer-token auth middleware; document how K8s kinds map to ANSSI cartography layers and how snapshots are versioned in PostgreSQL.

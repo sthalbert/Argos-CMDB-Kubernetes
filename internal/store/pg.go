@@ -59,7 +59,7 @@ func (p *PG) Migrate(ctx context.Context) error {
 	}
 
 	db := stdlib.OpenDBFromPool(p.pool)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := goose.UpContext(ctx, db, "."); err != nil {
 		return fmt.Errorf("goose up: %w", err)
