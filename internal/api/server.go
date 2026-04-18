@@ -395,6 +395,105 @@ func (s *Server) DeletePod(w http.ResponseWriter, r *http.Request, id PodId) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ListWorkloads returns a paged list of workloads, optionally filtered by
+// namespace_id and/or kind.
+func (s *Server) ListWorkloads(w http.ResponseWriter, r *http.Request, params ListWorkloadsParams) {
+	limit := 0
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	cursor := ""
+	if params.Cursor != nil {
+		cursor = *params.Cursor
+	}
+	if params.Kind != nil && !params.Kind.Valid() {
+		writeProblem(w, http.StatusBadRequest, "Invalid filter", "query 'kind' is not a known workload kind")
+		return
+	}
+
+	items, next, err := s.store.ListWorkloads(r.Context(), params.NamespaceId, params.Kind, limit, cursor)
+	if err != nil {
+		s.writeStoreError(w, "listWorkloads", err)
+		return
+	}
+
+	for i := range items {
+		items[i] = withWorkloadLayer(items[i])
+	}
+	resp := WorkloadList{Items: items}
+	if next != "" {
+		resp.NextCursor = &next
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// CreateWorkload registers a new workload under a namespace.
+func (s *Server) CreateWorkload(w http.ResponseWriter, r *http.Request) {
+	var body WorkloadCreate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.Name == "" {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+	if !body.Kind.Valid() {
+		writeProblem(w, http.StatusBadRequest, "Invalid field", "field 'kind' must be one of Deployment, StatefulSet, DaemonSet")
+		return
+	}
+
+	wl, err := s.store.CreateWorkload(r.Context(), body)
+	if err != nil {
+		s.writeStoreError(w, "createWorkload", err)
+		return
+	}
+	wl = withWorkloadLayer(wl)
+
+	if wl.Id != nil {
+		w.Header().Set("Location", "/v1/workloads/"+wl.Id.String())
+	}
+	writeJSON(w, http.StatusCreated, wl)
+}
+
+// GetWorkload fetches a workload by id.
+func (s *Server) GetWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId) {
+	wl, err := s.store.GetWorkload(r.Context(), id)
+	if err != nil {
+		s.writeStoreError(w, "getWorkload", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withWorkloadLayer(wl))
+}
+
+// UpdateWorkload applies merge-patch updates.
+func (s *Server) UpdateWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId) {
+	var body WorkloadUpdate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	wl, err := s.store.UpdateWorkload(r.Context(), id, body)
+	if err != nil {
+		s.writeStoreError(w, "updateWorkload", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withWorkloadLayer(wl))
+}
+
+// DeleteWorkload removes a workload.
+func (s *Server) DeleteWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId) {
+	if err := s.store.DeleteWorkload(r.Context(), id); err != nil {
+		s.writeStoreError(w, "deleteWorkload", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) writeStoreError(w http.ResponseWriter, op string, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):

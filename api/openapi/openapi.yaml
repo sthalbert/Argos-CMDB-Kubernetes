@@ -32,6 +32,10 @@ tags:
     description: Kubernetes namespaces within a cluster.
   - name: pods
     description: Kubernetes pods — the atomic applicative workload units.
+  - name: workloads
+    description: |
+      Kubernetes workload controllers (Deployment, StatefulSet, DaemonSet).
+      A single collection polymorphic on the `kind` discriminator; see ADR-0003.
 
 security:
   - BearerAuth: []
@@ -594,6 +598,138 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/workloads:
+    get:
+      tags: [workloads]
+      summary: List workloads
+      operationId: listWorkloads
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/WorkloadNamespaceIdFilter'
+        - $ref: '#/components/parameters/WorkloadKindFilter'
+      responses:
+        '200':
+          description: Paged list of workloads.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkloadList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [workloads]
+      summary: Register a workload
+      operationId: createWorkload
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkloadCreate'
+      responses:
+        '201':
+          description: Workload created.
+          headers:
+            Location:
+              description: URI of the newly created workload.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/workloads/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkloadId'
+    get:
+      tags: [workloads]
+      summary: Get a workload
+      operationId: getWorkload
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Workload details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [workloads]
+      summary: Update mutable fields of a workload
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id`, `kind`, and `name` are immutable after creation.
+      operationId: updateWorkload
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/WorkloadUpdate'
+      responses:
+        '200':
+          description: Updated workload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [workloads]
+      summary: Delete a workload
+      operationId: deleteWorkload
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Workload deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
 
   securitySchemes:
@@ -677,6 +813,32 @@ components:
       schema:
         type: string
         format: uuid
+
+    WorkloadId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned workload identifier.
+      schema:
+        type: string
+        format: uuid
+
+    WorkloadNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only workloads belonging to this namespace.
+      schema:
+        type: string
+        format: uuid
+
+    WorkloadKindFilter:
+      name: kind
+      in: query
+      required: false
+      description: Return only workloads of this kind.
+      schema:
+        $ref: '#/components/schemas/WorkloadKind'
 
     Limit:
       name: limit
@@ -1205,6 +1367,130 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Pod'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    WorkloadKind:
+      type: string
+      description: |
+        Kubernetes workload controller kind. Casing matches the `kind` field
+        Kubernetes itself emits. Additional kinds (Job, CronJob, ReplicaSet,
+        ReplicationController) may be introduced as new enum values without a
+        schema migration (see ADR-0003).
+      enum:
+        - Deployment
+        - StatefulSet
+        - DaemonSet
+
+    WorkloadMutable:
+      description: Fields on a Workload that clients may set and later update.
+      type: object
+      properties:
+        replicas:
+          type: integer
+          minimum: 0
+          description: Desired replica count. Nullable; DaemonSet has no scalar desired count.
+        ready_replicas:
+          type: integer
+          minimum: 0
+          description: Observed ready replica count. Nullable until first status update.
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+        spec:
+          type: object
+          description: |
+            Kind-specific fields the collector chooses to persist (e.g. strategy
+            for Deployment, service_name for StatefulSet). Open-ended; stored
+            as JSONB.
+          additionalProperties: true
+
+    WorkloadCreate:
+      description: Payload to register a new workload under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/WorkloadMutable'
+        - type: object
+          required: [namespace_id, kind, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            kind:
+              allOf:
+                - $ref: '#/components/schemas/WorkloadKind'
+              description: |
+                Workload kind discriminator. Immutable after creation.
+            name:
+              type: string
+              description: |
+                Kubernetes workload name (DNS-subdomain style). Unique per
+                (namespace, kind). Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+
+    WorkloadUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id`, `kind`, and
+        `name` are immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/WorkloadMutable'
+
+    Workload:
+      description: A Kubernetes workload controller registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/WorkloadMutable'
+        - type: object
+          required: [id, namespace_id, kind, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            kind:
+              $ref: '#/components/schemas/WorkloadKind'
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for Workload. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    WorkloadList:
+      description: Paged list of workloads.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workload'
         next_cursor:
           type: string
           nullable: true

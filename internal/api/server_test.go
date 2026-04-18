@@ -25,23 +25,31 @@ type memStore struct {
 	nodesByNatKey map[string]uuid.UUID // "<cluster_id>/<name>" -> node id
 	nsByID        map[uuid.UUID]Namespace
 	nsByNatKey    map[string]uuid.UUID // "<cluster_id>/<name>" -> namespace id
-	podsByID      map[uuid.UUID]Pod
-	podsByNatKey  map[string]uuid.UUID // "<namespace_id>/<name>" -> pod id
-	pingErr       error
-	createdN      int
+	podsByID          map[uuid.UUID]Pod
+	podsByNatKey      map[string]uuid.UUID // "<namespace_id>/<name>" -> pod id
+	workloadsByID     map[uuid.UUID]Workload
+	workloadsByNatKey map[string]uuid.UUID // "<namespace_id>/<kind>/<name>" -> workload id
+	pingErr           error
+	createdN          int
 }
 
 func newMemStore() *memStore {
 	return &memStore{
-		byID:          make(map[uuid.UUID]Cluster),
-		byName:        make(map[string]uuid.UUID),
-		nodesByID:     make(map[uuid.UUID]Node),
-		nodesByNatKey: make(map[string]uuid.UUID),
-		nsByID:        make(map[uuid.UUID]Namespace),
-		nsByNatKey:    make(map[string]uuid.UUID),
-		podsByID:      make(map[uuid.UUID]Pod),
-		podsByNatKey:  make(map[string]uuid.UUID),
+		byID:             make(map[uuid.UUID]Cluster),
+		byName:           make(map[string]uuid.UUID),
+		nodesByID:        make(map[uuid.UUID]Node),
+		nodesByNatKey:    make(map[string]uuid.UUID),
+		nsByID:           make(map[uuid.UUID]Namespace),
+		nsByNatKey:       make(map[string]uuid.UUID),
+		podsByID:         make(map[uuid.UUID]Pod),
+		podsByNatKey:     make(map[string]uuid.UUID),
+		workloadsByID:    make(map[uuid.UUID]Workload),
+		workloadsByNatKey: make(map[string]uuid.UUID),
 	}
+}
+
+func workloadNatKey(namespaceID uuid.UUID, kind WorkloadKind, name string) string {
+	return namespaceID.String() + "/" + string(kind) + "/" + name
 }
 
 func podNatKey(namespaceID uuid.UUID, name string) string {
@@ -507,6 +515,166 @@ func (m *memStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, kee
 		}
 		delete(m.podsByID, id)
 		delete(m.podsByNatKey, podNatKey(p.NamespaceId, p.Name))
+		deleted++
+	}
+	return deleted, nil
+}
+
+func (m *memStore) CreateWorkload(_ context.Context, in WorkloadCreate) (Workload, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[in.NamespaceId]; !ok {
+		return Workload{}, ErrNotFound
+	}
+	key := workloadNatKey(in.NamespaceId, in.Kind, in.Name)
+	if _, dup := m.workloadsByNatKey[key]; dup {
+		return Workload{}, fmt.Errorf("duplicate workload: %w", ErrConflict)
+	}
+	id := uuid.New()
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+	wl := Workload{
+		Id:            &id,
+		NamespaceId:   in.NamespaceId,
+		Kind:          in.Kind,
+		Name:          in.Name,
+		Replicas:      in.Replicas,
+		ReadyReplicas: in.ReadyReplicas,
+		Labels:        in.Labels,
+		Spec:          in.Spec,
+		CreatedAt:     &now,
+		UpdatedAt:     &now,
+	}
+	m.workloadsByID[id] = wl
+	m.workloadsByNatKey[key] = id
+	return wl, nil
+}
+
+func (m *memStore) GetWorkload(_ context.Context, id uuid.UUID) (Workload, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	wl, ok := m.workloadsByID[id]
+	if !ok {
+		return Workload{}, ErrNotFound
+	}
+	return wl, nil
+}
+
+func (m *memStore) ListWorkloads(_ context.Context, namespaceID *uuid.UUID, kind *WorkloadKind, limit int, _ string) ([]Workload, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]Workload, 0, len(m.workloadsByID))
+	for _, wl := range m.workloadsByID {
+		if namespaceID != nil && wl.NamespaceId != *namespaceID {
+			continue
+		}
+		if kind != nil && wl.Kind != *kind {
+			continue
+		}
+		out = append(out, wl)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUpdate) (Workload, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	wl, ok := m.workloadsByID[id]
+	if !ok {
+		return Workload{}, ErrNotFound
+	}
+	if in.Replicas != nil {
+		wl.Replicas = in.Replicas
+	}
+	if in.ReadyReplicas != nil {
+		wl.ReadyReplicas = in.ReadyReplicas
+	}
+	if in.Labels != nil {
+		wl.Labels = in.Labels
+	}
+	if in.Spec != nil {
+		wl.Spec = in.Spec
+	}
+	now := time.Now().UTC()
+	wl.UpdatedAt = &now
+	m.workloadsByID[id] = wl
+	return wl, nil
+}
+
+func (m *memStore) DeleteWorkload(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	wl, ok := m.workloadsByID[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.workloadsByID, id)
+	delete(m.workloadsByNatKey, workloadNatKey(wl.NamespaceId, wl.Kind, wl.Name))
+	return nil
+}
+
+func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workload, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[in.NamespaceId]; !ok {
+		return Workload{}, ErrNotFound
+	}
+	key := workloadNatKey(in.NamespaceId, in.Kind, in.Name)
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+
+	if existingID, exists := m.workloadsByNatKey[key]; exists {
+		wl := m.workloadsByID[existingID]
+		wl.Replicas = in.Replicas
+		wl.ReadyReplicas = in.ReadyReplicas
+		wl.Labels = in.Labels
+		wl.Spec = in.Spec
+		wl.UpdatedAt = &now
+		m.workloadsByID[existingID] = wl
+		return wl, nil
+	}
+
+	id := uuid.New()
+	wl := Workload{
+		Id:            &id,
+		NamespaceId:   in.NamespaceId,
+		Kind:          in.Kind,
+		Name:          in.Name,
+		Replicas:      in.Replicas,
+		ReadyReplicas: in.ReadyReplicas,
+		Labels:        in.Labels,
+		Spec:          in.Spec,
+		CreatedAt:     &now,
+		UpdatedAt:     &now,
+	}
+	m.workloadsByID[id] = wl
+	m.workloadsByNatKey[key] = id
+	return wl, nil
+}
+
+func (m *memStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := make(map[string]struct{}, len(keepKinds))
+	for i := range keepKinds {
+		keep[keepKinds[i]+"/"+keepNames[i]] = struct{}{}
+	}
+	var deleted int64
+	for id, wl := range m.workloadsByID {
+		if wl.NamespaceId != namespaceID {
+			continue
+		}
+		if _, ok := keep[string(wl.Kind)+"/"+wl.Name]; ok {
+			continue
+		}
+		delete(m.workloadsByID, id)
+		delete(m.workloadsByNatKey, workloadNatKey(wl.NamespaceId, wl.Kind, wl.Name))
 		deleted++
 	}
 	return deleted, nil
@@ -1080,6 +1248,115 @@ func TestPodCRUD(t *testing.T) {
 	del2 := do(h, http.MethodDelete, podURL, "")
 	if del2.Code != http.StatusNotFound {
 		t.Errorf("second delete status=%d", del2.Code)
+	}
+}
+
+func TestWorkloadCRUD(t *testing.T) {
+	t.Parallel()
+	store := newMemStore()
+	h := newTestHandler(t, store)
+
+	// Seed cluster + namespace.
+	clusterResp := do(h, http.MethodPost, "/v1/clusters", `{"name":"prod-wl"}`)
+	if clusterResp.Code != http.StatusCreated {
+		t.Fatalf("seed cluster: %d %q", clusterResp.Code, clusterResp.Body.String())
+	}
+	var cluster Cluster
+	_ = json.Unmarshal(clusterResp.Body.Bytes(), &cluster)
+
+	nsResp := do(h, http.MethodPost, "/v1/namespaces", fmt.Sprintf(`{"cluster_id":%q,"name":"apps"}`, cluster.Id.String()))
+	if nsResp.Code != http.StatusCreated {
+		t.Fatalf("seed ns: %d", nsResp.Code)
+	}
+	var ns Namespace
+	_ = json.Unmarshal(nsResp.Body.Bytes(), &ns)
+	nsIDStr := ns.Id.String()
+
+	createBody := fmt.Sprintf(`{"namespace_id":%q,"kind":"Deployment","name":"web","replicas":3}`, nsIDStr)
+	create := do(h, http.MethodPost, "/v1/workloads", createBody)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create: %d %q", create.Code, create.Body.String())
+	}
+	var wl Workload
+	_ = json.Unmarshal(create.Body.Bytes(), &wl)
+	if wl.Id == nil {
+		t.Fatal("workload id nil")
+	}
+	if wl.Kind != Deployment {
+		t.Errorf("kind=%q, want Deployment", wl.Kind)
+	}
+	if wl.Layer == nil || *wl.Layer != LayerWorkload {
+		t.Errorf("layer=%v, want %q", wl.Layer, LayerWorkload)
+	}
+
+	// Deployment 'web' and StatefulSet 'web' coexist in same namespace.
+	sfsBody := fmt.Sprintf(`{"namespace_id":%q,"kind":"StatefulSet","name":"web"}`, nsIDStr)
+	sfs := do(h, http.MethodPost, "/v1/workloads", sfsBody)
+	if sfs.Code != http.StatusCreated {
+		t.Errorf("sts with same name in same ns should be allowed: %d %q", sfs.Code, sfs.Body.String())
+	}
+
+	// Duplicate (ns, kind, name) is 409.
+	dup := do(h, http.MethodPost, "/v1/workloads", createBody)
+	if dup.Code != http.StatusConflict {
+		t.Errorf("duplicate: %d", dup.Code)
+	}
+
+	// Invalid kind rejected.
+	bogus := do(h, http.MethodPost, "/v1/workloads", fmt.Sprintf(`{"namespace_id":%q,"kind":"Pony","name":"x"}`, nsIDStr))
+	if bogus.Code != http.StatusBadRequest {
+		t.Errorf("bogus kind: %d %q", bogus.Code, bogus.Body.String())
+	}
+
+	// Unknown namespace → 404.
+	missing := do(h, http.MethodPost, "/v1/workloads", fmt.Sprintf(`{"namespace_id":%q,"kind":"Deployment","name":"x"}`, uuid.New().String()))
+	if missing.Code != http.StatusNotFound {
+		t.Errorf("unknown ns: %d", missing.Code)
+	}
+
+	url := "/v1/workloads/" + wl.Id.String()
+	patch := do(h, http.MethodPatch, url, `{"replicas":5}`)
+	if patch.Code != http.StatusOK {
+		t.Fatalf("patch: %d %q", patch.Code, patch.Body.String())
+	}
+	var patched Workload
+	_ = json.Unmarshal(patch.Body.Bytes(), &patched)
+	if patched.Replicas == nil || *patched.Replicas != 5 {
+		t.Errorf("replicas=%v", patched.Replicas)
+	}
+
+	// List filtered by kind.
+	byKind := do(h, http.MethodGet, "/v1/workloads?kind=StatefulSet", "")
+	if byKind.Code != http.StatusOK {
+		t.Fatalf("list by kind: %d", byKind.Code)
+	}
+	var page WorkloadList
+	_ = json.Unmarshal(byKind.Body.Bytes(), &page)
+	if len(page.Items) != 1 || page.Items[0].Kind != StatefulSet {
+		t.Errorf("kind filter returned %d items with wrong kind", len(page.Items))
+	}
+
+	// Invalid kind filter → 400.
+	badFilter := do(h, http.MethodGet, "/v1/workloads?kind=Pony", "")
+	if badFilter.Code != http.StatusBadRequest {
+		t.Errorf("invalid kind filter: %d %q", badFilter.Code, badFilter.Body.String())
+	}
+
+	// List filtered by namespace (returns both).
+	byNS := do(h, http.MethodGet, "/v1/workloads?namespace_id="+nsIDStr, "")
+	_ = json.Unmarshal(byNS.Body.Bytes(), &page)
+	if len(page.Items) != 2 {
+		t.Errorf("ns filter returned %d items, want 2", len(page.Items))
+	}
+
+	// Delete original deployment.
+	del := do(h, http.MethodDelete, url, "")
+	if del.Code != http.StatusNoContent {
+		t.Errorf("delete: %d", del.Code)
+	}
+	del2 := do(h, http.MethodDelete, url, "")
+	if del2.Code != http.StatusNotFound {
+		t.Errorf("second delete: %d", del2.Code)
 	}
 }
 

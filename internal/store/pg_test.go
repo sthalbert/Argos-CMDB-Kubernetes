@@ -508,6 +508,140 @@ func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	}
 }
 
+func TestPGWorkloadCRUD(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "workload-test"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	replicas := 3
+	wl, err := pg.CreateWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id,
+		Kind:        api.Deployment,
+		Name:        "web",
+		Replicas:    &replicas,
+	})
+	if err != nil {
+		t.Fatalf("create workload: %v", err)
+	}
+	if wl.Id == nil || wl.Kind != api.Deployment {
+		t.Fatalf("unexpected returned workload: %+v", wl)
+	}
+
+	// Same name + same namespace but different kind is allowed.
+	if _, err := pg.CreateWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.StatefulSet, Name: "web"}); err != nil {
+		t.Errorf("(sts, web) should coexist with (deployment, web): %v", err)
+	}
+	// Same (namespace, kind, name) → ErrConflict.
+	if _, err := pg.CreateWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"}); !errors.Is(err, api.ErrConflict) {
+		t.Errorf("duplicate should be ErrConflict, got %v", err)
+	}
+	// Unknown namespace → ErrNotFound.
+	if _, err := pg.CreateWorkload(ctx, api.WorkloadCreate{NamespaceId: uuid.New(), Kind: api.Deployment, Name: "x"}); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("unknown namespace should be ErrNotFound, got %v", err)
+	}
+
+	newReplicas := 5
+	updated, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{Replicas: &newReplicas})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Replicas == nil || *updated.Replicas != newReplicas {
+		t.Errorf("replicas=%v, want %d", updated.Replicas, newReplicas)
+	}
+
+	// Filter by kind.
+	depKind := api.Deployment
+	items, _, err := pg.ListWorkloads(ctx, ns.Id, &depKind, 10, "")
+	if err != nil {
+		t.Fatalf("list by kind: %v", err)
+	}
+	if len(items) != 1 || items[0].Kind != api.Deployment {
+		t.Errorf("filter-by-kind returned %+v", items)
+	}
+
+	// Cascade delete: drop cluster -> namespace cascade -> workloads cascade.
+	if err := pg.DeleteCluster(ctx, *cluster.Id); err != nil {
+		t.Fatalf("cluster delete: %v", err)
+	}
+	if _, err := pg.GetWorkload(ctx, *wl.Id); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("workload should have cascaded via namespace->cluster, got %v", err)
+	}
+}
+
+func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "workload-upsert"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	// Upsert (Deployment, web) twice — id preserved, updated_at advances.
+	r1 := 2
+	first, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r1})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	r2 := 4
+	second, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r2})
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if *second.Id != *first.Id {
+		t.Errorf("id changed across upsert")
+	}
+	if !second.UpdatedAt.After(*first.UpdatedAt) {
+		t.Errorf("updated_at did not advance")
+	}
+
+	// Seed a StatefulSet with the same name and a DaemonSet — reconcile keeping only Deployment/web.
+	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.StatefulSet, Name: "web"}); err != nil {
+		t.Fatalf("sts: %v", err)
+	}
+	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.DaemonSet, Name: "fluent-bit"}); err != nil {
+		t.Fatalf("ds: %v", err)
+	}
+
+	deleted, err := pg.DeleteWorkloadsNotIn(ctx, *ns.Id, []string{"Deployment"}, []string{"web"})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("deleted=%d, want 2 (sts/web + ds/fluent-bit)", deleted)
+	}
+
+	// Sanity: only Deployment/web remains.
+	items, _, err := pg.ListWorkloads(ctx, ns.Id, nil, 10, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 || items[0].Kind != api.Deployment || items[0].Name != "web" {
+		t.Errorf("after reconcile got %+v", items)
+	}
+
+	// Nil keep clears everything remaining (pgx nil-array COALESCE guard).
+	deleted, err = pg.DeleteWorkloadsNotIn(ctx, *ns.Id, nil, nil)
+	if err != nil {
+		t.Fatalf("nil reconcile: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("nil reconcile deleted=%d, want 1", deleted)
+	}
+}
+
 func TestPGGetClusterByName(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

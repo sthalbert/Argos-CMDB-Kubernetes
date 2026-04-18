@@ -71,6 +71,27 @@ func (e Layer) Valid() bool {
 	}
 }
 
+// Defines values for WorkloadKind.
+const (
+	DaemonSet   WorkloadKind = "DaemonSet"
+	Deployment  WorkloadKind = "Deployment"
+	StatefulSet WorkloadKind = "StatefulSet"
+)
+
+// Valid indicates whether the value is a known member of the WorkloadKind enum.
+func (e WorkloadKind) Valid() bool {
+	switch e {
+	case DaemonSet:
+		return true
+	case Deployment:
+		return true
+	case StatefulSet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Cluster defines model for Cluster.
 type Cluster struct {
 	// ApiEndpoint Kubernetes API server URL (informational).
@@ -423,6 +444,101 @@ type Problem struct {
 	Type     string  `json:"type"`
 }
 
+// Workload defines model for Workload.
+type Workload struct {
+	CreatedAt *time.Time          `json:"created_at,omitempty"`
+	Id        *openapi_types.UUID `json:"id,omitempty"`
+
+	// Kind Kubernetes workload controller kind. Casing matches the `kind` field
+	// Kubernetes itself emits. Additional kinds (Job, CronJob, ReplicaSet,
+	// ReplicationController) may be introduced as new enum values without a
+	// schema migration (see ADR-0003).
+	Kind WorkloadKind `json:"kind"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Layer Always `applicative` for Workload. Set by the server.
+	Layer       *Layer             `json:"layer,omitempty"`
+	Name        string             `json:"name"`
+	NamespaceId openapi_types.UUID `json:"namespace_id"`
+
+	// ReadyReplicas Observed ready replica count. Nullable until first status update.
+	ReadyReplicas *int `json:"ready_replicas,omitempty"`
+
+	// Replicas Desired replica count. Nullable; DaemonSet has no scalar desired count.
+	Replicas *int `json:"replicas,omitempty"`
+
+	// Spec Kind-specific fields the collector chooses to persist (e.g. strategy
+	// for Deployment, service_name for StatefulSet). Open-ended; stored
+	// as JSONB.
+	Spec      *map[string]interface{} `json:"spec,omitempty"`
+	UpdatedAt *time.Time              `json:"updated_at,omitempty"`
+}
+
+// WorkloadCreate defines model for WorkloadCreate.
+type WorkloadCreate struct {
+	// Kind Workload kind discriminator. Immutable after creation.
+	Kind WorkloadKind `json:"kind"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Name Kubernetes workload name (DNS-subdomain style). Unique per
+	// (namespace, kind). Immutable after creation.
+	Name string `json:"name"`
+
+	// NamespaceId Parent namespace id. Immutable after creation; the namespace
+	// must already exist or the create returns 404.
+	NamespaceId openapi_types.UUID `json:"namespace_id"`
+
+	// ReadyReplicas Observed ready replica count. Nullable until first status update.
+	ReadyReplicas *int `json:"ready_replicas,omitempty"`
+
+	// Replicas Desired replica count. Nullable; DaemonSet has no scalar desired count.
+	Replicas *int `json:"replicas,omitempty"`
+
+	// Spec Kind-specific fields the collector chooses to persist (e.g. strategy
+	// for Deployment, service_name for StatefulSet). Open-ended; stored
+	// as JSONB.
+	Spec *map[string]interface{} `json:"spec,omitempty"`
+}
+
+// WorkloadKind Kubernetes workload controller kind. Casing matches the `kind` field
+// Kubernetes itself emits. Additional kinds (Job, CronJob, ReplicaSet,
+// ReplicationController) may be introduced as new enum values without a
+// schema migration (see ADR-0003).
+type WorkloadKind string
+
+// WorkloadList Paged list of workloads.
+type WorkloadList struct {
+	Items []Workload `json:"items"`
+
+	// NextCursor Opaque cursor to pass as `?cursor=` to fetch the next page.
+	// Absent or null when no more pages remain.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// WorkloadMutable Fields on a Workload that clients may set and later update.
+type WorkloadMutable struct {
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// ReadyReplicas Observed ready replica count. Nullable until first status update.
+	ReadyReplicas *int `json:"ready_replicas,omitempty"`
+
+	// Replicas Desired replica count. Nullable; DaemonSet has no scalar desired count.
+	Replicas *int `json:"replicas,omitempty"`
+
+	// Spec Kind-specific fields the collector chooses to persist (e.g. strategy
+	// for Deployment, service_name for StatefulSet). Open-ended; stored
+	// as JSONB.
+	Spec *map[string]interface{} `json:"spec,omitempty"`
+}
+
+// WorkloadUpdate Fields on a Workload that clients may set and later update.
+type WorkloadUpdate = WorkloadMutable
+
 // ClusterId defines model for ClusterId.
 type ClusterId = openapi_types.UUID
 
@@ -449,6 +565,18 @@ type PodId = openapi_types.UUID
 
 // PodNamespaceIdFilter defines model for PodNamespaceIdFilter.
 type PodNamespaceIdFilter = openapi_types.UUID
+
+// WorkloadId defines model for WorkloadId.
+type WorkloadId = openapi_types.UUID
+
+// WorkloadKindFilter Kubernetes workload controller kind. Casing matches the `kind` field
+// Kubernetes itself emits. Additional kinds (Job, CronJob, ReplicaSet,
+// ReplicationController) may be introduced as new enum values without a
+// schema migration (see ADR-0003).
+type WorkloadKindFilter = WorkloadKind
+
+// WorkloadNamespaceIdFilter defines model for WorkloadNamespaceIdFilter.
+type WorkloadNamespaceIdFilter = openapi_types.UUID
 
 // BadRequest RFC 7807 problem details.
 type BadRequest = Problem
@@ -510,6 +638,21 @@ type ListPodsParams struct {
 	NamespaceId *PodNamespaceIdFilter `form:"namespace_id,omitempty" json:"namespace_id,omitempty"`
 }
 
+// ListWorkloadsParams defines parameters for ListWorkloads.
+type ListWorkloadsParams struct {
+	// Limit Maximum number of items to return. Server clamps to [1, 200].
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor returned from a previous list response.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// NamespaceId Return only workloads belonging to this namespace.
+	NamespaceId *WorkloadNamespaceIdFilter `form:"namespace_id,omitempty" json:"namespace_id,omitempty"`
+
+	// Kind Return only workloads of this kind.
+	Kind *WorkloadKindFilter `form:"kind,omitempty" json:"kind,omitempty"`
+}
+
 // CreateClusterJSONRequestBody defines body for CreateCluster for application/json ContentType.
 type CreateClusterJSONRequestBody = ClusterCreate
 
@@ -533,6 +676,12 @@ type CreatePodJSONRequestBody = PodCreate
 
 // UpdatePodApplicationMergePatchPlusJSONRequestBody defines body for UpdatePod for application/merge-patch+json ContentType.
 type UpdatePodApplicationMergePatchPlusJSONRequestBody = PodUpdate
+
+// CreateWorkloadJSONRequestBody defines body for CreateWorkload for application/json ContentType.
+type CreateWorkloadJSONRequestBody = WorkloadCreate
+
+// UpdateWorkloadApplicationMergePatchPlusJSONRequestBody defines body for UpdateWorkload for application/merge-patch+json ContentType.
+type UpdateWorkloadApplicationMergePatchPlusJSONRequestBody = WorkloadUpdate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -602,6 +751,21 @@ type ServerInterface interface {
 	// Update mutable fields of a pod
 	// (PATCH /v1/pods/{id})
 	UpdatePod(w http.ResponseWriter, r *http.Request, id PodId)
+	// List workloads
+	// (GET /v1/workloads)
+	ListWorkloads(w http.ResponseWriter, r *http.Request, params ListWorkloadsParams)
+	// Register a workload
+	// (POST /v1/workloads)
+	CreateWorkload(w http.ResponseWriter, r *http.Request)
+	// Delete a workload
+	// (DELETE /v1/workloads/{id})
+	DeleteWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId)
+	// Get a workload
+	// (GET /v1/workloads/{id})
+	GetWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId)
+	// Update mutable fields of a workload
+	// (PATCH /v1/workloads/{id})
+	UpdateWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1281,6 +1445,176 @@ func (siw *ServerInterfaceWrapper) UpdatePod(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListWorkloads operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkloads(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWorkloadsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "namespace_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "namespace_id", r.URL.Query(), &params.NamespaceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "namespace_id", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkloads(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkload operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkload(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkload(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteWorkload operation middleware
+func (siw *ServerInterfaceWrapper) DeleteWorkload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkloadId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteWorkload(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWorkload operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkloadId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkload(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateWorkload operation middleware
+func (siw *ServerInterfaceWrapper) UpdateWorkload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkloadId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateWorkload(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1423,6 +1757,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("DELETE "+options.BaseURL+"/v1/pods/{id}", wrapper.DeletePod)
 	m.HandleFunc("GET "+options.BaseURL+"/v1/pods/{id}", wrapper.GetPod)
 	m.HandleFunc("PATCH "+options.BaseURL+"/v1/pods/{id}", wrapper.UpdatePod)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/workloads", wrapper.ListWorkloads)
+	m.HandleFunc("POST "+options.BaseURL+"/v1/workloads", wrapper.CreateWorkload)
+	m.HandleFunc("DELETE "+options.BaseURL+"/v1/workloads/{id}", wrapper.DeleteWorkload)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/workloads/{id}", wrapper.GetWorkload)
+	m.HandleFunc("PATCH "+options.BaseURL+"/v1/workloads/{id}", wrapper.UpdateWorkload)
 
 	return m
 }
@@ -1430,78 +1769,90 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

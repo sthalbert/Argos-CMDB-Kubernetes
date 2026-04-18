@@ -121,4 +121,32 @@ type Store interface {
 
 	// DeletePodsNotIn mirrors DeleteNodesNotIn, scoped to a single namespace.
 	DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+
+	// CreateWorkload inserts a new workload. Returns ErrNotFound when the
+	// parent namespace does not exist; ErrConflict when (namespace_id, kind,
+	// name) already has a workload.
+	CreateWorkload(ctx context.Context, in WorkloadCreate) (Workload, error)
+
+	// GetWorkload fetches a workload by id. Returns ErrNotFound if absent.
+	GetWorkload(ctx context.Context, id uuid.UUID) (Workload, error)
+
+	// ListWorkloads returns up to limit workloads after the given opaque
+	// cursor, optionally filtered by namespace and/or kind.
+	ListWorkloads(ctx context.Context, namespaceID *uuid.UUID, kind *WorkloadKind, limit int, cursor string) (items []Workload, nextCursor string, err error)
+
+	// UpdateWorkload applies merge-patch on mutable fields. Returns
+	// ErrNotFound if the workload does not exist.
+	UpdateWorkload(ctx context.Context, id uuid.UUID, in WorkloadUpdate) (Workload, error)
+
+	// DeleteWorkload removes a workload by id.
+	DeleteWorkload(ctx context.Context, id uuid.UUID) error
+
+	// UpsertWorkload mirrors UpsertPod; keyed on (namespace_id, kind, name).
+	UpsertWorkload(ctx context.Context, in WorkloadCreate) (Workload, error)
+
+	// DeleteWorkloadsNotIn removes workloads in the namespace whose
+	// (kind, name) tuple is not in keep. An empty keep slice clears every
+	// workload for that namespace. The two slices are parallel; callers
+	// must ensure len(keepKinds) == len(keepNames).
+	DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error)
 }
