@@ -25,6 +25,8 @@ type memStore struct {
 	nodesByNatKey map[string]uuid.UUID // "<cluster_id>/<name>" -> node id
 	nsByID        map[uuid.UUID]Namespace
 	nsByNatKey    map[string]uuid.UUID // "<cluster_id>/<name>" -> namespace id
+	podsByID      map[uuid.UUID]Pod
+	podsByNatKey  map[string]uuid.UUID // "<namespace_id>/<name>" -> pod id
 	pingErr       error
 	createdN      int
 }
@@ -37,7 +39,13 @@ func newMemStore() *memStore {
 		nodesByNatKey: make(map[string]uuid.UUID),
 		nsByID:        make(map[uuid.UUID]Namespace),
 		nsByNatKey:    make(map[string]uuid.UUID),
+		podsByID:      make(map[uuid.UUID]Pod),
+		podsByNatKey:  make(map[string]uuid.UUID),
 	}
+}
+
+func podNatKey(namespaceID uuid.UUID, name string) string {
+	return namespaceID.String() + "/" + name
 }
 
 func nodeNatKey(clusterID uuid.UUID, name string) string {
@@ -347,6 +355,161 @@ func (m *memStore) DeleteNamespace(_ context.Context, id uuid.UUID) error {
 	delete(m.nsByID, id)
 	delete(m.nsByNatKey, nsNatKey(n.ClusterId, n.Name))
 	return nil
+}
+
+func (m *memStore) CreatePod(_ context.Context, in PodCreate) (Pod, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[in.NamespaceId]; !ok {
+		return Pod{}, ErrNotFound
+	}
+	key := podNatKey(in.NamespaceId, in.Name)
+	if _, dup := m.podsByNatKey[key]; dup {
+		return Pod{}, fmt.Errorf("duplicate pod: %w", ErrConflict)
+	}
+	id := uuid.New()
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+	p := Pod{
+		Id:          &id,
+		NamespaceId: in.NamespaceId,
+		Name:        in.Name,
+		Phase:       in.Phase,
+		NodeName:    in.NodeName,
+		PodIp:       in.PodIp,
+		Labels:      in.Labels,
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
+	}
+	m.podsByID[id] = p
+	m.podsByNatKey[key] = id
+	return p, nil
+}
+
+func (m *memStore) GetPod(_ context.Context, id uuid.UUID) (Pod, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.podsByID[id]
+	if !ok {
+		return Pod{}, ErrNotFound
+	}
+	return p, nil
+}
+
+func (m *memStore) ListPods(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]Pod, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]Pod, 0, len(m.podsByID))
+	for _, p := range m.podsByID {
+		if namespaceID != nil && p.NamespaceId != *namespaceID {
+			continue
+		}
+		out = append(out, p)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) UpdatePod(_ context.Context, id uuid.UUID, in PodUpdate) (Pod, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.podsByID[id]
+	if !ok {
+		return Pod{}, ErrNotFound
+	}
+	if in.Phase != nil {
+		p.Phase = in.Phase
+	}
+	if in.NodeName != nil {
+		p.NodeName = in.NodeName
+	}
+	if in.PodIp != nil {
+		p.PodIp = in.PodIp
+	}
+	if in.Labels != nil {
+		p.Labels = in.Labels
+	}
+	now := time.Now().UTC()
+	p.UpdatedAt = &now
+	m.podsByID[id] = p
+	return p, nil
+}
+
+func (m *memStore) DeletePod(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.podsByID[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.podsByID, id)
+	delete(m.podsByNatKey, podNatKey(p.NamespaceId, p.Name))
+	return nil
+}
+
+func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[in.NamespaceId]; !ok {
+		return Pod{}, ErrNotFound
+	}
+	key := podNatKey(in.NamespaceId, in.Name)
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+
+	if existingID, exists := m.podsByNatKey[key]; exists {
+		p := m.podsByID[existingID]
+		p.Phase = in.Phase
+		p.NodeName = in.NodeName
+		p.PodIp = in.PodIp
+		p.Labels = in.Labels
+		p.UpdatedAt = &now
+		m.podsByID[existingID] = p
+		return p, nil
+	}
+
+	id := uuid.New()
+	p := Pod{
+		Id:          &id,
+		NamespaceId: in.NamespaceId,
+		Name:        in.Name,
+		Phase:       in.Phase,
+		NodeName:    in.NodeName,
+		PodIp:       in.PodIp,
+		Labels:      in.Labels,
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
+	}
+	m.podsByID[id] = p
+	m.podsByNatKey[key] = id
+	return p, nil
+}
+
+func (m *memStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	var deleted int64
+	for id, p := range m.podsByID {
+		if p.NamespaceId != namespaceID {
+			continue
+		}
+		if _, ok := keep[p.Name]; ok {
+			continue
+		}
+		delete(m.podsByID, id)
+		delete(m.podsByNatKey, podNatKey(p.NamespaceId, p.Name))
+		deleted++
+	}
+	return deleted, nil
 }
 
 func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Namespace, error) {
@@ -802,6 +965,119 @@ func TestNamespaceCRUD(t *testing.T) {
 	}
 
 	del2 := do(h, http.MethodDelete, nsURL, "")
+	if del2.Code != http.StatusNotFound {
+		t.Errorf("second delete status=%d", del2.Code)
+	}
+}
+
+func TestPodCRUD(t *testing.T) {
+	t.Parallel()
+	store := newMemStore()
+	h := newTestHandler(t, store)
+
+	// Seed cluster and namespace so the pod has a valid FK chain.
+	clusterResp := do(h, http.MethodPost, "/v1/clusters", `{"name":"prod-pods"}`)
+	if clusterResp.Code != http.StatusCreated {
+		t.Fatalf("seed cluster: status=%d body=%q", clusterResp.Code, clusterResp.Body.String())
+	}
+	var cluster Cluster
+	if err := json.Unmarshal(clusterResp.Body.Bytes(), &cluster); err != nil {
+		t.Fatalf("decode cluster: %v", err)
+	}
+
+	nsBody := fmt.Sprintf(`{"cluster_id":%q,"name":"kube-system"}`, cluster.Id.String())
+	nsResp := do(h, http.MethodPost, "/v1/namespaces", nsBody)
+	if nsResp.Code != http.StatusCreated {
+		t.Fatalf("seed namespace: status=%d body=%q", nsResp.Code, nsResp.Body.String())
+	}
+	var ns Namespace
+	if err := json.Unmarshal(nsResp.Body.Bytes(), &ns); err != nil {
+		t.Fatalf("decode namespace: %v", err)
+	}
+	nsIDStr := ns.Id.String()
+
+	createBody := fmt.Sprintf(`{"namespace_id":%q,"name":"coredns-abc","phase":"Running","node_name":"node-a"}`, nsIDStr)
+	create := do(h, http.MethodPost, "/v1/pods", createBody)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create pod: status=%d body=%q", create.Code, create.Body.String())
+	}
+	if loc := create.Header().Get("Location"); !strings.HasPrefix(loc, "/v1/pods/") {
+		t.Errorf("Location=%q", loc)
+	}
+	var pod Pod
+	if err := json.Unmarshal(create.Body.Bytes(), &pod); err != nil {
+		t.Fatalf("decode pod: %v", err)
+	}
+	if pod.Id == nil {
+		t.Fatal("pod.Id nil")
+	}
+	if pod.Layer == nil || *pod.Layer != LayerPod {
+		t.Errorf("pod layer=%v, want %q", pod.Layer, LayerPod)
+	}
+	if pod.NamespaceId != *ns.Id {
+		t.Errorf("pod.NamespaceId=%v, want %v", pod.NamespaceId, *ns.Id)
+	}
+
+	dup := do(h, http.MethodPost, "/v1/pods", createBody)
+	if dup.Code != http.StatusConflict {
+		t.Errorf("duplicate pod status=%d", dup.Code)
+	}
+
+	missing := do(h, http.MethodPost, "/v1/pods", fmt.Sprintf(`{"namespace_id":%q,"name":"x"}`, uuid.New().String()))
+	if missing.Code != http.StatusNotFound {
+		t.Errorf("missing namespace create status=%d", missing.Code)
+	}
+
+	podURL := "/v1/pods/" + pod.Id.String()
+
+	get := do(h, http.MethodGet, podURL, "")
+	if get.Code != http.StatusOK {
+		t.Fatalf("get pod status=%d body=%q", get.Code, get.Body.String())
+	}
+
+	patch := do(h, http.MethodPatch, podURL, `{"phase":"Succeeded"}`)
+	if patch.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%q", patch.Code, patch.Body.String())
+	}
+	var patched Pod
+	if err := json.Unmarshal(patch.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	if patched.Phase == nil || *patched.Phase != "Succeeded" {
+		t.Errorf("phase=%v", patched.Phase)
+	}
+
+	list := do(h, http.MethodGet, "/v1/pods", "")
+	if list.Code != http.StatusOK {
+		t.Fatalf("list status=%d", list.Code)
+	}
+	var page PodList
+	if err := json.Unmarshal(list.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Errorf("list len=%d", len(page.Items))
+	}
+	if page.Items[0].Layer == nil || *page.Items[0].Layer != LayerPod {
+		t.Errorf("list item layer=%v", page.Items[0].Layer)
+	}
+
+	filtered := do(h, http.MethodGet, "/v1/pods?namespace_id="+nsIDStr, "")
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("filtered list status=%d", filtered.Code)
+	}
+	if err := json.Unmarshal(filtered.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode filtered: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Errorf("filtered list len=%d", len(page.Items))
+	}
+
+	del := do(h, http.MethodDelete, podURL, "")
+	if del.Code != http.StatusNoContent {
+		t.Errorf("delete status=%d", del.Code)
+	}
+	del2 := do(h, http.MethodDelete, podURL, "")
 	if del2.Code != http.StatusNotFound {
 		t.Errorf("second delete status=%d", del2.Code)
 	}

@@ -96,4 +96,29 @@ type Store interface {
 
 	// DeleteNamespacesNotIn mirrors DeleteNodesNotIn for namespaces.
 	DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+
+	// CreatePod inserts a new pod. Returns ErrNotFound when the parent
+	// namespace does not exist; ErrConflict when (namespace_id, name) already
+	// has a pod.
+	CreatePod(ctx context.Context, in PodCreate) (Pod, error)
+
+	// GetPod fetches a pod by id. Returns ErrNotFound if absent.
+	GetPod(ctx context.Context, id uuid.UUID) (Pod, error)
+
+	// ListPods returns up to limit pods after the given opaque cursor. When
+	// namespaceID is non-nil, results are filtered to that namespace.
+	ListPods(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []Pod, nextCursor string, err error)
+
+	// UpdatePod applies the merge-patch fields set in in. Returns
+	// ErrNotFound if the pod does not exist.
+	UpdatePod(ctx context.Context, id uuid.UUID, in PodUpdate) (Pod, error)
+
+	// DeletePod removes a pod by id. Returns ErrNotFound if absent.
+	DeletePod(ctx context.Context, id uuid.UUID) error
+
+	// UpsertPod mirrors UpsertNode, keyed on (namespace_id, name).
+	UpsertPod(ctx context.Context, in PodCreate) (Pod, error)
+
+	// DeletePodsNotIn mirrors DeleteNodesNotIn, scoped to a single namespace.
+	DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }

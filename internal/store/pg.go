@@ -726,6 +726,284 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	return n, nil
 }
 
+// CreatePod inserts a new pod.
+func (p *PG) CreatePod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
+	id := uuid.New()
+	now := time.Now().UTC()
+
+	labelsJSON, err := marshalLabels(in.Labels)
+	if err != nil {
+		return api.Pod{}, err
+	}
+
+	const q = `
+		INSERT INTO pods (
+			id, namespace_id, name, phase, node_name, pod_ip,
+			labels, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+	`
+	_, err = p.pool.Exec(ctx, q,
+		id, in.NamespaceId, in.Name, in.Phase, in.NodeName, in.PodIp,
+		labelsJSON, now,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return api.Pod{}, fmt.Errorf("pod %q in namespace %s already exists: %w", in.Name, in.NamespaceId, api.ErrConflict)
+			case "23503":
+				return api.Pod{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			}
+		}
+		return api.Pod{}, fmt.Errorf("insert pod: %w", err)
+	}
+
+	return api.Pod{
+		Id:          &id,
+		NamespaceId: in.NamespaceId,
+		Name:        in.Name,
+		Phase:       in.Phase,
+		NodeName:    in.NodeName,
+		PodIp:       in.PodIp,
+		Labels:      in.Labels,
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
+	}, nil
+}
+
+// GetPod fetches a pod by id.
+func (p *PG) GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error) {
+	const q = `
+		SELECT id, namespace_id, name, phase, node_name, pod_ip,
+		       labels, created_at, updated_at
+		FROM pods
+		WHERE id = $1
+	`
+	row := p.pool.QueryRow(ctx, q, id)
+	pod, err := scanPod(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.Pod{}, api.ErrNotFound
+		}
+		return api.Pod{}, fmt.Errorf("select pod: %w", err)
+	}
+	return pod, nil
+}
+
+// ListPods returns up to limit pods, optionally filtered by namespace.
+func (p *PG) ListPods(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Pod, string, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	sb := strings.Builder{}
+	sb.WriteString(`SELECT id, namespace_id, name, phase, node_name, pod_ip,
+	                       labels, created_at, updated_at
+	                FROM pods`)
+	args := make([]any, 0, 4)
+	conds := make([]string, 0, 2)
+
+	if namespaceID != nil {
+		args = append(args, *namespaceID)
+		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
+	}
+	if cursor != "" {
+		ts, cid, err := decodeCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		args = append(args, ts)
+		tsIdx := len(args)
+		args = append(args, cid)
+		idIdx := len(args)
+		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+	}
+	if len(conds) > 0 {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(strings.Join(conds, " AND "))
+	}
+	args = append(args, limit+1)
+	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+
+	rows, err := p.pool.Query(ctx, sb.String(), args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("query pods: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]api.Pod, 0, limit)
+	for rows.Next() {
+		pod, err := scanPod(rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("scan pod: %w", err)
+		}
+		items = append(items, pod)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("iterate pods: %w", err)
+	}
+
+	var next string
+	if len(items) > limit {
+		last := items[limit-1]
+		if last.CreatedAt != nil && last.Id != nil {
+			next = encodeCursor(*last.CreatedAt, *last.Id)
+		}
+		items = items[:limit]
+	}
+	return items, next, nil
+}
+
+// UpdatePod applies merge-patch semantics on mutable fields.
+func (p *PG) UpdatePod(ctx context.Context, id uuid.UUID, in api.PodUpdate) (api.Pod, error) {
+	sets := make([]string, 0, 5)
+	args := make([]any, 0, 7)
+	idx := 1
+	appendSet := func(column string, value any) {
+		sets = append(sets, fmt.Sprintf("%s=$%d", column, idx))
+		args = append(args, value)
+		idx++
+	}
+
+	if in.Phase != nil {
+		appendSet("phase", *in.Phase)
+	}
+	if in.NodeName != nil {
+		appendSet("node_name", *in.NodeName)
+	}
+	if in.PodIp != nil {
+		appendSet("pod_ip", *in.PodIp)
+	}
+	if in.Labels != nil {
+		b, err := marshalLabels(in.Labels)
+		if err != nil {
+			return api.Pod{}, err
+		}
+		appendSet("labels", b)
+	}
+	appendSet("updated_at", time.Now().UTC())
+	args = append(args, id)
+
+	q := fmt.Sprintf("UPDATE pods SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
+	tag, err := p.pool.Exec(ctx, q, args...)
+	if err != nil {
+		return api.Pod{}, fmt.Errorf("update pod: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.Pod{}, api.ErrNotFound
+	}
+	return p.GetPod(ctx, id)
+}
+
+// DeletePod removes a pod by id.
+func (p *PG) DeletePod(ctx context.Context, id uuid.UUID) error {
+	tag, err := p.pool.Exec(ctx, "DELETE FROM pods WHERE id=$1", id)
+	if err != nil {
+		return fmt.Errorf("delete pod: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+	return nil
+}
+
+// UpsertPod inserts-or-updates a pod keyed by (namespace_id, name).
+func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
+	id := uuid.New()
+	now := time.Now().UTC()
+
+	labelsJSON, err := marshalLabels(in.Labels)
+	if err != nil {
+		return api.Pod{}, err
+	}
+
+	const q = `
+		INSERT INTO pods (
+			id, namespace_id, name, phase, node_name, pod_ip,
+			labels, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+		ON CONFLICT (namespace_id, name) DO UPDATE SET
+			phase      = EXCLUDED.phase,
+			node_name  = EXCLUDED.node_name,
+			pod_ip     = EXCLUDED.pod_ip,
+			labels     = EXCLUDED.labels,
+			updated_at = EXCLUDED.updated_at
+		RETURNING id, namespace_id, name, phase, node_name, pod_ip,
+		          labels, created_at, updated_at
+	`
+	row := p.pool.QueryRow(ctx, q,
+		id, in.NamespaceId, in.Name, in.Phase, in.NodeName, in.PodIp,
+		labelsJSON, now,
+	)
+	pod, err := scanPod(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return api.Pod{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+		}
+		return api.Pod{}, fmt.Errorf("upsert pod: %w", err)
+	}
+	return pod, nil
+}
+
+// DeletePodsNotIn removes every pod in the given namespace whose name is not
+// in keepNames. Same COALESCE safety against pgx encoding a nil slice as NULL.
+func (p *PG) DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
+	tag, err := p.pool.Exec(ctx,
+		`DELETE FROM pods
+		 WHERE namespace_id = $1
+		   AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))`,
+		namespaceID, keepNames,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete pods not in: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func scanPod(row pgx.Row) (api.Pod, error) {
+	var (
+		p           api.Pod
+		id          uuid.UUID
+		namespaceID uuid.UUID
+		createdAt   time.Time
+		updatedAt   time.Time
+		phase       sql.NullString
+		nodeName    sql.NullString
+		podIP       sql.NullString
+		labelsJSON  []byte
+	)
+	if err := row.Scan(
+		&id, &namespaceID, &p.Name,
+		&phase, &nodeName, &podIP,
+		&labelsJSON,
+		&createdAt, &updatedAt,
+	); err != nil {
+		return api.Pod{}, err
+	}
+	p.Id = &id
+	p.NamespaceId = namespaceID
+	p.CreatedAt = &createdAt
+	p.UpdatedAt = &updatedAt
+	p.Phase = nullableString(phase)
+	p.NodeName = nullableString(nodeName)
+	p.PodIp = nullableString(podIP)
+	if len(labelsJSON) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsJSON, &labels); err != nil {
+			return api.Pod{}, fmt.Errorf("unmarshal pod labels: %w", err)
+		}
+		if len(labels) > 0 {
+			p.Labels = &labels
+		}
+	}
+	return p, nil
+}
+
 func scanNamespace(row pgx.Row) (api.Namespace, error) {
 	var (
 		n           api.Namespace

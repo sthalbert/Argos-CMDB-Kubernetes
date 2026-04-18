@@ -400,6 +400,114 @@ func TestPGDeleteNamespacesNotIn(t *testing.T) {
 	}
 }
 
+func TestPGPodCRUD(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "pod-test"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "kube-system"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := "Running"
+	pod, err := pg.CreatePod(ctx, api.PodCreate{
+		NamespaceId: *ns.Id,
+		Name:        "coredns-abc",
+		Phase:       &phase,
+	})
+	if err != nil {
+		t.Fatalf("create pod: %v", err)
+	}
+
+	if _, err := pg.CreatePod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "coredns-abc"}); !errors.Is(err, api.ErrConflict) {
+		t.Errorf("duplicate should be ErrConflict, got %v", err)
+	}
+	if _, err := pg.CreatePod(ctx, api.PodCreate{NamespaceId: uuid.New(), Name: "x"}); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("unknown namespace should be ErrNotFound, got %v", err)
+	}
+
+	newPhase := "Succeeded"
+	updated, err := pg.UpdatePod(ctx, *pod.Id, api.PodUpdate{Phase: &newPhase})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Phase == nil || *updated.Phase != newPhase {
+		t.Errorf("phase=%v", updated.Phase)
+	}
+
+	items, _, err := pg.ListPods(ctx, ns.Id, 10, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 {
+		t.Errorf("list len=%d", len(items))
+	}
+
+	// Cascade: deleting the cluster removes namespace and pods.
+	if err := pg.DeleteCluster(ctx, *cluster.Id); err != nil {
+		t.Fatalf("cluster delete: %v", err)
+	}
+	if _, err := pg.GetPod(ctx, *pod.Id); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("pod should have cascaded via namespace->cluster, got %v", err)
+	}
+}
+
+func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "pod-upsert"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phaseA := "Pending"
+	first, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseA})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	phaseB := "Running"
+	second, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseB})
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if *second.Id != *first.Id {
+		t.Errorf("id changed across upsert")
+	}
+	if !second.UpdatedAt.After(*first.UpdatedAt) {
+		t.Errorf("updated_at did not advance")
+	}
+
+	// Seed a second pod then reconcile to keep only one.
+	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
+		t.Fatalf("create b: %v", err)
+	}
+	deleted, err := pg.DeletePodsNotIn(ctx, *ns.Id, []string{"a"})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted=%d, want 1", deleted)
+	}
+
+	// Nil keep clears everything remaining.
+	deleted, err = pg.DeletePodsNotIn(ctx, *ns.Id, nil)
+	if err != nil {
+		t.Fatalf("nil reconcile: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted=%d on nil keep, want 1", deleted)
+	}
+}
+
 func TestPGGetClusterByName(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

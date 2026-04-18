@@ -328,6 +328,86 @@ type NodeMutable struct {
 // NodeUpdate Fields on a Node that clients may set and later update.
 type NodeUpdate = NodeMutable
 
+// Pod defines model for Pod.
+type Pod struct {
+	CreatedAt *time.Time          `json:"created_at,omitempty"`
+	Id        *openapi_types.UUID `json:"id,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Layer Always `applicative` for Pod. Set by the server.
+	Layer       *Layer             `json:"layer,omitempty"`
+	Name        string             `json:"name"`
+	NamespaceId openapi_types.UUID `json:"namespace_id"`
+
+	// NodeName Name of the node the pod is scheduled on.
+	NodeName *string `json:"node_name,omitempty"`
+
+	// Phase Kubernetes pod phase as last observed: Pending, Running, Succeeded,
+	// Failed, or Unknown. Open-ended to accommodate any additional phases.
+	Phase *string `json:"phase,omitempty"`
+
+	// PodIp Pod IP address (IPv4 or IPv6). Informational; not validated as an
+	// IP literal.
+	PodIp     *string    `json:"pod_ip,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// PodCreate defines model for PodCreate.
+type PodCreate struct {
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Name Kubernetes pod name (DNS-subdomain style). Unique per namespace.
+	// Immutable after creation.
+	Name string `json:"name"`
+
+	// NamespaceId Parent namespace id. Immutable after creation; the namespace
+	// must already exist or the create returns 404.
+	NamespaceId openapi_types.UUID `json:"namespace_id"`
+
+	// NodeName Name of the node the pod is scheduled on.
+	NodeName *string `json:"node_name,omitempty"`
+
+	// Phase Kubernetes pod phase as last observed: Pending, Running, Succeeded,
+	// Failed, or Unknown. Open-ended to accommodate any additional phases.
+	Phase *string `json:"phase,omitempty"`
+
+	// PodIp Pod IP address (IPv4 or IPv6). Informational; not validated as an
+	// IP literal.
+	PodIp *string `json:"pod_ip,omitempty"`
+}
+
+// PodList Paged list of pods.
+type PodList struct {
+	Items []Pod `json:"items"`
+
+	// NextCursor Opaque cursor to pass as `?cursor=` to fetch the next page.
+	// Absent or null when no more pages remain.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// PodMutable Fields on a Pod that clients may set and later update.
+type PodMutable struct {
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// NodeName Name of the node the pod is scheduled on.
+	NodeName *string `json:"node_name,omitempty"`
+
+	// Phase Kubernetes pod phase as last observed: Pending, Running, Succeeded,
+	// Failed, or Unknown. Open-ended to accommodate any additional phases.
+	Phase *string `json:"phase,omitempty"`
+
+	// PodIp Pod IP address (IPv4 or IPv6). Informational; not validated as an
+	// IP literal.
+	PodIp *string `json:"pod_ip,omitempty"`
+}
+
+// PodUpdate Fields on a Pod that clients may set and later update.
+type PodUpdate = PodMutable
+
 // Problem RFC 7807 problem details.
 type Problem struct {
 	Detail *string `json:"detail,omitempty"`
@@ -363,6 +443,12 @@ type NodeClusterIdFilter = openapi_types.UUID
 
 // NodeId defines model for NodeId.
 type NodeId = openapi_types.UUID
+
+// PodId defines model for PodId.
+type PodId = openapi_types.UUID
+
+// PodNamespaceIdFilter defines model for PodNamespaceIdFilter.
+type PodNamespaceIdFilter = openapi_types.UUID
 
 // BadRequest RFC 7807 problem details.
 type BadRequest = Problem
@@ -412,6 +498,18 @@ type ListNodesParams struct {
 	ClusterId *NodeClusterIdFilter `form:"cluster_id,omitempty" json:"cluster_id,omitempty"`
 }
 
+// ListPodsParams defines parameters for ListPods.
+type ListPodsParams struct {
+	// Limit Maximum number of items to return. Server clamps to [1, 200].
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor returned from a previous list response.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// NamespaceId Return only pods belonging to this namespace.
+	NamespaceId *PodNamespaceIdFilter `form:"namespace_id,omitempty" json:"namespace_id,omitempty"`
+}
+
 // CreateClusterJSONRequestBody defines body for CreateCluster for application/json ContentType.
 type CreateClusterJSONRequestBody = ClusterCreate
 
@@ -429,6 +527,12 @@ type CreateNodeJSONRequestBody = NodeCreate
 
 // UpdateNodeApplicationMergePatchPlusJSONRequestBody defines body for UpdateNode for application/merge-patch+json ContentType.
 type UpdateNodeApplicationMergePatchPlusJSONRequestBody = NodeUpdate
+
+// CreatePodJSONRequestBody defines body for CreatePod for application/json ContentType.
+type CreatePodJSONRequestBody = PodCreate
+
+// UpdatePodApplicationMergePatchPlusJSONRequestBody defines body for UpdatePod for application/merge-patch+json ContentType.
+type UpdatePodApplicationMergePatchPlusJSONRequestBody = PodUpdate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -483,6 +587,21 @@ type ServerInterface interface {
 	// Update mutable fields of a node
 	// (PATCH /v1/nodes/{id})
 	UpdateNode(w http.ResponseWriter, r *http.Request, id NodeId)
+	// List pods
+	// (GET /v1/pods)
+	ListPods(w http.ResponseWriter, r *http.Request, params ListPodsParams)
+	// Register a pod
+	// (POST /v1/pods)
+	CreatePod(w http.ResponseWriter, r *http.Request)
+	// Delete a pod
+	// (DELETE /v1/pods/{id})
+	DeletePod(w http.ResponseWriter, r *http.Request, id PodId)
+	// Get a pod
+	// (GET /v1/pods/{id})
+	GetPod(w http.ResponseWriter, r *http.Request, id PodId)
+	// Update mutable fields of a pod
+	// (PATCH /v1/pods/{id})
+	UpdatePod(w http.ResponseWriter, r *http.Request, id PodId)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1000,6 +1119,168 @@ func (siw *ServerInterfaceWrapper) UpdateNode(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListPods operation middleware
+func (siw *ServerInterfaceWrapper) ListPods(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPodsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "namespace_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "namespace_id", r.URL.Query(), &params.NamespaceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "namespace_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPods(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePod operation middleware
+func (siw *ServerInterfaceWrapper) CreatePod(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePod(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePod operation middleware
+func (siw *ServerInterfaceWrapper) DeletePod(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PodId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePod(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPod operation middleware
+func (siw *ServerInterfaceWrapper) GetPod(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PodId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPod(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePod operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePod(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PodId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePod(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1137,6 +1418,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("DELETE "+options.BaseURL+"/v1/nodes/{id}", wrapper.DeleteNode)
 	m.HandleFunc("GET "+options.BaseURL+"/v1/nodes/{id}", wrapper.GetNode)
 	m.HandleFunc("PATCH "+options.BaseURL+"/v1/nodes/{id}", wrapper.UpdateNode)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/pods", wrapper.ListPods)
+	m.HandleFunc("POST "+options.BaseURL+"/v1/pods", wrapper.CreatePod)
+	m.HandleFunc("DELETE "+options.BaseURL+"/v1/pods/{id}", wrapper.DeletePod)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/pods/{id}", wrapper.GetPod)
+	m.HandleFunc("PATCH "+options.BaseURL+"/v1/pods/{id}", wrapper.UpdatePod)
 
 	return m
 }
@@ -1144,70 +1430,78 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"s/8PAAD//w6FnYebVAAA",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
