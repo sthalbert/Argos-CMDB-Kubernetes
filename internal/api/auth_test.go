@@ -3,86 +3,155 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-func TestBearerAuth(t *testing.T) {
+func mustTokenStore(t *testing.T, tokens []ScopedToken) *TokenStore {
+	t.Helper()
+	store, err := NewTokenStore(tokens)
+	if err != nil {
+		t.Fatalf("NewTokenStore: %v", err)
+	}
+	return store
+}
+
+func TestNewTokenStoreValidation(t *testing.T) {
 	t.Parallel()
-
-	const token = "s3cret-token"
-	passthrough := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	wrapped := BearerAuth(token)(passthrough)
-
 	tests := []struct {
-		name        string
-		path        string
-		authHeader  string
-		wantStatus  int
-		wantWWWAuth bool
+		name    string
+		tokens  []ScopedToken
+		wantErr bool
 	}{
-		{"healthz open without auth", "/healthz", "", http.StatusOK, false},
-		{"readyz open without auth", "/readyz", "", http.StatusOK, false},
-		{"missing header rejected", "/v1/clusters", "", http.StatusUnauthorized, true},
-		{"wrong scheme rejected", "/v1/clusters", "Basic abc", http.StatusUnauthorized, true},
-		{"empty bearer rejected", "/v1/clusters", "Bearer ", http.StatusUnauthorized, true},
-		{"bad token rejected", "/v1/clusters", "Bearer wrong-token", http.StatusUnauthorized, true},
-		{"correct token allowed", "/v1/clusters", "Bearer " + token, http.StatusOK, false},
+		{"empty slice ok", nil, false},
+		{"valid single", []ScopedToken{{Name: "a", Token: "x", Scopes: []string{ScopeRead}}}, false},
+		{"empty token rejected", []ScopedToken{{Name: "a", Token: "", Scopes: []string{ScopeRead}}}, true},
+		{"duplicate token rejected", []ScopedToken{
+			{Name: "a", Token: "same", Scopes: []string{ScopeRead}},
+			{Name: "b", Token: "same", Scopes: []string{ScopeWrite}},
+		}, true},
+		{"unknown scope rejected", []ScopedToken{{Name: "a", Token: "x", Scopes: []string{"bogus"}}}, true},
+		{"admin scope accepted", []ScopedToken{{Name: "a", Token: "x", Scopes: []string{ScopeAdmin}}}, false},
+		{"all known scopes accepted", []ScopedToken{
+			{Name: "a", Token: "x", Scopes: []string{ScopeRead, ScopeWrite, ScopeDelete, ScopeAdmin}},
+		}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			if tt.authHeader != "" {
-				req.Header.Set("Authorization", tt.authHeader)
-			}
-			rr := httptest.NewRecorder()
-			wrapped.ServeHTTP(rr, req)
-
-			if rr.Code != tt.wantStatus {
-				t.Errorf("status=%d, want=%d body=%q", rr.Code, tt.wantStatus, rr.Body.String())
-			}
-			gotWWW := rr.Header().Get("WWW-Authenticate") != ""
-			if gotWWW != tt.wantWWWAuth {
-				t.Errorf("WWW-Authenticate presence=%v, want=%v", gotWWW, tt.wantWWWAuth)
+			_, err := NewTokenStore(tt.tokens)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("err=%v, wantErr=%v", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-// TestBearerAuthWithServer verifies the middleware composes correctly with
-// the generated handler chain and keeps health probes unauthenticated.
-func TestBearerAuthWithServer(t *testing.T) {
+func TestParseTokensJSON(t *testing.T) {
 	t.Parallel()
-	const token = "srv-token"
-	base := Handler(NewServer("test", newMemStore()))
-	h := BearerAuth(token)(base)
-
-	cases := []struct {
-		name       string
-		method     string
-		path       string
-		header     string
-		wantStatus int
+	tests := []struct {
+		name    string
+		raw     string
+		wantLen int
+		wantErr bool
 	}{
-		{"authorized list", http.MethodGet, "/v1/clusters", "Bearer " + token, http.StatusOK},
-		{"unauthorized list", http.MethodGet, "/v1/clusters", "", http.StatusUnauthorized},
-		{"healthz open", http.MethodGet, "/healthz", "", http.StatusOK},
-		{"readyz open", http.MethodGet, "/readyz", "", http.StatusOK},
+		{"empty string yields nil", "", 0, false},
+		{"whitespace yields nil", "   \t\n ", 0, false},
+		{"empty array", "[]", 0, false},
+		{"single token", `[{"name":"a","token":"tok","scopes":["read"]}]`, 1, false},
+		{"multiple tokens", `[{"name":"a","token":"t1","scopes":["read"]},{"name":"b","token":"t2","scopes":["admin"]}]`, 2, false},
+		{"malformed json", `[{`, 0, true},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			req := httptest.NewRequest(tc.method, tc.path, nil)
-			if tc.header != "" {
-				req.Header.Set("Authorization", tc.header)
+			got, err := ParseTokensJSON(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err=%v, wantErr=%v", err, tt.wantErr)
 			}
-			rr := httptest.NewRecorder()
-			h.ServeHTTP(rr, req)
-			if rr.Code != tc.wantStatus {
-				t.Errorf("status=%d, want=%d body=%q", rr.Code, tc.wantStatus, rr.Body.String())
+			if err == nil && len(got) != tt.wantLen {
+				t.Errorf("len=%d, want %d", len(got), tt.wantLen)
 			}
 		})
 	}
+}
+
+func TestBearerAuthEnforcesScopes(t *testing.T) {
+	t.Parallel()
+
+	store := mustTokenStore(t, []ScopedToken{
+		{Name: "ro", Token: "ro-tok", Scopes: []string{ScopeRead}},
+		{Name: "rw", Token: "rw-tok", Scopes: []string{ScopeRead, ScopeWrite}},
+		{Name: "del", Token: "del-tok", Scopes: []string{ScopeDelete}},
+		{Name: "god", Token: "god-tok", Scopes: []string{ScopeAdmin}},
+	})
+
+	h := HandlerWithOptions(NewServer("test", newMemStore()), StdHTTPServerOptions{
+		Middlewares: []MiddlewareFunc{BearerAuth(store)},
+	})
+
+	// Pre-create a cluster with the admin token so subsequent cases exercise
+	// auth, not missing-data paths.
+	precondition := doAuth(t, h, http.MethodPost, "/v1/clusters", "god-tok", `{"name":"prod"}`)
+	if precondition.Code != http.StatusCreated {
+		t.Fatalf("precondition failed to create cluster: status=%d body=%q", precondition.Code, precondition.Body.String())
+	}
+
+	anyUUID := "00000000-0000-0000-0000-000000000000"
+
+	tests := []struct {
+		name       string
+		method     string
+		target     string
+		token      string
+		body       string
+		wantStatus int
+	}{
+		{"healthz unauthenticated", http.MethodGet, "/healthz", "", "", http.StatusOK},
+		{"readyz unauthenticated", http.MethodGet, "/readyz", "", "", http.StatusOK},
+
+		{"list without token 401", http.MethodGet, "/v1/clusters", "", "", http.StatusUnauthorized},
+		{"list bad token 401", http.MethodGet, "/v1/clusters", "nope", "", http.StatusUnauthorized},
+		{"list with read ok", http.MethodGet, "/v1/clusters", "ro-tok", "", http.StatusOK},
+		{"list with delete-only 403", http.MethodGet, "/v1/clusters", "del-tok", "", http.StatusForbidden},
+		{"list with admin ok", http.MethodGet, "/v1/clusters", "god-tok", "", http.StatusOK},
+
+		{"create with read 403", http.MethodPost, "/v1/clusters", "ro-tok", `{"name":"a"}`, http.StatusForbidden},
+		{"create with write ok", http.MethodPost, "/v1/clusters", "rw-tok", `{"name":"b"}`, http.StatusCreated},
+		{"create with admin ok", http.MethodPost, "/v1/clusters", "god-tok", `{"name":"c"}`, http.StatusCreated},
+
+		{"patch with read 403", http.MethodPatch, "/v1/clusters/" + anyUUID, "ro-tok", `{"provider":"gke"}`, http.StatusForbidden},
+		{"patch with write returns 404 (no row)", http.MethodPatch, "/v1/clusters/" + anyUUID, "rw-tok", `{"provider":"gke"}`, http.StatusNotFound},
+
+		{"delete with write 403", http.MethodDelete, "/v1/clusters/" + anyUUID, "rw-tok", "", http.StatusForbidden},
+		{"delete with delete-scope returns 404", http.MethodDelete, "/v1/clusters/" + anyUUID, "del-tok", "", http.StatusNotFound},
+		{"delete with admin returns 404", http.MethodDelete, "/v1/clusters/" + anyUUID, "god-tok", "", http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rr := doAuth(t, h, tt.method, tt.target, tt.token, tt.body)
+			if rr.Code != tt.wantStatus {
+				t.Errorf("status=%d, want=%d; body=%q", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if tt.wantStatus == http.StatusUnauthorized {
+				if rr.Header().Get("WWW-Authenticate") == "" {
+					t.Error("WWW-Authenticate header missing on 401")
+				}
+			}
+		})
+	}
+}
+
+func doAuth(t *testing.T, h http.Handler, method, target, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	return rr
 }

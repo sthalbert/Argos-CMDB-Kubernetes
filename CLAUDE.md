@@ -38,7 +38,26 @@ Argos is a CMDB (Configuration Management Database) for Kubernetes environments,
 
 The codebase currently covers the API layer only:
 
-- `cmd/argosd/main.go` — daemon entry point: env-based configuration (`ARGOS_ADDR`, `ARGOS_DATABASE_URL`, `ARGOS_API_TOKEN`, `ARGOS_AUTO_MIGRATE`, `ARGOS_SHUTDOWN_TIMEOUT`, collector vars), opens the PostgreSQL pool, runs migrations, starts the HTTP server (wrapped in `BearerAuth` middleware), spawns the collector goroutine when enabled, handles graceful shutdown on SIGINT / SIGTERM.
+- `cmd/argosd/main.go` — daemon entry point: env-based configuration (`ARGOS_ADDR`, `ARGOS_DATABASE_URL`, `ARGOS_API_TOKEN` and/or `ARGOS_API_TOKENS`, `ARGOS_AUTO_MIGRATE`, `ARGOS_SHUTDOWN_TIMEOUT`, collector vars). Opens the PostgreSQL pool, runs migrations, builds the bearer-token store, starts the HTTP server with the scope-aware `BearerAuth` middleware, spawns the collector goroutine when enabled, handles graceful shutdown on SIGINT / SIGTERM.
+
+### Auth scopes
+
+`BearerAuth` enforces per-operation scopes declared in the OpenAPI spec:
+
+| Scope    | Grants                                              |
+|----------|-----------------------------------------------------|
+| `read`   | list and get cluster endpoints                      |
+| `write`  | create and update                                   |
+| `delete` | removal                                             |
+| `admin`  | implicit grant of every other scope                 |
+
+Configure tokens via either or both env vars (merged at startup):
+
+- `ARGOS_API_TOKEN=<value>` — convenience: a single token granted `admin`.
+- `ARGOS_API_TOKENS=<json>` — JSON array, e.g.
+  `[{"name":"collector","token":"...","scopes":["read","write"]}]`.
+
+At least one token must be configured; `/healthz` and `/readyz` stay open.
 - `internal/api/` — generated server (`api.gen.go`), hand-written handlers (`server.go`), `Store` interface (`store.go`) with `ErrNotFound` / `ErrConflict` sentinels. RFC 7807 `application/problem+json` for all errors.
 - `internal/store/` — PostgreSQL implementation of `api.Store` using `pgx/v5`. Cursor-paginated list, merge-patch updates, embedded `goose` migrations.
 - `internal/collector/` — Kubernetes polling collector (v1 scope: fetches the API server version via `client-go` and refreshes the matching cluster record by name). Disabled by default; enable with `ARGOS_COLLECTOR_ENABLED=true` and `ARGOS_CLUSTER_NAME=...`.

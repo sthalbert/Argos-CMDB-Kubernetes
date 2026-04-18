@@ -72,6 +72,8 @@ paths:
       tags: [clusters]
       summary: List clusters
       operationId: listClusters
+      security:
+        - BearerAuth: [read]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
@@ -86,11 +88,15 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
     post:
       tags: [clusters]
       summary: Register a cluster
       operationId: createCluster
+      security:
+        - BearerAuth: [write]
       requestBody:
         required: true
         content:
@@ -114,6 +120,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
 
@@ -124,6 +132,8 @@ paths:
       tags: [clusters]
       summary: Get a cluster
       operationId: getCluster
+      security:
+        - BearerAuth: [read]
       responses:
         '200':
           description: Cluster details.
@@ -133,6 +143,8 @@ paths:
                 $ref: '#/components/schemas/Cluster'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -143,6 +155,8 @@ paths:
         Merge-patch semantics: fields omitted from the body are unchanged.
         `name` is immutable after creation.
       operationId: updateCluster
+      security:
+        - BearerAuth: [write]
       requestBody:
         required: true
         content:
@@ -160,6 +174,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -167,11 +183,15 @@ paths:
       tags: [clusters]
       summary: Delete a cluster
       operationId: deleteCluster
+      security:
+        - BearerAuth: [delete]
       responses:
         '204':
           description: Cluster deleted.
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -184,6 +204,15 @@ components:
       bearerFormat: token
       description: |
         API token issued out-of-band. Send as `Authorization: Bearer <token>`.
+
+        Scopes granted to a token:
+          - `read`   — list and get operations
+          - `write`  — create and update (implies `read` at the caller's discretion)
+          - `delete` — remove resources
+          - `admin`  — all of the above; reserved for future admin-only endpoints
+
+        Tokens carrying the `admin` scope implicitly satisfy any scope required
+        by an operation.
 
   parameters:
 
@@ -227,6 +256,13 @@ components:
 
     Unauthorized:
       description: Missing or invalid bearer token.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    Forbidden:
+      description: Token is valid but lacks the scope required by the operation.
       content:
         application/problem+json:
           schema:

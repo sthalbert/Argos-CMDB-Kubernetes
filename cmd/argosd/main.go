@@ -37,9 +37,9 @@ func run() error {
 	if dsn == "" {
 		return errors.New("ARGOS_DATABASE_URL is required")
 	}
-	token := os.Getenv("ARGOS_API_TOKEN")
-	if token == "" {
-		return errors.New("ARGOS_API_TOKEN is required")
+	tokenStore, err := loadTokenStore()
+	if err != nil {
+		return err
 	}
 	shutdownTimeout, err := parseDurationEnv("ARGOS_SHUTDOWN_TIMEOUT", 15*time.Second)
 	if err != nil {
@@ -71,8 +71,10 @@ func run() error {
 	}
 
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           api.BearerAuth(token)(api.Handler(api.NewServer(version, pg))),
+		Addr: addr,
+		Handler: api.HandlerWithOptions(api.NewServer(version, pg), api.StdHTTPServerOptions{
+			Middlewares: []api.MiddlewareFunc{api.BearerAuth(tokenStore)},
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -141,6 +143,43 @@ func maybeStartCollector(ctx context.Context, s api.Store) error {
 		}
 	}()
 	return nil
+}
+
+// loadTokenStore merges ARGOS_API_TOKEN (a convenience single admin token)
+// and ARGOS_API_TOKENS (a JSON array of full scoped tokens) into a validated
+// TokenStore. Returns an error if neither env var is set.
+func loadTokenStore() (*api.TokenStore, error) {
+	var tokens []api.ScopedToken
+
+	if adminToken := os.Getenv("ARGOS_API_TOKEN"); adminToken != "" {
+		tokens = append(tokens, api.ScopedToken{
+			Name:   "env:ARGOS_API_TOKEN",
+			Token:  adminToken,
+			Scopes: []string{api.ScopeAdmin},
+		})
+	}
+
+	parsed, err := api.ParseTokensJSON(os.Getenv("ARGOS_API_TOKENS"))
+	if err != nil {
+		return nil, fmt.Errorf("ARGOS_API_TOKENS: %w", err)
+	}
+	for i, p := range parsed {
+		if p.Name == "" {
+			p.Name = fmt.Sprintf("env:ARGOS_API_TOKENS[%d]", i)
+		}
+		tokens = append(tokens, p)
+	}
+
+	if len(tokens) == 0 {
+		return nil, api.ErrNoTokensConfigured
+	}
+
+	store, err := api.NewTokenStore(tokens)
+	if err != nil {
+		return nil, fmt.Errorf("build token store: %w", err)
+	}
+	slog.Info("auth tokens loaded", "count", store.Len())
+	return store, nil
 }
 
 func envOr(key, fallback string) string {
