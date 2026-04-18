@@ -67,6 +67,11 @@ type Store interface {
 	// ErrNotFound if the parent cluster does not exist.
 	UpsertNode(ctx context.Context, in NodeCreate) (Node, error)
 
+	// DeleteNodesNotIn removes every node of the given cluster whose name is
+	// not in keepNames. When keepNames is empty the entire set of nodes for
+	// that cluster is removed. Returns the number of rows deleted.
+	DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+
 	// CreateNamespace inserts a new namespace. Returns ErrNotFound when the
 	// parent cluster does not exist; ErrConflict when (cluster_id, name)
 	// already has a namespace.
@@ -88,4 +93,7 @@ type Store interface {
 
 	// UpsertNamespace mirrors UpsertNode for namespaces.
 	UpsertNamespace(ctx context.Context, in NamespaceCreate) (Namespace, error)
+
+	// DeleteNamespacesNotIn mirrors DeleteNodesNotIn for namespaces.
+	DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
 }

@@ -385,6 +385,50 @@ func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Names
 	return n, nil
 }
 
+func (m *memStore) DeleteNodesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, name := range keepNames {
+		keep[name] = struct{}{}
+	}
+	var deleted int64
+	for id, n := range m.nodesByID {
+		if n.ClusterId != clusterID {
+			continue
+		}
+		if _, ok := keep[n.Name]; ok {
+			continue
+		}
+		delete(m.nodesByID, id)
+		delete(m.nodesByNatKey, nodeNatKey(n.ClusterId, n.Name))
+		deleted++
+	}
+	return deleted, nil
+}
+
+func (m *memStore) DeleteNamespacesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, name := range keepNames {
+		keep[name] = struct{}{}
+	}
+	var deleted int64
+	for id, n := range m.nsByID {
+		if n.ClusterId != clusterID {
+			continue
+		}
+		if _, ok := keep[n.Name]; ok {
+			continue
+		}
+		delete(m.nsByID, id)
+		delete(m.nsByNatKey, nsNatKey(n.ClusterId, n.Name))
+		deleted++
+	}
+	return deleted, nil
+}
+
 func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
