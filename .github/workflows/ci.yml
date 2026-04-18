@@ -46,6 +46,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # Produce ui/dist so //go:embed all:dist in ui/embed.go finds a bundle.
+      # Every downstream Go step (vet, build, test) compiles the ui package.
+      - name: Build UI bundle
+        run: |
+          cd ui
+          npm ci
+          npm run build
+
       - name: Verify generated code is current
         run: |
           go generate ./...

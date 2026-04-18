@@ -6,12 +6,31 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 IMAGE_NAME ?= argos
 IMAGE_TAG  ?= dev
 
-.PHONY: all build generate test test-one vet lint fmt tidy check clean docker-build
+.PHONY: all build build-noui generate test test-one vet lint fmt tidy check clean docker-build ui-install ui-build ui-dev ui-check
 
 all: build
 
+# Default build embeds ui/dist — run `make ui-build` first (or once) so the
+# Vite bundle exists. For backend-only workflows use `make build-noui`.
 build:
 	go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY) ./cmd/$(BINARY)
+
+# Compile argosd without the embedded UI — /ui/ replies 404. No Node/npm
+# required. CI and release builds do not use this target.
+build-noui:
+	go build -tags noui $(LDFLAGS) -o $(BIN_DIR)/$(BINARY) ./cmd/$(BINARY)
+
+ui-install:
+	cd ui && npm ci
+
+ui-build:
+	cd ui && npm run build
+
+ui-dev:
+	cd ui && npm run dev
+
+ui-check:
+	cd ui && npm run typecheck
 
 generate:
 	go generate ./...

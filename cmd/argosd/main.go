@@ -19,6 +19,7 @@ import (
 	"github.com/sthalbert/argos/internal/collector"
 	"github.com/sthalbert/argos/internal/metrics"
 	"github.com/sthalbert/argos/internal/store"
+	"github.com/sthalbert/argos/ui"
 )
 
 // version is set at build time via -ldflags.
@@ -78,6 +79,12 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
+	// SPA served unauthenticated under /ui/; the bundle is static and the
+	// API calls it makes from the browser carry their own bearer token.
+	mux.Handle("/ui/", http.StripPrefix("/ui", ui.Handler()))
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	})
 	api.HandlerWithOptions(api.NewServer(version, pg), api.StdHTTPServerOptions{
 		BaseRouter:  mux,
 		Middlewares: []api.MiddlewareFunc{api.BearerAuth(tokenStore)},
