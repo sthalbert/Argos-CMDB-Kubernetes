@@ -31,6 +31,10 @@ type fakeSource struct {
 	listIngressErr   error
 	replicaSets      []ReplicaSetOwner
 	listRSErr        error
+	pvs              []PVInfo
+	listPVErr        error
+	pvcs             []PVCInfo
+	listPVCErr       error
 }
 
 func (f *fakeSource) ServerVersion(_ context.Context) (string, error) {
@@ -65,6 +69,14 @@ func (f *fakeSource) ListReplicaSetOwners(_ context.Context) ([]ReplicaSetOwner,
 	return f.replicaSets, f.listRSErr
 }
 
+func (f *fakeSource) ListPersistentVolumes(_ context.Context) ([]PVInfo, error) {
+	return f.pvs, f.listPVErr
+}
+
+func (f *fakeSource) ListPersistentVolumeClaims(_ context.Context) ([]PVCInfo, error) {
+	return f.pvcs, f.listPVCErr
+}
+
 type recordedUpdate struct {
 	id    uuid.UUID
 	patch api.ClusterUpdate
@@ -80,6 +92,8 @@ type fakeStore struct {
 	upsertedWorkload []api.WorkloadCreate
 	upsertedService  []api.ServiceCreate
 	upsertedIngress  []api.IngressCreate
+	upsertedPV       []api.PersistentVolumeCreate
+	upsertedPVC      []api.PersistentVolumeClaimCreate
 	// Existing rows; reconciliation operates against these.
 	existingNodes     []api.Node
 	existingNS        []api.Namespace
@@ -87,11 +101,13 @@ type fakeStore struct {
 	existingWorkloads []api.Workload
 	existingServices  []api.Service
 	existingIngresses []api.Ingress
-	// Preset namespace-id assignments. The fake picks an id for each
-	// UpsertNamespace call from here (keyed by cluster_id + name), falling
-	// back to a fresh uuid.New() if absent. Lets tests pin the name -> id
-	// map that flows into ingestPods.
+	existingPVs       []api.PersistentVolume
+	existingPVCs      []api.PersistentVolumeClaim
+	// Preset id assignments. The fake picks an id for each Upsert call from
+	// here (keyed by natural key), falling back to a fresh uuid.New() if
+	// absent. Lets tests pin the name -> id map that flows into PVC linking.
 	nsIDPreset        map[string]uuid.UUID
+	pvIDPreset        map[string]uuid.UUID // key: cluster_id/pv-name
 	listErr           error
 	updateErr         error
 	upsertErr         error
@@ -100,6 +116,8 @@ type fakeStore struct {
 	upsertWorkloadErr error
 	upsertServiceErr  error
 	upsertIngressErr  error
+	upsertPVErr       error
+	upsertPVCErr      error
 	// nodeState mirrors per-(cluster_id, name) upsert history so tests can
 	// assert idempotent behaviour.
 	nodeState     map[string]int // key: cluster_id/name, value: upsert count
@@ -108,6 +126,8 @@ type fakeStore struct {
 	workloadState map[string]int // key: namespace_id/kind/name
 	serviceState  map[string]int // key: namespace_id/name
 	ingressState  map[string]int // key: namespace_id/name
+	pvState       map[string]int // key: cluster_id/name
+	pvcState      map[string]int // key: namespace_id/name
 	// Reconciliation call log: each entry is the keepNames slice from a call.
 	reconcileNodesCalls     []reconcileCall
 	reconcileNSCalls        []reconcileCall
@@ -115,6 +135,8 @@ type fakeStore struct {
 	reconcileWorkloadsCalls []reconcileWorkloadCall
 	reconcileServicesCalls  []reconcileCall
 	reconcileIngressesCalls []reconcileCall
+	reconcilePVsCalls       []reconcileCall
+	reconcilePVCsCalls      []reconcileCall
 }
 
 type reconcileWorkloadCall struct {
@@ -136,7 +158,10 @@ func newFakeStore() *fakeStore {
 		workloadState: make(map[string]int),
 		serviceState:  make(map[string]int),
 		ingressState:  make(map[string]int),
+		pvState:       make(map[string]int),
+		pvcState:      make(map[string]int),
 		nsIDPreset:    make(map[string]uuid.UUID),
+		pvIDPreset:    make(map[string]uuid.UUID),
 	}
 }
 
@@ -433,6 +458,94 @@ func (s *fakeStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUI
 		deleted++
 	}
 	s.existingWorkloads = kept
+	return deleted, nil
+}
+
+func (s *fakeStore) UpsertPersistentVolume(_ context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.upsertPVErr != nil {
+		return api.PersistentVolume{}, s.upsertPVErr
+	}
+	s.upsertedPV = append(s.upsertedPV, in)
+	key := in.ClusterId.String() + "/" + in.Name
+	s.pvState[key]++
+	id, preset := s.pvIDPreset[key]
+	if !preset {
+		id = uuid.New()
+	}
+	return api.PersistentVolume{
+		Id:        &id,
+		ClusterId: in.ClusterId,
+		Name:      in.Name,
+	}, nil
+}
+
+func (s *fakeStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconcilePVsCalls = append(s.reconcilePVsCalls, reconcileCall{clusterID: clusterID, keep: append([]string(nil), keepNames...)})
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	kept := s.existingPVs[:0]
+	var deleted int64
+	for _, pv := range s.existingPVs {
+		if pv.ClusterId != clusterID {
+			kept = append(kept, pv)
+			continue
+		}
+		if _, ok := keep[pv.Name]; ok {
+			kept = append(kept, pv)
+			continue
+		}
+		deleted++
+	}
+	s.existingPVs = kept
+	return deleted, nil
+}
+
+func (s *fakeStore) UpsertPersistentVolumeClaim(_ context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.upsertPVCErr != nil {
+		return api.PersistentVolumeClaim{}, s.upsertPVCErr
+	}
+	s.upsertedPVC = append(s.upsertedPVC, in)
+	key := in.NamespaceId.String() + "/" + in.Name
+	s.pvcState[key]++
+	id := uuid.New()
+	return api.PersistentVolumeClaim{
+		Id:            &id,
+		NamespaceId:   in.NamespaceId,
+		Name:          in.Name,
+		BoundVolumeId: in.BoundVolumeId,
+	}, nil
+}
+
+func (s *fakeStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconcilePVCsCalls = append(s.reconcilePVCsCalls, reconcileCall{clusterID: namespaceID, keep: append([]string(nil), keepNames...)})
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	kept := s.existingPVCs[:0]
+	var deleted int64
+	for _, pvc := range s.existingPVCs {
+		if pvc.NamespaceId != namespaceID {
+			kept = append(kept, pvc)
+			continue
+		}
+		if _, ok := keep[pvc.Name]; ok {
+			kept = append(kept, pvc)
+			continue
+		}
+		deleted++
+	}
+	s.existingPVCs = kept
 	return deleted, nil
 }
 
@@ -1314,6 +1427,172 @@ func TestPollSkipsNamespaceIngestionOnListError(t *testing.T) {
 
 	if len(store.upsertedNS) != 0 {
 		t.Errorf("expected no namespace upserts on list error; got %d", len(store.upsertedNS))
+	}
+}
+
+func TestPollIngestsPersistentVolumes(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+
+	source := &fakeSource{
+		version: "v1.29.5",
+		pvs: []PVInfo{
+			{Name: "pv-a", Capacity: "10Gi", AccessModes: []string{"ReadWriteOnce"}, Phase: "Bound", CSIDriver: "ebs.csi.aws.com", VolumeHandle: "vol-123"},
+			{Name: "pv-b", Capacity: "20Gi", ReclaimPolicy: "Retain"},
+		},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.upsertedPV) != 2 {
+		t.Fatalf("upserted PVs=%d, want 2", len(store.upsertedPV))
+	}
+	for _, up := range store.upsertedPV {
+		if up.ClusterId != clusterID {
+			t.Errorf("pv cluster_id=%v, want %v", up.ClusterId, clusterID)
+		}
+	}
+	first := store.upsertedPV[0]
+	if first.Capacity == nil || *first.Capacity != "10Gi" {
+		t.Errorf("pv-a capacity=%v, want 10Gi", first.Capacity)
+	}
+	if first.AccessModes == nil || (*first.AccessModes)[0] != "ReadWriteOnce" {
+		t.Errorf("pv-a access_modes=%v, want [ReadWriteOnce]", first.AccessModes)
+	}
+	if first.CsiDriver == nil || *first.CsiDriver != "ebs.csi.aws.com" {
+		t.Errorf("pv-a csi_driver=%v", first.CsiDriver)
+	}
+}
+
+func TestPollResolvesPVCBoundVolumeID(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	nsID := uuid.New()
+	pvBoundID := uuid.New()
+
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	store.nsIDPreset[clusterID.String()+"/default"] = nsID
+	// Pin the PV id so we can assert the PVC resolution.
+	store.pvIDPreset[clusterID.String()+"/pv-bound"] = pvBoundID
+
+	source := &fakeSource{
+		version:    "v1.29.5",
+		namespaces: []NamespaceInfo{{Name: "default"}},
+		pvs: []PVInfo{
+			{Name: "pv-bound", Phase: "Bound"},
+		},
+		pvcs: []PVCInfo{
+			// Bound PVC: VolumeName matches a live PV — bound_volume_id set.
+			{Name: "data-0", Namespace: "default", Phase: "Bound", VolumeName: "pv-bound", RequestedStorage: "5Gi"},
+			// Pending PVC: no VolumeName yet — bound_volume_id stays nil.
+			{Name: "pending", Namespace: "default", Phase: "Pending"},
+			// PVC referring to a PV that wasn't listed this tick — stays nil.
+			{Name: "ghost", Namespace: "default", VolumeName: "pv-missing"},
+		},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.upsertedPVC) != 3 {
+		t.Fatalf("upserted PVCs=%d, want 3", len(store.upsertedPVC))
+	}
+	byName := map[string]api.PersistentVolumeClaimCreate{}
+	for _, up := range store.upsertedPVC {
+		byName[up.Name] = up
+	}
+	if got := byName["data-0"].BoundVolumeId; got == nil || *got != pvBoundID {
+		t.Errorf("data-0 bound_volume_id=%v, want %v", got, pvBoundID)
+	}
+	if got := byName["pending"].BoundVolumeId; got != nil {
+		t.Errorf("pending bound_volume_id=%v, want nil", got)
+	}
+	if got := byName["ghost"].BoundVolumeId; got != nil {
+		t.Errorf("ghost bound_volume_id=%v, want nil (pv-missing not listed)", got)
+	}
+}
+
+func TestPollPVCsWhenPVListFails(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	nsID := uuid.New()
+
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	store.nsIDPreset[clusterID.String()+"/default"] = nsID
+
+	source := &fakeSource{
+		version:    "v1.29.5",
+		namespaces: []NamespaceInfo{{Name: "default"}},
+		listPVErr:  errors.New("kube down"),
+		pvcs: []PVCInfo{
+			{Name: "data-0", Namespace: "default", VolumeName: "pv-x"},
+		},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.upsertedPVC) != 1 {
+		t.Fatalf("upserted PVCs=%d, want 1 (ingestion must continue when PV listing fails)", len(store.upsertedPVC))
+	}
+	if got := store.upsertedPVC[0].BoundVolumeId; got != nil {
+		t.Errorf("bound_volume_id=%v, want nil when PV listing fails", got)
+	}
+	if len(store.reconcilePVsCalls) != 0 {
+		t.Errorf("expected no PV reconcile on ListPersistentVolumes error; got %d", len(store.reconcilePVsCalls))
+	}
+}
+
+func TestPollPVsAndPVCsReconcile(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	nsID := uuid.New()
+
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	store.nsIDPreset[clusterID.String()+"/default"] = nsID
+
+	pvLive := uuid.New()
+	pvStale := uuid.New()
+	store.existingPVs = []api.PersistentVolume{
+		{Id: &pvLive, ClusterId: clusterID, Name: "pv-live"},
+		{Id: &pvStale, ClusterId: clusterID, Name: "pv-stale"},
+	}
+	pvcLive := uuid.New()
+	pvcStale := uuid.New()
+	store.existingPVCs = []api.PersistentVolumeClaim{
+		{Id: &pvcLive, NamespaceId: nsID, Name: "live"},
+		{Id: &pvcStale, NamespaceId: nsID, Name: "stale"},
+	}
+
+	source := &fakeSource{
+		version:    "v1.29.5",
+		namespaces: []NamespaceInfo{{Name: "default"}},
+		pvs:        []PVInfo{{Name: "pv-live"}},
+		pvcs:       []PVCInfo{{Name: "live", Namespace: "default"}},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.existingPVs) != 1 || store.existingPVs[0].Name != "pv-live" {
+		t.Errorf("existingPVs=%v, want only pv-live", store.existingPVs)
+	}
+	if len(store.existingPVCs) != 1 || store.existingPVCs[0].Name != "live" {
+		t.Errorf("existingPVCs=%v, want only live", store.existingPVCs)
 	}
 }
 

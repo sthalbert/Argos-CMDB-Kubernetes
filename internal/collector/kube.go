@@ -226,6 +226,85 @@ func controllerOwner(refs []metav1.OwnerReference) (string, string) {
 	return "", ""
 }
 
+// ListPersistentVolumes returns every cluster-scoped PersistentVolume
+// visible through the configured kubeconfig. Capacity is rendered via the
+// resource.Quantity canonical string (e.g. "10Gi"). CSI-backed volumes
+// surface driver + handle; in-tree drivers leave those empty.
+func (k *KubeClient) ListPersistentVolumes(ctx context.Context) ([]PVInfo, error) {
+	list, err := k.clientset.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list persistent volumes: %w", err)
+	}
+	out := make([]PVInfo, 0, len(list.Items))
+	for i := range list.Items {
+		pv := &list.Items[i]
+		info := PVInfo{
+			Name:             pv.Name,
+			Phase:            string(pv.Status.Phase),
+			ReclaimPolicy:    string(pv.Spec.PersistentVolumeReclaimPolicy),
+			StorageClassName: pv.Spec.StorageClassName,
+			Labels:           pv.Labels,
+		}
+		if cap, ok := pv.Spec.Capacity[corev1.ResourceStorage]; ok {
+			info.Capacity = cap.String()
+		}
+		if modes := pv.Spec.AccessModes; len(modes) > 0 {
+			m := make([]string, 0, len(modes))
+			for _, mode := range modes {
+				m = append(m, string(mode))
+			}
+			info.AccessModes = m
+		}
+		if pv.Spec.CSI != nil {
+			info.CSIDriver = pv.Spec.CSI.Driver
+			info.VolumeHandle = pv.Spec.CSI.VolumeHandle
+		}
+		if ref := pv.Spec.ClaimRef; ref != nil {
+			info.ClaimRefNamespace = ref.Namespace
+			info.ClaimRefName = ref.Name
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// ListPersistentVolumeClaims returns every PVC visible through the
+// configured kubeconfig, across all namespaces. VolumeName carries raw
+// spec.volumeName (the bound PV name) so the collector can resolve it
+// against the PV map each tick.
+func (k *KubeClient) ListPersistentVolumeClaims(ctx context.Context) ([]PVCInfo, error) {
+	list, err := k.clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list persistent volume claims: %w", err)
+	}
+	out := make([]PVCInfo, 0, len(list.Items))
+	for i := range list.Items {
+		pvc := &list.Items[i]
+		info := PVCInfo{
+			Name:       pvc.Name,
+			Namespace:  pvc.Namespace,
+			Phase:      string(pvc.Status.Phase),
+			VolumeName: pvc.Spec.VolumeName,
+			Labels:     pvc.Labels,
+		}
+		if pvc.Spec.StorageClassName != nil {
+			info.StorageClassName = *pvc.Spec.StorageClassName
+		}
+		if modes := pvc.Spec.AccessModes; len(modes) > 0 {
+			m := make([]string, 0, len(modes))
+			for _, mode := range modes {
+				m = append(m, string(mode))
+			}
+			info.AccessModes = m
+		}
+		if req, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
+			info.RequestedStorage = req.String()
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
 // ListReplicaSetOwners returns one entry per ReplicaSet visible through the
 // configured kubeconfig, carrying its controlling ownerReference (typically
 // a Deployment). Used by the collector to walk Pod -> RS -> Deployment

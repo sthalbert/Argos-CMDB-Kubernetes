@@ -7,13 +7,15 @@ package api
 // When adding a new entity kind, add its layer constant here and use the
 // matching decorator helper below in its handlers.
 const (
-	LayerCluster   = InfrastructureLogical
-	LayerNode      = InfrastructurePhysical
-	LayerNamespace = InfrastructureLogical
-	LayerPod       = Applicative
-	LayerWorkload  = Applicative
-	LayerService   = Applicative
-	LayerIngress   = Applicative
+	LayerCluster               = InfrastructureLogical
+	LayerNode                  = InfrastructurePhysical
+	LayerNamespace             = InfrastructureLogical
+	LayerPod                   = Applicative
+	LayerWorkload              = Applicative
+	LayerService               = Applicative
+	LayerIngress               = Applicative
+	LayerPersistentVolume      = InfrastructurePhysical
+	LayerPersistentVolumeClaim = Applicative
 )
 
 func withClusterLayer(c Cluster) Cluster {
@@ -56,4 +58,16 @@ func withIngressLayer(i Ingress) Ingress {
 	l := LayerIngress
 	i.Layer = &l
 	return i
+}
+
+func withPersistentVolumeLayer(p PersistentVolume) PersistentVolume {
+	l := LayerPersistentVolume
+	p.Layer = &l
+	return p
+}
+
+func withPersistentVolumeClaimLayer(p PersistentVolumeClaim) PersistentVolumeClaim {
+	l := LayerPersistentVolumeClaim
+	p.Layer = &l
+	return p
 }

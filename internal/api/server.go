@@ -690,6 +690,186 @@ func isValidServiceType(t ServiceType) bool {
 	return false
 }
 
+// ListPersistentVolumes returns a paged list of PVs.
+func (s *Server) ListPersistentVolumes(w http.ResponseWriter, r *http.Request, params ListPersistentVolumesParams) {
+	limit := 0
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	cursor := ""
+	if params.Cursor != nil {
+		cursor = *params.Cursor
+	}
+
+	items, next, err := s.store.ListPersistentVolumes(r.Context(), params.ClusterId, limit, cursor)
+	if err != nil {
+		s.writeStoreError(w, "listPersistentVolumes", err)
+		return
+	}
+
+	for i := range items {
+		items[i] = withPersistentVolumeLayer(items[i])
+	}
+	resp := PersistentVolumeList{Items: items}
+	if next != "" {
+		resp.NextCursor = &next
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// CreatePersistentVolume registers a new PV under a cluster.
+func (s *Server) CreatePersistentVolume(w http.ResponseWriter, r *http.Request) {
+	var body PersistentVolumeCreate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.Name == "" {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
+		return
+	}
+	if body.ClusterId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
+		return
+	}
+
+	pv, err := s.store.CreatePersistentVolume(r.Context(), body)
+	if err != nil {
+		s.writeStoreError(w, "createPersistentVolume", err)
+		return
+	}
+	pv = withPersistentVolumeLayer(pv)
+
+	if pv.Id != nil {
+		w.Header().Set("Location", "/v1/persistentvolumes/"+pv.Id.String())
+	}
+	writeJSON(w, http.StatusCreated, pv)
+}
+
+// GetPersistentVolume fetches a PV by id.
+func (s *Server) GetPersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId) {
+	pv, err := s.store.GetPersistentVolume(r.Context(), id)
+	if err != nil {
+		s.writeStoreError(w, "getPersistentVolume", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withPersistentVolumeLayer(pv))
+}
+
+// UpdatePersistentVolume applies merge-patch updates.
+func (s *Server) UpdatePersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId) {
+	var body PersistentVolumeUpdate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	pv, err := s.store.UpdatePersistentVolume(r.Context(), id, body)
+	if err != nil {
+		s.writeStoreError(w, "updatePersistentVolume", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withPersistentVolumeLayer(pv))
+}
+
+// DeletePersistentVolume removes a PV.
+func (s *Server) DeletePersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId) {
+	if err := s.store.DeletePersistentVolume(r.Context(), id); err != nil {
+		s.writeStoreError(w, "deletePersistentVolume", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListPersistentVolumeClaims returns a paged list of PVCs.
+func (s *Server) ListPersistentVolumeClaims(w http.ResponseWriter, r *http.Request, params ListPersistentVolumeClaimsParams) {
+	limit := 0
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	cursor := ""
+	if params.Cursor != nil {
+		cursor = *params.Cursor
+	}
+
+	items, next, err := s.store.ListPersistentVolumeClaims(r.Context(), params.NamespaceId, limit, cursor)
+	if err != nil {
+		s.writeStoreError(w, "listPersistentVolumeClaims", err)
+		return
+	}
+
+	for i := range items {
+		items[i] = withPersistentVolumeClaimLayer(items[i])
+	}
+	resp := PersistentVolumeClaimList{Items: items}
+	if next != "" {
+		resp.NextCursor = &next
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// CreatePersistentVolumeClaim registers a new PVC under a namespace.
+func (s *Server) CreatePersistentVolumeClaim(w http.ResponseWriter, r *http.Request) {
+	var body PersistentVolumeClaimCreate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.Name == "" {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+
+	pvc, err := s.store.CreatePersistentVolumeClaim(r.Context(), body)
+	if err != nil {
+		s.writeStoreError(w, "createPersistentVolumeClaim", err)
+		return
+	}
+	pvc = withPersistentVolumeClaimLayer(pvc)
+
+	if pvc.Id != nil {
+		w.Header().Set("Location", "/v1/persistentvolumeclaims/"+pvc.Id.String())
+	}
+	writeJSON(w, http.StatusCreated, pvc)
+}
+
+// GetPersistentVolumeClaim fetches a PVC by id.
+func (s *Server) GetPersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId) {
+	pvc, err := s.store.GetPersistentVolumeClaim(r.Context(), id)
+	if err != nil {
+		s.writeStoreError(w, "getPersistentVolumeClaim", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withPersistentVolumeClaimLayer(pvc))
+}
+
+// UpdatePersistentVolumeClaim applies merge-patch updates.
+func (s *Server) UpdatePersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId) {
+	var body PersistentVolumeClaimUpdate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	pvc, err := s.store.UpdatePersistentVolumeClaim(r.Context(), id, body)
+	if err != nil {
+		s.writeStoreError(w, "updatePersistentVolumeClaim", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withPersistentVolumeClaimLayer(pvc))
+}
+
+// DeletePersistentVolumeClaim removes a PVC.
+func (s *Server) DeletePersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId) {
+	if err := s.store.DeletePersistentVolumeClaim(r.Context(), id); err != nil {
+		s.writeStoreError(w, "deletePersistentVolumeClaim", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) writeStoreError(w http.ResponseWriter, op string, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
