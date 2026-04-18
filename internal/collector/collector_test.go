@@ -46,14 +46,25 @@ type fakeStore struct {
 	updates          []recordedUpdate
 	upsertedNode     []api.NodeCreate
 	upsertedNS       []api.NamespaceCreate
-	listErr          error
-	updateErr        error
-	upsertErr        error
-	upsertNSErr      error
+	// Existing rows; reconciliation operates against these.
+	existingNodes []api.Node
+	existingNS    []api.Namespace
+	listErr       error
+	updateErr     error
+	upsertErr     error
+	upsertNSErr   error
 	// nodeState mirrors per-(cluster_id, name) upsert history so tests can
 	// assert idempotent behaviour.
 	nodeState map[string]int // key: cluster_id/name, value: upsert count
 	nsState   map[string]int
+	// Reconciliation call log: each entry is the keepNames slice from a call.
+	reconcileNodesCalls []reconcileCall
+	reconcileNSCalls    []reconcileCall
+}
+
+type reconcileCall struct {
+	clusterID uuid.UUID
+	keep      []string
 }
 
 func newFakeStore() *fakeStore {
@@ -113,6 +124,56 @@ func (s *fakeStore) UpsertNode(_ context.Context, in api.NodeCreate) (api.Node, 
 	}, nil
 }
 
+func (s *fakeStore) DeleteNodesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconcileNodesCalls = append(s.reconcileNodesCalls, reconcileCall{clusterID: clusterID, keep: append([]string(nil), keepNames...)})
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	kept := s.existingNodes[:0]
+	var deleted int64
+	for _, n := range s.existingNodes {
+		if n.ClusterId != clusterID {
+			kept = append(kept, n)
+			continue
+		}
+		if _, ok := keep[n.Name]; ok {
+			kept = append(kept, n)
+			continue
+		}
+		deleted++
+	}
+	s.existingNodes = kept
+	return deleted, nil
+}
+
+func (s *fakeStore) DeleteNamespacesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconcileNSCalls = append(s.reconcileNSCalls, reconcileCall{clusterID: clusterID, keep: append([]string(nil), keepNames...)})
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	kept := s.existingNS[:0]
+	var deleted int64
+	for _, n := range s.existingNS {
+		if n.ClusterId != clusterID {
+			kept = append(kept, n)
+			continue
+		}
+		if _, ok := keep[n.Name]; ok {
+			kept = append(kept, n)
+			continue
+		}
+		deleted++
+	}
+	s.existingNS = kept
+	return deleted, nil
+}
+
 func (s *fakeStore) UpsertNamespace(_ context.Context, in api.NamespaceCreate) (api.Namespace, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,7 +200,7 @@ func TestPollUpdatesVersionWhenChanged(t *testing.T) {
 	store.clusters = []api.Cluster{
 		{Id: &id, Name: "prod", KubernetesVersion: &old},
 	}
-	c := New(store, &fakeSource{version: "v1.29.5"}, "prod", time.Minute, time.Second)
+	c := New(store, &fakeSource{version: "v1.29.5"}, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -165,7 +226,7 @@ func TestPollSkipsWhenVersionUnchanged(t *testing.T) {
 	store.clusters = []api.Cluster{
 		{Id: &id, Name: "prod", KubernetesVersion: &current},
 	}
-	c := New(store, &fakeSource{version: current}, "prod", time.Minute, time.Second)
+	c := New(store, &fakeSource{version: current}, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -179,7 +240,7 @@ func TestPollSkipsOnVersionError(t *testing.T) {
 	id := uuid.New()
 	store := newFakeStore()
 	store.clusters = []api.Cluster{{Id: &id, Name: "prod"}}
-	c := New(store, &fakeSource{versionErr: errors.New("boom")}, "prod", time.Minute, time.Second)
+	c := New(store, &fakeSource{versionErr: errors.New("boom")}, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -192,7 +253,7 @@ func TestPollSkipsOnGetClusterByNameError(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
 	store.listErr = errors.New("db down")
-	c := New(store, &fakeSource{version: "v1.29.5"}, "prod", time.Minute, time.Second)
+	c := New(store, &fakeSource{version: "v1.29.5"}, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -204,7 +265,7 @@ func TestPollSkipsOnGetClusterByNameError(t *testing.T) {
 func TestPollSkipsWhenClusterNotRegistered(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
-	c := New(store, &fakeSource{version: "v1.29.5"}, "missing", time.Minute, time.Second)
+	c := New(store, &fakeSource{version: "v1.29.5"}, "missing", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -226,7 +287,7 @@ func TestPollIngestsNodes(t *testing.T) {
 			{Name: "node-b", KubeletVersion: "v1.29.5", Labels: map[string]string{"role": "worker"}},
 		},
 	}
-	c := New(store, source, "prod", time.Minute, time.Second)
+	c := New(store, source, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -261,7 +322,7 @@ func TestPollIngestsNodesIsIdempotent(t *testing.T) {
 		version: "v1.29.5",
 		nodes:   []NodeInfo{{Name: "node-a"}},
 	}
-	c := New(store, source, "prod", time.Minute, time.Second)
+	c := New(store, source, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 	c.poll(context.Background())
@@ -286,7 +347,7 @@ func TestPollContinuesOnPerNodeUpsertError(t *testing.T) {
 			{Name: "node-a"}, {Name: "node-b"}, {Name: "node-c"},
 		},
 	}
-	c := New(store, source, "prod", time.Minute, time.Second)
+	c := New(store, source, "prod", time.Minute, time.Second, true)
 
 	// poll must not panic or return early on upsert error.
 	c.poll(context.Background())
@@ -309,7 +370,7 @@ func TestPollSkipsNodeIngestionOnListNodesError(t *testing.T) {
 		version:     "v1.29.5",
 		listNodeErr: errors.New("kube down"),
 	}
-	c := New(store, source, "prod", time.Minute, time.Second)
+	c := New(store, source, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -331,7 +392,7 @@ func TestPollIngestsNamespaces(t *testing.T) {
 			{Name: "kube-system", Phase: "Active", Labels: map[string]string{"role": "system"}},
 		},
 	}
-	c := New(store, source, "prod", time.Minute, time.Second)
+	c := New(store, source, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -345,6 +406,105 @@ func TestPollIngestsNamespaces(t *testing.T) {
 	}
 }
 
+func TestPollReconcilesNodesAndNamespaces(t *testing.T) {
+	t.Parallel()
+	id := uuid.New()
+	nA := uuid.New()
+	nB := uuid.New()
+	nsA := uuid.New()
+	nsB := uuid.New()
+
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &id, Name: "prod"}}
+	store.existingNodes = []api.Node{
+		{Id: &nA, ClusterId: id, Name: "node-a"},
+		{Id: &nB, ClusterId: id, Name: "node-b"},
+	}
+	store.existingNS = []api.Namespace{
+		{Id: &nsA, ClusterId: id, Name: "ns-a"},
+		{Id: &nsB, ClusterId: id, Name: "ns-b"},
+	}
+
+	// Kubernetes now reports only the -a variants; -b rows must be reconciled away.
+	source := &fakeSource{
+		version:    "v1.29.5",
+		nodes:      []NodeInfo{{Name: "node-a"}},
+		namespaces: []NamespaceInfo{{Name: "ns-a"}},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	if len(store.reconcileNodesCalls) != 1 {
+		t.Fatalf("node reconcile calls=%d, want 1", len(store.reconcileNodesCalls))
+	}
+	if got := store.reconcileNodesCalls[0].keep; len(got) != 1 || got[0] != "node-a" {
+		t.Errorf("node keep=%v, want [node-a]", got)
+	}
+	if len(store.existingNodes) != 1 || store.existingNodes[0].Name != "node-a" {
+		t.Errorf("existingNodes=%v, want only node-a", store.existingNodes)
+	}
+
+	if len(store.reconcileNSCalls) != 1 {
+		t.Fatalf("namespace reconcile calls=%d, want 1", len(store.reconcileNSCalls))
+	}
+	if got := store.reconcileNSCalls[0].keep; len(got) != 1 || got[0] != "ns-a" {
+		t.Errorf("namespace keep=%v, want [ns-a]", got)
+	}
+	if len(store.existingNS) != 1 || store.existingNS[0].Name != "ns-a" {
+		t.Errorf("existingNS=%v, want only ns-a", store.existingNS)
+	}
+}
+
+func TestPollSkipsReconcileWhenDisabled(t *testing.T) {
+	t.Parallel()
+	id := uuid.New()
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &id, Name: "prod"}}
+	source := &fakeSource{
+		version:    "v1.29.5",
+		nodes:      []NodeInfo{{Name: "node-a"}},
+		namespaces: []NamespaceInfo{{Name: "ns-a"}},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, false)
+
+	c.poll(context.Background())
+
+	if len(store.reconcileNodesCalls) != 0 {
+		t.Errorf("node reconcile called with reconcile=false: %d calls", len(store.reconcileNodesCalls))
+	}
+	if len(store.reconcileNSCalls) != 0 {
+		t.Errorf("namespace reconcile called with reconcile=false: %d calls", len(store.reconcileNSCalls))
+	}
+}
+
+func TestPollDoesNotReconcileOnListError(t *testing.T) {
+	t.Parallel()
+	id := uuid.New()
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &id, Name: "prod"}}
+	// Both list calls fail; reconciliation MUST NOT run (otherwise a transient
+	// Kubernetes error would wipe the CMDB).
+	source := &fakeSource{
+		version:          "v1.29.5",
+		listNodeErr:      errors.New("nodes down"),
+		listNamespaceErr: errors.New("ns down"),
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	if len(store.reconcileNodesCalls) != 0 {
+		t.Errorf("node reconcile must not run on ListNodes error; got %d calls", len(store.reconcileNodesCalls))
+	}
+	if len(store.reconcileNSCalls) != 0 {
+		t.Errorf("namespace reconcile must not run on ListNamespaces error; got %d calls", len(store.reconcileNSCalls))
+	}
+}
+
 func TestPollSkipsNamespaceIngestionOnListError(t *testing.T) {
 	t.Parallel()
 	id := uuid.New()
@@ -355,7 +515,7 @@ func TestPollSkipsNamespaceIngestionOnListError(t *testing.T) {
 		version:          "v1.29.5",
 		listNamespaceErr: errors.New("kube down"),
 	}
-	c := New(store, source, "prod", time.Minute, time.Second)
+	c := New(store, source, "prod", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
@@ -389,7 +549,7 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 		fakeSource: fakeSource{version: "v1.29.5"},
 		ch:         make(chan struct{}, 4),
 	}
-	c := New(store, source, "prod", 20*time.Millisecond, time.Second)
+	c := New(store, source, "prod", 20*time.Millisecond, time.Second, true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

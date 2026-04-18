@@ -461,6 +461,32 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 	return p.GetNode(ctx, id)
 }
 
+// DeleteNodesNotIn removes every node of the given cluster whose name is not
+// in keepNames. Used by the collector to reconcile state after a polling
+// cycle. keepNames is allowed to be empty (deletes all for the cluster).
+func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
+	tag, err := p.pool.Exec(ctx,
+		"DELETE FROM nodes WHERE cluster_id = $1 AND name <> ALL($2::text[])",
+		clusterID, keepNames,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete nodes not in: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteNamespacesNotIn mirrors DeleteNodesNotIn for namespaces.
+func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
+	tag, err := p.pool.Exec(ctx,
+		"DELETE FROM namespaces WHERE cluster_id = $1 AND name <> ALL($2::text[])",
+		clusterID, keepNames,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete namespaces not in: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // DeleteNode removes a node by id.
 func (p *PG) DeleteNode(ctx context.Context, id uuid.UUID) error {
 	tag, err := p.pool.Exec(ctx, "DELETE FROM nodes WHERE id=$1", id)

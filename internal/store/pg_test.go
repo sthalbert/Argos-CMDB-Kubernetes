@@ -315,6 +315,78 @@ func TestPGUpsertNamespace(t *testing.T) {
 	}
 }
 
+func TestPGDeleteNodesNotIn(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "reconcile-nodes"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	for _, name := range []string{"a", "b", "c"} {
+		if _, err := pg.CreateNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: name}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+
+	// Keep only "b"; a and c should be deleted.
+	deleted, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"b"})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("deleted=%d, want 2", deleted)
+	}
+
+	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 || items[0].Name != "b" {
+		t.Errorf("survivors=%v, want [b]", items)
+	}
+
+	// Empty keepNames deletes everything remaining.
+	deleted, err = pg.DeleteNodesNotIn(ctx, *cluster.Id, nil)
+	if err != nil {
+		t.Fatalf("reconcile empty keep: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted=%d, want 1", deleted)
+	}
+}
+
+func TestPGDeleteNamespacesNotIn(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "reconcile-ns"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	for _, name := range []string{"default", "kube-system", "extra"} {
+		if _, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: name}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+
+	deleted, err := pg.DeleteNamespacesNotIn(ctx, *cluster.Id, []string{"default", "kube-system"})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted=%d, want 1", deleted)
+	}
+
+	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 2 {
+		t.Errorf("survivors=%d, want 2", len(items))
+	}
+}
+
 func TestPGGetClusterByName(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
