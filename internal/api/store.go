@@ -191,4 +191,51 @@ type Store interface {
 
 	// DeleteIngressesNotIn mirrors DeleteServicesNotIn.
 	DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+
+	// CreatePersistentVolume inserts a new cluster-scoped PV. Returns
+	// ErrNotFound when the parent cluster does not exist; ErrConflict when
+	// (cluster_id, name) already has a PV.
+	CreatePersistentVolume(ctx context.Context, in PersistentVolumeCreate) (PersistentVolume, error)
+
+	// GetPersistentVolume fetches a PV by id.
+	GetPersistentVolume(ctx context.Context, id uuid.UUID) (PersistentVolume, error)
+
+	// ListPersistentVolumes returns up to limit PVs, optionally filtered by cluster.
+	ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) (items []PersistentVolume, nextCursor string, err error)
+
+	// UpdatePersistentVolume applies merge-patch.
+	UpdatePersistentVolume(ctx context.Context, id uuid.UUID, in PersistentVolumeUpdate) (PersistentVolume, error)
+
+	// DeletePersistentVolume removes by id.
+	DeletePersistentVolume(ctx context.Context, id uuid.UUID) error
+
+	// UpsertPersistentVolume mirrors UpsertNode; keyed on (cluster_id, name).
+	UpsertPersistentVolume(ctx context.Context, in PersistentVolumeCreate) (PersistentVolume, error)
+
+	// DeletePersistentVolumesNotIn removes cluster-scoped PVs whose name is
+	// not in keepNames. An empty keep slice clears every PV in that cluster.
+	DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+
+	// CreatePersistentVolumeClaim inserts a new PVC. Returns ErrNotFound
+	// when the parent namespace or the bound volume does not exist;
+	// ErrConflict when (namespace_id, name) already has a PVC.
+	CreatePersistentVolumeClaim(ctx context.Context, in PersistentVolumeClaimCreate) (PersistentVolumeClaim, error)
+
+	// GetPersistentVolumeClaim fetches a PVC by id.
+	GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (PersistentVolumeClaim, error)
+
+	// ListPersistentVolumeClaims returns up to limit PVCs, optionally filtered by namespace.
+	ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []PersistentVolumeClaim, nextCursor string, err error)
+
+	// UpdatePersistentVolumeClaim applies merge-patch.
+	UpdatePersistentVolumeClaim(ctx context.Context, id uuid.UUID, in PersistentVolumeClaimUpdate) (PersistentVolumeClaim, error)
+
+	// DeletePersistentVolumeClaim removes by id.
+	DeletePersistentVolumeClaim(ctx context.Context, id uuid.UUID) error
+
+	// UpsertPersistentVolumeClaim mirrors UpsertPod; keyed on (namespace_id, name).
+	UpsertPersistentVolumeClaim(ctx context.Context, in PersistentVolumeClaimCreate) (PersistentVolumeClaim, error)
+
+	// DeletePersistentVolumeClaimsNotIn mirrors DeletePodsNotIn.
+	DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }

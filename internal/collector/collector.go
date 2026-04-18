@@ -100,6 +100,40 @@ type IngressInfo struct {
 	Labels           map[string]string
 }
 
+// PVInfo is the subset of a Kubernetes PersistentVolume the collector
+// consumes. PVs are cluster-scoped so there's no Namespace field. Capacity /
+// AccessModes / reclaim policy come verbatim from the Kubernetes API;
+// ClaimRef fields mirror spec.claimRef for PV -> PVC reconstruction.
+type PVInfo struct {
+	Name              string
+	Capacity          string
+	AccessModes       []string
+	ReclaimPolicy     string
+	Phase             string
+	StorageClassName  string
+	CSIDriver         string
+	VolumeHandle      string
+	ClaimRefNamespace string
+	ClaimRefName      string
+	Labels            map[string]string
+}
+
+// PVCInfo is the subset of a Kubernetes PersistentVolumeClaim the collector
+// consumes. Namespace is the K8s namespace name, resolved against the CMDB's
+// namespace UUID before writing. VolumeName is the raw spec.volumeName (the
+// PV name the claim binds to) — the collector resolves this against the PV
+// map each tick to set bound_volume_id.
+type PVCInfo struct {
+	Name             string
+	Namespace        string
+	Phase            string
+	StorageClassName string
+	VolumeName       string
+	AccessModes      []string
+	RequestedStorage string
+	Labels           map[string]string
+}
+
 // VersionFetcher returns the Kubernetes API server version for the cluster
 // it was configured against (typically via kubeconfig or in-cluster config).
 type VersionFetcher interface {
@@ -147,6 +181,18 @@ type ReplicaSetOwnerLister interface {
 	ListReplicaSetOwners(ctx context.Context) ([]ReplicaSetOwner, error)
 }
 
+// PersistentVolumeLister returns every cluster-scoped PersistentVolume
+// visible to the configured kubeconfig.
+type PersistentVolumeLister interface {
+	ListPersistentVolumes(ctx context.Context) ([]PVInfo, error)
+}
+
+// PersistentVolumeClaimLister returns every PersistentVolumeClaim visible to
+// the configured kubeconfig, across all namespaces.
+type PersistentVolumeClaimLister interface {
+	ListPersistentVolumeClaims(ctx context.Context) ([]PVCInfo, error)
+}
+
 // KubeSource is the composite contract the Collector consumes.
 type KubeSource interface {
 	VersionFetcher
@@ -157,6 +203,8 @@ type KubeSource interface {
 	ServiceLister
 	IngressLister
 	ReplicaSetOwnerLister
+	PersistentVolumeLister
+	PersistentVolumeClaimLister
 }
 
 // cmdbStore is the subset of api.Store the collector consumes.
@@ -175,6 +223,10 @@ type cmdbStore interface {
 	DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 	UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error)
 	DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+	UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error)
+	DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+	UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error)
+	DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
 
 // Collector polls a KubeSource and reconciles the results into the CMDB
@@ -266,6 +318,10 @@ func (c *Collector) poll(parent context.Context) {
 	}
 
 	c.ingestNodes(ctx, *cluster.Id)
+	// PVs are cluster-scoped — they don't depend on namespaces so we ingest
+	// them before namespace-scoped resources. The returned (pv-name -> id)
+	// map is used by ingestPersistentVolumeClaims to resolve bound_volume_id.
+	pvIDsByName := c.ingestPersistentVolumes(ctx, *cluster.Id)
 	namespaceIDsByName := c.ingestNamespaces(ctx, *cluster.Id)
 	if namespaceIDsByName != nil {
 		// Workloads go first so ingestPods can resolve each pod's top-level
@@ -276,6 +332,7 @@ func (c *Collector) poll(parent context.Context) {
 		c.ingestPods(ctx, namespaceIDsByName, workloadIDs)
 		c.ingestServices(ctx, namespaceIDsByName)
 		c.ingestIngresses(ctx, namespaceIDsByName)
+		c.ingestPersistentVolumeClaims(ctx, namespaceIDsByName, pvIDsByName)
 	}
 }
 
@@ -758,5 +815,145 @@ func ptrIfNonEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func ptrIfNonEmptySlice(s []string) *[]string {
+	if len(s) == 0 {
+		return nil
+	}
+	return &s
+}
+
+// ingestPersistentVolumes lists cluster-scoped PVs and upserts each one.
+// Returns a (pv-name -> pv-id) map the PVC ingestion pass uses to resolve
+// each PVC's bound_volume_id FK, or nil on list failure (signal to skip
+// FK resolution). Reconcile is cluster-scoped since PVs aren't namespaced.
+func (c *Collector) ingestPersistentVolumes(ctx context.Context, clusterID uuid.UUID) map[string]uuid.UUID {
+	pvs, err := c.source.ListPersistentVolumes(ctx)
+	if err != nil {
+		metrics.ObserveError(c.clusterName, "persistentvolumes", "list")
+		slog.Warn("collector: list persistent volumes failed", "error", err, "cluster_name", c.clusterName)
+		return nil
+	}
+
+	var upserted, failed int
+	keepNames := make([]string, 0, len(pvs))
+	idsByName := make(map[string]uuid.UUID, len(pvs))
+	for _, pv := range pvs {
+		in := api.PersistentVolumeCreate{
+			ClusterId:         clusterID,
+			Name:              pv.Name,
+			Capacity:          ptrIfNonEmpty(pv.Capacity),
+			AccessModes:       ptrIfNonEmptySlice(pv.AccessModes),
+			ReclaimPolicy:     ptrIfNonEmpty(pv.ReclaimPolicy),
+			Phase:             ptrIfNonEmpty(pv.Phase),
+			StorageClassName:  ptrIfNonEmpty(pv.StorageClassName),
+			CsiDriver:         ptrIfNonEmpty(pv.CSIDriver),
+			VolumeHandle:      ptrIfNonEmpty(pv.VolumeHandle),
+			ClaimRefNamespace: ptrIfNonEmpty(pv.ClaimRefNamespace),
+			ClaimRefName:      ptrIfNonEmpty(pv.ClaimRefName),
+		}
+		if len(pv.Labels) > 0 {
+			labels := pv.Labels
+			in.Labels = &labels
+		}
+		stored, err := c.store.UpsertPersistentVolume(ctx, in)
+		if err != nil {
+			metrics.ObserveError(c.clusterName, "persistentvolumes", "upsert")
+			slog.Warn("collector: upsert persistent volume failed", "error", err, "pv", pv.Name, "cluster_name", c.clusterName)
+			failed++
+			continue
+		}
+		upserted++
+		keepNames = append(keepNames, pv.Name)
+		if stored.Id != nil {
+			idsByName[pv.Name] = *stored.Id
+		}
+	}
+	metrics.ObserveUpserts(c.clusterName, "persistentvolumes", upserted)
+
+	var reconciled int64
+	if c.reconcile {
+		n, err := c.store.DeletePersistentVolumesNotIn(ctx, clusterID, keepNames)
+		if err != nil {
+			metrics.ObserveError(c.clusterName, "persistentvolumes", "reconcile")
+			slog.Error("collector: reconcile persistent volumes failed", "error", err, "cluster_name", c.clusterName)
+		}
+		reconciled = n
+		metrics.ObserveReconciled(c.clusterName, "persistentvolumes", n)
+	}
+	metrics.MarkPoll(c.clusterName, "persistentvolumes")
+	slog.Info("collector: ingested persistent volumes", "upserted", upserted, "failed", failed, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	return idsByName
+}
+
+// ingestPersistentVolumeClaims lists PVCs cluster-wide, resolves each one's
+// K8s namespace name to the CMDB namespace UUID, and upserts it. When the
+// PVC's spec.volumeName matches a PV upserted this tick, the FK is set;
+// otherwise bound_volume_id stays null (pending, or PV not yet ingested).
+//
+// pvIDsByName may be nil (PV listing failed) — PVCs are still upserted,
+// just without bound_volume_id set.
+func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceIDsByName map[string]uuid.UUID, pvIDsByName map[string]uuid.UUID) {
+	pvcs, err := c.source.ListPersistentVolumeClaims(ctx)
+	if err != nil {
+		metrics.ObserveError(c.clusterName, "persistentvolumeclaims", "list")
+		slog.Warn("collector: list pvcs failed", "error", err, "cluster_name", c.clusterName)
+		return
+	}
+
+	var upserted, failed, skipped int
+	keepByNS := make(map[uuid.UUID][]string)
+	for _, pvc := range pvcs {
+		nsID, ok := namespaceIDsByName[pvc.Namespace]
+		if !ok {
+			slog.Warn("collector: pvc in unknown namespace; skipping", "pvc", pvc.Name, "namespace", pvc.Namespace, "cluster_name", c.clusterName)
+			skipped++
+			continue
+		}
+		in := api.PersistentVolumeClaimCreate{
+			NamespaceId:      nsID,
+			Name:             pvc.Name,
+			Phase:            ptrIfNonEmpty(pvc.Phase),
+			StorageClassName: ptrIfNonEmpty(pvc.StorageClassName),
+			VolumeName:       ptrIfNonEmpty(pvc.VolumeName),
+			AccessModes:      ptrIfNonEmptySlice(pvc.AccessModes),
+			RequestedStorage: ptrIfNonEmpty(pvc.RequestedStorage),
+		}
+		if len(pvc.Labels) > 0 {
+			labels := pvc.Labels
+			in.Labels = &labels
+		}
+		if pvc.VolumeName != "" && pvIDsByName != nil {
+			if pvID, found := pvIDsByName[pvc.VolumeName]; found {
+				in.BoundVolumeId = &pvID
+			}
+		}
+		if _, err := c.store.UpsertPersistentVolumeClaim(ctx, in); err != nil {
+			metrics.ObserveError(c.clusterName, "persistentvolumeclaims", "upsert")
+			slog.Warn("collector: upsert pvc failed", "error", err, "pvc", pvc.Name, "namespace", pvc.Namespace, "cluster_name", c.clusterName)
+			failed++
+			continue
+		}
+		upserted++
+		keepByNS[nsID] = append(keepByNS[nsID], pvc.Name)
+	}
+	metrics.ObserveUpserts(c.clusterName, "persistentvolumeclaims", upserted)
+
+	var reconciled int64
+	if c.reconcile {
+		for _, nsID := range namespaceIDsByName {
+			n, err := c.store.DeletePersistentVolumeClaimsNotIn(ctx, nsID, keepByNS[nsID])
+			if err != nil {
+				metrics.ObserveError(c.clusterName, "persistentvolumeclaims", "reconcile")
+				slog.Error("collector: reconcile pvcs failed", "error", err, "namespace_id", nsID, "cluster_name", c.clusterName)
+				continue
+			}
+			reconciled += n
+		}
+		metrics.ObserveReconciled(c.clusterName, "persistentvolumeclaims", reconciled)
+	}
+	metrics.MarkPoll(c.clusterName, "persistentvolumeclaims")
+	slog.Info("collector: ingested pvcs", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
 }
 

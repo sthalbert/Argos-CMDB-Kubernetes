@@ -43,6 +43,16 @@ tags:
       Kubernetes Ingresses. Classified in the `applicative` layer per ADR-0004;
       the "what's internet-exposed?" audit question is answered via future
       ecosystem-layer relationships, not via layer membership.
+  - name: persistentvolumes
+    description: |
+      Cluster-scoped PersistentVolume resources — one row per chunk of backing
+      storage the cluster can hand out. Layer `infrastructure_physical` (same
+      as Node): the PV maps onto physical disk / CSI volume state.
+  - name: persistentvolumeclaims
+    description: |
+      Namespace-scoped PersistentVolumeClaim resources — the workload-side
+      request for storage, bound to a PersistentVolume once the storage class
+      provisioner has satisfied it. Layer `applicative`.
 
 security:
   - BearerAuth: []
@@ -999,6 +1009,268 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/persistentvolumes:
+    get:
+      tags: [persistentvolumes]
+      summary: List persistent volumes
+      operationId: listPersistentVolumes
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PersistentVolumeClusterIdFilter'
+      responses:
+        '200':
+          description: Paged list of persistent volumes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [persistentvolumes]
+      summary: Register a persistent volume
+      operationId: createPersistentVolume
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersistentVolumeCreate'
+      responses:
+        '201':
+          description: PersistentVolume created.
+          headers:
+            Location:
+              description: URI of the newly created persistent volume.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolume'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/persistentvolumes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PersistentVolumeId'
+    get:
+      tags: [persistentvolumes]
+      summary: Get a persistent volume
+      operationId: getPersistentVolume
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: PersistentVolume details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolume'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [persistentvolumes]
+      summary: Update mutable fields of a persistent volume
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `cluster_id` and `name` are immutable after creation.
+      operationId: updatePersistentVolume
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/PersistentVolumeUpdate'
+      responses:
+        '200':
+          description: Updated persistent volume.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolume'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [persistentvolumes]
+      summary: Delete a persistent volume
+      operationId: deletePersistentVolume
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: PersistentVolume deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/persistentvolumeclaims:
+    get:
+      tags: [persistentvolumeclaims]
+      summary: List persistent volume claims
+      operationId: listPersistentVolumeClaims
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PersistentVolumeClaimNamespaceIdFilter'
+      responses:
+        '200':
+          description: Paged list of persistent volume claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeClaimList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [persistentvolumeclaims]
+      summary: Register a persistent volume claim
+      operationId: createPersistentVolumeClaim
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersistentVolumeClaimCreate'
+      responses:
+        '201':
+          description: PersistentVolumeClaim created.
+          headers:
+            Location:
+              description: URI of the newly created persistent volume claim.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeClaim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/persistentvolumeclaims/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PersistentVolumeClaimId'
+    get:
+      tags: [persistentvolumeclaims]
+      summary: Get a persistent volume claim
+      operationId: getPersistentVolumeClaim
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: PersistentVolumeClaim details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeClaim'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [persistentvolumeclaims]
+      summary: Update mutable fields of a persistent volume claim
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id` and `name` are immutable after creation.
+      operationId: updatePersistentVolumeClaim
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/PersistentVolumeClaimUpdate'
+      responses:
+        '200':
+          description: Updated persistent volume claim.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeClaim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [persistentvolumeclaims]
+      summary: Delete a persistent volume claim
+      operationId: deletePersistentVolumeClaim
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: PersistentVolumeClaim deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
 
   securitySchemes:
@@ -1141,6 +1413,42 @@ components:
       in: query
       required: false
       description: Return only ingresses belonging to this namespace.
+      schema:
+        type: string
+        format: uuid
+
+    PersistentVolumeId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned persistent volume identifier.
+      schema:
+        type: string
+        format: uuid
+
+    PersistentVolumeClusterIdFilter:
+      name: cluster_id
+      in: query
+      required: false
+      description: Return only persistent volumes belonging to this cluster.
+      schema:
+        type: string
+        format: uuid
+
+    PersistentVolumeClaimId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned persistent volume claim identifier.
+      schema:
+        type: string
+        format: uuid
+
+    PersistentVolumeClaimNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only persistent volume claims belonging to this namespace.
       schema:
         type: string
         format: uuid
@@ -2057,6 +2365,270 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Ingress'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    PersistentVolumeMutable:
+      description: Fields on a PersistentVolume that clients may set and later update.
+      type: object
+      properties:
+        capacity:
+          type: string
+          maxLength: 32
+          description: |
+            Declared capacity as reported by Kubernetes (e.g. `"10Gi"`).
+            Stored verbatim; conversion to bytes is a reader concern.
+        access_modes:
+          type: array
+          description: |
+            Kubernetes access modes the PV exposes — any of
+            `ReadWriteOnce`, `ReadOnlyMany`, `ReadWriteMany`,
+            `ReadWriteOncePod`.
+          items:
+            type: string
+            maxLength: 32
+          maxItems: 8
+        reclaim_policy:
+          type: string
+          maxLength: 16
+          description: Retain / Delete / Recycle.
+        phase:
+          type: string
+          maxLength: 32
+          description: |
+            Kubernetes PV phase as last observed: Pending, Available, Bound,
+            Released, Failed.
+        storage_class_name:
+          type: string
+          maxLength: 253
+        csi_driver:
+          type: string
+          maxLength: 253
+          description: |
+            CSI driver name when the PV is CSI-backed (spec.csi.driver).
+            Null for in-tree / legacy volume sources.
+        volume_handle:
+          type: string
+          maxLength: 512
+          description: |
+            Concrete backing storage handle (spec.csi.volumeHandle) — the
+            CSI driver's identifier for the underlying disk / share.
+        claim_ref_namespace:
+          type: string
+          maxLength: 253
+          description: Namespace of the bound PVC (spec.claimRef.namespace).
+        claim_ref_name:
+          type: string
+          maxLength: 253
+          description: Name of the bound PVC (spec.claimRef.name).
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    PersistentVolumeCreate:
+      description: Payload to register a new persistent volume under a cluster.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeMutable'
+        - type: object
+          required: [cluster_id, name]
+          properties:
+            cluster_id:
+              type: string
+              format: uuid
+              description: |
+                Parent cluster id. Immutable after creation; the cluster must
+                already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes PV name. Cluster-scoped, so unique per cluster.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+
+    PersistentVolumeUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `cluster_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeMutable'
+
+    PersistentVolume:
+      description: A Kubernetes PersistentVolume registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeMutable'
+        - type: object
+          required: [id, cluster_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            cluster_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `infrastructure_physical` for PersistentVolume. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    PersistentVolumeList:
+      description: Paged list of persistent volumes.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PersistentVolume'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    PersistentVolumeClaimMutable:
+      description: Fields on a PVC that clients may set and later update.
+      type: object
+      properties:
+        phase:
+          type: string
+          maxLength: 32
+          description: |
+            Kubernetes PVC phase as last observed: Pending, Bound, Lost.
+        storage_class_name:
+          type: string
+          maxLength: 253
+        volume_name:
+          type: string
+          maxLength: 253
+          description: |
+            Raw `spec.volumeName` — the PV name this claim is bound to.
+            Carries the string even when the corresponding PV row hasn't
+            been ingested yet.
+        bound_volume_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            FK to the PersistentVolume this PVC is bound to. Null for
+            Pending PVCs or if the PV row has been deleted
+            (ON DELETE SET NULL).
+        access_modes:
+          type: array
+          items:
+            type: string
+            maxLength: 32
+          maxItems: 8
+        requested_storage:
+          type: string
+          maxLength: 32
+          description: |
+            Requested size (spec.resources.requests.storage), verbatim
+            (e.g. `"5Gi"`).
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    PersistentVolumeClaimCreate:
+      description: Payload to register a new PVC under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeClaimMutable'
+        - type: object
+          required: [namespace_id, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes PVC name (DNS-subdomain style). Unique per
+                namespace. Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+
+    PersistentVolumeClaimUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id` and `name`
+        are immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeClaimMutable'
+
+    PersistentVolumeClaim:
+      description: A Kubernetes PersistentVolumeClaim registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeClaimMutable'
+        - type: object
+          required: [id, namespace_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for PersistentVolumeClaim. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    PersistentVolumeClaimList:
+      description: Paged list of persistent volume claims.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PersistentVolumeClaim'
         next_cursor:
           type: string
           nullable: true

@@ -463,6 +463,251 @@ type NodeMutable struct {
 // NodeUpdate Fields on a Node that clients may set and later update.
 type NodeUpdate = NodeMutable
 
+// PersistentVolume defines model for PersistentVolume.
+type PersistentVolume struct {
+	// AccessModes Kubernetes access modes the PV exposes — any of
+	// `ReadWriteOnce`, `ReadOnlyMany`, `ReadWriteMany`,
+	// `ReadWriteOncePod`.
+	AccessModes *[]string `json:"access_modes,omitempty"`
+
+	// Capacity Declared capacity as reported by Kubernetes (e.g. `"10Gi"`).
+	// Stored verbatim; conversion to bytes is a reader concern.
+	Capacity *string `json:"capacity,omitempty"`
+
+	// ClaimRefName Name of the bound PVC (spec.claimRef.name).
+	ClaimRefName *string `json:"claim_ref_name,omitempty"`
+
+	// ClaimRefNamespace Namespace of the bound PVC (spec.claimRef.namespace).
+	ClaimRefNamespace *string            `json:"claim_ref_namespace,omitempty"`
+	ClusterId         openapi_types.UUID `json:"cluster_id"`
+	CreatedAt         *time.Time         `json:"created_at,omitempty"`
+
+	// CsiDriver CSI driver name when the PV is CSI-backed (spec.csi.driver).
+	// Null for in-tree / legacy volume sources.
+	CsiDriver *string             `json:"csi_driver,omitempty"`
+	Id        *openapi_types.UUID `json:"id,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Layer Always `infrastructure_physical` for PersistentVolume. Set by the server.
+	Layer *Layer `json:"layer,omitempty"`
+	Name  string `json:"name"`
+
+	// Phase Kubernetes PV phase as last observed: Pending, Available, Bound,
+	// Released, Failed.
+	Phase *string `json:"phase,omitempty"`
+
+	// ReclaimPolicy Retain / Delete / Recycle.
+	ReclaimPolicy    *string    `json:"reclaim_policy,omitempty"`
+	StorageClassName *string    `json:"storage_class_name,omitempty"`
+	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
+
+	// VolumeHandle Concrete backing storage handle (spec.csi.volumeHandle) — the
+	// CSI driver's identifier for the underlying disk / share.
+	VolumeHandle *string `json:"volume_handle,omitempty"`
+}
+
+// PersistentVolumeClaim defines model for PersistentVolumeClaim.
+type PersistentVolumeClaim struct {
+	AccessModes *[]string `json:"access_modes,omitempty"`
+
+	// BoundVolumeId FK to the PersistentVolume this PVC is bound to. Null for
+	// Pending PVCs or if the PV row has been deleted
+	// (ON DELETE SET NULL).
+	BoundVolumeId *openapi_types.UUID `json:"bound_volume_id,omitempty"`
+	CreatedAt     *time.Time          `json:"created_at,omitempty"`
+	Id            *openapi_types.UUID `json:"id,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Layer Always `applicative` for PersistentVolumeClaim. Set by the server.
+	Layer       *Layer             `json:"layer,omitempty"`
+	Name        string             `json:"name"`
+	NamespaceId openapi_types.UUID `json:"namespace_id"`
+
+	// Phase Kubernetes PVC phase as last observed: Pending, Bound, Lost.
+	Phase *string `json:"phase,omitempty"`
+
+	// RequestedStorage Requested size (spec.resources.requests.storage), verbatim
+	// (e.g. `"5Gi"`).
+	RequestedStorage *string    `json:"requested_storage,omitempty"`
+	StorageClassName *string    `json:"storage_class_name,omitempty"`
+	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
+
+	// VolumeName Raw `spec.volumeName` — the PV name this claim is bound to.
+	// Carries the string even when the corresponding PV row hasn't
+	// been ingested yet.
+	VolumeName *string `json:"volume_name,omitempty"`
+}
+
+// PersistentVolumeClaimCreate defines model for PersistentVolumeClaimCreate.
+type PersistentVolumeClaimCreate struct {
+	AccessModes *[]string `json:"access_modes,omitempty"`
+
+	// BoundVolumeId FK to the PersistentVolume this PVC is bound to. Null for
+	// Pending PVCs or if the PV row has been deleted
+	// (ON DELETE SET NULL).
+	BoundVolumeId *openapi_types.UUID `json:"bound_volume_id,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Name Kubernetes PVC name (DNS-subdomain style). Unique per
+	// namespace. Immutable after creation.
+	Name string `json:"name"`
+
+	// NamespaceId Parent namespace id. Immutable after creation; the namespace
+	// must already exist or the create returns 404.
+	NamespaceId openapi_types.UUID `json:"namespace_id"`
+
+	// Phase Kubernetes PVC phase as last observed: Pending, Bound, Lost.
+	Phase *string `json:"phase,omitempty"`
+
+	// RequestedStorage Requested size (spec.resources.requests.storage), verbatim
+	// (e.g. `"5Gi"`).
+	RequestedStorage *string `json:"requested_storage,omitempty"`
+	StorageClassName *string `json:"storage_class_name,omitempty"`
+
+	// VolumeName Raw `spec.volumeName` — the PV name this claim is bound to.
+	// Carries the string even when the corresponding PV row hasn't
+	// been ingested yet.
+	VolumeName *string `json:"volume_name,omitempty"`
+}
+
+// PersistentVolumeClaimList Paged list of persistent volume claims.
+type PersistentVolumeClaimList struct {
+	Items []PersistentVolumeClaim `json:"items"`
+
+	// NextCursor Opaque cursor to pass as `?cursor=` to fetch the next page.
+	// Absent or null when no more pages remain.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// PersistentVolumeClaimMutable Fields on a PVC that clients may set and later update.
+type PersistentVolumeClaimMutable struct {
+	AccessModes *[]string `json:"access_modes,omitempty"`
+
+	// BoundVolumeId FK to the PersistentVolume this PVC is bound to. Null for
+	// Pending PVCs or if the PV row has been deleted
+	// (ON DELETE SET NULL).
+	BoundVolumeId *openapi_types.UUID `json:"bound_volume_id,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Phase Kubernetes PVC phase as last observed: Pending, Bound, Lost.
+	Phase *string `json:"phase,omitempty"`
+
+	// RequestedStorage Requested size (spec.resources.requests.storage), verbatim
+	// (e.g. `"5Gi"`).
+	RequestedStorage *string `json:"requested_storage,omitempty"`
+	StorageClassName *string `json:"storage_class_name,omitempty"`
+
+	// VolumeName Raw `spec.volumeName` — the PV name this claim is bound to.
+	// Carries the string even when the corresponding PV row hasn't
+	// been ingested yet.
+	VolumeName *string `json:"volume_name,omitempty"`
+}
+
+// PersistentVolumeClaimUpdate Fields on a PVC that clients may set and later update.
+type PersistentVolumeClaimUpdate = PersistentVolumeClaimMutable
+
+// PersistentVolumeCreate defines model for PersistentVolumeCreate.
+type PersistentVolumeCreate struct {
+	// AccessModes Kubernetes access modes the PV exposes — any of
+	// `ReadWriteOnce`, `ReadOnlyMany`, `ReadWriteMany`,
+	// `ReadWriteOncePod`.
+	AccessModes *[]string `json:"access_modes,omitempty"`
+
+	// Capacity Declared capacity as reported by Kubernetes (e.g. `"10Gi"`).
+	// Stored verbatim; conversion to bytes is a reader concern.
+	Capacity *string `json:"capacity,omitempty"`
+
+	// ClaimRefName Name of the bound PVC (spec.claimRef.name).
+	ClaimRefName *string `json:"claim_ref_name,omitempty"`
+
+	// ClaimRefNamespace Namespace of the bound PVC (spec.claimRef.namespace).
+	ClaimRefNamespace *string `json:"claim_ref_namespace,omitempty"`
+
+	// ClusterId Parent cluster id. Immutable after creation; the cluster must
+	// already exist or the create returns 404.
+	ClusterId openapi_types.UUID `json:"cluster_id"`
+
+	// CsiDriver CSI driver name when the PV is CSI-backed (spec.csi.driver).
+	// Null for in-tree / legacy volume sources.
+	CsiDriver *string `json:"csi_driver,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Name Kubernetes PV name. Cluster-scoped, so unique per cluster.
+	// Immutable after creation.
+	Name string `json:"name"`
+
+	// Phase Kubernetes PV phase as last observed: Pending, Available, Bound,
+	// Released, Failed.
+	Phase *string `json:"phase,omitempty"`
+
+	// ReclaimPolicy Retain / Delete / Recycle.
+	ReclaimPolicy    *string `json:"reclaim_policy,omitempty"`
+	StorageClassName *string `json:"storage_class_name,omitempty"`
+
+	// VolumeHandle Concrete backing storage handle (spec.csi.volumeHandle) — the
+	// CSI driver's identifier for the underlying disk / share.
+	VolumeHandle *string `json:"volume_handle,omitempty"`
+}
+
+// PersistentVolumeList Paged list of persistent volumes.
+type PersistentVolumeList struct {
+	Items []PersistentVolume `json:"items"`
+
+	// NextCursor Opaque cursor to pass as `?cursor=` to fetch the next page.
+	// Absent or null when no more pages remain.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// PersistentVolumeMutable Fields on a PersistentVolume that clients may set and later update.
+type PersistentVolumeMutable struct {
+	// AccessModes Kubernetes access modes the PV exposes — any of
+	// `ReadWriteOnce`, `ReadOnlyMany`, `ReadWriteMany`,
+	// `ReadWriteOncePod`.
+	AccessModes *[]string `json:"access_modes,omitempty"`
+
+	// Capacity Declared capacity as reported by Kubernetes (e.g. `"10Gi"`).
+	// Stored verbatim; conversion to bytes is a reader concern.
+	Capacity *string `json:"capacity,omitempty"`
+
+	// ClaimRefName Name of the bound PVC (spec.claimRef.name).
+	ClaimRefName *string `json:"claim_ref_name,omitempty"`
+
+	// ClaimRefNamespace Namespace of the bound PVC (spec.claimRef.namespace).
+	ClaimRefNamespace *string `json:"claim_ref_namespace,omitempty"`
+
+	// CsiDriver CSI driver name when the PV is CSI-backed (spec.csi.driver).
+	// Null for in-tree / legacy volume sources.
+	CsiDriver *string `json:"csi_driver,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Phase Kubernetes PV phase as last observed: Pending, Available, Bound,
+	// Released, Failed.
+	Phase *string `json:"phase,omitempty"`
+
+	// ReclaimPolicy Retain / Delete / Recycle.
+	ReclaimPolicy    *string `json:"reclaim_policy,omitempty"`
+	StorageClassName *string `json:"storage_class_name,omitempty"`
+
+	// VolumeHandle Concrete backing storage handle (spec.csi.volumeHandle) — the
+	// CSI driver's identifier for the underlying disk / share.
+	VolumeHandle *string `json:"volume_handle,omitempty"`
+}
+
+// PersistentVolumeUpdate Fields on a PersistentVolume that clients may set and later update.
+type PersistentVolumeUpdate = PersistentVolumeMutable
+
 // Pod defines model for Pod.
 type Pod struct {
 	// Containers Containers associated with the resource. For Pods this reflects the
@@ -840,6 +1085,18 @@ type NodeClusterIdFilter = openapi_types.UUID
 // NodeId defines model for NodeId.
 type NodeId = openapi_types.UUID
 
+// PersistentVolumeClaimId defines model for PersistentVolumeClaimId.
+type PersistentVolumeClaimId = openapi_types.UUID
+
+// PersistentVolumeClaimNamespaceIdFilter defines model for PersistentVolumeClaimNamespaceIdFilter.
+type PersistentVolumeClaimNamespaceIdFilter = openapi_types.UUID
+
+// PersistentVolumeClusterIdFilter defines model for PersistentVolumeClusterIdFilter.
+type PersistentVolumeClusterIdFilter = openapi_types.UUID
+
+// PersistentVolumeId defines model for PersistentVolumeId.
+type PersistentVolumeId = openapi_types.UUID
+
 // PodId defines model for PodId.
 type PodId = openapi_types.UUID
 
@@ -924,6 +1181,30 @@ type ListNodesParams struct {
 	ClusterId *NodeClusterIdFilter `form:"cluster_id,omitempty" json:"cluster_id,omitempty"`
 }
 
+// ListPersistentVolumeClaimsParams defines parameters for ListPersistentVolumeClaims.
+type ListPersistentVolumeClaimsParams struct {
+	// Limit Maximum number of items to return. Server clamps to [1, 200].
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor returned from a previous list response.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// NamespaceId Return only persistent volume claims belonging to this namespace.
+	NamespaceId *PersistentVolumeClaimNamespaceIdFilter `form:"namespace_id,omitempty" json:"namespace_id,omitempty"`
+}
+
+// ListPersistentVolumesParams defines parameters for ListPersistentVolumes.
+type ListPersistentVolumesParams struct {
+	// Limit Maximum number of items to return. Server clamps to [1, 200].
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor returned from a previous list response.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// ClusterId Return only persistent volumes belonging to this cluster.
+	ClusterId *PersistentVolumeClusterIdFilter `form:"cluster_id,omitempty" json:"cluster_id,omitempty"`
+}
+
 // ListPodsParams defines parameters for ListPods.
 type ListPodsParams struct {
 	// Limit Maximum number of items to return. Server clamps to [1, 200].
@@ -986,6 +1267,18 @@ type CreateNodeJSONRequestBody = NodeCreate
 
 // UpdateNodeApplicationMergePatchPlusJSONRequestBody defines body for UpdateNode for application/merge-patch+json ContentType.
 type UpdateNodeApplicationMergePatchPlusJSONRequestBody = NodeUpdate
+
+// CreatePersistentVolumeClaimJSONRequestBody defines body for CreatePersistentVolumeClaim for application/json ContentType.
+type CreatePersistentVolumeClaimJSONRequestBody = PersistentVolumeClaimCreate
+
+// UpdatePersistentVolumeClaimApplicationMergePatchPlusJSONRequestBody defines body for UpdatePersistentVolumeClaim for application/merge-patch+json ContentType.
+type UpdatePersistentVolumeClaimApplicationMergePatchPlusJSONRequestBody = PersistentVolumeClaimUpdate
+
+// CreatePersistentVolumeJSONRequestBody defines body for CreatePersistentVolume for application/json ContentType.
+type CreatePersistentVolumeJSONRequestBody = PersistentVolumeCreate
+
+// UpdatePersistentVolumeApplicationMergePatchPlusJSONRequestBody defines body for UpdatePersistentVolume for application/merge-patch+json ContentType.
+type UpdatePersistentVolumeApplicationMergePatchPlusJSONRequestBody = PersistentVolumeUpdate
 
 // CreatePodJSONRequestBody defines body for CreatePod for application/json ContentType.
 type CreatePodJSONRequestBody = PodCreate
@@ -1073,6 +1366,36 @@ type ServerInterface interface {
 	// Update mutable fields of a node
 	// (PATCH /v1/nodes/{id})
 	UpdateNode(w http.ResponseWriter, r *http.Request, id NodeId)
+	// List persistent volume claims
+	// (GET /v1/persistentvolumeclaims)
+	ListPersistentVolumeClaims(w http.ResponseWriter, r *http.Request, params ListPersistentVolumeClaimsParams)
+	// Register a persistent volume claim
+	// (POST /v1/persistentvolumeclaims)
+	CreatePersistentVolumeClaim(w http.ResponseWriter, r *http.Request)
+	// Delete a persistent volume claim
+	// (DELETE /v1/persistentvolumeclaims/{id})
+	DeletePersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId)
+	// Get a persistent volume claim
+	// (GET /v1/persistentvolumeclaims/{id})
+	GetPersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId)
+	// Update mutable fields of a persistent volume claim
+	// (PATCH /v1/persistentvolumeclaims/{id})
+	UpdatePersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId)
+	// List persistent volumes
+	// (GET /v1/persistentvolumes)
+	ListPersistentVolumes(w http.ResponseWriter, r *http.Request, params ListPersistentVolumesParams)
+	// Register a persistent volume
+	// (POST /v1/persistentvolumes)
+	CreatePersistentVolume(w http.ResponseWriter, r *http.Request)
+	// Delete a persistent volume
+	// (DELETE /v1/persistentvolumes/{id})
+	DeletePersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId)
+	// Get a persistent volume
+	// (GET /v1/persistentvolumes/{id})
+	GetPersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId)
+	// Update mutable fields of a persistent volume
+	// (PATCH /v1/persistentvolumes/{id})
+	UpdatePersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId)
 	// List pods
 	// (GET /v1/pods)
 	ListPods(w http.ResponseWriter, r *http.Request, params ListPodsParams)
@@ -1797,6 +2120,330 @@ func (siw *ServerInterfaceWrapper) UpdateNode(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListPersistentVolumeClaims operation middleware
+func (siw *ServerInterfaceWrapper) ListPersistentVolumeClaims(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPersistentVolumeClaimsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "namespace_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "namespace_id", r.URL.Query(), &params.NamespaceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "namespace_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPersistentVolumeClaims(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePersistentVolumeClaim operation middleware
+func (siw *ServerInterfaceWrapper) CreatePersistentVolumeClaim(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePersistentVolumeClaim(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePersistentVolumeClaim operation middleware
+func (siw *ServerInterfaceWrapper) DeletePersistentVolumeClaim(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PersistentVolumeClaimId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePersistentVolumeClaim(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPersistentVolumeClaim operation middleware
+func (siw *ServerInterfaceWrapper) GetPersistentVolumeClaim(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PersistentVolumeClaimId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersistentVolumeClaim(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePersistentVolumeClaim operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePersistentVolumeClaim(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PersistentVolumeClaimId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePersistentVolumeClaim(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPersistentVolumes operation middleware
+func (siw *ServerInterfaceWrapper) ListPersistentVolumes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPersistentVolumesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cluster_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cluster_id", r.URL.Query(), &params.ClusterId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cluster_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPersistentVolumes(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePersistentVolume operation middleware
+func (siw *ServerInterfaceWrapper) CreatePersistentVolume(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePersistentVolume(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePersistentVolume operation middleware
+func (siw *ServerInterfaceWrapper) DeletePersistentVolume(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PersistentVolumeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePersistentVolume(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPersistentVolume operation middleware
+func (siw *ServerInterfaceWrapper) GetPersistentVolume(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PersistentVolumeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersistentVolume(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePersistentVolume operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePersistentVolume(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id PersistentVolumeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePersistentVolume(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPods operation middleware
 func (siw *ServerInterfaceWrapper) ListPods(w http.ResponseWriter, r *http.Request) {
 
@@ -2433,6 +3080,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("DELETE "+options.BaseURL+"/v1/nodes/{id}", wrapper.DeleteNode)
 	m.HandleFunc("GET "+options.BaseURL+"/v1/nodes/{id}", wrapper.GetNode)
 	m.HandleFunc("PATCH "+options.BaseURL+"/v1/nodes/{id}", wrapper.UpdateNode)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/persistentvolumeclaims", wrapper.ListPersistentVolumeClaims)
+	m.HandleFunc("POST "+options.BaseURL+"/v1/persistentvolumeclaims", wrapper.CreatePersistentVolumeClaim)
+	m.HandleFunc("DELETE "+options.BaseURL+"/v1/persistentvolumeclaims/{id}", wrapper.DeletePersistentVolumeClaim)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/persistentvolumeclaims/{id}", wrapper.GetPersistentVolumeClaim)
+	m.HandleFunc("PATCH "+options.BaseURL+"/v1/persistentvolumeclaims/{id}", wrapper.UpdatePersistentVolumeClaim)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/persistentvolumes", wrapper.ListPersistentVolumes)
+	m.HandleFunc("POST "+options.BaseURL+"/v1/persistentvolumes", wrapper.CreatePersistentVolume)
+	m.HandleFunc("DELETE "+options.BaseURL+"/v1/persistentvolumes/{id}", wrapper.DeletePersistentVolume)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/persistentvolumes/{id}", wrapper.GetPersistentVolume)
+	m.HandleFunc("PATCH "+options.BaseURL+"/v1/persistentvolumes/{id}", wrapper.UpdatePersistentVolume)
 	m.HandleFunc("GET "+options.BaseURL+"/v1/pods", wrapper.ListPods)
 	m.HandleFunc("POST "+options.BaseURL+"/v1/pods", wrapper.CreatePod)
 	m.HandleFunc("DELETE "+options.BaseURL+"/v1/pods/{id}", wrapper.DeletePod)
@@ -2455,113 +3112,135 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
+	"4MomZ2eerj5f/V8AAAD//8+FtSRl9AAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
