@@ -36,6 +36,8 @@ tags:
     description: |
       Kubernetes workload controllers (Deployment, StatefulSet, DaemonSet).
       A single collection polymorphic on the `kind` discriminator; see ADR-0003.
+  - name: services
+    description: Kubernetes Services within a namespace.
 
 security:
   - BearerAuth: []
@@ -730,6 +732,137 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/services:
+    get:
+      tags: [services]
+      summary: List services
+      operationId: listServices
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/ServiceNamespaceIdFilter'
+      responses:
+        '200':
+          description: Paged list of services.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [services]
+      summary: Register a service
+      operationId: createService
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceCreate'
+      responses:
+        '201':
+          description: Service created.
+          headers:
+            Location:
+              description: URI of the newly created service.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/services/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [services]
+      summary: Get a service
+      operationId: getService
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Service details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [services]
+      summary: Update mutable fields of a service
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id` and `name` are immutable after creation.
+      operationId: updateService
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ServiceUpdate'
+      responses:
+        '200':
+          description: Updated service.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [services]
+      summary: Delete a service
+      operationId: deleteService
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Service deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
 
   securitySchemes:
@@ -839,6 +972,24 @@ components:
       description: Return only workloads of this kind.
       schema:
         $ref: '#/components/schemas/WorkloadKind'
+
+    ServiceId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned service identifier.
+      schema:
+        type: string
+        format: uuid
+
+    ServiceNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only services belonging to this namespace.
+      schema:
+        type: string
+        format: uuid
 
     Limit:
       name: limit
@@ -1491,6 +1642,129 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Workload'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    ServiceType:
+      type: string
+      description: |
+        Kubernetes Service type. Casing matches the enum Kubernetes itself
+        emits. Open-ended at the schema layer to accommodate future additions;
+        handler validation enforces the v1 subset.
+      enum:
+        - ClusterIP
+        - NodePort
+        - LoadBalancer
+        - ExternalName
+
+    ServiceMutable:
+      description: Fields on a Service that clients may set and later update.
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/ServiceType'
+        cluster_ip:
+          type: string
+          maxLength: 45
+          description: Assigned ClusterIP (empty for Headless / ExternalName services).
+        selector:
+          type: object
+          description: Pod label selector. Pods matching every key/value are selected.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+        ports:
+          type: array
+          description: |
+            Service ports. Opaque in v1: each entry carries whatever the
+            collector chose to persist (name, port, target_port, protocol, node_port).
+          items:
+            type: object
+            additionalProperties: true
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    ServiceCreate:
+      description: Payload to register a new service under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/ServiceMutable'
+        - type: object
+          required: [namespace_id, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes service name (DNS-label style). Unique per namespace.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 63
+
+    ServiceUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/ServiceMutable'
+
+    Service:
+      description: A Kubernetes Service registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/ServiceMutable'
+        - type: object
+          required: [id, namespace_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 63
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for Service. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    ServiceList:
+      description: Paged list of services.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Service'
         next_cursor:
           type: string
           nullable: true

@@ -25,6 +25,8 @@ type fakeSource struct {
 	listPodErr       error
 	workloads        []WorkloadInfo
 	listWorkloadErr  error
+	services         []ServiceInfo
+	listServiceErr   error
 }
 
 func (f *fakeSource) ServerVersion(_ context.Context) (string, error) {
@@ -47,6 +49,10 @@ func (f *fakeSource) ListWorkloads(_ context.Context) ([]WorkloadInfo, error) {
 	return f.workloads, f.listWorkloadErr
 }
 
+func (f *fakeSource) ListServices(_ context.Context) ([]ServiceInfo, error) {
+	return f.services, f.listServiceErr
+}
+
 type recordedUpdate struct {
 	id    uuid.UUID
 	patch api.ClusterUpdate
@@ -60,11 +66,13 @@ type fakeStore struct {
 	upsertedNS       []api.NamespaceCreate
 	upsertedPod      []api.PodCreate
 	upsertedWorkload []api.WorkloadCreate
+	upsertedService  []api.ServiceCreate
 	// Existing rows; reconciliation operates against these.
 	existingNodes     []api.Node
 	existingNS        []api.Namespace
 	existingPods      []api.Pod
 	existingWorkloads []api.Workload
+	existingServices  []api.Service
 	// Preset namespace-id assignments. The fake picks an id for each
 	// UpsertNamespace call from here (keyed by cluster_id + name), falling
 	// back to a fresh uuid.New() if absent. Lets tests pin the name -> id
@@ -76,17 +84,20 @@ type fakeStore struct {
 	upsertNSErr       error
 	upsertPodErr      error
 	upsertWorkloadErr error
+	upsertServiceErr  error
 	// nodeState mirrors per-(cluster_id, name) upsert history so tests can
 	// assert idempotent behaviour.
 	nodeState     map[string]int // key: cluster_id/name, value: upsert count
 	nsState       map[string]int
 	podState      map[string]int // key: namespace_id/name
 	workloadState map[string]int // key: namespace_id/kind/name
+	serviceState  map[string]int // key: namespace_id/name
 	// Reconciliation call log: each entry is the keepNames slice from a call.
 	reconcileNodesCalls     []reconcileCall
 	reconcileNSCalls        []reconcileCall
 	reconcilePodsCalls      []reconcileCall
 	reconcileWorkloadsCalls []reconcileWorkloadCall
+	reconcileServicesCalls  []reconcileCall
 }
 
 type reconcileWorkloadCall struct {
@@ -106,6 +117,7 @@ func newFakeStore() *fakeStore {
 		nsState:       make(map[string]int),
 		podState:      make(map[string]int),
 		workloadState: make(map[string]int),
+		serviceState:  make(map[string]int),
 		nsIDPreset:    make(map[string]uuid.UUID),
 	}
 }
@@ -271,6 +283,49 @@ func (s *fakeStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, ke
 		deleted++
 	}
 	s.existingPods = kept
+	return deleted, nil
+}
+
+func (s *fakeStore) UpsertService(_ context.Context, in api.ServiceCreate) (api.Service, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.upsertServiceErr != nil {
+		return api.Service{}, s.upsertServiceErr
+	}
+	s.upsertedService = append(s.upsertedService, in)
+	key := in.NamespaceId.String() + "/" + in.Name
+	s.serviceState[key]++
+	id := uuid.New()
+	return api.Service{
+		Id:          &id,
+		NamespaceId: in.NamespaceId,
+		Name:        in.Name,
+		Type:        in.Type,
+	}, nil
+}
+
+func (s *fakeStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconcileServicesCalls = append(s.reconcileServicesCalls, reconcileCall{clusterID: namespaceID, keep: append([]string(nil), keepNames...)})
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	kept := s.existingServices[:0]
+	var deleted int64
+	for _, svc := range s.existingServices {
+		if svc.NamespaceId != namespaceID {
+			kept = append(kept, svc)
+			continue
+		}
+		if _, ok := keep[svc.Name]; ok {
+			kept = append(kept, svc)
+			continue
+		}
+		deleted++
+	}
+	s.existingServices = kept
 	return deleted, nil
 }
 
@@ -893,6 +948,94 @@ func TestPollSkipsWorkloadIngestionOnListError(t *testing.T) {
 	}
 	if len(store.reconcileWorkloadsCalls) != 0 {
 		t.Errorf("expected no workload reconcile on ListWorkloads error; got %d", len(store.reconcileWorkloadsCalls))
+	}
+}
+
+func TestPollIngestsServicesWithNamespaceResolution(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	defaultNSID := uuid.New()
+
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	store.nsIDPreset[clusterID.String()+"/default"] = defaultNSID
+
+	source := &fakeSource{
+		version:    "v1.29.5",
+		namespaces: []NamespaceInfo{{Name: "default"}},
+		services: []ServiceInfo{
+			{Name: "web", Namespace: "default", Type: "ClusterIP", ClusterIP: "10.0.0.1"},
+			{Name: "orphan", Namespace: "deleted-ns", Type: "ClusterIP"}, // skipped
+		},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.upsertedService) != 1 {
+		t.Fatalf("upserted services=%d, want 1 (orphan must be skipped)", len(store.upsertedService))
+	}
+	up := store.upsertedService[0]
+	if up.NamespaceId != defaultNSID {
+		t.Errorf("upsert namespace_id=%v, want %v", up.NamespaceId, defaultNSID)
+	}
+	if up.Type == nil || *up.Type != api.ClusterIP {
+		t.Errorf("type=%v, want ClusterIP", up.Type)
+	}
+}
+
+func TestPollServicesReconcilePerNamespace(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	nsID := uuid.New()
+	live := uuid.New()
+	stale := uuid.New()
+
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	store.nsIDPreset[clusterID.String()+"/default"] = nsID
+	store.existingServices = []api.Service{
+		{Id: &live, NamespaceId: nsID, Name: "web"},
+		{Id: &stale, NamespaceId: nsID, Name: "stale"},
+	}
+
+	source := &fakeSource{
+		version:    "v1.29.5",
+		namespaces: []NamespaceInfo{{Name: "default"}},
+		services:   []ServiceInfo{{Name: "web", Namespace: "default"}},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.existingServices) != 1 || store.existingServices[0].Name != "web" {
+		t.Errorf("existingServices=%v, want only 'web'", store.existingServices)
+	}
+}
+
+func TestPollSkipsServiceIngestionOnListError(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	source := &fakeSource{
+		version:        "v1.29.5",
+		namespaces:     []NamespaceInfo{{Name: "default"}},
+		listServiceErr: errors.New("kube down"),
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	if len(store.upsertedService) != 0 {
+		t.Errorf("expected no service upserts on ListServices error; got %d", len(store.upsertedService))
+	}
+	if len(store.reconcileServicesCalls) != 0 {
+		t.Errorf("expected no service reconcile on ListServices error; got %d", len(store.reconcileServicesCalls))
 	}
 }
 

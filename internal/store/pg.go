@@ -1295,6 +1295,356 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 	return w, nil
 }
 
+// CreateService inserts a new service.
+func (p *PG) CreateService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
+	id := uuid.New()
+	now := time.Now().UTC()
+
+	labelsJSON, err := marshalLabels(in.Labels)
+	if err != nil {
+		return api.Service{}, err
+	}
+	selectorJSON, err := marshalLabels(in.Selector)
+	if err != nil {
+		return api.Service{}, err
+	}
+	portsJSON, err := marshalPorts(in.Ports)
+	if err != nil {
+		return api.Service{}, err
+	}
+
+	var svcType *string
+	if in.Type != nil {
+		t := string(*in.Type)
+		svcType = &t
+	}
+
+	const q = `
+		INSERT INTO services (
+			id, namespace_id, name, type, cluster_ip,
+			selector, ports, labels, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+	`
+	_, err = p.pool.Exec(ctx, q,
+		id, in.NamespaceId, in.Name, svcType, in.ClusterIp,
+		selectorJSON, portsJSON, labelsJSON, now,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return api.Service{}, fmt.Errorf("service %q in namespace %s already exists: %w", in.Name, in.NamespaceId, api.ErrConflict)
+			case "23503":
+				return api.Service{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			}
+		}
+		return api.Service{}, fmt.Errorf("insert service: %w", err)
+	}
+
+	return api.Service{
+		Id:          &id,
+		NamespaceId: in.NamespaceId,
+		Name:        in.Name,
+		Type:        in.Type,
+		ClusterIp:   in.ClusterIp,
+		Selector:    in.Selector,
+		Ports:       in.Ports,
+		Labels:      in.Labels,
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
+	}, nil
+}
+
+// GetService fetches a service by id.
+func (p *PG) GetService(ctx context.Context, id uuid.UUID) (api.Service, error) {
+	const q = `
+		SELECT id, namespace_id, name, type, cluster_ip,
+		       selector, ports, labels, created_at, updated_at
+		FROM services
+		WHERE id = $1
+	`
+	row := p.pool.QueryRow(ctx, q, id)
+	s, err := scanService(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.Service{}, api.ErrNotFound
+		}
+		return api.Service{}, fmt.Errorf("select service: %w", err)
+	}
+	return s, nil
+}
+
+// ListServices returns up to limit services, optionally filtered by namespace.
+func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Service, string, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	sb := strings.Builder{}
+	sb.WriteString(`SELECT id, namespace_id, name, type, cluster_ip,
+	                       selector, ports, labels, created_at, updated_at
+	                FROM services`)
+	args := make([]any, 0, 4)
+	conds := make([]string, 0, 2)
+
+	if namespaceID != nil {
+		args = append(args, *namespaceID)
+		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
+	}
+	if cursor != "" {
+		ts, cid, err := decodeCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		args = append(args, ts)
+		tsIdx := len(args)
+		args = append(args, cid)
+		idIdx := len(args)
+		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+	}
+	if len(conds) > 0 {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(strings.Join(conds, " AND "))
+	}
+	args = append(args, limit+1)
+	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+
+	rows, err := p.pool.Query(ctx, sb.String(), args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("query services: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]api.Service, 0, limit)
+	for rows.Next() {
+		s, err := scanService(rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("scan service: %w", err)
+		}
+		items = append(items, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("iterate services: %w", err)
+	}
+
+	var next string
+	if len(items) > limit {
+		last := items[limit-1]
+		if last.CreatedAt != nil && last.Id != nil {
+			next = encodeCursor(*last.CreatedAt, *last.Id)
+		}
+		items = items[:limit]
+	}
+	return items, next, nil
+}
+
+// UpdateService applies merge-patch semantics on mutable fields.
+func (p *PG) UpdateService(ctx context.Context, id uuid.UUID, in api.ServiceUpdate) (api.Service, error) {
+	sets := make([]string, 0, 5)
+	args := make([]any, 0, 7)
+	idx := 1
+	appendSet := func(column string, value any) {
+		sets = append(sets, fmt.Sprintf("%s=$%d", column, idx))
+		args = append(args, value)
+		idx++
+	}
+
+	if in.Type != nil {
+		appendSet("type", string(*in.Type))
+	}
+	if in.ClusterIp != nil {
+		appendSet("cluster_ip", *in.ClusterIp)
+	}
+	if in.Selector != nil {
+		b, err := marshalLabels(in.Selector)
+		if err != nil {
+			return api.Service{}, err
+		}
+		appendSet("selector", b)
+	}
+	if in.Ports != nil {
+		b, err := marshalPorts(in.Ports)
+		if err != nil {
+			return api.Service{}, err
+		}
+		appendSet("ports", b)
+	}
+	if in.Labels != nil {
+		b, err := marshalLabels(in.Labels)
+		if err != nil {
+			return api.Service{}, err
+		}
+		appendSet("labels", b)
+	}
+	appendSet("updated_at", time.Now().UTC())
+	args = append(args, id)
+
+	q := fmt.Sprintf("UPDATE services SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
+	tag, err := p.pool.Exec(ctx, q, args...)
+	if err != nil {
+		return api.Service{}, fmt.Errorf("update service: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.Service{}, api.ErrNotFound
+	}
+	return p.GetService(ctx, id)
+}
+
+// DeleteService removes a service by id.
+func (p *PG) DeleteService(ctx context.Context, id uuid.UUID) error {
+	tag, err := p.pool.Exec(ctx, "DELETE FROM services WHERE id=$1", id)
+	if err != nil {
+		return fmt.Errorf("delete service: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+	return nil
+}
+
+// UpsertService inserts-or-updates a service keyed by (namespace_id, name).
+func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
+	id := uuid.New()
+	now := time.Now().UTC()
+
+	labelsJSON, err := marshalLabels(in.Labels)
+	if err != nil {
+		return api.Service{}, err
+	}
+	selectorJSON, err := marshalLabels(in.Selector)
+	if err != nil {
+		return api.Service{}, err
+	}
+	portsJSON, err := marshalPorts(in.Ports)
+	if err != nil {
+		return api.Service{}, err
+	}
+
+	var svcType *string
+	if in.Type != nil {
+		t := string(*in.Type)
+		svcType = &t
+	}
+
+	const q = `
+		INSERT INTO services (
+			id, namespace_id, name, type, cluster_ip,
+			selector, ports, labels, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+		ON CONFLICT (namespace_id, name) DO UPDATE SET
+			type       = EXCLUDED.type,
+			cluster_ip = EXCLUDED.cluster_ip,
+			selector   = EXCLUDED.selector,
+			ports      = EXCLUDED.ports,
+			labels     = EXCLUDED.labels,
+			updated_at = EXCLUDED.updated_at
+		RETURNING id, namespace_id, name, type, cluster_ip,
+		          selector, ports, labels, created_at, updated_at
+	`
+	row := p.pool.QueryRow(ctx, q,
+		id, in.NamespaceId, in.Name, svcType, in.ClusterIp,
+		selectorJSON, portsJSON, labelsJSON, now,
+	)
+	s, err := scanService(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return api.Service{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+		}
+		return api.Service{}, fmt.Errorf("upsert service: %w", err)
+	}
+	return s, nil
+}
+
+// DeleteServicesNotIn mirrors DeletePodsNotIn.
+func (p *PG) DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
+	tag, err := p.pool.Exec(ctx,
+		`DELETE FROM services
+		 WHERE namespace_id = $1
+		   AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))`,
+		namespaceID, keepNames,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete services not in: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func marshalPorts(ports *[]map[string]interface{}) ([]byte, error) {
+	if ports == nil {
+		return []byte("[]"), nil
+	}
+	b, err := json.Marshal(*ports)
+	if err != nil {
+		return nil, fmt.Errorf("marshal ports: %w", err)
+	}
+	return b, nil
+}
+
+func scanService(row pgx.Row) (api.Service, error) {
+	var (
+		s            api.Service
+		id           uuid.UUID
+		namespaceID  uuid.UUID
+		createdAt    time.Time
+		updatedAt    time.Time
+		svcType      sql.NullString
+		clusterIP    sql.NullString
+		selectorJSON []byte
+		portsJSON    []byte
+		labelsJSON   []byte
+	)
+	if err := row.Scan(
+		&id, &namespaceID, &s.Name,
+		&svcType, &clusterIP,
+		&selectorJSON, &portsJSON, &labelsJSON,
+		&createdAt, &updatedAt,
+	); err != nil {
+		return api.Service{}, err
+	}
+	s.Id = &id
+	s.NamespaceId = namespaceID
+	s.CreatedAt = &createdAt
+	s.UpdatedAt = &updatedAt
+	s.ClusterIp = nullableString(clusterIP)
+	if svcType.Valid {
+		t := api.ServiceType(svcType.String)
+		s.Type = &t
+	}
+	if len(selectorJSON) > 0 {
+		var sel map[string]string
+		if err := json.Unmarshal(selectorJSON, &sel); err != nil {
+			return api.Service{}, fmt.Errorf("unmarshal service selector: %w", err)
+		}
+		if len(sel) > 0 {
+			s.Selector = &sel
+		}
+	}
+	if len(portsJSON) > 0 {
+		var ports []map[string]interface{}
+		if err := json.Unmarshal(portsJSON, &ports); err != nil {
+			return api.Service{}, fmt.Errorf("unmarshal service ports: %w", err)
+		}
+		if len(ports) > 0 {
+			s.Ports = &ports
+		}
+	}
+	if len(labelsJSON) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsJSON, &labels); err != nil {
+			return api.Service{}, fmt.Errorf("unmarshal service labels: %w", err)
+		}
+		if len(labels) > 0 {
+			s.Labels = &labels
+		}
+	}
+	return s, nil
+}
+
 func scanPod(row pgx.Row) (api.Pod, error) {
 	var (
 		p           api.Pod

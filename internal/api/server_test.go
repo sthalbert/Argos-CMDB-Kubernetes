@@ -29,23 +29,31 @@ type memStore struct {
 	podsByNatKey      map[string]uuid.UUID // "<namespace_id>/<name>" -> pod id
 	workloadsByID     map[uuid.UUID]Workload
 	workloadsByNatKey map[string]uuid.UUID // "<namespace_id>/<kind>/<name>" -> workload id
+	servicesByID      map[uuid.UUID]Service
+	servicesByNatKey  map[string]uuid.UUID // "<namespace_id>/<name>" -> service id
 	pingErr           error
 	createdN          int
 }
 
 func newMemStore() *memStore {
 	return &memStore{
-		byID:             make(map[uuid.UUID]Cluster),
-		byName:           make(map[string]uuid.UUID),
-		nodesByID:        make(map[uuid.UUID]Node),
-		nodesByNatKey:    make(map[string]uuid.UUID),
-		nsByID:           make(map[uuid.UUID]Namespace),
-		nsByNatKey:       make(map[string]uuid.UUID),
-		podsByID:         make(map[uuid.UUID]Pod),
-		podsByNatKey:     make(map[string]uuid.UUID),
-		workloadsByID:    make(map[uuid.UUID]Workload),
+		byID:              make(map[uuid.UUID]Cluster),
+		byName:            make(map[string]uuid.UUID),
+		nodesByID:         make(map[uuid.UUID]Node),
+		nodesByNatKey:     make(map[string]uuid.UUID),
+		nsByID:            make(map[uuid.UUID]Namespace),
+		nsByNatKey:        make(map[string]uuid.UUID),
+		podsByID:          make(map[uuid.UUID]Pod),
+		podsByNatKey:      make(map[string]uuid.UUID),
+		workloadsByID:     make(map[uuid.UUID]Workload),
 		workloadsByNatKey: make(map[string]uuid.UUID),
+		servicesByID:      make(map[uuid.UUID]Service),
+		servicesByNatKey:  make(map[string]uuid.UUID),
 	}
+}
+
+func serviceNatKey(namespaceID uuid.UUID, name string) string {
+	return namespaceID.String() + "/" + name
 }
 
 func workloadNatKey(namespaceID uuid.UUID, kind WorkloadKind, name string) string {
@@ -675,6 +683,165 @@ func (m *memStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUID
 		}
 		delete(m.workloadsByID, id)
 		delete(m.workloadsByNatKey, workloadNatKey(wl.NamespaceId, wl.Kind, wl.Name))
+		deleted++
+	}
+	return deleted, nil
+}
+
+func (m *memStore) CreateService(_ context.Context, in ServiceCreate) (Service, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[in.NamespaceId]; !ok {
+		return Service{}, ErrNotFound
+	}
+	key := serviceNatKey(in.NamespaceId, in.Name)
+	if _, dup := m.servicesByNatKey[key]; dup {
+		return Service{}, fmt.Errorf("duplicate service: %w", ErrConflict)
+	}
+	id := uuid.New()
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+	s := Service{
+		Id:          &id,
+		NamespaceId: in.NamespaceId,
+		Name:        in.Name,
+		Type:        in.Type,
+		ClusterIp:   in.ClusterIp,
+		Selector:    in.Selector,
+		Ports:       in.Ports,
+		Labels:      in.Labels,
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
+	}
+	m.servicesByID[id] = s
+	m.servicesByNatKey[key] = id
+	return s, nil
+}
+
+func (m *memStore) GetService(_ context.Context, id uuid.UUID) (Service, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.servicesByID[id]
+	if !ok {
+		return Service{}, ErrNotFound
+	}
+	return s, nil
+}
+
+func (m *memStore) ListServices(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]Service, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]Service, 0, len(m.servicesByID))
+	for _, s := range m.servicesByID {
+		if namespaceID != nil && s.NamespaceId != *namespaceID {
+			continue
+		}
+		out = append(out, s)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) UpdateService(_ context.Context, id uuid.UUID, in ServiceUpdate) (Service, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.servicesByID[id]
+	if !ok {
+		return Service{}, ErrNotFound
+	}
+	if in.Type != nil {
+		s.Type = in.Type
+	}
+	if in.ClusterIp != nil {
+		s.ClusterIp = in.ClusterIp
+	}
+	if in.Selector != nil {
+		s.Selector = in.Selector
+	}
+	if in.Ports != nil {
+		s.Ports = in.Ports
+	}
+	if in.Labels != nil {
+		s.Labels = in.Labels
+	}
+	now := time.Now().UTC()
+	s.UpdatedAt = &now
+	m.servicesByID[id] = s
+	return s, nil
+}
+
+func (m *memStore) DeleteService(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.servicesByID[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.servicesByID, id)
+	delete(m.servicesByNatKey, serviceNatKey(s.NamespaceId, s.Name))
+	return nil
+}
+
+func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[in.NamespaceId]; !ok {
+		return Service{}, ErrNotFound
+	}
+	key := serviceNatKey(in.NamespaceId, in.Name)
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+	if existingID, exists := m.servicesByNatKey[key]; exists {
+		s := m.servicesByID[existingID]
+		s.Type = in.Type
+		s.ClusterIp = in.ClusterIp
+		s.Selector = in.Selector
+		s.Ports = in.Ports
+		s.Labels = in.Labels
+		s.UpdatedAt = &now
+		m.servicesByID[existingID] = s
+		return s, nil
+	}
+	id := uuid.New()
+	s := Service{
+		Id:          &id,
+		NamespaceId: in.NamespaceId,
+		Name:        in.Name,
+		Type:        in.Type,
+		ClusterIp:   in.ClusterIp,
+		Selector:    in.Selector,
+		Ports:       in.Ports,
+		Labels:      in.Labels,
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
+	}
+	m.servicesByID[id] = s
+	m.servicesByNatKey[key] = id
+	return s, nil
+}
+
+func (m *memStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	var deleted int64
+	for id, s := range m.servicesByID {
+		if s.NamespaceId != namespaceID {
+			continue
+		}
+		if _, ok := keep[s.Name]; ok {
+			continue
+		}
+		delete(m.servicesByID, id)
+		delete(m.servicesByNatKey, serviceNatKey(s.NamespaceId, s.Name))
 		deleted++
 	}
 	return deleted, nil
@@ -1357,6 +1524,61 @@ func TestWorkloadCRUD(t *testing.T) {
 	del2 := do(h, http.MethodDelete, url, "")
 	if del2.Code != http.StatusNotFound {
 		t.Errorf("second delete: %d", del2.Code)
+	}
+}
+
+func TestServiceCRUD(t *testing.T) {
+	t.Parallel()
+	store := newMemStore()
+	h := newTestHandler(t, store)
+
+	clusterResp := do(h, http.MethodPost, "/v1/clusters", `{"name":"prod-svc"}`)
+	var cluster Cluster
+	_ = json.Unmarshal(clusterResp.Body.Bytes(), &cluster)
+
+	nsResp := do(h, http.MethodPost, "/v1/namespaces", fmt.Sprintf(`{"cluster_id":%q,"name":"apps"}`, cluster.Id.String()))
+	var ns Namespace
+	_ = json.Unmarshal(nsResp.Body.Bytes(), &ns)
+	nsIDStr := ns.Id.String()
+
+	createBody := fmt.Sprintf(`{"namespace_id":%q,"name":"web","type":"ClusterIP","cluster_ip":"10.0.0.1"}`, nsIDStr)
+	create := do(h, http.MethodPost, "/v1/services", createBody)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create: %d %q", create.Code, create.Body.String())
+	}
+	var svc Service
+	_ = json.Unmarshal(create.Body.Bytes(), &svc)
+	if svc.Layer == nil || *svc.Layer != LayerService {
+		t.Errorf("layer=%v, want %q", svc.Layer, LayerService)
+	}
+	if svc.Type == nil || *svc.Type != ClusterIP {
+		t.Errorf("type=%v, want ClusterIP", svc.Type)
+	}
+
+	bogus := do(h, http.MethodPost, "/v1/services", fmt.Sprintf(`{"namespace_id":%q,"name":"bad","type":"Quantum"}`, nsIDStr))
+	if bogus.Code != http.StatusBadRequest {
+		t.Errorf("bogus type: %d %q", bogus.Code, bogus.Body.String())
+	}
+
+	dup := do(h, http.MethodPost, "/v1/services", createBody)
+	if dup.Code != http.StatusConflict {
+		t.Errorf("duplicate: %d", dup.Code)
+	}
+
+	url := "/v1/services/" + svc.Id.String()
+	patch := do(h, http.MethodPatch, url, `{"type":"LoadBalancer"}`)
+	if patch.Code != http.StatusOK {
+		t.Fatalf("patch: %d %q", patch.Code, patch.Body.String())
+	}
+	var patched Service
+	_ = json.Unmarshal(patch.Body.Bytes(), &patched)
+	if patched.Type == nil || *patched.Type != LoadBalancer {
+		t.Errorf("type after patch=%v", patched.Type)
+	}
+
+	del := do(h, http.MethodDelete, url, "")
+	if del.Code != http.StatusNoContent {
+		t.Errorf("delete: %d", del.Code)
 	}
 }
 

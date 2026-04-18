@@ -71,6 +71,30 @@ func (e Layer) Valid() bool {
 	}
 }
 
+// Defines values for ServiceType.
+const (
+	ClusterIP    ServiceType = "ClusterIP"
+	ExternalName ServiceType = "ExternalName"
+	LoadBalancer ServiceType = "LoadBalancer"
+	NodePort     ServiceType = "NodePort"
+)
+
+// Valid indicates whether the value is a known member of the ServiceType enum.
+func (e ServiceType) Valid() bool {
+	switch e {
+	case ClusterIP:
+		return true
+	case ExternalName:
+		return true
+	case LoadBalancer:
+		return true
+	case NodePort:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkloadKind.
 const (
 	DaemonSet   WorkloadKind = "DaemonSet"
@@ -444,6 +468,102 @@ type Problem struct {
 	Type     string  `json:"type"`
 }
 
+// Service defines model for Service.
+type Service struct {
+	// ClusterIp Assigned ClusterIP (empty for Headless / ExternalName services).
+	ClusterIp *string             `json:"cluster_ip,omitempty"`
+	CreatedAt *time.Time          `json:"created_at,omitempty"`
+	Id        *openapi_types.UUID `json:"id,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Layer Always `applicative` for Service. Set by the server.
+	Layer       *Layer             `json:"layer,omitempty"`
+	Name        string             `json:"name"`
+	NamespaceId openapi_types.UUID `json:"namespace_id"`
+
+	// Ports Service ports. Opaque in v1: each entry carries whatever the
+	// collector chose to persist (name, port, target_port, protocol, node_port).
+	Ports *[]map[string]interface{} `json:"ports,omitempty"`
+
+	// Selector Pod label selector. Pods matching every key/value are selected.
+	Selector *map[string]string `json:"selector,omitempty"`
+
+	// Type Kubernetes Service type. Casing matches the enum Kubernetes itself
+	// emits. Open-ended at the schema layer to accommodate future additions;
+	// handler validation enforces the v1 subset.
+	Type      *ServiceType `json:"type,omitempty"`
+	UpdatedAt *time.Time   `json:"updated_at,omitempty"`
+}
+
+// ServiceCreate defines model for ServiceCreate.
+type ServiceCreate struct {
+	// ClusterIp Assigned ClusterIP (empty for Headless / ExternalName services).
+	ClusterIp *string `json:"cluster_ip,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Name Kubernetes service name (DNS-label style). Unique per namespace.
+	// Immutable after creation.
+	Name string `json:"name"`
+
+	// NamespaceId Parent namespace id. Immutable after creation; the namespace
+	// must already exist or the create returns 404.
+	NamespaceId openapi_types.UUID `json:"namespace_id"`
+
+	// Ports Service ports. Opaque in v1: each entry carries whatever the
+	// collector chose to persist (name, port, target_port, protocol, node_port).
+	Ports *[]map[string]interface{} `json:"ports,omitempty"`
+
+	// Selector Pod label selector. Pods matching every key/value are selected.
+	Selector *map[string]string `json:"selector,omitempty"`
+
+	// Type Kubernetes Service type. Casing matches the enum Kubernetes itself
+	// emits. Open-ended at the schema layer to accommodate future additions;
+	// handler validation enforces the v1 subset.
+	Type *ServiceType `json:"type,omitempty"`
+}
+
+// ServiceList Paged list of services.
+type ServiceList struct {
+	Items []Service `json:"items"`
+
+	// NextCursor Opaque cursor to pass as `?cursor=` to fetch the next page.
+	// Absent or null when no more pages remain.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// ServiceMutable Fields on a Service that clients may set and later update.
+type ServiceMutable struct {
+	// ClusterIp Assigned ClusterIP (empty for Headless / ExternalName services).
+	ClusterIp *string `json:"cluster_ip,omitempty"`
+
+	// Labels Arbitrary user-supplied string key/value labels.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Ports Service ports. Opaque in v1: each entry carries whatever the
+	// collector chose to persist (name, port, target_port, protocol, node_port).
+	Ports *[]map[string]interface{} `json:"ports,omitempty"`
+
+	// Selector Pod label selector. Pods matching every key/value are selected.
+	Selector *map[string]string `json:"selector,omitempty"`
+
+	// Type Kubernetes Service type. Casing matches the enum Kubernetes itself
+	// emits. Open-ended at the schema layer to accommodate future additions;
+	// handler validation enforces the v1 subset.
+	Type *ServiceType `json:"type,omitempty"`
+}
+
+// ServiceType Kubernetes Service type. Casing matches the enum Kubernetes itself
+// emits. Open-ended at the schema layer to accommodate future additions;
+// handler validation enforces the v1 subset.
+type ServiceType string
+
+// ServiceUpdate Fields on a Service that clients may set and later update.
+type ServiceUpdate = ServiceMutable
+
 // Workload defines model for Workload.
 type Workload struct {
 	CreatedAt *time.Time          `json:"created_at,omitempty"`
@@ -566,6 +686,12 @@ type PodId = openapi_types.UUID
 // PodNamespaceIdFilter defines model for PodNamespaceIdFilter.
 type PodNamespaceIdFilter = openapi_types.UUID
 
+// ServiceId defines model for ServiceId.
+type ServiceId = openapi_types.UUID
+
+// ServiceNamespaceIdFilter defines model for ServiceNamespaceIdFilter.
+type ServiceNamespaceIdFilter = openapi_types.UUID
+
 // WorkloadId defines model for WorkloadId.
 type WorkloadId = openapi_types.UUID
 
@@ -638,6 +764,18 @@ type ListPodsParams struct {
 	NamespaceId *PodNamespaceIdFilter `form:"namespace_id,omitempty" json:"namespace_id,omitempty"`
 }
 
+// ListServicesParams defines parameters for ListServices.
+type ListServicesParams struct {
+	// Limit Maximum number of items to return. Server clamps to [1, 200].
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor returned from a previous list response.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// NamespaceId Return only services belonging to this namespace.
+	NamespaceId *ServiceNamespaceIdFilter `form:"namespace_id,omitempty" json:"namespace_id,omitempty"`
+}
+
 // ListWorkloadsParams defines parameters for ListWorkloads.
 type ListWorkloadsParams struct {
 	// Limit Maximum number of items to return. Server clamps to [1, 200].
@@ -676,6 +814,12 @@ type CreatePodJSONRequestBody = PodCreate
 
 // UpdatePodApplicationMergePatchPlusJSONRequestBody defines body for UpdatePod for application/merge-patch+json ContentType.
 type UpdatePodApplicationMergePatchPlusJSONRequestBody = PodUpdate
+
+// CreateServiceJSONRequestBody defines body for CreateService for application/json ContentType.
+type CreateServiceJSONRequestBody = ServiceCreate
+
+// UpdateServiceApplicationMergePatchPlusJSONRequestBody defines body for UpdateService for application/merge-patch+json ContentType.
+type UpdateServiceApplicationMergePatchPlusJSONRequestBody = ServiceUpdate
 
 // CreateWorkloadJSONRequestBody defines body for CreateWorkload for application/json ContentType.
 type CreateWorkloadJSONRequestBody = WorkloadCreate
@@ -751,6 +895,21 @@ type ServerInterface interface {
 	// Update mutable fields of a pod
 	// (PATCH /v1/pods/{id})
 	UpdatePod(w http.ResponseWriter, r *http.Request, id PodId)
+	// List services
+	// (GET /v1/services)
+	ListServices(w http.ResponseWriter, r *http.Request, params ListServicesParams)
+	// Register a service
+	// (POST /v1/services)
+	CreateService(w http.ResponseWriter, r *http.Request)
+	// Delete a service
+	// (DELETE /v1/services/{id})
+	DeleteService(w http.ResponseWriter, r *http.Request, id ServiceId)
+	// Get a service
+	// (GET /v1/services/{id})
+	GetService(w http.ResponseWriter, r *http.Request, id ServiceId)
+	// Update mutable fields of a service
+	// (PATCH /v1/services/{id})
+	UpdateService(w http.ResponseWriter, r *http.Request, id ServiceId)
 	// List workloads
 	// (GET /v1/workloads)
 	ListWorkloads(w http.ResponseWriter, r *http.Request, params ListWorkloadsParams)
@@ -1445,6 +1604,168 @@ func (siw *ServerInterfaceWrapper) UpdatePod(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListServices operation middleware
+func (siw *ServerInterfaceWrapper) ListServices(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListServicesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "namespace_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "namespace_id", r.URL.Query(), &params.NamespaceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "namespace_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListServices(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateService operation middleware
+func (siw *ServerInterfaceWrapper) CreateService(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateService(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteService operation middleware
+func (siw *ServerInterfaceWrapper) DeleteService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id ServiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteService(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetService operation middleware
+func (siw *ServerInterfaceWrapper) GetService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id ServiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"read"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetService(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateService operation middleware
+func (siw *ServerInterfaceWrapper) UpdateService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id ServiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateService(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListWorkloads operation middleware
 func (siw *ServerInterfaceWrapper) ListWorkloads(w http.ResponseWriter, r *http.Request) {
 
@@ -1757,6 +2078,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("DELETE "+options.BaseURL+"/v1/pods/{id}", wrapper.DeletePod)
 	m.HandleFunc("GET "+options.BaseURL+"/v1/pods/{id}", wrapper.GetPod)
 	m.HandleFunc("PATCH "+options.BaseURL+"/v1/pods/{id}", wrapper.UpdatePod)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/services", wrapper.ListServices)
+	m.HandleFunc("POST "+options.BaseURL+"/v1/services", wrapper.CreateService)
+	m.HandleFunc("DELETE "+options.BaseURL+"/v1/services/{id}", wrapper.DeleteService)
+	m.HandleFunc("GET "+options.BaseURL+"/v1/services/{id}", wrapper.GetService)
+	m.HandleFunc("PATCH "+options.BaseURL+"/v1/services/{id}", wrapper.UpdateService)
 	m.HandleFunc("GET "+options.BaseURL+"/v1/workloads", wrapper.ListWorkloads)
 	m.HandleFunc("POST "+options.BaseURL+"/v1/workloads", wrapper.CreateWorkload)
 	m.HandleFunc("DELETE "+options.BaseURL+"/v1/workloads/{id}", wrapper.DeleteWorkload)
@@ -1769,90 +2095,99 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"H4sIAAAAAAAC/+xd/XLbOJJ/lS7eVp09S8uKk8zuOHW1lUk2O97JJKp4cvtHlIshoiVhTQIcALSjnXLV",
+	"PcQ94T3JVQP8lCiR8ocucfxPIlEg0OjPX+Oj/XsQqSRVEqU1wfHvQco0S9Cidt9exJmxqE84feFoIi1S",
+	"K5QMjoNT1BeoD5gxYiaRQ+SbguAorZgK1IMgDAQ1TZmdB2EgWYLBcSB4EAYaf8uERh4cW51hGJhojgmj",
+	"UaZKJ8wGx0GWuZZ2kdJbxmohZ8HVVRi8yLRRepWityn7LUOI3M+g0WaaCJtqlQCDVOOFUJmBWBgLGk2q",
+	"pMGSxt8y1IuKSN9JUCcsYZ9fo5zZeXD89NFRG2GvRSLsKl2/sM8iyRKQWTJBDWoKwmJiwKqcyAF4ZkIU",
+	"syR1P3x4FMLRcPhxHX2xG6pOHscpy2IbHD8dhkQrDRkcHw3pm5D+26OSaiEtzlA7st+wBE3KIiyl/UrE",
+	"Fls4/M6RC0rGC5DFWwYmGCs5E3JGlNu5MIUyrOWu//mTE/A2oi9J7aORJYU70Mk3im/JPsV3yznF+zFN",
+	"8V3wa6R4H2pSxXdDTE2x+kgvVbxNeKXGrRNf2WB7ARJrRD/FN77pDjiXE7Ul93L6ds3Bfyh9HivWS/Eu",
+	"87Y74GFB1s9C9uJeQZqhSOKYdi4kX8cv+q3Bpz9onAbHwb8dVnH/0P9qDuukNGjbUsAVibuU8BXJwYd1",
+	"B15+ZPwd/pahcTE5UtKidB9ZmsYiYkT4YarVJMbkj/80NIvfezJq5N/ygy5H+5gIRQ7aDz4ICLMoOY1F",
+	"tFNKijHhUtg5wSKN0oKxzCLs4WA2CIFnfnx0Ytl3pL5SeiI4R7lLWn9V5yhBGLhgseAwySzELDo3YOcI",
+	"JlIpQmFjMFm4pypF7ahxVL9R9pXKJN8l0e/QqExHCFJZmNLojpT3kmV2rrT4F+6UnF+EMWRpSoOQOR+R",
+	"adRgibsDZ9F5PzVw7+iK47fT4PjD5rHzF37JLJvEGFyFvwepJjFY4S0u0sgs8k/MNuyVM4sHViToPCXj",
+	"b2W8KDzlkhGH5E9bbL3ztZgttpnKa9f86uMyD5/Hl2xh4EzIqWbG6iyymcZPsZqJiMVnMFUacjYQareF",
+	"MhoXPwYrlF4Vbq2RP3z/xIHy4utRSDHFoiYK/usDO/jX8OCHj/n/Bx9/H4bfH10Vj/8QtMw+S/kNGX9V",
+	"D2IffFRzlBesDevSbYz4sexMTf6JkW1jK/ycTVBLtFhCXNA4E/QBOQjpuPjil5c/enfpm7xwI96ighay",
+	"WAr+rjmYOJsdxOK8DpxCyKSgrJJFWhlTUTmWJ0nixwE2pek49pA7GssgvENpL0nKTamHCEZs4QCNyzo9",
+	"44GBxMsq5agY/1qYlkR2xGbIff6spsVrhpS+yWWX3jY+9BAajZ7PgWnNFvRd4mf7KeqV7lsFKTMGmIGz",
+	"v/hn/3FGT6doo7mTG/UGKZvhYCyfTwwFQ6VBZnEMl3OUIBUkSqNrYkBjwkQuTGrjNKqf7bhZr4qk5G6h",
+	"nytTeiUwJlwngRVeBuycWYhiQTyDhBF6tsAkh5jRz94OV2XAUvEJJU+VkC2SrFnj89FJ7r3g/bvXsCek",
+	"dx9CSRbvU8eVL9aizflwYdKYLT61G9dPWcLkwVQLlDxeQMwmGIcw1YgH1PGgaStHT79vGQHlhdBKJtg2",
+	"l1dFV1BrBpbNSpCDFyHBHoKhIaRa8f3BqoWuDHpe8ujTBWojfJRegli5kGpMzNuCxlRp6+FKjd2OJhgH",
+	"jwZHPwyejoNlUh4ftQa3CcZerJwLL5pRQ9ydLFzyx3oirGZ6AZlBfWAywiWUObr2cI6LwwsWZ+jFZXIa",
+	"60PWWFbpd6rVheBt2cF7yVHHC+q8xgwuaMBJRo3IFufKWGpS9DMYy7cpygOUHPkziFSSKAmOMnMMs3MM",
+	"Ac9NCIz+USlKMxdTG4KmX0h+jCchKJlqpP/t3HXZQ/bkIb28N7e8Wm/k751hXj92rTjwX1DP8CBl5M4m",
+	"ii8GQOEciiA0db7jGZyRGZ4RlBZFgCI2JsKSMvpWwDRCjFMLmYzmTM6QE1+uwuAnZDHNdTlwUtaQuU8o",
+	"s4S8nDqvubiKc2tN5cdMxLy0Dpe6IuhMShI40zNlXA672bXmZLT51tcFAFzS9DenpycQMW3VTLN0Th5o",
+	"4dwqAjPkS32KasAqQnQIz1++OxgOh0cO69k5jiXl0AdWHfg3E5amjmbJ/RxyX4kwwbnIHxrxuWiuOMZe",
+	"6wrWYaTMwlhMgjCYZEZINCYIq+TgglAX44mQZB+ue5crt0HS1R/S+cK4X9rEUyby/RWzfGUD7q9WJbvz",
+	"9PAbSRNKvt0kUXjcgI6PWqHj3oeD/NN3xaP9v+wwTWisSd9RzlCt5W/IGqqNjC3zhq1VfBkXu5WVagds",
+	"AOuSg2eO4qJlkhk7liwmpi8APztk7X2TZ1y+QWTgyfCJ9yGdxtWOwlpZSZ9g7+Wb0wMX5sHYRYz7A3jv",
+	"U57U7Uj53GCbdOc2dXZJ31ZV7UaZT8WKjPAJsEYuVGpFn2yo2g67aT5UuehvICNasbyNOVHZ+rpZ0d2n",
+	"Kl8NVJ8z09dPuLakRzEjZZ+4GMbLVOZ5RJBlHIQwDn5FnQjJCMVTblPH76R6LHIYnoQDTC6g4pEfxNR9",
+	"vpBWK56RSS37mMdHvaB4qS/bgvHVgHBtOF65rDOnoDk+ZxrHskLo0Begv1F8m3ko/gDbOmFbgZhz3Kb4",
+	"TSDb0dPHPZb7yvg3uM+gTfHNeE3x7aHaFhr9VaM04l0F0Ew24YrC7y2BtFvW0juGacSLVoSmeD9wpvgt",
+	"4DLyvN8CJKtZ2GY0RmK57vK0jubCovO/Lcuqo/dQbzGADcuALOHfPwmB6YT+S9Po+ycxhmAe/zD83Ac4",
+	"7GIB+zybYIx2/ULyz74BzIQt18iY6VpEvriXq8jKfBIJm7WIwmnc21NwPxfDFMx4P8mkzeDoaDB8MngM",
+	"r389XeVL26yu1tjA1pixHpm+FLg4Urz/DEaKfwt7+7V1Vo/4RorfIuB7dFPA1zgA1QeY393uf+0c1h1h",
+	"xFTxTRBxpPi2CHGjFnfiLqKnJ+yqTrLdAHjdura0gt76Uegu2Fu2HUtCvnCbwLfl7MKyit0IKZL0CqBY",
+	"O2joFakPUkwVvzFQJJ/7DeDEmp1thIkjxa+LEr8WxEL5xRr0+IZ8Sb7bKT1gRn+s3QApDM9i5KDkoMVN",
+	"rEyme9GOem5frjuGEUrujkC887uuIZxmUYTIkYdj+YqJGHlIWvRenkt1Keuou9fiXT+0nSr+SaQthqg4",
+	"nIyoV43GwN7J6OIJUXMyuvh+fwAn9XMpz9yRS3fGkQIPTZbJsTwZQSwsahavkPLkaS/gN1J8W9xXjzc3",
+	"2rQvPOHtAL/8nOjqOe1XL+BPfx7+CfLzp8DRMhG3eD3/A31aPZCjtdJmjd0fxHiBcSEdymR889B7phx+",
+	"0WyCsPKozbHd9FqHTtCYPDnY7Ll8F9ULbT5s2UcLaSyTfne869hTdSSivG319Icf6rethsPV+1ZhYIWN",
+	"sXVq/kHtKlfAJiqzx5OYyfPOg1hL03e/FqOFm05O5Jc4+mt8/sI3mSvkc/9y9vS/qWwh5/6mjCFvsm3W",
+	"0KnTnZlDceuqx676tTKHO9abbzpvKGTXnjvkutEnfyiutt00hyh88jeQRyxZ3sZcorD/a+YT5eJaC/x8",
+	"Xlz9K67xjmAPk9QunNv/CRmPCZYewl8/k9Gx2CH7Qt7LC40tcPMrOhugtDXtdySJ+e5nSg6cqgkJF4+O",
+	"AVk0B5RWLyBiWgs0cDlnFi8wP0QZqTjGyCoN0VwZdLqJ2pDd7JG5ha7fECzTM7Sf/JdUK6siFYcud3IP",
+	"9732lVbUzsqGSq7HewY9TbcoE0pjcsefdz6gFJjU1EZzEgvxZFETDmF43xZ5XxEVULGHD/mVmrYmO/UG",
+	"myJbaXWLFAfwgrlbZm466G/EoMySxskNazCejiUmwmtKmUYym9/oIxKLo7jN1HKa2UxjmV2aZ2M5Z5LH",
+	"qBspBaWDUT7+xSMw2cSgbZ6zLS058Cv6I6UJf7xWjP/IYsL5hE3q9tx6Zjaf/rZ54TKi+HJyw+JWb/+5",
+	"FG98kZDfXXHe6mbz3acJxXgP+wpdmUJ+Qf2OEobyHn+kpNUUgjbeOyzEtm320G0fhZJu159X15UpFj+7",
+	"m//ABf3mjt1RsNmUUPQ5eVKyrN82yFjulRINHUH7m2l42A7pmdbULeNG2U0p0fb0pqFsvTSjZkyu9kQb",
+	"JjijX858LBrLFXAAOTZ4Xi0i0wsG9v6uJiG80Eq6D+/QedZTtOFY5l+o/YuShH2XAEywOi/q1oNp4g6X",
+	"+HMirgiCyiywsczRRyJm/nIN7Jnq3s/j/SaIeIlprBbu6mEYnFpmcZrFp0jfXjJMlKTPbbChYGuftLEs",
+	"mHHTvLEM7d9A4rjsdDdmjqXLvOdbUc45fdLeUFqSuLfF6W3vxfKGEKlM2gG8yUUDmbQihqnQxlcMyUyN",
+	"M+UKd+v69vqxX6JxBTzWDPoMSoOCOVmwAhOxmGng+Yv+hU4KTIpRV2q45OSE5Af0mpiKqMDPzrHXs1Zl",
+	"0DTyVnfyyF3Rw9liTBkJVO4iLBYH3M6gXzyu3Md+80ybsUojH0tm4O+nb9/86C1lSbpXG4xg2+xkBbHc",
+	"TnoS5n4/JJMayypRga3zFJeeR5kWdnFKROdFfVxFk+eZv6Tq65u8KqKsq3MSrFja6MRXQAFhTIYcVGYP",
+	"1PRgwqTD59LFi7PnedEWFxKOwQ8E42w4fBy5191HPBuM5VieRipFAzPNpM13R/0Yx2MJcABnZF5nAPC/",
+	"//0/3suTi5mhrcrWmLzlpRYWz3zLHEdQW29usCcS8gum6DFPoCNGoe/fjQd/SP3t5/1xjJE6pP40JuqC",
+	"cIkvVFMM6e6W5kOyOC72p9lEXeAzau1dBKlsmY0nQh644k5FVQFDfHB1e4xb8nGXu13kz7v3ZXsc/ZGw",
+	"8QIMs8JMF27zuFnTZywn9LhW08fpv1NW0ncv58oi5tamvgSOkFPVssn519Nf3aV8msJ33z3XM2W++y4E",
+	"5qC+e1pDJLW6AQZYnFcAE3buV678FeJTjN5kyYtYZRz2Tt+82IffMhaTv/AYYqpZghTHnX78OhemPMi5",
+	"Nxw8Ggz3QRhgcMnic+KUOSc5KQmRukBy+bnmvBYXKJFir/RO2l0Pdru1pfzyhY2zUrDw4t37l04vs4nB",
+	"3zKKxvnohHziGBjn7sBuWF2iCsugGMJIcWey/pJ8A6+htMIucnSWsDR15xVcOS+ENderjWPCX922L0xV",
+	"HKtLKDee987WlUE6y7GXyZKE6UUDfR5EKK0WkZfgspRgVUiVQMptUIq6M2V8F89HJ0HtvnrghOTOn6Yo",
+	"WSqC4+Cxe+RSkrnzPodzdz/+X/R5hg7WlSp7woPj4G9of8qbLFUjOxoONxSD2q4IVH5Lv6UGVLFUJ5wi",
+	"X+Cg4UeD4w8f69wtdc1pF7GJzQyBLj/N4CO9fOiQQn3KzSH/E7WYkofi6lIaq5ElwDGlwCYjer7HmWUT",
+	"ZnDfuXqNLJoX2/8r3HvnB/v/Zp5HR1b5NRuwmk2nInLp0tPh411W9aoRJZX1hG2W6rum01gn1otHh0UJ",
+	"n7XqTLnLi6JR2CgOvAZfVE0OfTncq7CzYV7QlyDInUm9XtiohcvrShtdhcETT0Vb5yW1h7Vag+6VR92v",
+	"NMrEuZced79UFedb0oAmMvrg8oDg49WSuZvy/pOpqUX56KPb/DEtiuAXxIpSTT5DQ2N/VHxx2yLK196u",
+	"molgvk66pB+Pbnvw1jqK+T2wfE2S3NYcGc/t5rXy47XUvHl3Up78w8t4UXRQr/HbVt2y9XDP1ResifTG",
+	"D91vlDUwO1TXAeJl3X1XLWlFpRa2KPCSZzv8XfArLxpCxauK/dI9ryt2Q8GerK/55Hvkg52y+Un3G2Ul",
+	"zA425xxZ4rPnRxeXw7XoZy0nh7s01fJM41cqmzbv/Te03WLZLkJX5f1pKJfqt5Svr60DGEyYtCIyx0Xy",
+	"ropcXqvEubqJ4guH8+rZfEtRqtadgaY6+TWNbYNOUtH7x2spVr6U0isA7USrPUG8cfX1S44Ft2gIrbHA",
+	"82NpJYpCbb/YUJVq2Yh731TN7hz5drdc+0ca7hQ1N0vgdOLmehGc+4ecZV0hCvWqPexCz1Vhn7vBz8vl",
+	"r3aMoGt1i1b1pKrcc2soulFI/t7g6K18546Bt6wpcKv+rzjYnvC7aRldALzSpXsOwTv5vR6Gb+DocNcW",
+	"f3/BeA8BbQcc6n/f6K4h+fpKA9cA6dvHtuvD9OWqXjsG6hu1voDqzRM2D2C9Faz3jieKd2F11+JLgOkt",
+	"fwfsbhF6UQKpG5z7Ikj3EJfnwi9VyH3vROOK3xkQr+qa7RqDuxpVLcFY8dtE3oo/gO6dgW6vp8vKXXeN",
+	"fVF2ofGdAJu05b5j63a2bkDUrdwb7sZ07zGEXieHLYGz//OWXxdm3iYC3QAuV7XMdo2U16h0CZJdHHnA",
+	"x2vx8UbXnyq+GRSPqMEXgIlb/7zqnYLiothTJyb25Z7uHyROvegLzXFfuwDxSPE7wsNVEbcdw2FXieuq",
+	"9YrurYHhVPEHLLwjLJw6FV3S6po77AmEC03vwsGkJ/ccBrdydD0IbuXccBf2en8R8BoRbBe2/d9T38Up",
+	"jnU30a8BgLeJONfHv1VJtx3D3zXaXKBfFzgewO868LvJ1xdVVzbC39Oi0RcAgdf+nfw7hcH1ukWdULiq",
+	"XHT/4LCpVKFQqPJRFywuKjHdDTRuVivbMTwui0ytv3VwazA55/cDVN4RVDal2rZo/JIb7Qmb65bQBZ0L",
+	"/bnn8Hkjl9fD6LWcHO7Stu8vpO4Qy3ZwIGfX1wevt41c14fYzQpZO4bZGzS9gNpl8HmA2+vgdp94UVYp",
+	"2Yi7/1G2+gKAd0FMC/Lu//LPQu4ErzcqxnQC9lrNmPuH2C9rSlQoZPWsC7OXVXDuBrQvVQnbMWqvSvys",
+	"akhZ5ebWcHvB9AfgviPgflnpbpviL7vinti9YRFd4L3UonuO3jtYvR6/r+fmcLdmfn8hfKdstoMWBcd2",
+	"jeIb9ZBuBue3DmrXx/NLRaV2DOg3aX6B6Kuw9ADp10H6rkiycTQ/jCtY6w2sKQdCEjFwvMBYpXlxxEzH",
+	"eWmm48PDmBrMlbHHfx7+eeiMLidipatNBY9gL3NCQDJFkrwrtO5rmBblTAjJr61ZWVz/XFv1teytvCi6",
+	"sT93CAf2iJGo4bAohXmQxkwiJCyaE/n7rjCRkPW/V1sO5M/xbB6lPAW/saPqrPzG3lLFjav15Yp8WZWI",
+	"CGoVi+v1QYU1tQHcrsvGrltKghrYqxfBq9W8C6sCf/uDsXwORshZXBbZE0pCquJFonQ6FxEoWS8k2qhy",
+	"+wzqFTvzspKe5krFNxJe7A5V/G3cJ8w7K3Pgq49X/xcAAP//IiG+MiqfAAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

@@ -642,6 +642,108 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 	}
 }
 
+func TestPGServiceCRUD(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "service-test"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	svcType := api.ClusterIP
+	clusterIP := "10.0.0.1"
+	svc, err := pg.CreateService(ctx, api.ServiceCreate{
+		NamespaceId: *ns.Id,
+		Name:        "web",
+		Type:        &svcType,
+		ClusterIp:   &clusterIP,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if svc.Id == nil || svc.Type == nil || *svc.Type != api.ClusterIP {
+		t.Fatalf("unexpected: %+v", svc)
+	}
+
+	if _, err := pg.CreateService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "web"}); !errors.Is(err, api.ErrConflict) {
+		t.Errorf("duplicate: %v", err)
+	}
+	if _, err := pg.CreateService(ctx, api.ServiceCreate{NamespaceId: uuid.New(), Name: "x"}); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("unknown namespace: %v", err)
+	}
+
+	newType := api.LoadBalancer
+	updated, err := pg.UpdateService(ctx, *svc.Id, api.ServiceUpdate{Type: &newType})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Type == nil || *updated.Type != api.LoadBalancer {
+		t.Errorf("type=%v", updated.Type)
+	}
+
+	// Cascade via namespace -> cluster.
+	if err := pg.DeleteCluster(ctx, *cluster.Id); err != nil {
+		t.Fatalf("cluster delete: %v", err)
+	}
+	if _, err := pg.GetService(ctx, *svc.Id); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("service should have cascaded: %v", err)
+	}
+}
+
+func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "svc-upsert"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	first, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a"})
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	newType := api.LoadBalancer
+	second, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a", Type: &newType})
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if *second.Id != *first.Id {
+		t.Errorf("id changed across upsert")
+	}
+	if !second.UpdatedAt.After(*first.UpdatedAt) {
+		t.Errorf("updated_at did not advance")
+	}
+
+	if _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
+		t.Fatalf("b: %v", err)
+	}
+	deleted, err := pg.DeleteServicesNotIn(ctx, *ns.Id, []string{"a"})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted=%d, want 1", deleted)
+	}
+
+	deleted, err = pg.DeleteServicesNotIn(ctx, *ns.Id, nil)
+	if err != nil {
+		t.Fatalf("nil reconcile: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("nil reconcile deleted=%d, want 1", deleted)
+	}
+}
+
 func TestPGGetClusterByName(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

@@ -494,6 +494,112 @@ func (s *Server) DeleteWorkload(w http.ResponseWriter, r *http.Request, id Workl
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ListServices returns a paged list of services, optionally filtered by namespace_id.
+func (s *Server) ListServices(w http.ResponseWriter, r *http.Request, params ListServicesParams) {
+	limit := 0
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	cursor := ""
+	if params.Cursor != nil {
+		cursor = *params.Cursor
+	}
+
+	items, next, err := s.store.ListServices(r.Context(), params.NamespaceId, limit, cursor)
+	if err != nil {
+		s.writeStoreError(w, "listServices", err)
+		return
+	}
+
+	for i := range items {
+		items[i] = withServiceLayer(items[i])
+	}
+	resp := ServiceList{Items: items}
+	if next != "" {
+		resp.NextCursor = &next
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// CreateService registers a new service under a namespace.
+func (s *Server) CreateService(w http.ResponseWriter, r *http.Request) {
+	var body ServiceCreate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.Name == "" {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+	if body.Type != nil && !isValidServiceType(*body.Type) {
+		writeProblem(w, http.StatusBadRequest, "Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName")
+		return
+	}
+
+	svc, err := s.store.CreateService(r.Context(), body)
+	if err != nil {
+		s.writeStoreError(w, "createService", err)
+		return
+	}
+	svc = withServiceLayer(svc)
+
+	if svc.Id != nil {
+		w.Header().Set("Location", "/v1/services/"+svc.Id.String())
+	}
+	writeJSON(w, http.StatusCreated, svc)
+}
+
+// GetService fetches a service by id.
+func (s *Server) GetService(w http.ResponseWriter, r *http.Request, id ServiceId) {
+	svc, err := s.store.GetService(r.Context(), id)
+	if err != nil {
+		s.writeStoreError(w, "getService", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withServiceLayer(svc))
+}
+
+// UpdateService applies merge-patch updates.
+func (s *Server) UpdateService(w http.ResponseWriter, r *http.Request, id ServiceId) {
+	var body ServiceUpdate
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.Type != nil && !isValidServiceType(*body.Type) {
+		writeProblem(w, http.StatusBadRequest, "Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName")
+		return
+	}
+	svc, err := s.store.UpdateService(r.Context(), id, body)
+	if err != nil {
+		s.writeStoreError(w, "updateService", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, withServiceLayer(svc))
+}
+
+// DeleteService removes a service.
+func (s *Server) DeleteService(w http.ResponseWriter, r *http.Request, id ServiceId) {
+	if err := s.store.DeleteService(r.Context(), id); err != nil {
+		s.writeStoreError(w, "deleteService", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func isValidServiceType(t ServiceType) bool {
+	switch t {
+	case ClusterIP, NodePort, LoadBalancer, ExternalName:
+		return true
+	}
+	return false
+}
+
 func (s *Server) writeStoreError(w http.ResponseWriter, op string, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):

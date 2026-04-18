@@ -125,6 +125,42 @@ func (k *KubeClient) ListPods(ctx context.Context) ([]PodInfo, error) {
 	return out, nil
 }
 
+// ListServices returns every Service visible through the configured kubeconfig,
+// across all namespaces. Ports are serialised into generic maps so the store
+// can persist them as JSONB without coupling to client-go types.
+func (k *KubeClient) ListServices(ctx context.Context) ([]ServiceInfo, error) {
+	list, err := k.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list services: %w", err)
+	}
+	out := make([]ServiceInfo, 0, len(list.Items))
+	for _, s := range list.Items {
+		ports := make([]map[string]interface{}, 0, len(s.Spec.Ports))
+		for _, p := range s.Spec.Ports {
+			entry := map[string]interface{}{
+				"name":        p.Name,
+				"port":        int(p.Port),
+				"protocol":    string(p.Protocol),
+				"target_port": p.TargetPort.String(),
+			}
+			if p.NodePort != 0 {
+				entry["node_port"] = int(p.NodePort)
+			}
+			ports = append(ports, entry)
+		}
+		out = append(out, ServiceInfo{
+			Name:      s.Name,
+			Namespace: s.Namespace,
+			Type:      string(s.Spec.Type),
+			ClusterIP: s.Spec.ClusterIP,
+			Selector:  s.Spec.Selector,
+			Ports:     ports,
+			Labels:    s.Labels,
+		})
+	}
+	return out, nil
+}
+
 // ListWorkloads fans out three AppsV1 list calls (Deployments, StatefulSets,
 // DaemonSets) and folds the results into a single slice tagged by kind. Any
 // list failure aborts the whole call — partial ingestion risks wiping
