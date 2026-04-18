@@ -33,6 +33,10 @@ type memStore struct {
 	servicesByNatKey  map[string]uuid.UUID // "<namespace_id>/<name>" -> service id
 	ingressesByID     map[uuid.UUID]Ingress
 	ingressesByNatKey map[string]uuid.UUID // "<namespace_id>/<name>" -> ingress id
+	pvsByID           map[uuid.UUID]PersistentVolume
+	pvsByNatKey       map[string]uuid.UUID // "<cluster_id>/<name>" -> pv id
+	pvcsByID          map[uuid.UUID]PersistentVolumeClaim
+	pvcsByNatKey      map[string]uuid.UUID // "<namespace_id>/<name>" -> pvc id
 	pingErr           error
 	createdN          int
 }
@@ -53,6 +57,10 @@ func newMemStore() *memStore {
 		servicesByNatKey:  make(map[string]uuid.UUID),
 		ingressesByID:     make(map[uuid.UUID]Ingress),
 		ingressesByNatKey: make(map[string]uuid.UUID),
+		pvsByID:           make(map[uuid.UUID]PersistentVolume),
+		pvsByNatKey:       make(map[string]uuid.UUID),
+		pvcsByID:          make(map[uuid.UUID]PersistentVolumeClaim),
+		pvcsByNatKey:      make(map[string]uuid.UUID),
 	}
 }
 
@@ -1157,6 +1165,404 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) {
 	m.nodesByID[id] = n
 	m.nodesByNatKey[key] = id
 	return n, nil
+}
+
+func pvNatKey(clusterID uuid.UUID, name string) string {
+	return clusterID.String() + "/" + name
+}
+
+func pvcNatKey(namespaceID uuid.UUID, name string) string {
+	return namespaceID.String() + "/" + name
+}
+
+func (m *memStore) CreatePersistentVolume(_ context.Context, in PersistentVolumeCreate) (PersistentVolume, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byID[in.ClusterId]; !ok {
+		return PersistentVolume{}, ErrNotFound
+	}
+	key := pvNatKey(in.ClusterId, in.Name)
+	if _, dup := m.pvsByNatKey[key]; dup {
+		return PersistentVolume{}, fmt.Errorf("duplicate pv: %w", ErrConflict)
+	}
+	id := uuid.New()
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+	pv := PersistentVolume{
+		Id:                &id,
+		ClusterId:         in.ClusterId,
+		Name:              in.Name,
+		Capacity:          in.Capacity,
+		AccessModes:       in.AccessModes,
+		ReclaimPolicy:     in.ReclaimPolicy,
+		Phase:             in.Phase,
+		StorageClassName:  in.StorageClassName,
+		CsiDriver:         in.CsiDriver,
+		VolumeHandle:      in.VolumeHandle,
+		ClaimRefNamespace: in.ClaimRefNamespace,
+		ClaimRefName:      in.ClaimRefName,
+		Labels:            in.Labels,
+		CreatedAt:         &now,
+		UpdatedAt:         &now,
+	}
+	m.pvsByID[id] = pv
+	m.pvsByNatKey[key] = id
+	return pv, nil
+}
+
+func (m *memStore) GetPersistentVolume(_ context.Context, id uuid.UUID) (PersistentVolume, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pv, ok := m.pvsByID[id]
+	if !ok {
+		return PersistentVolume{}, ErrNotFound
+	}
+	return pv, nil
+}
+
+func (m *memStore) ListPersistentVolumes(_ context.Context, clusterID *uuid.UUID, limit int, _ string) ([]PersistentVolume, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]PersistentVolume, 0, len(m.pvsByID))
+	for _, pv := range m.pvsByID {
+		if clusterID != nil && pv.ClusterId != *clusterID {
+			continue
+		}
+		out = append(out, pv)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) UpdatePersistentVolume(_ context.Context, id uuid.UUID, in PersistentVolumeUpdate) (PersistentVolume, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pv, ok := m.pvsByID[id]
+	if !ok {
+		return PersistentVolume{}, ErrNotFound
+	}
+	if in.Capacity != nil {
+		pv.Capacity = in.Capacity
+	}
+	if in.AccessModes != nil {
+		pv.AccessModes = in.AccessModes
+	}
+	if in.ReclaimPolicy != nil {
+		pv.ReclaimPolicy = in.ReclaimPolicy
+	}
+	if in.Phase != nil {
+		pv.Phase = in.Phase
+	}
+	if in.StorageClassName != nil {
+		pv.StorageClassName = in.StorageClassName
+	}
+	if in.CsiDriver != nil {
+		pv.CsiDriver = in.CsiDriver
+	}
+	if in.VolumeHandle != nil {
+		pv.VolumeHandle = in.VolumeHandle
+	}
+	if in.ClaimRefNamespace != nil {
+		pv.ClaimRefNamespace = in.ClaimRefNamespace
+	}
+	if in.ClaimRefName != nil {
+		pv.ClaimRefName = in.ClaimRefName
+	}
+	if in.Labels != nil {
+		pv.Labels = in.Labels
+	}
+	now := time.Now().UTC()
+	pv.UpdatedAt = &now
+	m.pvsByID[id] = pv
+	return pv, nil
+}
+
+func (m *memStore) DeletePersistentVolume(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pv, ok := m.pvsByID[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.pvsByID, id)
+	delete(m.pvsByNatKey, pvNatKey(pv.ClusterId, pv.Name))
+	// Mirror ON DELETE SET NULL on the FK from PVCs.
+	for pvcID, pvc := range m.pvcsByID {
+		if pvc.BoundVolumeId != nil && *pvc.BoundVolumeId == id {
+			pvc.BoundVolumeId = nil
+			m.pvcsByID[pvcID] = pvc
+		}
+	}
+	return nil
+}
+
+func (m *memStore) UpsertPersistentVolume(_ context.Context, in PersistentVolumeCreate) (PersistentVolume, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byID[in.ClusterId]; !ok {
+		return PersistentVolume{}, ErrNotFound
+	}
+	key := pvNatKey(in.ClusterId, in.Name)
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+
+	if existingID, exists := m.pvsByNatKey[key]; exists {
+		pv := m.pvsByID[existingID]
+		pv.Capacity = in.Capacity
+		pv.AccessModes = in.AccessModes
+		pv.ReclaimPolicy = in.ReclaimPolicy
+		pv.Phase = in.Phase
+		pv.StorageClassName = in.StorageClassName
+		pv.CsiDriver = in.CsiDriver
+		pv.VolumeHandle = in.VolumeHandle
+		pv.ClaimRefNamespace = in.ClaimRefNamespace
+		pv.ClaimRefName = in.ClaimRefName
+		pv.Labels = in.Labels
+		pv.UpdatedAt = &now
+		m.pvsByID[existingID] = pv
+		return pv, nil
+	}
+
+	id := uuid.New()
+	pv := PersistentVolume{
+		Id:                &id,
+		ClusterId:         in.ClusterId,
+		Name:              in.Name,
+		Capacity:          in.Capacity,
+		AccessModes:       in.AccessModes,
+		ReclaimPolicy:     in.ReclaimPolicy,
+		Phase:             in.Phase,
+		StorageClassName:  in.StorageClassName,
+		CsiDriver:         in.CsiDriver,
+		VolumeHandle:      in.VolumeHandle,
+		ClaimRefNamespace: in.ClaimRefNamespace,
+		ClaimRefName:      in.ClaimRefName,
+		Labels:            in.Labels,
+		CreatedAt:         &now,
+		UpdatedAt:         &now,
+	}
+	m.pvsByID[id] = pv
+	m.pvsByNatKey[key] = id
+	return pv, nil
+}
+
+func (m *memStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	var deleted int64
+	for id, pv := range m.pvsByID {
+		if pv.ClusterId != clusterID {
+			continue
+		}
+		if _, ok := keep[pv.Name]; ok {
+			continue
+		}
+		delete(m.pvsByID, id)
+		delete(m.pvsByNatKey, pvNatKey(pv.ClusterId, pv.Name))
+		for pvcID, pvc := range m.pvcsByID {
+			if pvc.BoundVolumeId != nil && *pvc.BoundVolumeId == id {
+				pvc.BoundVolumeId = nil
+				m.pvcsByID[pvcID] = pvc
+			}
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
+func (m *memStore) CreatePersistentVolumeClaim(_ context.Context, in PersistentVolumeClaimCreate) (PersistentVolumeClaim, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[in.NamespaceId]; !ok {
+		return PersistentVolumeClaim{}, ErrNotFound
+	}
+	if in.BoundVolumeId != nil {
+		if _, ok := m.pvsByID[*in.BoundVolumeId]; !ok {
+			return PersistentVolumeClaim{}, fmt.Errorf("persistent volume %s does not exist: %w", in.BoundVolumeId, ErrNotFound)
+		}
+	}
+	key := pvcNatKey(in.NamespaceId, in.Name)
+	if _, dup := m.pvcsByNatKey[key]; dup {
+		return PersistentVolumeClaim{}, fmt.Errorf("duplicate pvc: %w", ErrConflict)
+	}
+	id := uuid.New()
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+	pvc := PersistentVolumeClaim{
+		Id:               &id,
+		NamespaceId:      in.NamespaceId,
+		Name:             in.Name,
+		Phase:            in.Phase,
+		StorageClassName: in.StorageClassName,
+		VolumeName:       in.VolumeName,
+		BoundVolumeId:    in.BoundVolumeId,
+		AccessModes:      in.AccessModes,
+		RequestedStorage: in.RequestedStorage,
+		Labels:           in.Labels,
+		CreatedAt:        &now,
+		UpdatedAt:        &now,
+	}
+	m.pvcsByID[id] = pvc
+	m.pvcsByNatKey[key] = id
+	return pvc, nil
+}
+
+func (m *memStore) GetPersistentVolumeClaim(_ context.Context, id uuid.UUID) (PersistentVolumeClaim, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pvc, ok := m.pvcsByID[id]
+	if !ok {
+		return PersistentVolumeClaim{}, ErrNotFound
+	}
+	return pvc, nil
+}
+
+func (m *memStore) ListPersistentVolumeClaims(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]PersistentVolumeClaim, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]PersistentVolumeClaim, 0, len(m.pvcsByID))
+	for _, pvc := range m.pvcsByID {
+		if namespaceID != nil && pvc.NamespaceId != *namespaceID {
+			continue
+		}
+		out = append(out, pvc)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) UpdatePersistentVolumeClaim(_ context.Context, id uuid.UUID, in PersistentVolumeClaimUpdate) (PersistentVolumeClaim, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pvc, ok := m.pvcsByID[id]
+	if !ok {
+		return PersistentVolumeClaim{}, ErrNotFound
+	}
+	if in.Phase != nil {
+		pvc.Phase = in.Phase
+	}
+	if in.StorageClassName != nil {
+		pvc.StorageClassName = in.StorageClassName
+	}
+	if in.VolumeName != nil {
+		pvc.VolumeName = in.VolumeName
+	}
+	if in.BoundVolumeId != nil {
+		if _, ok := m.pvsByID[*in.BoundVolumeId]; !ok {
+			return PersistentVolumeClaim{}, fmt.Errorf("persistent volume %s does not exist: %w", in.BoundVolumeId, ErrNotFound)
+		}
+		pvc.BoundVolumeId = in.BoundVolumeId
+	}
+	if in.AccessModes != nil {
+		pvc.AccessModes = in.AccessModes
+	}
+	if in.RequestedStorage != nil {
+		pvc.RequestedStorage = in.RequestedStorage
+	}
+	if in.Labels != nil {
+		pvc.Labels = in.Labels
+	}
+	now := time.Now().UTC()
+	pvc.UpdatedAt = &now
+	m.pvcsByID[id] = pvc
+	return pvc, nil
+}
+
+func (m *memStore) DeletePersistentVolumeClaim(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pvc, ok := m.pvcsByID[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.pvcsByID, id)
+	delete(m.pvcsByNatKey, pvcNatKey(pvc.NamespaceId, pvc.Name))
+	return nil
+}
+
+func (m *memStore) UpsertPersistentVolumeClaim(_ context.Context, in PersistentVolumeClaimCreate) (PersistentVolumeClaim, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[in.NamespaceId]; !ok {
+		return PersistentVolumeClaim{}, ErrNotFound
+	}
+	if in.BoundVolumeId != nil {
+		if _, ok := m.pvsByID[*in.BoundVolumeId]; !ok {
+			return PersistentVolumeClaim{}, fmt.Errorf("persistent volume %s does not exist: %w", in.BoundVolumeId, ErrNotFound)
+		}
+	}
+	key := pvcNatKey(in.NamespaceId, in.Name)
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+
+	if existingID, exists := m.pvcsByNatKey[key]; exists {
+		pvc := m.pvcsByID[existingID]
+		pvc.Phase = in.Phase
+		pvc.StorageClassName = in.StorageClassName
+		pvc.VolumeName = in.VolumeName
+		pvc.BoundVolumeId = in.BoundVolumeId
+		pvc.AccessModes = in.AccessModes
+		pvc.RequestedStorage = in.RequestedStorage
+		pvc.Labels = in.Labels
+		pvc.UpdatedAt = &now
+		m.pvcsByID[existingID] = pvc
+		return pvc, nil
+	}
+
+	id := uuid.New()
+	pvc := PersistentVolumeClaim{
+		Id:               &id,
+		NamespaceId:      in.NamespaceId,
+		Name:             in.Name,
+		Phase:            in.Phase,
+		StorageClassName: in.StorageClassName,
+		VolumeName:       in.VolumeName,
+		BoundVolumeId:    in.BoundVolumeId,
+		AccessModes:      in.AccessModes,
+		RequestedStorage: in.RequestedStorage,
+		Labels:           in.Labels,
+		CreatedAt:        &now,
+		UpdatedAt:        &now,
+	}
+	m.pvcsByID[id] = pvc
+	m.pvcsByNatKey[key] = id
+	return pvc, nil
+}
+
+func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := make(map[string]struct{}, len(keepNames))
+	for _, n := range keepNames {
+		keep[n] = struct{}{}
+	}
+	var deleted int64
+	for id, pvc := range m.pvcsByID {
+		if pvc.NamespaceId != namespaceID {
+			continue
+		}
+		if _, ok := keep[pvc.Name]; ok {
+			continue
+		}
+		delete(m.pvcsByID, id)
+		delete(m.pvcsByNatKey, pvcNatKey(pvc.NamespaceId, pvc.Name))
+		deleted++
+	}
+	return deleted, nil
 }
 
 func newTestHandler(t *testing.T, store Store) http.Handler {

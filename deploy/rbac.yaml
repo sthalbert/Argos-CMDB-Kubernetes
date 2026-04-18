@@ -21,7 +21,7 @@ metadata:
     app.kubernetes.io/name: argos
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "namespaces", "pods", "services"]
+    resources: ["nodes", "namespaces", "pods", "services", "persistentvolumes", "persistentvolumeclaims"]
     verbs: ["list"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]

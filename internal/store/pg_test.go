@@ -988,3 +988,121 @@ func TestPGListPagination(t *testing.T) {
 		seen[*c.Id] = true
 	}
 }
+
+// Exercises migrations 00010 + 00011: PV + PVC round-trip with FK, and
+// ON DELETE SET NULL on bound_volume_id when the parent PV is removed.
+func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "pv-fk"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	capacity := "10Gi"
+	modes := []string{"ReadWriteOnce"}
+	pv, err := pg.CreatePersistentVolume(ctx, api.PersistentVolumeCreate{
+		ClusterId:   *cluster.Id,
+		Name:        "pv-a",
+		Capacity:    &capacity,
+		AccessModes: &modes,
+	})
+	if err != nil {
+		t.Fatalf("create pv: %v", err)
+	}
+	if pv.Capacity == nil || *pv.Capacity != "10Gi" {
+		t.Errorf("pv capacity=%v, want 10Gi", pv.Capacity)
+	}
+	if pv.AccessModes == nil || (*pv.AccessModes)[0] != "ReadWriteOnce" {
+		t.Errorf("pv access_modes=%v, want [ReadWriteOnce]", pv.AccessModes)
+	}
+
+	// PVC bound to the PV — FK round-trip.
+	req := "5Gi"
+	pvc, err := pg.CreatePersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "data-0",
+		VolumeName:       &pv.Name,
+		BoundVolumeId:    pv.Id,
+		RequestedStorage: &req,
+	})
+	if err != nil {
+		t.Fatalf("create pvc: %v", err)
+	}
+	if pvc.BoundVolumeId == nil || *pvc.BoundVolumeId != *pv.Id {
+		t.Errorf("pvc bound_volume_id=%v, want %v", pvc.BoundVolumeId, pv.Id)
+	}
+
+	// Unknown bound_volume_id at create-time -> ErrNotFound, disambiguated
+	// by classifyPVCFKError against the namespace check.
+	bogus := uuid.New()
+	if _, err := pg.CreatePersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
+		NamespaceId:   *ns.Id,
+		Name:          "bogus",
+		BoundVolumeId: &bogus,
+	}); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("create pvc with unknown bound_volume_id: want ErrNotFound, got %v", err)
+	}
+
+	// Upsert round-trips the FK too.
+	upserted, err := pg.UpsertPersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "data-0",
+		VolumeName:       &pv.Name,
+		BoundVolumeId:    pv.Id,
+		RequestedStorage: &req,
+	})
+	if err != nil {
+		t.Fatalf("upsert pvc: %v", err)
+	}
+	if upserted.BoundVolumeId == nil || *upserted.BoundVolumeId != *pv.Id {
+		t.Errorf("upserted bound_volume_id=%v, want %v", upserted.BoundVolumeId, pv.Id)
+	}
+
+	// ON DELETE SET NULL: removing the PV nulls the child PVC's FK rather
+	// than cascading the PVC away.
+	if err := pg.DeletePersistentVolume(ctx, *pv.Id); err != nil {
+		t.Fatalf("delete pv: %v", err)
+	}
+	after, err := pg.GetPersistentVolumeClaim(ctx, *pvc.Id)
+	if err != nil {
+		t.Fatalf("get pvc after pv delete: %v", err)
+	}
+	if after.BoundVolumeId != nil {
+		t.Errorf("pvc bound_volume_id=%v after parent delete, want nil (SET NULL)", after.BoundVolumeId)
+	}
+
+	// Cluster-scoped DeletePersistentVolumesNotIn — add a second PV then
+	// reconcile to keep only one.
+	if _, err := pg.CreatePersistentVolume(ctx, api.PersistentVolumeCreate{
+		ClusterId: *cluster.Id,
+		Name:      "pv-b",
+	}); err != nil {
+		t.Fatalf("create pv-b: %v", err)
+	}
+	if _, err := pg.CreatePersistentVolume(ctx, api.PersistentVolumeCreate{
+		ClusterId: *cluster.Id,
+		Name:      "pv-c",
+	}); err != nil {
+		t.Fatalf("create pv-c: %v", err)
+	}
+	n, err := pg.DeletePersistentVolumesNotIn(ctx, *cluster.Id, []string{"pv-b"})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("deleted=%d, want 1", n)
+	}
+	items, _, err := pg.ListPersistentVolumes(ctx, cluster.Id, 10, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 || items[0].Name != "pv-b" {
+		t.Errorf("list=%v, want only pv-b", items)
+	}
+}
