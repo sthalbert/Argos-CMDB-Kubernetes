@@ -84,6 +84,32 @@ Verify:
 curl -sS -H "Authorization: Bearer TOKEN" http://localhost:8080/v1/namespaces | jq '.items | length'
 ```
 
+## Metrics
+
+`argosd` exposes a Prometheus `/metrics` endpoint on the same port as the API (default `8080`). The endpoint is unauthenticated — matching Prometheus scrape convention. Restrict access with a NetworkPolicy or a separate listener if your threat model requires it.
+
+The Deployment carries classic `prometheus.io/scrape=true` + `prometheus.io/port=8080` + `prometheus.io/path=/metrics` annotations for in-cluster Prometheus setups. For Prometheus Operator / kube-prometheus-stack, create a `PodMonitor` or `ServiceMonitor` pointing at the `argosd` Service.
+
+Exported series:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `argos_http_requests_total` | counter | `method`, `route`, `status` |
+| `argos_http_request_duration_seconds` | histogram | `method`, `route` |
+| `argos_collector_upserted_total` | counter | `cluster`, `resource` |
+| `argos_collector_reconciled_total` | counter | `cluster`, `resource` |
+| `argos_collector_errors_total` | counter | `cluster`, `resource`, `phase` |
+| `argos_collector_last_poll_timestamp_seconds` | gauge | `cluster`, `resource` |
+| `argos_build_info` | gauge | `version`, `go_version` |
+
+`phase` on `errors_total` is one of `list` / `upsert` / `reconcile` / `lookup`. `resource` is one of `version` / `cluster` / `nodes` / `namespaces` / `pods` / `workloads` / `services` / `ingresses`. Plus the default `go_*` and `process_*` collectors from `client_golang`.
+
+A simple freshness alert:
+
+```
+time() - argos_collector_last_poll_timestamp_seconds{resource="nodes"} > 600
+```
+
 ## RBAC scope
 
 `rbac.yaml` grants strictly `list` on the six K8s resource kinds argosd currently ingests:

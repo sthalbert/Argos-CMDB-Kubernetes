@@ -17,6 +17,7 @@ import (
 
 	"github.com/sthalbert/argos/internal/api"
 	"github.com/sthalbert/argos/internal/collector"
+	"github.com/sthalbert/argos/internal/metrics"
 	"github.com/sthalbert/argos/internal/store"
 )
 
@@ -26,6 +27,7 @@ var version = "dev"
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	metrics.SetBuildInfo(version)
 
 	if err := run(); err != nil {
 		slog.Error("argosd exited with error", "error", err)
@@ -74,11 +76,16 @@ func run() error {
 	}
 	defer drainCollectors()
 
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
+	api.HandlerWithOptions(api.NewServer(version, pg), api.StdHTTPServerOptions{
+		BaseRouter:  mux,
+		Middlewares: []api.MiddlewareFunc{api.BearerAuth(tokenStore)},
+	})
+
 	srv := &http.Server{
-		Addr: addr,
-		Handler: api.HandlerWithOptions(api.NewServer(version, pg), api.StdHTTPServerOptions{
-			Middlewares: []api.MiddlewareFunc{api.BearerAuth(tokenStore)},
-		}),
+		Addr:              addr,
+		Handler:           metrics.InstrumentHandler(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
