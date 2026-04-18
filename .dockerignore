@@ -15,6 +15,12 @@ bin/
 *.test
 coverage.*
 
+# Node / UI local artifacts — Dockerfile rebuilds them inside the image
+# from ui/package.json + ui/src. Excluding these avoids sending a huge
+# context and avoids leaking a host-built dist into the Go stage.
+ui/node_modules
+ui/dist
+
 # Env files
 .env
 .env.*
