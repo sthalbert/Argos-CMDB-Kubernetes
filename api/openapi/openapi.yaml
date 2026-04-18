@@ -1,0 +1,393 @@
+openapi: 3.1.0
+
+info:
+  title: Argos CMDB API
+  version: 0.1.0
+  summary: Kubernetes-centric CMDB aligned with the ANSSI SecNumCloud framework.
+  description: |
+    REST API for **Argos**, a CMDB for Kubernetes environments aligned with the
+    ANSSI SecNumCloud (SNC) qualification framework.
+
+    This version (0.1.0) is a walking skeleton covering:
+      - Liveness and readiness probes
+      - `Cluster` resource CRUD
+
+    Subsequent versions will add Node, Namespace, Workload, Pod, and other
+    Kubernetes entity kinds mapped onto the ANSSI cartography layers.
+
+    Errors follow RFC 7807 (`application/problem+json`).
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: health
+    description: Liveness and readiness probes (unauthenticated).
+  - name: clusters
+    description: Kubernetes clusters registered in the CMDB.
+
+security:
+  - BearerAuth: []
+
+paths:
+
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      operationId: getHealthz
+      security: []
+      responses:
+        '200':
+          description: Service is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness probe
+      description: Verifies downstream dependencies (database) are reachable.
+      operationId: getReadyz
+      security: []
+      responses:
+        '200':
+          description: Service is ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Service is not ready.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /v1/clusters:
+    get:
+      tags: [clusters]
+      summary: List clusters
+      operationId: listClusters
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paged list of clusters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [clusters]
+      summary: Register a cluster
+      operationId: createCluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClusterCreate'
+      responses:
+        '201':
+          description: Cluster created.
+          headers:
+            Location:
+              description: URI of the newly created cluster.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/clusters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClusterId'
+    get:
+      tags: [clusters]
+      summary: Get a cluster
+      operationId: getCluster
+      responses:
+        '200':
+          description: Cluster details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [clusters]
+      summary: Update mutable fields of a cluster
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `name` is immutable after creation.
+      operationId: updateCluster
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ClusterUpdate'
+      responses:
+        '200':
+          description: Updated cluster.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [clusters]
+      summary: Delete a cluster
+      operationId: deleteCluster
+      responses:
+        '204':
+          description: Cluster deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+      description: |
+        API token issued out-of-band. Send as `Authorization: Bearer <token>`.
+
+  parameters:
+
+    ClusterId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned cluster identifier.
+      schema:
+        type: string
+        format: uuid
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return. Server clamps to [1, 200].
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor returned from a previous list response.
+      schema:
+        type: string
+        maxLength: 512
+
+  responses:
+
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    NotFound:
+      description: Resource not found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    Conflict:
+      description: Conflict with current state (e.g., duplicate name).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+          description: Build version of the running argosd.
+
+    Problem:
+      description: RFC 7807 problem details.
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        errors:
+          type: array
+          description: Field-level validation errors, when applicable.
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    ClusterMutable:
+      description: Fields on a Cluster that clients may set and later update.
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 256
+          description: Human-friendly label, free-form.
+        environment:
+          type: string
+          maxLength: 64
+          description: Free-form environment tag (e.g., dev, staging, prod).
+        provider:
+          type: string
+          maxLength: 64
+          description: |
+            Underlying Kubernetes distribution or hosting provider.
+            Open-ended; common values: gke, eks, aks, openshift, rke, kubeadm, onprem, other.
+        region:
+          type: string
+          maxLength: 64
+        kubernetes_version:
+          type: string
+          maxLength: 32
+          description: Cluster API server version reported by Kubernetes (e.g. "1.29.5").
+        api_endpoint:
+          type: string
+          format: uri
+          description: Kubernetes API server URL (informational).
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    ClusterCreate:
+      description: Payload to register a new cluster.
+      allOf:
+        - $ref: '#/components/schemas/ClusterMutable'
+        - type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: |
+                Stable slug-like identifier, unique across the CMDB.
+                Immutable after creation.
+              pattern: '^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$'
+              minLength: 2
+              maxLength: 64
+
+    ClusterUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `name` is immutable.
+        Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/ClusterMutable'
+
+    Cluster:
+      description: A Kubernetes cluster registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/ClusterMutable'
+        - type: object
+          required: [id, name, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            name:
+              type: string
+              pattern: '^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$'
+              minLength: 2
+              maxLength: 64
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    ClusterList:
+      description: Paged list of clusters.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Cluster'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.

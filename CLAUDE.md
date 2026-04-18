@@ -17,7 +17,7 @@ Argos is a CMDB (Configuration Management Database) for Kubernetes environments,
 
 - `cmd/argosd/` — main entry point for the Argos daemon
 - `internal/` — application packages (not importable externally); created as subsystems land
-- `api/openapi/` — OpenAPI 3 specification (to be added)
+- `api/openapi/openapi.yaml` — OpenAPI 3.1 specification (contract source of truth)
 - `migrations/` — PostgreSQL schema migrations (to be added)
 - `docs/adr/` — Architectural Decision Records
 
