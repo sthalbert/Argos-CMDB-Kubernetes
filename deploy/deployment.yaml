@@ -23,6 +23,14 @@ spec:
       labels:
         app.kubernetes.io/name: argos
         app.kubernetes.io/component: daemon
+      annotations:
+        # Classic Prometheus pod-scrape annotations. Matches the default
+        # configuration of most in-cluster Prometheus deployments; no-op
+        # for Prometheus Operator / PodMonitor-based setups, which expect
+        # their own CR instead.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: argos
       securityContext:
