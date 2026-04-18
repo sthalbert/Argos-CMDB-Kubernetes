@@ -36,6 +36,11 @@ type NamespaceInfo struct {
 // PodInfo is the subset of a Kubernetes Pod the collector consumes. Namespace
 // is the K8s namespace name, which the collector resolves against the CMDB's
 // namespace UUID before writing.
+//
+// OwnerKind/OwnerName carry the controlling ownerReference (controller: true)
+// when present, so the collector can resolve the top-level Workload the pod
+// belongs to. Direct kinds (StatefulSet, DaemonSet) point straight at the
+// workload; ReplicaSet needs a second hop via ReplicaSetOwnerLister.
 type PodInfo struct {
 	Name       string
 	Namespace  string
@@ -44,6 +49,19 @@ type PodInfo struct {
 	PodIP      string
 	Containers []map[string]interface{}
 	Labels     map[string]string
+	OwnerKind  string
+	OwnerName  string
+}
+
+// ReplicaSetOwner carries the controlling ownerReference of a ReplicaSet so
+// the collector can walk the Pod -> ReplicaSet -> Deployment chain without
+// re-listing ReplicaSets per pod. Namespace/Name identify the ReplicaSet;
+// OwnerKind/OwnerName point at its parent (typically Deployment).
+type ReplicaSetOwner struct {
+	Namespace string
+	Name      string
+	OwnerKind string
+	OwnerName string
 }
 
 // WorkloadInfo is the subset of a Kubernetes workload controller (Deployment /
@@ -122,6 +140,13 @@ type IngressLister interface {
 	ListIngresses(ctx context.Context) ([]IngressInfo, error)
 }
 
+// ReplicaSetOwnerLister returns the (namespace, name, owner) tuple for every
+// ReplicaSet visible to the configured kubeconfig. Used to bridge Pod ->
+// ReplicaSet -> Deployment when resolving a pod's top-level workload.
+type ReplicaSetOwnerLister interface {
+	ListReplicaSetOwners(ctx context.Context) ([]ReplicaSetOwner, error)
+}
+
 // KubeSource is the composite contract the Collector consumes.
 type KubeSource interface {
 	VersionFetcher
@@ -131,6 +156,7 @@ type KubeSource interface {
 	WorkloadLister
 	ServiceLister
 	IngressLister
+	ReplicaSetOwnerLister
 }
 
 // cmdbStore is the subset of api.Store the collector consumes.
@@ -242,8 +268,12 @@ func (c *Collector) poll(parent context.Context) {
 	c.ingestNodes(ctx, *cluster.Id)
 	namespaceIDsByName := c.ingestNamespaces(ctx, *cluster.Id)
 	if namespaceIDsByName != nil {
-		c.ingestPods(ctx, namespaceIDsByName)
-		c.ingestWorkloads(ctx, namespaceIDsByName)
+		// Workloads go first so ingestPods can resolve each pod's top-level
+		// controller into a workload_id FK. ingestWorkloads returns a
+		// per-namespace (kind, name) -> id map that stays nil on list error,
+		// signalling ingestPods to write pods with workload_id unset.
+		workloadIDs := c.ingestWorkloads(ctx, namespaceIDsByName)
+		c.ingestPods(ctx, namespaceIDsByName, workloadIDs)
 		c.ingestServices(ctx, namespaceIDsByName)
 		c.ingestIngresses(ctx, namespaceIDsByName)
 	}
@@ -358,18 +388,86 @@ func (c *Collector) ingestNamespaces(ctx context.Context, clusterID uuid.UUID) m
 	return idsByName
 }
 
+// wlKey uniquely identifies a workload within a namespace — the (kind, name)
+// tuple mirrors the store's natural key. Used by ingestWorkloads to surface
+// each upserted workload's UUID for pod-owner resolution, and by reconcile
+// to track which workloads are still live.
+type wlKey struct{ kind, name string }
+
+// resolveWorkloadID walks a pod's ownerReference chain to its top-level
+// Workload (Deployment / StatefulSet / DaemonSet) and returns the stored
+// UUID. Returns nil when the pod has no controller, its controller kind
+// isn't modelled (Job, CronJob, bare Pod), or the target workload wasn't
+// upserted this tick — in all those cases the pod's workload_id stays null
+// and gets revisited on the next poll.
+func resolveWorkloadID(
+	namespaceID uuid.UUID,
+	ownerKind, ownerName string,
+	workloadIDs map[uuid.UUID]map[wlKey]uuid.UUID,
+	rsOwners map[string]ReplicaSetOwner,
+) *uuid.UUID {
+	if ownerKind == "" || ownerName == "" {
+		return nil
+	}
+	// ReplicaSets are an intermediate layer: walk one hop up to the Deployment
+	// (or whatever owns the RS) before looking up the workload.
+	if ownerKind == "ReplicaSet" {
+		rs, ok := rsOwners[namespaceID.String()+"/"+ownerName]
+		if !ok {
+			return nil
+		}
+		ownerKind, ownerName = rs.OwnerKind, rs.OwnerName
+		if ownerKind == "" || ownerName == "" {
+			return nil
+		}
+	}
+	nsWorkloads, ok := workloadIDs[namespaceID]
+	if !ok {
+		return nil
+	}
+	id, ok := nsWorkloads[wlKey{kind: ownerKind, name: ownerName}]
+	if !ok {
+		return nil
+	}
+	return &id
+}
+
 // ingestPods lists pods from the kube source, resolves each pod's parent
 // namespace via namespaceIDsByName, and upserts it. Pods whose namespace
 // isn't in the live map (either the namespace disappeared this tick or the
 // lookup never ran) are skipped rather than written against a guessed
 // parent. When reconcile is enabled, every live namespace is reconciled
 // independently so empty namespaces have their stale pods cleared too.
-func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[string]uuid.UUID) {
+//
+// workloadIDs may be nil (list-workloads failure) in which case pods are
+// still upserted, just without workload_id set — the next successful poll
+// will backfill the FK.
+func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[string]uuid.UUID, workloadIDs map[uuid.UUID]map[wlKey]uuid.UUID) {
 	pods, err := c.source.ListPods(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "pods", "list")
 		slog.Warn("collector: list pods failed", "error", err, "cluster_name", c.clusterName)
 		return
+	}
+
+	// Fetch ReplicaSet owners only if we have workloads to resolve into. A
+	// list failure here degrades gracefully: pods owned by ReplicaSets end
+	// up with workload_id null, to be backfilled on the next tick.
+	rsOwners := map[string]ReplicaSetOwner{}
+	if workloadIDs != nil {
+		rss, err := c.source.ListReplicaSetOwners(ctx)
+		if err != nil {
+			metrics.ObserveError(c.clusterName, "replicasets", "list")
+			slog.Warn("collector: list replicasets failed", "error", err, "cluster_name", c.clusterName)
+		} else {
+			for _, rs := range rss {
+				nsID, ok := namespaceIDsByName[rs.Namespace]
+				if !ok {
+					continue
+				}
+				rsOwners[nsID.String()+"/"+rs.Name] = rs
+			}
+		}
 	}
 
 	var upserted, failed, skipped int
@@ -395,6 +493,9 @@ func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[strin
 		if len(p.Labels) > 0 {
 			labels := p.Labels
 			in.Labels = &labels
+		}
+		if wid := resolveWorkloadID(nsID, p.OwnerKind, p.OwnerName, workloadIDs, rsOwners); wid != nil {
+			in.WorkloadId = wid
 		}
 		if _, err := c.store.UpsertPod(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "pods", "upsert")
@@ -431,16 +532,21 @@ func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[strin
 // name to the CMDB namespace UUID, and upserts it. Reconcile operates
 // per-namespace keyed on the (kind, name) tuple so a deleted Deployment
 // 'web' doesn't wipe the still-live StatefulSet 'web' in the same namespace.
-func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[string]uuid.UUID) {
+//
+// Returns a (namespace_id -> (kind, name) -> workload_id) map so ingestPods
+// can resolve each pod's controller into a workload_id FK. Returns nil on
+// ListWorkloads failure — ingestPods treats that as "skip owner resolution,
+// write pods without workload_id, let the next tick backfill".
+func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[string]uuid.UUID) map[uuid.UUID]map[wlKey]uuid.UUID {
 	workloads, err := c.source.ListWorkloads(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "workloads", "list")
 		slog.Warn("collector: list workloads failed", "error", err, "cluster_name", c.clusterName)
-		return
+		return nil
 	}
 
-	type wlKey struct{ kind, name string }
 	keepByNS := make(map[uuid.UUID][]wlKey)
+	idsByNS := make(map[uuid.UUID]map[wlKey]uuid.UUID)
 
 	var upserted, failed, skipped int
 	for _, w := range workloads {
@@ -465,14 +571,22 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 			labels := w.Labels
 			in.Labels = &labels
 		}
-		if _, err := c.store.UpsertWorkload(ctx, in); err != nil {
+		stored, err := c.store.UpsertWorkload(ctx, in)
+		if err != nil {
 			metrics.ObserveError(c.clusterName, "workloads", "upsert")
 			slog.Warn("collector: upsert workload failed", "error", err, "workload", w.Name, "kind", w.Kind, "namespace", w.Namespace, "cluster_name", c.clusterName)
 			failed++
 			continue
 		}
 		upserted++
-		keepByNS[nsID] = append(keepByNS[nsID], wlKey{kind: string(w.Kind), name: w.Name})
+		key := wlKey{kind: string(w.Kind), name: w.Name}
+		keepByNS[nsID] = append(keepByNS[nsID], key)
+		if stored.Id != nil {
+			if idsByNS[nsID] == nil {
+				idsByNS[nsID] = make(map[wlKey]uuid.UUID)
+			}
+			idsByNS[nsID][key] = *stored.Id
+		}
 	}
 	metrics.ObserveUpserts(c.clusterName, "workloads", upserted)
 
@@ -500,6 +614,7 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 	}
 	metrics.MarkPoll(c.clusterName, "workloads")
 	slog.Info("collector: ingested workloads", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	return idsByNS
 }
 
 // ingestServices lists services cluster-wide, resolves each one's K8s

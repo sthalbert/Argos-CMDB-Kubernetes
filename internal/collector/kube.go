@@ -187,7 +187,9 @@ func (k *KubeClient) ListNamespaces(ctx context.Context) ([]NamespaceInfo, error
 
 // ListPods returns every Pod visible through the configured kubeconfig,
 // across all namespaces. Uses the empty-string namespace selector to query
-// pods cluster-wide.
+// pods cluster-wide. Extracts the controlling ownerReference (controller:
+// true) into OwnerKind/OwnerName so the collector can resolve each pod's
+// top-level Workload.
 func (k *KubeClient) ListPods(ctx context.Context) ([]PodInfo, error) {
 	list, err := k.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -196,6 +198,7 @@ func (k *KubeClient) ListPods(ctx context.Context) ([]PodInfo, error) {
 	out := make([]PodInfo, 0, len(list.Items))
 	for i := range list.Items {
 		p := &list.Items[i]
+		ownerKind, ownerName := controllerOwner(p.OwnerReferences)
 		out = append(out, PodInfo{
 			Name:       p.Name,
 			Namespace:  p.Namespace,
@@ -204,6 +207,43 @@ func (k *KubeClient) ListPods(ctx context.Context) ([]PodInfo, error) {
 			PodIP:      p.Status.PodIP,
 			Containers: podContainers(p),
 			Labels:     p.Labels,
+			OwnerKind:  ownerKind,
+			OwnerName:  ownerName,
+		})
+	}
+	return out, nil
+}
+
+// controllerOwner returns the (kind, name) of the ownerReference marked
+// controller: true, if any. Pods with no controller — bare pods, or ones
+// whose controller was deleted mid-reconcile — return ("", "").
+func controllerOwner(refs []metav1.OwnerReference) (string, string) {
+	for _, r := range refs {
+		if r.Controller != nil && *r.Controller {
+			return r.Kind, r.Name
+		}
+	}
+	return "", ""
+}
+
+// ListReplicaSetOwners returns one entry per ReplicaSet visible through the
+// configured kubeconfig, carrying its controlling ownerReference (typically
+// a Deployment). Used by the collector to walk Pod -> RS -> Deployment
+// without per-pod API calls.
+func (k *KubeClient) ListReplicaSetOwners(ctx context.Context) ([]ReplicaSetOwner, error) {
+	list, err := k.clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list replicasets: %w", err)
+	}
+	out := make([]ReplicaSetOwner, 0, len(list.Items))
+	for i := range list.Items {
+		rs := &list.Items[i]
+		kind, name := controllerOwner(rs.OwnerReferences)
+		out = append(out, ReplicaSetOwner{
+			Namespace: rs.Namespace,
+			Name:      rs.Name,
+			OwnerKind: kind,
+			OwnerName: name,
 		})
 	}
 	return out, nil

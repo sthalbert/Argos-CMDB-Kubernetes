@@ -811,6 +811,109 @@ func TestPGPodAndWorkloadContainersRoundTrip(t *testing.T) {
 	}
 }
 
+// Exercises the Pod -> Workload foreign key added in migration 00009:
+//   - CreatePod / UpsertPod / UpdatePod all round-trip workload_id
+//   - Unknown workload_id surfaces as ErrNotFound
+//   - Deleting the parent Workload sets child pods' workload_id to NULL
+//     (ON DELETE SET NULL) rather than cascading the pod away
+func TestPGPodWorkloadFK(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "pod-wl-fk"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+	wl, err := pg.CreateWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id,
+		Kind:        api.Deployment,
+		Name:        "web",
+	})
+	if err != nil {
+		t.Fatalf("workload: %v", err)
+	}
+
+	// CreatePod with workload_id set.
+	created, err := pg.CreatePod(ctx, api.PodCreate{
+		NamespaceId: *ns.Id,
+		Name:        "web-abc-1",
+		WorkloadId:  wl.Id,
+	})
+	if err != nil {
+		t.Fatalf("create pod: %v", err)
+	}
+	if created.WorkloadId == nil || *created.WorkloadId != *wl.Id {
+		t.Errorf("created pod workload_id=%v, want %v", created.WorkloadId, wl.Id)
+	}
+
+	// GetPod round-trips the FK.
+	got, err := pg.GetPod(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get pod: %v", err)
+	}
+	if got.WorkloadId == nil || *got.WorkloadId != *wl.Id {
+		t.Errorf("get pod workload_id=%v, want %v", got.WorkloadId, wl.Id)
+	}
+
+	// Unknown workload_id at create-time maps to ErrNotFound (FK violation,
+	// disambiguated by classifyPodFKError against the namespace check).
+	bogus := uuid.New()
+	if _, err := pg.CreatePod(ctx, api.PodCreate{
+		NamespaceId: *ns.Id,
+		Name:        "bogus",
+		WorkloadId:  &bogus,
+	}); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("create pod with unknown workload_id: want ErrNotFound, got %v", err)
+	}
+
+	// UpsertPod updates workload_id on conflict.
+	wl2, err := pg.CreateWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id,
+		Kind:        api.StatefulSet,
+		Name:        "web",
+	})
+	if err != nil {
+		t.Fatalf("second workload: %v", err)
+	}
+	upserted, err := pg.UpsertPod(ctx, api.PodCreate{
+		NamespaceId: *ns.Id,
+		Name:        "web-abc-1",
+		WorkloadId:  wl2.Id,
+	})
+	if err != nil {
+		t.Fatalf("upsert pod: %v", err)
+	}
+	if upserted.WorkloadId == nil || *upserted.WorkloadId != *wl2.Id {
+		t.Errorf("upsert pod workload_id=%v, want %v (repointed to sts)", upserted.WorkloadId, wl2.Id)
+	}
+
+	// UpdatePod re-points workload_id.
+	updated, err := pg.UpdatePod(ctx, *created.Id, api.PodUpdate{WorkloadId: wl.Id})
+	if err != nil {
+		t.Fatalf("update pod: %v", err)
+	}
+	if updated.WorkloadId == nil || *updated.WorkloadId != *wl.Id {
+		t.Errorf("updated pod workload_id=%v, want %v", updated.WorkloadId, wl.Id)
+	}
+
+	// ON DELETE SET NULL: removing the workload nulls the child pod's FK
+	// rather than cascading the pod away.
+	if err := pg.DeleteWorkload(ctx, *wl.Id); err != nil {
+		t.Fatalf("delete workload: %v", err)
+	}
+	after, err := pg.GetPod(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get pod after workload delete: %v", err)
+	}
+	if after.WorkloadId != nil {
+		t.Errorf("pod workload_id=%v after parent delete, want nil (SET NULL)", after.WorkloadId)
+	}
+}
+
 func TestPGGetClusterByName(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
