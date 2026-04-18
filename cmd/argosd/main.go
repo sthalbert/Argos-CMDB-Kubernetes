@@ -37,6 +37,10 @@ func run() error {
 	if dsn == "" {
 		return errors.New("ARGOS_DATABASE_URL is required")
 	}
+	token := os.Getenv("ARGOS_API_TOKEN")
+	if token == "" {
+		return errors.New("ARGOS_API_TOKEN is required")
+	}
 	shutdownTimeout, err := parseDurationEnv("ARGOS_SHUTDOWN_TIMEOUT", 15*time.Second)
 	if err != nil {
 		return err
@@ -68,7 +72,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.Handler(api.NewServer(version, pg)),
+		Handler:           api.BearerAuth(token)(api.Handler(api.NewServer(version, pg))),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
