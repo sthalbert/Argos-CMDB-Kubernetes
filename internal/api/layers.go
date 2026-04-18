@@ -12,6 +12,7 @@ const (
 	LayerNamespace = InfrastructureLogical
 	LayerPod       = Applicative
 	LayerWorkload  = Applicative
+	LayerService   = Applicative
 )
 
 func withClusterLayer(c Cluster) Cluster {
@@ -42,4 +43,10 @@ func withWorkloadLayer(w Workload) Workload {
 	l := LayerWorkload
 	w.Layer = &l
 	return w
+}
+
+func withServiceLayer(s Service) Service {
+	l := LayerService
+	s.Layer = &l
+	return s
 }

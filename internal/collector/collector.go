@@ -56,6 +56,17 @@ type WorkloadInfo struct {
 	Labels        map[string]string
 }
 
+// ServiceInfo is the subset of a Kubernetes Service the collector consumes.
+type ServiceInfo struct {
+	Name      string
+	Namespace string
+	Type      string // K8s ServiceType as a string; passed through to api.ServiceType at upsert.
+	ClusterIP string
+	Selector  map[string]string
+	Ports     []map[string]interface{}
+	Labels    map[string]string
+}
+
 // VersionFetcher returns the Kubernetes API server version for the cluster
 // it was configured against (typically via kubeconfig or in-cluster config).
 type VersionFetcher interface {
@@ -84,6 +95,12 @@ type WorkloadLister interface {
 	ListWorkloads(ctx context.Context) ([]WorkloadInfo, error)
 }
 
+// ServiceLister returns every Service visible to the configured kubeconfig,
+// across all namespaces.
+type ServiceLister interface {
+	ListServices(ctx context.Context) ([]ServiceInfo, error)
+}
+
 // KubeSource is the composite contract the Collector consumes.
 type KubeSource interface {
 	VersionFetcher
@@ -91,6 +108,7 @@ type KubeSource interface {
 	NamespaceLister
 	PodLister
 	WorkloadLister
+	ServiceLister
 }
 
 // cmdbStore is the subset of api.Store the collector consumes.
@@ -105,6 +123,8 @@ type cmdbStore interface {
 	DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 	UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error)
 	DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error)
+	UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, error)
+	DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
 
 // Collector polls a KubeSource and reconciles the results into the CMDB
@@ -195,6 +215,7 @@ func (c *Collector) poll(parent context.Context) {
 	if namespaceIDsByName != nil {
 		c.ingestPods(ctx, namespaceIDsByName)
 		c.ingestWorkloads(ctx, namespaceIDsByName)
+		c.ingestServices(ctx, namespaceIDsByName)
 	}
 }
 
@@ -417,6 +438,70 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 		}
 	}
 	slog.Info("collector: ingested workloads", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+}
+
+// ingestServices lists services cluster-wide, resolves each one's K8s
+// namespace name to the CMDB namespace UUID, and upserts it. Per-namespace
+// reconcile mirrors ingestPods.
+func (c *Collector) ingestServices(ctx context.Context, namespaceIDsByName map[string]uuid.UUID) {
+	services, err := c.source.ListServices(ctx)
+	if err != nil {
+		slog.Warn("collector: list services failed", "error", err, "cluster_name", c.clusterName)
+		return
+	}
+
+	keepByNS := make(map[uuid.UUID][]string)
+
+	var upserted, failed, skipped int
+	for _, s := range services {
+		nsID, ok := namespaceIDsByName[s.Namespace]
+		if !ok {
+			slog.Warn("collector: service in unknown namespace; skipping", "service", s.Name, "namespace", s.Namespace, "cluster_name", c.clusterName)
+			skipped++
+			continue
+		}
+		in := api.ServiceCreate{
+			NamespaceId: nsID,
+			Name:        s.Name,
+			ClusterIp:   ptrIfNonEmpty(s.ClusterIP),
+		}
+		if s.Type != "" {
+			t := api.ServiceType(s.Type)
+			in.Type = &t
+		}
+		if len(s.Selector) > 0 {
+			sel := s.Selector
+			in.Selector = &sel
+		}
+		if len(s.Ports) > 0 {
+			ports := s.Ports
+			in.Ports = &ports
+		}
+		if len(s.Labels) > 0 {
+			labels := s.Labels
+			in.Labels = &labels
+		}
+		if _, err := c.store.UpsertService(ctx, in); err != nil {
+			slog.Warn("collector: upsert service failed", "error", err, "service", s.Name, "namespace", s.Namespace, "cluster_name", c.clusterName)
+			failed++
+			continue
+		}
+		upserted++
+		keepByNS[nsID] = append(keepByNS[nsID], s.Name)
+	}
+
+	var reconciled int64
+	if c.reconcile {
+		for _, nsID := range namespaceIDsByName {
+			n, err := c.store.DeleteServicesNotIn(ctx, nsID, keepByNS[nsID])
+			if err != nil {
+				slog.Error("collector: reconcile services failed", "error", err, "namespace_id", nsID, "cluster_name", c.clusterName)
+				continue
+			}
+			reconciled += n
+		}
+	}
+	slog.Info("collector: ingested services", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
 }
 
 func ptrIfNonEmpty(s string) *string {

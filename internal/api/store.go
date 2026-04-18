@@ -149,4 +149,25 @@ type Store interface {
 	// workload for that namespace. The two slices are parallel; callers
 	// must ensure len(keepKinds) == len(keepNames).
 	DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error)
+
+	// CreateService inserts a new service.
+	CreateService(ctx context.Context, in ServiceCreate) (Service, error)
+
+	// GetService fetches a service by id.
+	GetService(ctx context.Context, id uuid.UUID) (Service, error)
+
+	// ListServices returns up to limit services, optionally filtered by namespace.
+	ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []Service, nextCursor string, err error)
+
+	// UpdateService applies merge-patch.
+	UpdateService(ctx context.Context, id uuid.UUID, in ServiceUpdate) (Service, error)
+
+	// DeleteService removes by id.
+	DeleteService(ctx context.Context, id uuid.UUID) error
+
+	// UpsertService mirrors UpsertPod; keyed on (namespace_id, name).
+	UpsertService(ctx context.Context, in ServiceCreate) (Service, error)
+
+	// DeleteServicesNotIn mirrors DeletePodsNotIn, scoped to a single namespace.
+	DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
