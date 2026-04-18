@@ -23,6 +23,8 @@ type fakeSource struct {
 	listNamespaceErr error
 	pods             []PodInfo
 	listPodErr       error
+	workloads        []WorkloadInfo
+	listWorkloadErr  error
 }
 
 func (f *fakeSource) ServerVersion(_ context.Context) (string, error) {
@@ -41,6 +43,10 @@ func (f *fakeSource) ListPods(_ context.Context) ([]PodInfo, error) {
 	return f.pods, f.listPodErr
 }
 
+func (f *fakeSource) ListWorkloads(_ context.Context) ([]WorkloadInfo, error) {
+	return f.workloads, f.listWorkloadErr
+}
+
 type recordedUpdate struct {
 	id    uuid.UUID
 	patch api.ClusterUpdate
@@ -53,29 +59,40 @@ type fakeStore struct {
 	upsertedNode     []api.NodeCreate
 	upsertedNS       []api.NamespaceCreate
 	upsertedPod      []api.PodCreate
+	upsertedWorkload []api.WorkloadCreate
 	// Existing rows; reconciliation operates against these.
-	existingNodes []api.Node
-	existingNS    []api.Namespace
-	existingPods  []api.Pod
+	existingNodes     []api.Node
+	existingNS        []api.Namespace
+	existingPods      []api.Pod
+	existingWorkloads []api.Workload
 	// Preset namespace-id assignments. The fake picks an id for each
 	// UpsertNamespace call from here (keyed by cluster_id + name), falling
 	// back to a fresh uuid.New() if absent. Lets tests pin the name -> id
 	// map that flows into ingestPods.
-	nsIDPreset    map[string]uuid.UUID
-	listErr       error
-	updateErr     error
-	upsertErr     error
-	upsertNSErr   error
-	upsertPodErr  error
+	nsIDPreset        map[string]uuid.UUID
+	listErr           error
+	updateErr         error
+	upsertErr         error
+	upsertNSErr       error
+	upsertPodErr      error
+	upsertWorkloadErr error
 	// nodeState mirrors per-(cluster_id, name) upsert history so tests can
 	// assert idempotent behaviour.
-	nodeState map[string]int // key: cluster_id/name, value: upsert count
-	nsState   map[string]int
-	podState  map[string]int // key: namespace_id/name
+	nodeState     map[string]int // key: cluster_id/name, value: upsert count
+	nsState       map[string]int
+	podState      map[string]int // key: namespace_id/name
+	workloadState map[string]int // key: namespace_id/kind/name
 	// Reconciliation call log: each entry is the keepNames slice from a call.
-	reconcileNodesCalls []reconcileCall
-	reconcileNSCalls    []reconcileCall
-	reconcilePodsCalls  []reconcileCall
+	reconcileNodesCalls     []reconcileCall
+	reconcileNSCalls        []reconcileCall
+	reconcilePodsCalls      []reconcileCall
+	reconcileWorkloadsCalls []reconcileWorkloadCall
+}
+
+type reconcileWorkloadCall struct {
+	namespaceID uuid.UUID
+	keepKinds   []string
+	keepNames   []string
 }
 
 type reconcileCall struct {
@@ -85,10 +102,11 @@ type reconcileCall struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		nodeState:  make(map[string]int),
-		nsState:    make(map[string]int),
-		podState:   make(map[string]int),
-		nsIDPreset: make(map[string]uuid.UUID),
+		nodeState:     make(map[string]int),
+		nsState:       make(map[string]int),
+		podState:      make(map[string]int),
+		workloadState: make(map[string]int),
+		nsIDPreset:    make(map[string]uuid.UUID),
 	}
 }
 
@@ -253,6 +271,53 @@ func (s *fakeStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, ke
 		deleted++
 	}
 	s.existingPods = kept
+	return deleted, nil
+}
+
+func (s *fakeStore) UpsertWorkload(_ context.Context, in api.WorkloadCreate) (api.Workload, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.upsertWorkloadErr != nil {
+		return api.Workload{}, s.upsertWorkloadErr
+	}
+	s.upsertedWorkload = append(s.upsertedWorkload, in)
+	key := in.NamespaceId.String() + "/" + string(in.Kind) + "/" + in.Name
+	s.workloadState[key]++
+	id := uuid.New()
+	return api.Workload{
+		Id:          &id,
+		NamespaceId: in.NamespaceId,
+		Kind:        in.Kind,
+		Name:        in.Name,
+	}, nil
+}
+
+func (s *fakeStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconcileWorkloadsCalls = append(s.reconcileWorkloadsCalls, reconcileWorkloadCall{
+		namespaceID: namespaceID,
+		keepKinds:   append([]string(nil), keepKinds...),
+		keepNames:   append([]string(nil), keepNames...),
+	})
+	keep := make(map[string]struct{}, len(keepKinds))
+	for i := range keepKinds {
+		keep[keepKinds[i]+"/"+keepNames[i]] = struct{}{}
+	}
+	kept := s.existingWorkloads[:0]
+	var deleted int64
+	for _, w := range s.existingWorkloads {
+		if w.NamespaceId != namespaceID {
+			kept = append(kept, w)
+			continue
+		}
+		if _, ok := keep[string(w.Kind)+"/"+w.Name]; ok {
+			kept = append(kept, w)
+			continue
+		}
+		deleted++
+	}
+	s.existingWorkloads = kept
 	return deleted, nil
 }
 
@@ -718,6 +783,116 @@ func TestPollSkipsPodIngestionWhenNamespaceListFails(t *testing.T) {
 
 	if len(store.upsertedPod) != 0 {
 		t.Errorf("expected no pod upserts when ListNamespaces fails; got %d", len(store.upsertedPod))
+	}
+}
+
+func TestPollIngestsWorkloadsWithNamespaceResolution(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	defaultNSID := uuid.New()
+	kubeSystemNSID := uuid.New()
+
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	store.nsIDPreset[clusterID.String()+"/default"] = defaultNSID
+	store.nsIDPreset[clusterID.String()+"/kube-system"] = kubeSystemNSID
+
+	replicas := 3
+	source := &fakeSource{
+		version: "v1.29.5",
+		namespaces: []NamespaceInfo{
+			{Name: "default"},
+			{Name: "kube-system"},
+		},
+		workloads: []WorkloadInfo{
+			{Name: "web", Namespace: "default", Kind: api.Deployment, Replicas: &replicas},
+			{Name: "coredns", Namespace: "kube-system", Kind: api.Deployment, Replicas: &replicas},
+			{Name: "fluent-bit", Namespace: "kube-system", Kind: api.DaemonSet},
+			{Name: "orphan", Namespace: "deleted-ns", Kind: api.Deployment}, // skipped
+		},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.upsertedWorkload) != 3 {
+		t.Fatalf("upserted workloads=%d, want 3 (orphan must be skipped)", len(store.upsertedWorkload))
+	}
+	seen := map[string]api.WorkloadKind{}
+	for _, up := range store.upsertedWorkload {
+		seen[up.NamespaceId.String()+"/"+up.Name] = up.Kind
+	}
+	if seen[defaultNSID.String()+"/web"] != api.Deployment {
+		t.Errorf("web in default ns not a Deployment: %v", seen)
+	}
+	if seen[kubeSystemNSID.String()+"/fluent-bit"] != api.DaemonSet {
+		t.Errorf("fluent-bit not a DaemonSet: %v", seen)
+	}
+}
+
+func TestPollWorkloadsReconcileByKindName(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	nsID := uuid.New()
+	depID := uuid.New()
+	stsID := uuid.New()
+
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	store.nsIDPreset[clusterID.String()+"/default"] = nsID
+	// Pre-seed a Deployment and a StatefulSet both named 'web'; only the
+	// Deployment is still live. The StatefulSet must be reconciled away
+	// while the Deployment survives — that's the (kind, name) tuple check.
+	store.existingWorkloads = []api.Workload{
+		{Id: &depID, NamespaceId: nsID, Kind: api.Deployment, Name: "web"},
+		{Id: &stsID, NamespaceId: nsID, Kind: api.StatefulSet, Name: "web"},
+	}
+
+	source := &fakeSource{
+		version:    "v1.29.5",
+		namespaces: []NamespaceInfo{{Name: "default"}},
+		workloads:  []WorkloadInfo{{Name: "web", Namespace: "default", Kind: api.Deployment}},
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.reconcileWorkloadsCalls) == 0 {
+		t.Fatal("expected at least one workload reconcile call")
+	}
+	if len(store.existingWorkloads) != 1 || store.existingWorkloads[0].Kind != api.Deployment {
+		t.Errorf("expected only (Deployment, web) to survive, got %+v", store.existingWorkloads)
+	}
+	// Verify the collector actually passed (kind, name) parallel slices.
+	call := store.reconcileWorkloadsCalls[0]
+	if len(call.keepKinds) != len(call.keepNames) {
+		t.Errorf("keep arrays length mismatch: kinds=%d names=%d", len(call.keepKinds), len(call.keepNames))
+	}
+}
+
+func TestPollSkipsWorkloadIngestionOnListError(t *testing.T) {
+	t.Parallel()
+	clusterID := uuid.New()
+	store := newFakeStore()
+	store.clusters = []api.Cluster{{Id: &clusterID, Name: "prod"}}
+	source := &fakeSource{
+		version:         "v1.29.5",
+		namespaces:      []NamespaceInfo{{Name: "default"}},
+		listWorkloadErr: errors.New("kube down"),
+	}
+	c := New(store, source, "prod", time.Minute, time.Second, true)
+
+	c.poll(context.Background())
+
+	if len(store.upsertedWorkload) != 0 {
+		t.Errorf("expected no workload upserts on ListWorkloads error; got %d", len(store.upsertedWorkload))
+	}
+	if len(store.reconcileWorkloadsCalls) != 0 {
+		t.Errorf("expected no workload reconcile on ListWorkloads error; got %d", len(store.reconcileWorkloadsCalls))
 	}
 }
 

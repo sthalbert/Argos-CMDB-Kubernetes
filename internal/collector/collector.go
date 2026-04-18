@@ -44,6 +44,18 @@ type PodInfo struct {
 	Labels    map[string]string
 }
 
+// WorkloadInfo is the subset of a Kubernetes workload controller (Deployment /
+// StatefulSet / DaemonSet) the collector consumes. Namespace is the K8s
+// namespace name, resolved against the CMDB's namespace UUID before writing.
+type WorkloadInfo struct {
+	Name          string
+	Namespace     string
+	Kind          api.WorkloadKind
+	Replicas      *int
+	ReadyReplicas *int
+	Labels        map[string]string
+}
+
 // VersionFetcher returns the Kubernetes API server version for the cluster
 // it was configured against (typically via kubeconfig or in-cluster config).
 type VersionFetcher interface {
@@ -66,12 +78,19 @@ type PodLister interface {
 	ListPods(ctx context.Context) ([]PodInfo, error)
 }
 
+// WorkloadLister returns every Deployment / StatefulSet / DaemonSet visible
+// to the configured kubeconfig, folded into a single slice tagged by kind.
+type WorkloadLister interface {
+	ListWorkloads(ctx context.Context) ([]WorkloadInfo, error)
+}
+
 // KubeSource is the composite contract the Collector consumes.
 type KubeSource interface {
 	VersionFetcher
 	NodeLister
 	NamespaceLister
 	PodLister
+	WorkloadLister
 }
 
 // cmdbStore is the subset of api.Store the collector consumes.
@@ -84,6 +103,8 @@ type cmdbStore interface {
 	DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
 	UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error)
 	DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+	UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error)
+	DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error)
 }
 
 // Collector polls a KubeSource and reconciles the results into the CMDB
@@ -173,6 +194,7 @@ func (c *Collector) poll(parent context.Context) {
 	namespaceIDsByName := c.ingestNamespaces(ctx, *cluster.Id)
 	if namespaceIDsByName != nil {
 		c.ingestPods(ctx, namespaceIDsByName)
+		c.ingestWorkloads(ctx, namespaceIDsByName)
 	}
 }
 
@@ -329,6 +351,72 @@ func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[strin
 		}
 	}
 	slog.Info("collector: ingested pods", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+}
+
+// ingestWorkloads lists Deployments, StatefulSets, and DaemonSets (folded
+// into a single slice tagged by Kind), resolves each one's K8s namespace
+// name to the CMDB namespace UUID, and upserts it. Reconcile operates
+// per-namespace keyed on the (kind, name) tuple so a deleted Deployment
+// 'web' doesn't wipe the still-live StatefulSet 'web' in the same namespace.
+func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[string]uuid.UUID) {
+	workloads, err := c.source.ListWorkloads(ctx)
+	if err != nil {
+		slog.Warn("collector: list workloads failed", "error", err, "cluster_name", c.clusterName)
+		return
+	}
+
+	type wlKey struct{ kind, name string }
+	keepByNS := make(map[uuid.UUID][]wlKey)
+
+	var upserted, failed, skipped int
+	for _, w := range workloads {
+		nsID, ok := namespaceIDsByName[w.Namespace]
+		if !ok {
+			slog.Warn("collector: workload in unknown namespace; skipping", "workload", w.Name, "kind", w.Kind, "namespace", w.Namespace, "cluster_name", c.clusterName)
+			skipped++
+			continue
+		}
+		in := api.WorkloadCreate{
+			NamespaceId:   nsID,
+			Kind:          w.Kind,
+			Name:          w.Name,
+			Replicas:      w.Replicas,
+			ReadyReplicas: w.ReadyReplicas,
+		}
+		if len(w.Labels) > 0 {
+			labels := w.Labels
+			in.Labels = &labels
+		}
+		if _, err := c.store.UpsertWorkload(ctx, in); err != nil {
+			slog.Warn("collector: upsert workload failed", "error", err, "workload", w.Name, "kind", w.Kind, "namespace", w.Namespace, "cluster_name", c.clusterName)
+			failed++
+			continue
+		}
+		upserted++
+		keepByNS[nsID] = append(keepByNS[nsID], wlKey{kind: string(w.Kind), name: w.Name})
+	}
+
+	var reconciled int64
+	if c.reconcile {
+		// Reconcile every live namespace, including ones with zero workloads
+		// this tick, so emptied namespaces have their stored workloads cleared.
+		for _, nsID := range namespaceIDsByName {
+			keep := keepByNS[nsID]
+			kinds := make([]string, 0, len(keep))
+			names := make([]string, 0, len(keep))
+			for _, k := range keep {
+				kinds = append(kinds, k.kind)
+				names = append(names, k.name)
+			}
+			n, err := c.store.DeleteWorkloadsNotIn(ctx, nsID, kinds, names)
+			if err != nil {
+				slog.Error("collector: reconcile workloads failed", "error", err, "namespace_id", nsID, "cluster_name", c.clusterName)
+				continue
+			}
+			reconciled += n
+		}
+	}
+	slog.Info("collector: ingested workloads", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
 }
 
 func ptrIfNonEmpty(s string) *string {

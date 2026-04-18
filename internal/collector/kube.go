@@ -8,6 +8,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/sthalbert/argos/internal/api"
 )
 
 // KubeClient talks to a single Kubernetes cluster via client-go. It
@@ -120,5 +122,66 @@ func (k *KubeClient) ListPods(ctx context.Context) ([]PodInfo, error) {
 			Labels:    p.Labels,
 		})
 	}
+	return out, nil
+}
+
+// ListWorkloads fans out three AppsV1 list calls (Deployments, StatefulSets,
+// DaemonSets) and folds the results into a single slice tagged by kind. Any
+// list failure aborts the whole call — partial ingestion risks wiping
+// kinds that weren't listed when the collector reconciles.
+func (k *KubeClient) ListWorkloads(ctx context.Context) ([]WorkloadInfo, error) {
+	out := make([]WorkloadInfo, 0)
+
+	deps, err := k.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list deployments: %w", err)
+	}
+	for _, d := range deps.Items {
+		replicas := int(d.Status.Replicas)
+		readyReplicas := int(d.Status.ReadyReplicas)
+		out = append(out, WorkloadInfo{
+			Name:          d.Name,
+			Namespace:     d.Namespace,
+			Kind:          api.Deployment,
+			Replicas:      &replicas,
+			ReadyReplicas: &readyReplicas,
+			Labels:        d.Labels,
+		})
+	}
+
+	sfs, err := k.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list statefulsets: %w", err)
+	}
+	for _, s := range sfs.Items {
+		replicas := int(s.Status.Replicas)
+		readyReplicas := int(s.Status.ReadyReplicas)
+		out = append(out, WorkloadInfo{
+			Name:          s.Name,
+			Namespace:     s.Namespace,
+			Kind:          api.StatefulSet,
+			Replicas:      &replicas,
+			ReadyReplicas: &readyReplicas,
+			Labels:        s.Labels,
+		})
+	}
+
+	dss, err := k.clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list daemonsets: %w", err)
+	}
+	for _, d := range dss.Items {
+		// DaemonSet has no scalar desired count; expose ReadyReplicas only
+		// via Status.NumberReady so the CMDB surfaces observable fleet size.
+		readyReplicas := int(d.Status.NumberReady)
+		out = append(out, WorkloadInfo{
+			Name:          d.Name,
+			Namespace:     d.Namespace,
+			Kind:          api.DaemonSet,
+			ReadyReplicas: &readyReplicas,
+			Labels:        d.Labels,
+		})
+	}
+
 	return out, nil
 }
