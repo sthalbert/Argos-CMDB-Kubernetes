@@ -76,16 +76,24 @@ func (p *PG) CreateCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 	if err != nil {
 		return api.Cluster{}, err
 	}
+	annotationsJSON, err := marshalLabels(in.Annotations)
+	if err != nil {
+		return api.Cluster{}, err
+	}
 
 	const q = `
 		INSERT INTO clusters (
 			id, name, display_name, environment, provider, region,
-			kubernetes_version, api_endpoint, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+			kubernetes_version, api_endpoint, labels,
+			owner, criticality, notes, runbook_url, annotations,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
 	`
 	_, err = p.pool.Exec(ctx, q,
 		id, in.Name, in.DisplayName, in.Environment, in.Provider, in.Region,
-		in.KubernetesVersion, in.ApiEndpoint, labelsJSON, now,
+		in.KubernetesVersion, in.ApiEndpoint, labelsJSON,
+		in.Owner, in.Criticality, in.Notes, in.RunbookUrl, annotationsJSON,
+		now,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -105,6 +113,11 @@ func (p *PG) CreateCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 		KubernetesVersion: in.KubernetesVersion,
 		ApiEndpoint:       in.ApiEndpoint,
 		Labels:            in.Labels,
+		Owner:             in.Owner,
+		Criticality:       in.Criticality,
+		Notes:             in.Notes,
+		RunbookUrl:        in.RunbookUrl,
+		Annotations:       in.Annotations,
 		CreatedAt:         &now,
 		UpdatedAt:         &now,
 	}, nil
@@ -114,7 +127,9 @@ func (p *PG) CreateCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 func (p *PG) GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error) {
 	const q = `
 		SELECT id, name, display_name, environment, provider, region,
-		       kubernetes_version, api_endpoint, labels, created_at, updated_at
+		       kubernetes_version, api_endpoint, labels,
+		       owner, criticality, notes, runbook_url, annotations,
+		       created_at, updated_at
 		FROM clusters
 		WHERE id = $1
 	`
@@ -133,7 +148,9 @@ func (p *PG) GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error) 
 func (p *PG) GetClusterByName(ctx context.Context, name string) (api.Cluster, error) {
 	const q = `
 		SELECT id, name, display_name, environment, provider, region,
-		       kubernetes_version, api_endpoint, labels, created_at, updated_at
+		       kubernetes_version, api_endpoint, labels,
+		       owner, criticality, notes, runbook_url, annotations,
+		       created_at, updated_at
 		FROM clusters
 		WHERE name = $1
 	`
@@ -165,7 +182,9 @@ func (p *PG) ListClusters(ctx context.Context, limit int, cursor string) ([]api.
 	if cursor == "" {
 		const q = `
 			SELECT id, name, display_name, environment, provider, region,
-			       kubernetes_version, api_endpoint, labels, created_at, updated_at
+			       kubernetes_version, api_endpoint, labels,
+			       owner, criticality, notes, runbook_url, annotations,
+			       created_at, updated_at
 			FROM clusters
 			ORDER BY created_at DESC, id DESC
 			LIMIT $1
@@ -178,7 +197,9 @@ func (p *PG) ListClusters(ctx context.Context, limit int, cursor string) ([]api.
 		}
 		const q = `
 			SELECT id, name, display_name, environment, provider, region,
-			       kubernetes_version, api_endpoint, labels, created_at, updated_at
+			       kubernetes_version, api_endpoint, labels,
+			       owner, criticality, notes, runbook_url, annotations,
+			       created_at, updated_at
 			FROM clusters
 			WHERE (created_at, id) < ($1, $2)
 			ORDER BY created_at DESC, id DESC
@@ -251,6 +272,27 @@ func (p *PG) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpda
 			return api.Cluster{}, err
 		}
 		appendSet("labels", b)
+	}
+	// Curated metadata — never written by the collector (it only ever
+	// patches KubernetesVersion), so omission here is already safe.
+	if in.Owner != nil {
+		appendSet("owner", *in.Owner)
+	}
+	if in.Criticality != nil {
+		appendSet("criticality", *in.Criticality)
+	}
+	if in.Notes != nil {
+		appendSet("notes", *in.Notes)
+	}
+	if in.RunbookUrl != nil {
+		appendSet("runbook_url", *in.RunbookUrl)
+	}
+	if in.Annotations != nil {
+		b, err := marshalLabels(in.Annotations)
+		if err != nil {
+			return api.Cluster{}, err
+		}
+		appendSet("annotations", b)
 	}
 
 	appendSet("updated_at", time.Now().UTC())
@@ -2485,12 +2527,18 @@ func scanCluster(row pgx.Row) (api.Cluster, error) {
 		kubernetesVersion sql.NullString
 		apiEndpoint       sql.NullString
 		labelsJSON        []byte
+		owner             sql.NullString
+		criticality       sql.NullString
+		notes             sql.NullString
+		runbookURL        sql.NullString
+		annotationsJSON   []byte
 	)
 	if err := row.Scan(
 		&id, &c.Name,
 		&displayName, &environment, &provider, &region,
 		&kubernetesVersion, &apiEndpoint,
 		&labelsJSON,
+		&owner, &criticality, &notes, &runbookURL, &annotationsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
 		return api.Cluster{}, err
@@ -2505,6 +2553,10 @@ func scanCluster(row pgx.Row) (api.Cluster, error) {
 	c.Region = nullableString(region)
 	c.KubernetesVersion = nullableString(kubernetesVersion)
 	c.ApiEndpoint = nullableString(apiEndpoint)
+	c.Owner = nullableString(owner)
+	c.Criticality = nullableString(criticality)
+	c.Notes = nullableString(notes)
+	c.RunbookUrl = nullableString(runbookURL)
 
 	if len(labelsJSON) > 0 {
 		var labels map[string]string
@@ -2513,6 +2565,15 @@ func scanCluster(row pgx.Row) (api.Cluster, error) {
 		}
 		if len(labels) > 0 {
 			c.Labels = &labels
+		}
+	}
+	if len(annotationsJSON) > 0 {
+		var annotations map[string]string
+		if err := json.Unmarshal(annotationsJSON, &annotations); err != nil {
+			return api.Cluster{}, fmt.Errorf("unmarshal annotations: %w", err)
+		}
+		if len(annotations) > 0 {
+			c.Annotations = &annotations
 		}
 	}
 	return c, nil

@@ -11,9 +11,11 @@
 // related assets. Each section uses the list-page table shape so the UX
 // feels consistent across the app.
 
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource, useResources } from '../hooks';
+import { ClusterCuratedCard } from './cluster_curated';
 import {
   AsyncView,
   Dash,
@@ -49,6 +51,8 @@ function NodeStatusInline({
 
 export function ClusterDetail() {
   const { id = '' } = useParams();
+  const [nonce, setNonce] = useState(0);
+  const reload = () => setNonce((n) => n + 1);
   const state = useResources(
     [
       () => api.getCluster(id),
@@ -56,7 +60,7 @@ export function ClusterDetail() {
       () => api.listNamespaces({ cluster_id: id }),
       () => api.listPersistentVolumes({ cluster_id: id }),
     ] as const,
-    [id],
+    [id, nonce],
   );
 
   return (
@@ -79,6 +83,8 @@ export function ClusterDetail() {
               <KV k="API endpoint" v={cluster.api_endpoint && <code>{cluster.api_endpoint}</code>} />
               <KV k="Labels" v={<Labels labels={cluster.labels} />} />
             </dl>
+
+            <ClusterCuratedCard cluster={cluster} onSaved={reload} />
 
             <SectionTitle count={namespaces.items.length}>Namespaces</SectionTitle>
             {namespaces.items.length === 0 ? (
@@ -1085,3 +1091,4 @@ export function IngressDetail() {
     </>
   );
 }
+

@@ -1746,3 +1746,103 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 		t.Errorf("expected no next cursor after last page, got %q", next2)
 	}
 }
+
+// Exercises the curated-metadata columns added in migration 00018.
+// Round-trips owner / criticality / notes / runbook_url / annotations
+// through CreateCluster -> GetCluster -> UpdateCluster, and verifies
+// that a collector-style KubernetesVersion-only patch leaves those
+// columns alone (the "collector must not clobber curated fields"
+// invariant from ADR-0006).
+func TestPGClusterCuratedMetadata(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	name := "curated-" + strconv.FormatInt(int64(uuid.New().ID()), 16)
+	owner := "team-platform"
+	criticality := "critical"
+	notes := "prod cluster, page on any outage"
+	runbook := "https://runbooks.example.com/prod"
+	annotations := map[string]string{"compliance": "snc", "dc": "paris-a"}
+
+	created, err := pg.CreateCluster(ctx, api.ClusterCreate{
+		Name:        name,
+		Owner:       &owner,
+		Criticality: &criticality,
+		Notes:       &notes,
+		RunbookUrl:  &runbook,
+		Annotations: &annotations,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Readback carries every curated field.
+	got, err := pg.GetCluster(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Owner == nil || *got.Owner != owner {
+		t.Errorf("owner = %v, want %q", got.Owner, owner)
+	}
+	if got.Criticality == nil || *got.Criticality != criticality {
+		t.Errorf("criticality = %v, want %q", got.Criticality, criticality)
+	}
+	if got.Notes == nil || *got.Notes != notes {
+		t.Errorf("notes round-trip failed")
+	}
+	if got.RunbookUrl == nil || *got.RunbookUrl != runbook {
+		t.Errorf("runbook_url round-trip failed")
+	}
+	if got.Annotations == nil || (*got.Annotations)["compliance"] != "snc" {
+		t.Errorf("annotations round-trip failed: %v", got.Annotations)
+	}
+
+	// Simulate the collector tick: patch KubernetesVersion only. Every
+	// curated column must survive unchanged.
+	version := "1.30.4"
+	if _, err := pg.UpdateCluster(ctx, *created.Id, api.ClusterUpdate{
+		KubernetesVersion: &version,
+	}); err != nil {
+		t.Fatalf("collector-style update: %v", err)
+	}
+	afterCollector, err := pg.GetCluster(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get after collector patch: %v", err)
+	}
+	if afterCollector.KubernetesVersion == nil || *afterCollector.KubernetesVersion != version {
+		t.Errorf("kubernetes_version not updated: %v", afterCollector.KubernetesVersion)
+	}
+	if afterCollector.Owner == nil || *afterCollector.Owner != owner {
+		t.Errorf("owner clobbered by collector patch: %v", afterCollector.Owner)
+	}
+	if afterCollector.Criticality == nil || *afterCollector.Criticality != criticality {
+		t.Errorf("criticality clobbered: %v", afterCollector.Criticality)
+	}
+	if afterCollector.Notes == nil || *afterCollector.Notes != notes {
+		t.Errorf("notes clobbered")
+	}
+	if afterCollector.RunbookUrl == nil || *afterCollector.RunbookUrl != runbook {
+		t.Errorf("runbook_url clobbered")
+	}
+	if afterCollector.Annotations == nil || (*afterCollector.Annotations)["dc"] != "paris-a" {
+		t.Errorf("annotations clobbered: %v", afterCollector.Annotations)
+	}
+
+	// Editor-style patch updates only what was sent.
+	newOwner := "team-sre"
+	if _, err := pg.UpdateCluster(ctx, *created.Id, api.ClusterUpdate{
+		Owner: &newOwner,
+	}); err != nil {
+		t.Fatalf("owner update: %v", err)
+	}
+	afterEdit, err := pg.GetCluster(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get after owner patch: %v", err)
+	}
+	if afterEdit.Owner == nil || *afterEdit.Owner != newOwner {
+		t.Errorf("owner update did not stick: %v", afterEdit.Owner)
+	}
+	if afterEdit.Criticality == nil || *afterEdit.Criticality != criticality {
+		t.Errorf("criticality clobbered by owner patch")
+	}
+}

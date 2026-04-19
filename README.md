@@ -64,6 +64,12 @@ against real clusters; expect additive changes until 1.0.
   browse it at `/ui/admin/audit` with filters for actor, resource kind,
   action verb, and time range. Password / token fields are scrubbed
   before persistence.
+- **Curated metadata** on clusters (`owner`, `criticality`, `notes`,
+  `runbook_url`, `annotations`) editable inline at `/ui/clusters/:id`
+  by editor / admin roles. The collector never writes these columns —
+  `UpdateCluster`'s merge-patch semantics leave unset fields alone, so a
+  version refresh can't clobber operator annotations. Same pattern will
+  land on namespaces / nodes / workloads next.
 - **Dual-path auth** per
   [ADR-0007](docs/adr/adr-0007-auth-and-rbac.md): humans log in with
   either local username + password **or** OIDC (authorization-code flow

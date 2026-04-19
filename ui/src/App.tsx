@@ -28,6 +28,7 @@ import UsersPage from './pages/admin/Users';
 import TokensPage from './pages/admin/Tokens';
 import SessionsPage from './pages/admin/Sessions';
 import AuditPage from './pages/admin/Audit';
+import { MeProvider } from './me';
 
 // --- auth gate ----------------------------------------------------------
 
@@ -141,7 +142,11 @@ export default function App() {
 
   const authed = (el: React.ReactNode) => (
     <RequireAuth auth={auth}>
-      {auth.status === 'ready' && <Chrome me={auth.me}>{el}</Chrome>}
+      {auth.status === 'ready' && (
+        <MeProvider value={auth.me}>
+          <Chrome me={auth.me}>{el}</Chrome>
+        </MeProvider>
+      )}
     </RequireAuth>
   );
 

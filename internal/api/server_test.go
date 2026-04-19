@@ -113,6 +113,11 @@ func (m *memStore) CreateCluster(_ context.Context, in ClusterCreate) (Cluster, 
 		KubernetesVersion: in.KubernetesVersion,
 		ApiEndpoint:       in.ApiEndpoint,
 		Labels:            in.Labels,
+		Owner:             in.Owner,
+		Criticality:       in.Criticality,
+		Notes:             in.Notes,
+		RunbookUrl:        in.RunbookUrl,
+		Annotations:       in.Annotations,
 		CreatedAt:         &now,
 		UpdatedAt:         &now,
 	}
@@ -184,6 +189,21 @@ func (m *memStore) UpdateCluster(_ context.Context, id uuid.UUID, in ClusterUpda
 	}
 	if in.Labels != nil {
 		c.Labels = in.Labels
+	}
+	if in.Owner != nil {
+		c.Owner = in.Owner
+	}
+	if in.Criticality != nil {
+		c.Criticality = in.Criticality
+	}
+	if in.Notes != nil {
+		c.Notes = in.Notes
+	}
+	if in.RunbookUrl != nil {
+		c.RunbookUrl = in.RunbookUrl
+	}
+	if in.Annotations != nil {
+		c.Annotations = in.Annotations
 	}
 	now := time.Now().UTC()
 	c.UpdatedAt = &now

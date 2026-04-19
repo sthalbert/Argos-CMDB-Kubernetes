@@ -2179,6 +2179,38 @@ components:
             type: string
             maxLength: 256
           maxProperties: 64
+        owner:
+          type: string
+          maxLength: 256
+          description: |
+            Free-form handle for the team / on-call that owns this
+            cluster. Surfaced on the detail page so incident responders
+            know who to wake up.
+        criticality:
+          type: string
+          maxLength: 32
+          description: |
+            Free-form tier label. Common values: `critical`, `high`,
+            `medium`, `low`. Not enum-enforced so operators can slot in
+            their own taxonomy (P0/P1/…).
+        notes:
+          type: string
+          maxLength: 8192
+          description: Long-form prose. Any markdown is rendered client-side.
+        runbook_url:
+          type: string
+          format: uri
+          maxLength: 1024
+          description: Link to the owning team's runbook for this cluster.
+        annotations:
+          type: object
+          description: |
+            Free-form k/v for metadata not worth its own column. Values
+            are strings. Collector writes never touch this field.
+          additionalProperties:
+            type: string
+            maxLength: 1024
+          maxProperties: 64
 
     ClusterCreate:
       description: Payload to register a new cluster.

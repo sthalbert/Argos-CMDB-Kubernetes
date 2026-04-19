@@ -283,9 +283,40 @@ export interface Cluster {
   kubernetes_version?: string | null;
   api_endpoint?: string | null;
   labels?: Record<string, string> | null;
+  // Curated metadata — not derived from Kubernetes, set by operators.
+  owner?: string | null;
+  criticality?: string | null;
+  notes?: string | null;
+  runbook_url?: string | null;
+  annotations?: Record<string, string> | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
+}
+
+// ClusterPatch is the merge-patch shape the UI posts on inline edits.
+// Omitted keys leave the field unchanged; null clears it.
+export type ClusterPatch = Partial<Pick<
+  Cluster,
+  | 'display_name'
+  | 'environment'
+  | 'provider'
+  | 'region'
+  | 'api_endpoint'
+  | 'owner'
+  | 'criticality'
+  | 'notes'
+  | 'runbook_url'
+  | 'annotations'
+  | 'labels'
+>>;
+
+export function updateCluster(id: string, patch: ClusterPatch) {
+  return request<Cluster>(`/v1/clusters/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
 }
 
 export interface NodeCondition {
