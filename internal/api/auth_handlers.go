@@ -415,7 +415,16 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params Lis
 }
 
 func (s *Server) RevokeSession(w http.ResponseWriter, r *http.Request, id SessionId) {
-	if err := s.store.DeleteSession(r.Context(), id); err != nil {
+	// Path parameter is OpenAPI-typed as `string, maxLength: 64` for
+	// backwards-compat; parse as UUID here (that's the public_id form
+	// ListSessions surfaces). Anything that doesn't parse cleanly
+	// is a 400 — don't dignify cookie-value guesses with 404.
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid session id", "expected a UUID")
+		return
+	}
+	if err := s.store.DeleteSessionByPublicID(r.Context(), publicID); err != nil {
 		s.writeStoreError(w, "revokeSession", err)
 		return
 	}

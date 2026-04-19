@@ -23,6 +23,10 @@ import {
   NodeDetail,
   IngressDetail,
 } from './pages/Details';
+import AdminLayout from './pages/admin/AdminLayout';
+import UsersPage from './pages/admin/Users';
+import TokensPage from './pages/admin/Tokens';
+import SessionsPage from './pages/admin/Sessions';
 
 // --- auth gate ----------------------------------------------------------
 
@@ -67,6 +71,17 @@ function RequireAuth({ auth, children }: { auth: AuthState; children: React.Reac
   return <>{children}</>;
 }
 
+// RequireAdmin wraps the admin routes. Server-side the /v1/admin/*
+// endpoints already enforce admin; this is just UX — redirect
+// non-admins back to /clusters instead of letting them browse pages
+// that will 403 every request.
+function RequireAdmin({ auth, children }: { auth: AuthState; children: React.ReactNode }) {
+  if (auth.status === 'ready' && auth.me.role !== 'admin') {
+    return <Navigate to="/clusters" replace />;
+  }
+  return <>{children}</>;
+}
+
 // --- chrome -------------------------------------------------------------
 
 function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
@@ -100,6 +115,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
             {link('/persistentvolumes', 'PVs')}
             {link('/persistentvolumeclaims', 'PVCs')}
             {link('/search/image', 'Search')}
+            {me.role === 'admin' && link('/admin/users', 'Admin')}
           </nav>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -170,6 +186,21 @@ export default function App() {
       <Route path="/persistentvolumeclaims" element={authed(<PersistentVolumeClaims />)} />
 
       <Route path="/search/image" element={authed(<ImageSearch />)} />
+
+      {/* Admin panel — only renders the layout when the caller is admin. */}
+      <Route
+        path="/admin"
+        element={authed(
+          <RequireAdmin auth={auth}>
+            <AdminLayout />
+          </RequireAdmin>,
+        )}
+      >
+        <Route index element={<Navigate to="users" replace />} />
+        <Route path="users" element={<UsersPage />} />
+        <Route path="tokens" element={<TokensPage />} />
+        <Route path="sessions" element={<SessionsPage />} />
+      </Route>
 
       <Route path="*" element={<Navigate to="/clusters" replace />} />
     </Routes>

@@ -92,6 +92,107 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   });
 }
 
+// --- Admin --------------------------------------------------------------
+
+export interface User {
+  id: string;
+  username: string;
+  role: Role;
+  must_change_password?: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string | null;
+  disabled_at?: string | null;
+}
+
+export interface UserCreate {
+  username: string;
+  password: string;
+  role: Role;
+  must_change_password?: boolean;
+}
+
+export interface UserUpdate {
+  role?: Role;
+  password?: string;
+  must_change_password?: boolean;
+  disabled?: boolean;
+}
+
+export function listUsers() {
+  return request<PagedResponse<User>>('/v1/admin/users?limit=200');
+}
+export function createUser(in_: UserCreate) {
+  return request<User>('/v1/admin/users', { method: 'POST', body: JSON.stringify(in_) });
+}
+export function updateUser(id: string, patch: UserUpdate) {
+  return request<User>(`/v1/admin/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+    headers: { 'Content-Type': 'application/merge-patch+json' },
+  });
+}
+export function deleteUser(id: string) {
+  return request<void>(`/v1/admin/users/${id}`, { method: 'DELETE' });
+}
+
+// Scopes that an admin may grant to a machine token. The backend
+// rejects `admin` and `audit` for tokens (admin-only endpoints are
+// session-only for accountability).
+export type TokenScope = 'read' | 'write' | 'delete';
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  created_by_user_id: string;
+  created_at: string;
+  last_used_at?: string | null;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+}
+
+// Returned only by createApiToken — carries the plaintext token that
+// must be shown to the user exactly once.
+export interface ApiTokenMint extends ApiToken {
+  token: string;
+}
+
+export interface ApiTokenCreate {
+  name: string;
+  scopes: TokenScope[];
+  expires_at?: string | null;
+}
+
+export function listApiTokens() {
+  return request<PagedResponse<ApiToken>>('/v1/admin/tokens?limit=200');
+}
+export function createApiToken(in_: ApiTokenCreate) {
+  return request<ApiTokenMint>('/v1/admin/tokens', { method: 'POST', body: JSON.stringify(in_) });
+}
+export function revokeApiToken(id: string) {
+  return request<void>(`/v1/admin/tokens/${id}`, { method: 'DELETE' });
+}
+
+export interface Session {
+  id: string; // server returns a masked "<first8>…" value, never the full cookie value
+  user_id: string;
+  username?: string;
+  created_at: string;
+  last_used_at: string;
+  expires_at: string;
+  user_agent?: string | null;
+  source_ip?: string | null;
+}
+
+export function listSessions() {
+  return request<PagedResponse<Session>>('/v1/admin/sessions?limit=200');
+}
+export function revokeSession(id: string) {
+  return request<void>(`/v1/admin/sessions/${id}`, { method: 'DELETE' });
+}
+
 // Shared shapes ------------------------------------------------------------
 
 export interface PagedResponse<T> {

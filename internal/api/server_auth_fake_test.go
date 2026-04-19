@@ -29,6 +29,7 @@ type memAuthState struct {
 
 type memSession struct {
 	id         string
+	publicID   uuid.UUID
 	userID     uuid.UUID
 	created    time.Time
 	lastUsed   time.Time
@@ -238,6 +239,7 @@ func (m *memStore) CreateSession(_ context.Context, in SessionInsert) error {
 	defer m.mu.Unlock()
 	m.authState.sessions[in.ID] = memSession{
 		id:        in.ID,
+		publicID:  uuid.New(),
 		userID:    in.UserID,
 		created:   in.CreatedAt,
 		lastUsed:  in.CreatedAt,
@@ -304,6 +306,18 @@ func (m *memStore) DeleteSession(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *memStore) DeleteSessionByPublicID(_ context.Context, publicID uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, s := range m.authState.sessions {
+		if s.publicID == publicID {
+			delete(m.authState.sessions, id)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 func (m *memStore) DeleteSessionsForUser(_ context.Context, userID uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -338,12 +352,8 @@ func (m *memStore) ListSessions(_ context.Context, limit int, _ string) ([]Sessi
 		}
 		uid := s.userID
 		u := m.authState.users[s.userID]
-		masked := s.id
-		if len(masked) > 8 {
-			masked = masked[:8] + "…"
-		}
 		out = append(out, Session{
-			Id:         masked,
+			Id:         s.publicID.String(),
 			UserId:     uid,
 			Username:   &u.Username,
 			CreatedAt:  s.created,
