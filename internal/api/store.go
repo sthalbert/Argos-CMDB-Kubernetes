@@ -318,8 +318,13 @@ type Store interface {
 	// needs after a session resolves.
 	GetUserForAuth(ctx context.Context, id uuid.UUID) (auth.User, error)
 
-	// DeleteSession revokes a single session by id.
+	// DeleteSession revokes a single session by its cookie-value id.
+	// Used by the logout handler which reads the cookie from ctx.
 	DeleteSession(ctx context.Context, id string) error
+
+	// DeleteSessionByPublicID revokes by the UUID public handle. Used
+	// by the admin revoke endpoint so cookie values never leave the DB.
+	DeleteSessionByPublicID(ctx context.Context, publicID uuid.UUID) error
 
 	// DeleteSessionsForUser revokes all active sessions for a user. Called
 	// when the user is disabled or changes their password.

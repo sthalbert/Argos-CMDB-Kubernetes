@@ -314,10 +314,13 @@ func (p *PG) CreateSession(ctx context.Context, in api.SessionInsert) error {
 	if in.SourceIP == "" {
 		sourceIP = nil
 	}
+	// public_id is populated by the DB (gen_random_uuid() default would
+	// work too, but explicit here keeps the SQL self-contained).
+	publicID := uuid.New()
 	_, err := p.pool.Exec(ctx,
-		`INSERT INTO sessions (id, user_id, created_at, last_used_at, expires_at, user_agent, source_ip)
-		 VALUES ($1, $2, $3, $3, $4, $5, $6)`,
-		in.ID, in.UserID, in.CreatedAt, in.ExpiresAt, userAgent, sourceIP,
+		`INSERT INTO sessions (id, public_id, user_id, created_at, last_used_at, expires_at, user_agent, source_ip)
+		 VALUES ($1, $2, $3, $4, $4, $5, $6, $7)`,
+		in.ID, publicID, in.UserID, in.CreatedAt, in.ExpiresAt, userAgent, sourceIP,
 	)
 	if err != nil {
 		return fmt.Errorf("insert session: %w", err)
@@ -353,10 +356,25 @@ func (p *PG) TouchSession(ctx context.Context, id string, now, newExpiry time.Ti
 	return nil
 }
 
+// DeleteSession revokes the session whose cookie value is `id`. Used by
+// the logout handler, where the caller has the cookie from ctx.
 func (p *PG) DeleteSession(ctx context.Context, id string) error {
 	tag, err := p.pool.Exec(ctx, `DELETE FROM sessions WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteSessionByPublicID revokes by public_id, the UUID handle surfaced
+// to admins. Admins never see cookie values, so they use this path.
+func (p *PG) DeleteSessionByPublicID(ctx context.Context, publicID uuid.UUID) error {
+	tag, err := p.pool.Exec(ctx, `DELETE FROM sessions WHERE public_id = $1`, publicID)
+	if err != nil {
+		return fmt.Errorf("delete session by public_id: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return api.ErrNotFound
@@ -372,6 +390,9 @@ func (p *PG) DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error 
 	return nil
 }
 
+// ListSessions returns active sessions, surfacing each row's public_id
+// (not the cookie value) as the API-facing `id`. Cookie values never
+// leave the database.
 func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.Session, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -380,7 +401,7 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 		limit = 200
 	}
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT s.id, s.user_id, u.username, s.created_at, s.last_used_at,
+	sb.WriteString(`SELECT s.public_id, s.user_id, u.username, s.created_at, s.last_used_at,
 	                       s.expires_at, s.user_agent, s.source_ip
 	                FROM sessions s
 	                JOIN users u ON u.id = s.user_id
@@ -393,14 +414,12 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 		}
 		args = append(args, ts)
 		tsIdx := len(args)
-		// Session id is TEXT, not UUID — we cast the cid to text so the
-		// cursor tuple comparison works on a homogeneous type.
-		args = append(args, cid.String())
+		args = append(args, cid)
 		idIdx := len(args)
-		sb.WriteString(fmt.Sprintf(" AND (s.created_at, s.id) < ($%d, $%d)", tsIdx, idIdx))
+		sb.WriteString(fmt.Sprintf(" AND (s.created_at, s.public_id) < ($%d, $%d)", tsIdx, idIdx))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY s.created_at DESC, s.id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " ORDER BY s.created_at DESC, s.public_id DESC LIMIT $%d", len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -409,39 +428,37 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 	defer rows.Close()
 
 	items := make([]api.Session, 0, limit)
+	var lastPublicID uuid.UUID
 	for rows.Next() {
 		var (
-			s          api.Session
-			userAgent  *string
-			sourceIP   *string
-			username   string
+			s         api.Session
+			publicID  uuid.UUID
+			userAgent *string
+			sourceIP  *string
+			username  string
 		)
 		if err := rows.Scan(
-			&s.Id, &s.UserId, &username,
+			&publicID, &s.UserId, &username,
 			&s.CreatedAt, &s.LastUsedAt, &s.ExpiresAt,
 			&userAgent, &sourceIP,
 		); err != nil {
 			return nil, "", fmt.Errorf("scan session: %w", err)
 		}
+		s.Id = publicID.String()
 		s.Username = &username
 		s.UserAgent = userAgent
 		s.SourceIp = sourceIP
-		// Mask the id so the admin list doesn't leak cookie values
-		// wholesale. First 8 chars is enough to disambiguate.
-		if len(s.Id) > 8 {
-			s.Id = s.Id[:8] + "…"
-		}
 		items = append(items, s)
+		lastPublicID = publicID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("iterate sessions: %w", err)
 	}
 
-	// Cursor pagination uses the UN-masked ids; since we already
-	// truncated, disable next-page generation past the first batch.
-	// Admin sessions lists are typically short; revisit if needed.
 	var next string
 	if len(items) > limit {
+		last := items[limit-1]
+		next = encodeCursor(last.CreatedAt, lastPublicID)
 		items = items[:limit]
 	}
 	return items, next, nil
