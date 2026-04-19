@@ -284,26 +284,67 @@ func (p *PG) DeleteCluster(ctx context.Context, id uuid.UUID) error {
 // CreateNode inserts a new node. Returns api.ErrNotFound when the parent
 // cluster does not exist (FK violation), api.ErrConflict on duplicate
 // (cluster_id, name).
+// nodeColumns is the INSERT/SELECT column order used by every Node SQL
+// path — CreateNode, UpsertNode, scanNode, ListNodes. Kept as a single
+// const so adding a field is a three-line change (const + values + scan).
+const nodeColumns = `id, cluster_id, name, display_name, role,
+	kubelet_version, kube_proxy_version, container_runtime_version,
+	os_image, operating_system, kernel_version, architecture,
+	internal_ip, external_ip, pod_cidr,
+	provider_id, instance_type, zone,
+	capacity_cpu, capacity_memory, capacity_pods, capacity_ephemeral_storage,
+	allocatable_cpu, allocatable_memory, allocatable_pods, allocatable_ephemeral_storage,
+	conditions, taints, unschedulable, ready,
+	labels, created_at, updated_at`
+
+func nodeInsertValues(in api.NodeCreate, id uuid.UUID, now time.Time) ([]any, error) {
+	labelsJSON, err := marshalLabels(in.Labels)
+	if err != nil {
+		return nil, err
+	}
+	conditionsJSON, err := marshalPorts(in.Conditions)
+	if err != nil {
+		return nil, err
+	}
+	taintsJSON, err := marshalPorts(in.Taints)
+	if err != nil {
+		return nil, err
+	}
+	return []any{
+		id, in.ClusterId, in.Name, in.DisplayName, in.Role,
+		in.KubeletVersion, in.KubeProxyVersion, in.ContainerRuntimeVersion,
+		in.OsImage, in.OperatingSystem, in.KernelVersion, in.Architecture,
+		in.InternalIp, in.ExternalIp, in.PodCidr,
+		in.ProviderId, in.InstanceType, in.Zone,
+		in.CapacityCpu, in.CapacityMemory, in.CapacityPods, in.CapacityEphemeralStorage,
+		in.AllocatableCpu, in.AllocatableMemory, in.AllocatablePods, in.AllocatableEphemeralStorage,
+		conditionsJSON, taintsJSON, boolOrFalse(in.Unschedulable), boolOrFalse(in.Ready),
+		labelsJSON, now,
+	}, nil
+}
+
+func boolOrFalse(b *bool) bool {
+	if b == nil {
+		return false
+	}
+	return *b
+}
+
 func (p *PG) CreateNode(ctx context.Context, in api.NodeCreate) (api.Node, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
-	labelsJSON, err := marshalLabels(in.Labels)
+	values, err := nodeInsertValues(in, id, now)
 	if err != nil {
 		return api.Node{}, err
 	}
 
+	// 32 placeholders: 30 "value" slots + created_at + updated_at (both = $32).
 	const q = `
-		INSERT INTO nodes (
-			id, cluster_id, name, display_name, kubelet_version,
-			os_image, architecture, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+		INSERT INTO nodes (` + nodeColumns + `)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$32)
 	`
-	_, err = p.pool.Exec(ctx, q,
-		id, in.ClusterId, in.Name, in.DisplayName, in.KubeletVersion,
-		in.OsImage, in.Architecture, labelsJSON, now,
-	)
-	if err != nil {
+	if _, err := p.pool.Exec(ctx, q, values...); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
@@ -316,28 +357,12 @@ func (p *PG) CreateNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 		return api.Node{}, fmt.Errorf("insert node: %w", err)
 	}
 
-	return api.Node{
-		Id:             &id,
-		ClusterId:      in.ClusterId,
-		Name:           in.Name,
-		DisplayName:    in.DisplayName,
-		KubeletVersion: in.KubeletVersion,
-		OsImage:        in.OsImage,
-		Architecture:   in.Architecture,
-		Labels:         in.Labels,
-		CreatedAt:      &now,
-		UpdatedAt:      &now,
-	}, nil
+	return p.GetNode(ctx, id)
 }
 
 // GetNode fetches a node by id.
 func (p *PG) GetNode(ctx context.Context, id uuid.UUID) (api.Node, error) {
-	const q = `
-		SELECT id, cluster_id, name, display_name, kubelet_version,
-		       os_image, architecture, labels, created_at, updated_at
-		FROM nodes
-		WHERE id = $1
-	`
+	q := `SELECT ` + nodeColumns + ` FROM nodes WHERE id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	n, err := scanNode(row)
 	if err != nil {
@@ -360,9 +385,9 @@ func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cur
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT id, cluster_id, name, display_name, kubelet_version,
-	                       os_image, architecture, labels, created_at, updated_at
-	                FROM nodes`)
+	sb.WriteString(`SELECT `)
+	sb.WriteString(nodeColumns)
+	sb.WriteString(` FROM nodes`)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 2)
 
@@ -417,10 +442,12 @@ func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cur
 	return items, next, nil
 }
 
-// UpdateNode applies merge-patch semantics on mutable fields only.
+// UpdateNode applies merge-patch semantics on mutable fields only. Each
+// non-nil pointer on NodeUpdate translates to a single column set; omitted
+// fields keep their existing value.
 func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (api.Node, error) {
-	sets := make([]string, 0, 6)
-	args := make([]any, 0, 8)
+	sets := make([]string, 0, 24)
+	args := make([]any, 0, 26)
 	idx := 1
 	appendSet := func(column string, value any) {
 		sets = append(sets, fmt.Sprintf("%s=$%d", column, idx))
@@ -431,14 +458,91 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 	if in.DisplayName != nil {
 		appendSet("display_name", *in.DisplayName)
 	}
+	if in.Role != nil {
+		appendSet("role", *in.Role)
+	}
 	if in.KubeletVersion != nil {
 		appendSet("kubelet_version", *in.KubeletVersion)
+	}
+	if in.KubeProxyVersion != nil {
+		appendSet("kube_proxy_version", *in.KubeProxyVersion)
+	}
+	if in.ContainerRuntimeVersion != nil {
+		appendSet("container_runtime_version", *in.ContainerRuntimeVersion)
 	}
 	if in.OsImage != nil {
 		appendSet("os_image", *in.OsImage)
 	}
+	if in.OperatingSystem != nil {
+		appendSet("operating_system", *in.OperatingSystem)
+	}
+	if in.KernelVersion != nil {
+		appendSet("kernel_version", *in.KernelVersion)
+	}
 	if in.Architecture != nil {
 		appendSet("architecture", *in.Architecture)
+	}
+	if in.InternalIp != nil {
+		appendSet("internal_ip", *in.InternalIp)
+	}
+	if in.ExternalIp != nil {
+		appendSet("external_ip", *in.ExternalIp)
+	}
+	if in.PodCidr != nil {
+		appendSet("pod_cidr", *in.PodCidr)
+	}
+	if in.ProviderId != nil {
+		appendSet("provider_id", *in.ProviderId)
+	}
+	if in.InstanceType != nil {
+		appendSet("instance_type", *in.InstanceType)
+	}
+	if in.Zone != nil {
+		appendSet("zone", *in.Zone)
+	}
+	if in.CapacityCpu != nil {
+		appendSet("capacity_cpu", *in.CapacityCpu)
+	}
+	if in.CapacityMemory != nil {
+		appendSet("capacity_memory", *in.CapacityMemory)
+	}
+	if in.CapacityPods != nil {
+		appendSet("capacity_pods", *in.CapacityPods)
+	}
+	if in.CapacityEphemeralStorage != nil {
+		appendSet("capacity_ephemeral_storage", *in.CapacityEphemeralStorage)
+	}
+	if in.AllocatableCpu != nil {
+		appendSet("allocatable_cpu", *in.AllocatableCpu)
+	}
+	if in.AllocatableMemory != nil {
+		appendSet("allocatable_memory", *in.AllocatableMemory)
+	}
+	if in.AllocatablePods != nil {
+		appendSet("allocatable_pods", *in.AllocatablePods)
+	}
+	if in.AllocatableEphemeralStorage != nil {
+		appendSet("allocatable_ephemeral_storage", *in.AllocatableEphemeralStorage)
+	}
+	if in.Conditions != nil {
+		b, err := marshalPorts(in.Conditions)
+		if err != nil {
+			return api.Node{}, err
+		}
+		appendSet("conditions", b)
+	}
+	if in.Taints != nil {
+		b, err := marshalPorts(in.Taints)
+		if err != nil {
+			return api.Node{}, err
+		}
+		appendSet("taints", b)
+	}
+	if in.Unschedulable != nil {
+		appendSet("unschedulable", *in.Unschedulable)
+	}
+	if in.Ready != nil {
+		appendSet("ready", *in.Ready)
 	}
 	if in.Labels != nil {
 		b, err := marshalLabels(in.Labels)
@@ -2157,30 +2261,47 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 	id := uuid.New()
 	now := time.Now().UTC()
 
-	labelsJSON, err := marshalLabels(in.Labels)
+	values, err := nodeInsertValues(in, id, now)
 	if err != nil {
 		return api.Node{}, err
 	}
 
 	const q = `
-		INSERT INTO nodes (
-			id, cluster_id, name, display_name, kubelet_version,
-			os_image, architecture, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+		INSERT INTO nodes (` + nodeColumns + `)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$32)
 		ON CONFLICT (cluster_id, name) DO UPDATE SET
-			display_name    = EXCLUDED.display_name,
-			kubelet_version = EXCLUDED.kubelet_version,
-			os_image        = EXCLUDED.os_image,
-			architecture    = EXCLUDED.architecture,
-			labels          = EXCLUDED.labels,
-			updated_at      = EXCLUDED.updated_at
-		RETURNING id, cluster_id, name, display_name, kubelet_version,
-		          os_image, architecture, labels, created_at, updated_at
+			display_name                  = EXCLUDED.display_name,
+			role                          = EXCLUDED.role,
+			kubelet_version               = EXCLUDED.kubelet_version,
+			kube_proxy_version            = EXCLUDED.kube_proxy_version,
+			container_runtime_version     = EXCLUDED.container_runtime_version,
+			os_image                      = EXCLUDED.os_image,
+			operating_system              = EXCLUDED.operating_system,
+			kernel_version                = EXCLUDED.kernel_version,
+			architecture                  = EXCLUDED.architecture,
+			internal_ip                   = EXCLUDED.internal_ip,
+			external_ip                   = EXCLUDED.external_ip,
+			pod_cidr                      = EXCLUDED.pod_cidr,
+			provider_id                   = EXCLUDED.provider_id,
+			instance_type                 = EXCLUDED.instance_type,
+			zone                          = EXCLUDED.zone,
+			capacity_cpu                  = EXCLUDED.capacity_cpu,
+			capacity_memory               = EXCLUDED.capacity_memory,
+			capacity_pods                 = EXCLUDED.capacity_pods,
+			capacity_ephemeral_storage    = EXCLUDED.capacity_ephemeral_storage,
+			allocatable_cpu               = EXCLUDED.allocatable_cpu,
+			allocatable_memory            = EXCLUDED.allocatable_memory,
+			allocatable_pods              = EXCLUDED.allocatable_pods,
+			allocatable_ephemeral_storage = EXCLUDED.allocatable_ephemeral_storage,
+			conditions                    = EXCLUDED.conditions,
+			taints                        = EXCLUDED.taints,
+			unschedulable                 = EXCLUDED.unschedulable,
+			ready                         = EXCLUDED.ready,
+			labels                        = EXCLUDED.labels,
+			updated_at                    = EXCLUDED.updated_at
+		RETURNING ` + nodeColumns + `
 	`
-	row := p.pool.QueryRow(ctx, q,
-		id, in.ClusterId, in.Name, in.DisplayName, in.KubeletVersion,
-		in.OsImage, in.Architecture, labelsJSON, now,
-	)
+	row := p.pool.QueryRow(ctx, q, values...)
 	n, err := scanNode(row)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -2194,20 +2315,49 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 
 func scanNode(row pgx.Row) (api.Node, error) {
 	var (
-		n               api.Node
-		id              uuid.UUID
-		clusterID       uuid.UUID
-		createdAt       time.Time
-		updatedAt       time.Time
-		displayName     sql.NullString
-		kubeletVersion  sql.NullString
-		osImage         sql.NullString
-		architecture    sql.NullString
-		labelsJSON      []byte
+		n                           api.Node
+		id                          uuid.UUID
+		clusterID                   uuid.UUID
+		createdAt                   time.Time
+		updatedAt                   time.Time
+		displayName                 sql.NullString
+		role                        sql.NullString
+		kubeletVersion              sql.NullString
+		kubeProxyVersion            sql.NullString
+		containerRuntimeVersion     sql.NullString
+		osImage                     sql.NullString
+		operatingSystem             sql.NullString
+		kernelVersion               sql.NullString
+		architecture                sql.NullString
+		internalIP                  sql.NullString
+		externalIP                  sql.NullString
+		podCIDR                     sql.NullString
+		providerID                  sql.NullString
+		instanceType                sql.NullString
+		zone                        sql.NullString
+		capacityCPU                 sql.NullString
+		capacityMemory              sql.NullString
+		capacityPods                sql.NullString
+		capacityEphemeral           sql.NullString
+		allocatableCPU              sql.NullString
+		allocatableMemory           sql.NullString
+		allocatablePods             sql.NullString
+		allocatableEphemeral        sql.NullString
+		conditionsJSON              []byte
+		taintsJSON                  []byte
+		unschedulable               bool
+		ready                       bool
+		labelsJSON                  []byte
 	)
 	if err := row.Scan(
-		&id, &clusterID, &n.Name,
-		&displayName, &kubeletVersion, &osImage, &architecture,
+		&id, &clusterID, &n.Name, &displayName, &role,
+		&kubeletVersion, &kubeProxyVersion, &containerRuntimeVersion,
+		&osImage, &operatingSystem, &kernelVersion, &architecture,
+		&internalIP, &externalIP, &podCIDR,
+		&providerID, &instanceType, &zone,
+		&capacityCPU, &capacityMemory, &capacityPods, &capacityEphemeral,
+		&allocatableCPU, &allocatableMemory, &allocatablePods, &allocatableEphemeral,
+		&conditionsJSON, &taintsJSON, &unschedulable, &ready,
 		&labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
@@ -2219,9 +2369,41 @@ func scanNode(row pgx.Row) (api.Node, error) {
 	n.CreatedAt = &createdAt
 	n.UpdatedAt = &updatedAt
 	n.DisplayName = nullableString(displayName)
+	n.Role = nullableString(role)
 	n.KubeletVersion = nullableString(kubeletVersion)
+	n.KubeProxyVersion = nullableString(kubeProxyVersion)
+	n.ContainerRuntimeVersion = nullableString(containerRuntimeVersion)
 	n.OsImage = nullableString(osImage)
+	n.OperatingSystem = nullableString(operatingSystem)
+	n.KernelVersion = nullableString(kernelVersion)
 	n.Architecture = nullableString(architecture)
+	n.InternalIp = nullableString(internalIP)
+	n.ExternalIp = nullableString(externalIP)
+	n.PodCidr = nullableString(podCIDR)
+	n.ProviderId = nullableString(providerID)
+	n.InstanceType = nullableString(instanceType)
+	n.Zone = nullableString(zone)
+	n.CapacityCpu = nullableString(capacityCPU)
+	n.CapacityMemory = nullableString(capacityMemory)
+	n.CapacityPods = nullableString(capacityPods)
+	n.CapacityEphemeralStorage = nullableString(capacityEphemeral)
+	n.AllocatableCpu = nullableString(allocatableCPU)
+	n.AllocatableMemory = nullableString(allocatableMemory)
+	n.AllocatablePods = nullableString(allocatablePods)
+	n.AllocatableEphemeralStorage = nullableString(allocatableEphemeral)
+	n.Unschedulable = &unschedulable
+	n.Ready = &ready
+
+	if cs, err := unmarshalMapArray(conditionsJSON); err != nil {
+		return api.Node{}, fmt.Errorf("unmarshal node conditions: %w", err)
+	} else {
+		n.Conditions = cs
+	}
+	if ts, err := unmarshalMapArray(taintsJSON); err != nil {
+		return api.Node{}, fmt.Errorf("unmarshal node taints: %w", err)
+	} else {
+		n.Taints = ts
+	}
 
 	if len(labelsJSON) > 0 {
 		var labels map[string]string
@@ -2233,6 +2415,23 @@ func scanNode(row pgx.Row) (api.Node, error) {
 		}
 	}
 	return n, nil
+}
+
+// unmarshalMapArray decodes a JSONB array of objects. Returns nil for
+// empty arrays so the pointer semantics match what callers expect
+// (nil = absent, &[...] = present).
+func unmarshalMapArray(b []byte) (*[]map[string]interface{}, error) {
+	if len(b) == 0 {
+		return nil, nil
+	}
+	var out []map[string]interface{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return &out, nil
 }
 
 // marshalLabels encodes the optional labels map as JSON, preserving NULL-vs-empty semantics.

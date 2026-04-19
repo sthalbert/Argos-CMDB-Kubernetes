@@ -104,14 +104,51 @@ export interface Cluster {
   updated_at: string;
 }
 
+export interface NodeCondition {
+  type: string;
+  status: string;
+  reason?: string;
+  message?: string;
+  last_transition_time?: string;
+}
+
+export interface NodeTaint {
+  key: string;
+  value?: string;
+  effect: string;
+}
+
 export interface Node {
   id: string;
   cluster_id: string;
   name: string;
   display_name?: string | null;
+  role?: string | null;
   kubelet_version?: string | null;
+  kube_proxy_version?: string | null;
+  container_runtime_version?: string | null;
   os_image?: string | null;
+  operating_system?: string | null;
+  kernel_version?: string | null;
   architecture?: string | null;
+  internal_ip?: string | null;
+  external_ip?: string | null;
+  pod_cidr?: string | null;
+  provider_id?: string | null;
+  instance_type?: string | null;
+  zone?: string | null;
+  capacity_cpu?: string | null;
+  capacity_memory?: string | null;
+  capacity_pods?: string | null;
+  capacity_ephemeral_storage?: string | null;
+  allocatable_cpu?: string | null;
+  allocatable_memory?: string | null;
+  allocatable_pods?: string | null;
+  allocatable_ephemeral_storage?: string | null;
+  conditions?: NodeCondition[] | null;
+  taints?: NodeTaint[] | null;
+  unschedulable?: boolean | null;
+  ready?: boolean | null;
   labels?: Record<string, string> | null;
   layer: Layer;
   created_at: string;

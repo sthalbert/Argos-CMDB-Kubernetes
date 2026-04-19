@@ -150,22 +150,137 @@ func (k *KubeClient) ServerVersion(_ context.Context) (string, error) {
 // ListNodes returns every Node visible through the configured kubeconfig.
 // A single List call is used; paginating via Continue is unnecessary at
 // the cluster-wide node counts this project targets.
+//
+// Most fields on NodeInfo come straight from the Node's status subtree.
+// Role is derived from the `node-role.kubernetes.io/*` labels (the
+// well-known convention since K8s 1.16); instance_type and zone come from
+// the matching well-known labels so cloud identity surfaces without
+// parsing spec.providerID. Conditions and taints are flattened into
+// generic maps so the store persists them as JSONB without coupling to
+// client-go types.
 func (k *KubeClient) ListNodes(ctx context.Context) ([]NodeInfo, error) {
 	list, err := k.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
 	}
 	out := make([]NodeInfo, 0, len(list.Items))
-	for _, n := range list.Items {
-		out = append(out, NodeInfo{
-			Name:           n.Name,
-			KubeletVersion: n.Status.NodeInfo.KubeletVersion,
-			OsImage:        n.Status.NodeInfo.OSImage,
-			Architecture:   n.Status.NodeInfo.Architecture,
-			Labels:         n.Labels,
-		})
+	for i := range list.Items {
+		n := &list.Items[i]
+		internal, external := nodeAddresses(n)
+		info := NodeInfo{
+			Name:                        n.Name,
+			Role:                        nodeRole(n),
+			KubeletVersion:              n.Status.NodeInfo.KubeletVersion,
+			KubeProxyVersion:            n.Status.NodeInfo.KubeProxyVersion,
+			ContainerRuntimeVersion:     n.Status.NodeInfo.ContainerRuntimeVersion,
+			OsImage:                     n.Status.NodeInfo.OSImage,
+			OperatingSystem:             n.Status.NodeInfo.OperatingSystem,
+			KernelVersion:               n.Status.NodeInfo.KernelVersion,
+			Architecture:                n.Status.NodeInfo.Architecture,
+			InternalIP:                  internal,
+			ExternalIP:                  external,
+			PodCIDR:                     n.Spec.PodCIDR,
+			ProviderID:                  n.Spec.ProviderID,
+			InstanceType:                n.Labels["node.kubernetes.io/instance-type"],
+			Zone:                        n.Labels["topology.kubernetes.io/zone"],
+			CapacityCPU:                 quantityString(n.Status.Capacity, corev1.ResourceCPU),
+			CapacityMemory:              quantityString(n.Status.Capacity, corev1.ResourceMemory),
+			CapacityPods:                quantityString(n.Status.Capacity, corev1.ResourcePods),
+			CapacityEphemeralStorage:    quantityString(n.Status.Capacity, corev1.ResourceEphemeralStorage),
+			AllocatableCPU:              quantityString(n.Status.Allocatable, corev1.ResourceCPU),
+			AllocatableMemory:           quantityString(n.Status.Allocatable, corev1.ResourceMemory),
+			AllocatablePods:             quantityString(n.Status.Allocatable, corev1.ResourcePods),
+			AllocatableEphemeralStorage: quantityString(n.Status.Allocatable, corev1.ResourceEphemeralStorage),
+			Conditions:                  nodeConditions(n),
+			Taints:                      nodeTaints(n),
+			Unschedulable:               n.Spec.Unschedulable,
+			Ready:                       nodeReady(n),
+			Labels:                      n.Labels,
+		}
+		out = append(out, info)
 	}
 	return out, nil
+}
+
+// nodeRole prefers the standard "control-plane" label, falls back to the
+// pre-1.24 "master" alias, and finally returns "worker" for nodes without
+// any role label — matching how kubectl get nodes renders the column.
+func nodeRole(n *corev1.Node) string {
+	for label := range n.Labels {
+		const prefix = "node-role.kubernetes.io/"
+		if len(label) > len(prefix) && label[:len(prefix)] == prefix {
+			role := label[len(prefix):]
+			if role == "master" {
+				return "control-plane"
+			}
+			return role
+		}
+	}
+	return "worker"
+}
+
+// nodeAddresses pulls the first InternalIP and first ExternalIP out of
+// status.addresses. Nodes may advertise several of each; we surface the
+// first for the detail view.
+func nodeAddresses(n *corev1.Node) (internal, external string) {
+	for _, a := range n.Status.Addresses {
+		switch a.Type {
+		case corev1.NodeInternalIP:
+			if internal == "" {
+				internal = a.Address
+			}
+		case corev1.NodeExternalIP:
+			if external == "" {
+				external = a.Address
+			}
+		}
+	}
+	return internal, external
+}
+
+// quantityString renders resource.Quantity via its canonical String() so
+// storage stays in the unit Kubernetes emitted (Gi/Mi/m/etc.), which is
+// what auditors expect to see.
+func quantityString(list corev1.ResourceList, name corev1.ResourceName) string {
+	if q, ok := list[name]; ok {
+		return q.String()
+	}
+	return ""
+}
+
+func nodeConditions(n *corev1.Node) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(n.Status.Conditions))
+	for _, c := range n.Status.Conditions {
+		out = append(out, map[string]interface{}{
+			"type":                 string(c.Type),
+			"status":               string(c.Status),
+			"reason":               c.Reason,
+			"message":              c.Message,
+			"last_transition_time": c.LastTransitionTime.UTC().Format("2006-01-02T15:04:05Z"),
+		})
+	}
+	return out
+}
+
+func nodeTaints(n *corev1.Node) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(n.Spec.Taints))
+	for _, t := range n.Spec.Taints {
+		out = append(out, map[string]interface{}{
+			"key":    t.Key,
+			"value":  t.Value,
+			"effect": string(t.Effect),
+		})
+	}
+	return out
+}
+
+func nodeReady(n *corev1.Node) bool {
+	for _, c := range n.Status.Conditions {
+		if c.Type == corev1.NodeReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // ListNamespaces returns every Namespace visible through the configured kubeconfig.

@@ -199,6 +199,40 @@ func (m *memStore) DeleteCluster(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// copyNodeMutableFromCreate mirrors every NodeMutable-derived field from a
+// NodeCreate payload onto a Node. The fake carries them as-is so tests can
+// round-trip any of the 23 fields the collector now populates.
+func copyNodeMutableFromCreate(n *Node, in NodeCreate) {
+	n.DisplayName = in.DisplayName
+	n.Role = in.Role
+	n.KubeletVersion = in.KubeletVersion
+	n.KubeProxyVersion = in.KubeProxyVersion
+	n.ContainerRuntimeVersion = in.ContainerRuntimeVersion
+	n.OsImage = in.OsImage
+	n.OperatingSystem = in.OperatingSystem
+	n.KernelVersion = in.KernelVersion
+	n.Architecture = in.Architecture
+	n.InternalIp = in.InternalIp
+	n.ExternalIp = in.ExternalIp
+	n.PodCidr = in.PodCidr
+	n.ProviderId = in.ProviderId
+	n.InstanceType = in.InstanceType
+	n.Zone = in.Zone
+	n.CapacityCpu = in.CapacityCpu
+	n.CapacityMemory = in.CapacityMemory
+	n.CapacityPods = in.CapacityPods
+	n.CapacityEphemeralStorage = in.CapacityEphemeralStorage
+	n.AllocatableCpu = in.AllocatableCpu
+	n.AllocatableMemory = in.AllocatableMemory
+	n.AllocatablePods = in.AllocatablePods
+	n.AllocatableEphemeralStorage = in.AllocatableEphemeralStorage
+	n.Conditions = in.Conditions
+	n.Taints = in.Taints
+	n.Unschedulable = in.Unschedulable
+	n.Ready = in.Ready
+	n.Labels = in.Labels
+}
+
 func (m *memStore) CreateNode(_ context.Context, in NodeCreate) (Node, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -213,17 +247,13 @@ func (m *memStore) CreateNode(_ context.Context, in NodeCreate) (Node, error) {
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
 	m.createdN++
 	n := Node{
-		Id:             &id,
-		ClusterId:      in.ClusterId,
-		Name:           in.Name,
-		DisplayName:    in.DisplayName,
-		KubeletVersion: in.KubeletVersion,
-		OsImage:        in.OsImage,
-		Architecture:   in.Architecture,
-		Labels:         in.Labels,
-		CreatedAt:      &now,
-		UpdatedAt:      &now,
+		Id:        &id,
+		ClusterId: in.ClusterId,
+		Name:      in.Name,
+		CreatedAt: &now,
+		UpdatedAt: &now,
 	}
+	copyNodeMutableFromCreate(&n, in)
 	m.nodesByID[id] = n
 	m.nodesByNatKey[key] = id
 	return n, nil
@@ -268,14 +298,83 @@ func (m *memStore) UpdateNode(_ context.Context, id uuid.UUID, in NodeUpdate) (N
 	if in.DisplayName != nil {
 		n.DisplayName = in.DisplayName
 	}
+	if in.Role != nil {
+		n.Role = in.Role
+	}
 	if in.KubeletVersion != nil {
 		n.KubeletVersion = in.KubeletVersion
+	}
+	if in.KubeProxyVersion != nil {
+		n.KubeProxyVersion = in.KubeProxyVersion
+	}
+	if in.ContainerRuntimeVersion != nil {
+		n.ContainerRuntimeVersion = in.ContainerRuntimeVersion
 	}
 	if in.OsImage != nil {
 		n.OsImage = in.OsImage
 	}
+	if in.OperatingSystem != nil {
+		n.OperatingSystem = in.OperatingSystem
+	}
+	if in.KernelVersion != nil {
+		n.KernelVersion = in.KernelVersion
+	}
 	if in.Architecture != nil {
 		n.Architecture = in.Architecture
+	}
+	if in.InternalIp != nil {
+		n.InternalIp = in.InternalIp
+	}
+	if in.ExternalIp != nil {
+		n.ExternalIp = in.ExternalIp
+	}
+	if in.PodCidr != nil {
+		n.PodCidr = in.PodCidr
+	}
+	if in.ProviderId != nil {
+		n.ProviderId = in.ProviderId
+	}
+	if in.InstanceType != nil {
+		n.InstanceType = in.InstanceType
+	}
+	if in.Zone != nil {
+		n.Zone = in.Zone
+	}
+	if in.CapacityCpu != nil {
+		n.CapacityCpu = in.CapacityCpu
+	}
+	if in.CapacityMemory != nil {
+		n.CapacityMemory = in.CapacityMemory
+	}
+	if in.CapacityPods != nil {
+		n.CapacityPods = in.CapacityPods
+	}
+	if in.CapacityEphemeralStorage != nil {
+		n.CapacityEphemeralStorage = in.CapacityEphemeralStorage
+	}
+	if in.AllocatableCpu != nil {
+		n.AllocatableCpu = in.AllocatableCpu
+	}
+	if in.AllocatableMemory != nil {
+		n.AllocatableMemory = in.AllocatableMemory
+	}
+	if in.AllocatablePods != nil {
+		n.AllocatablePods = in.AllocatablePods
+	}
+	if in.AllocatableEphemeralStorage != nil {
+		n.AllocatableEphemeralStorage = in.AllocatableEphemeralStorage
+	}
+	if in.Conditions != nil {
+		n.Conditions = in.Conditions
+	}
+	if in.Taints != nil {
+		n.Taints = in.Taints
+	}
+	if in.Unschedulable != nil {
+		n.Unschedulable = in.Unschedulable
+	}
+	if in.Ready != nil {
+		n.Ready = in.Ready
 	}
 	if in.Labels != nil {
 		n.Labels = in.Labels
@@ -1176,11 +1275,7 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) {
 
 	if existingID, exists := m.nodesByNatKey[key]; exists {
 		n := m.nodesByID[existingID]
-		n.DisplayName = in.DisplayName
-		n.KubeletVersion = in.KubeletVersion
-		n.OsImage = in.OsImage
-		n.Architecture = in.Architecture
-		n.Labels = in.Labels
+		copyNodeMutableFromCreate(&n, in)
 		n.UpdatedAt = &now
 		m.nodesByID[existingID] = n
 		return n, nil
@@ -1188,17 +1283,13 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) {
 
 	id := uuid.New()
 	n := Node{
-		Id:             &id,
-		ClusterId:      in.ClusterId,
-		Name:           in.Name,
-		DisplayName:    in.DisplayName,
-		KubeletVersion: in.KubeletVersion,
-		OsImage:        in.OsImage,
-		Architecture:   in.Architecture,
-		Labels:         in.Labels,
-		CreatedAt:      &now,
-		UpdatedAt:      &now,
+		Id:        &id,
+		ClusterId: in.ClusterId,
+		Name:      in.Name,
+		CreatedAt: &now,
+		UpdatedAt: &now,
 	}
+	copyNodeMutableFromCreate(&n, in)
 	m.nodesByID[id] = n
 	m.nodesByNatKey[key] = id
 	return n, nil

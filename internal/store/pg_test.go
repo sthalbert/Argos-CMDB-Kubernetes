@@ -1205,3 +1205,170 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 		t.Errorf("workload image=log4j matched=%v, want [api]", wls)
 	}
 }
+
+// Exercises the enriched Node columns added in migration 00012. Upserts
+// a node with a full Mercator-aligned payload (role / cloud identity /
+// OS stack / capacity+allocatable pairs / conditions / taints) and
+// confirms every field round-trips through scanNode.
+func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "node-enrich"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	role := "worker"
+	kubeletV := "v1.30.3"
+	kubeProxyV := "v1.30.3"
+	runtimeV := "containerd://1.7.13"
+	osImage := "Bottlerocket OS 1.20.0"
+	operatingSys := "linux"
+	kernelV := "6.1.84"
+	arch := "amd64"
+	internalIP := "10.0.1.23"
+	externalIP := "54.12.34.56"
+	podCIDR := "10.244.1.0/24"
+	providerID := "aws:///eu-west-1a/i-0abc1234567890def"
+	inst := "m6i.xlarge"
+	zone := "eu-west-1a"
+	capCPU := "4"
+	capMem := "16Gi"
+	capPods := "110"
+	capEph := "100Gi"
+	allocCPU := "3900m"
+	allocMem := "15Gi"
+	allocPods := "110"
+	allocEph := "95Gi"
+	unschedulable := false
+	ready := true
+	conditions := []map[string]interface{}{
+		{"type": "Ready", "status": "True", "reason": "KubeletReady", "message": "kubelet is posting ready status"},
+		{"type": "MemoryPressure", "status": "False", "reason": "KubeletHasSufficientMemory"},
+	}
+	taints := []map[string]interface{}{
+		{"key": "dedicated", "value": "gpu", "effect": "NoSchedule"},
+	}
+	labels := map[string]string{"node.kubernetes.io/instance-type": inst}
+
+	in := api.NodeCreate{
+		ClusterId:                   *cluster.Id,
+		Name:                        "worker-01",
+		Role:                        &role,
+		KubeletVersion:              &kubeletV,
+		KubeProxyVersion:            &kubeProxyV,
+		ContainerRuntimeVersion:     &runtimeV,
+		OsImage:                     &osImage,
+		OperatingSystem:             &operatingSys,
+		KernelVersion:               &kernelV,
+		Architecture:                &arch,
+		InternalIp:                  &internalIP,
+		ExternalIp:                  &externalIP,
+		PodCidr:                     &podCIDR,
+		ProviderId:                  &providerID,
+		InstanceType:                &inst,
+		Zone:                        &zone,
+		CapacityCpu:                 &capCPU,
+		CapacityMemory:              &capMem,
+		CapacityPods:                &capPods,
+		CapacityEphemeralStorage:    &capEph,
+		AllocatableCpu:              &allocCPU,
+		AllocatableMemory:           &allocMem,
+		AllocatablePods:             &allocPods,
+		AllocatableEphemeralStorage: &allocEph,
+		Conditions:                  &conditions,
+		Taints:                      &taints,
+		Unschedulable:               &unschedulable,
+		Ready:                       &ready,
+		Labels:                      &labels,
+	}
+
+	stored, err := pg.UpsertNode(ctx, in)
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	got, err := pg.GetNode(ctx, *stored.Id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+
+	// Spot-check a representative sample of every field family. String
+	// equality is enough since every setter is a plain assignment.
+	wantStrPairs := []struct{ name, want string; got *string }{
+		{"role", role, got.Role},
+		{"kubelet_version", kubeletV, got.KubeletVersion},
+		{"kube_proxy_version", kubeProxyV, got.KubeProxyVersion},
+		{"container_runtime_version", runtimeV, got.ContainerRuntimeVersion},
+		{"operating_system", operatingSys, got.OperatingSystem},
+		{"kernel_version", kernelV, got.KernelVersion},
+		{"internal_ip", internalIP, got.InternalIp},
+		{"external_ip", externalIP, got.ExternalIp},
+		{"pod_cidr", podCIDR, got.PodCidr},
+		{"provider_id", providerID, got.ProviderId},
+		{"instance_type", inst, got.InstanceType},
+		{"zone", zone, got.Zone},
+		{"capacity_cpu", capCPU, got.CapacityCpu},
+		{"capacity_memory", capMem, got.CapacityMemory},
+		{"capacity_ephemeral_storage", capEph, got.CapacityEphemeralStorage},
+		{"allocatable_cpu", allocCPU, got.AllocatableCpu},
+	}
+	for _, p := range wantStrPairs {
+		if p.got == nil || *p.got != p.want {
+			t.Errorf("%s: got %v, want %q", p.name, p.got, p.want)
+		}
+	}
+
+	if got.Ready == nil || !*got.Ready {
+		t.Errorf("ready: got %v, want true", got.Ready)
+	}
+	if got.Unschedulable == nil || *got.Unschedulable {
+		t.Errorf("unschedulable: got %v, want false", got.Unschedulable)
+	}
+
+	if got.Conditions == nil || len(*got.Conditions) != 2 {
+		t.Fatalf("conditions: got %v, want 2 entries", got.Conditions)
+	}
+	if (*got.Conditions)[0]["type"] != "Ready" {
+		t.Errorf("first condition type = %v, want Ready", (*got.Conditions)[0]["type"])
+	}
+
+	if got.Taints == nil || len(*got.Taints) != 1 {
+		t.Fatalf("taints: got %v, want 1 entry", got.Taints)
+	}
+	if (*got.Taints)[0]["effect"] != "NoSchedule" {
+		t.Errorf("taint effect = %v, want NoSchedule", (*got.Taints)[0]["effect"])
+	}
+
+	// Upsert again with a *different* role and fewer conditions to verify
+	// the ON CONFLICT DO UPDATE path rewrites everything atomically.
+	cordoned := "control-plane"
+	empty := []map[string]interface{}{}
+	unschTrue := true
+	reDown := false
+	in2 := in
+	in2.Role = &cordoned
+	in2.Conditions = &empty
+	in2.Unschedulable = &unschTrue
+	in2.Ready = &reDown
+	if _, err := pg.UpsertNode(ctx, in2); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+	got2, err := pg.GetNode(ctx, *stored.Id)
+	if err != nil {
+		t.Fatalf("re-get: %v", err)
+	}
+	if got2.Role == nil || *got2.Role != cordoned {
+		t.Errorf("role after re-upsert: got %v, want %q", got2.Role, cordoned)
+	}
+	if got2.Unschedulable == nil || !*got2.Unschedulable {
+		t.Errorf("unschedulable after re-upsert: got %v, want true", got2.Unschedulable)
+	}
+	if got2.Ready == nil || *got2.Ready {
+		t.Errorf("ready after re-upsert: got %v, want false", got2.Ready)
+	}
+	if got2.Conditions != nil {
+		t.Errorf("conditions after clear: got %v, want nil", got2.Conditions)
+	}
+}

@@ -1716,26 +1716,137 @@ components:
             Absent or null when no more pages remain.
 
     NodeMutable:
-      description: Fields on a Node that clients may set and later update.
+      description: |
+        Fields on a Node that clients may set and later update. Modelled on
+        Mercator's logical-server entity, with Kubernetes-specific
+        additions (role, taints, conditions, the full OS stack). Curated
+        fields (description, attributes, patching_frequency) are
+        deliberately absent — they land with the curated-metadata work
+        per ADR-0006.
       type: object
       properties:
         display_name:
           type: string
           maxLength: 256
           description: Human-friendly label, free-form.
+        role:
+          type: string
+          maxLength: 32
+          description: |
+            Node role derived from `node-role.kubernetes.io/*` labels.
+            Common values: `control-plane`, `worker`, `etcd`.
         kubelet_version:
           type: string
           maxLength: 32
           description: Kubelet git version as reported by Kubernetes (e.g. "v1.29.5").
+        kube_proxy_version:
+          type: string
+          maxLength: 32
+        container_runtime_version:
+          type: string
+          maxLength: 64
+          description: e.g. `containerd://1.7.13`.
         os_image:
           type: string
           maxLength: 256
           description: Node OS image string (e.g. "Ubuntu 22.04.3 LTS").
+        operating_system:
+          type: string
+          maxLength: 32
+          description: OS family as reported by Kubernetes (`linux`, `windows`).
+        kernel_version:
+          type: string
+          maxLength: 128
         architecture:
           type: string
           maxLength: 32
           description: |
             CPU architecture. Open-ended; common values: amd64, arm64, ppc64le, s390x.
+        internal_ip:
+          type: string
+          maxLength: 45
+          description: Primary InternalIP address from status.addresses.
+        external_ip:
+          type: string
+          maxLength: 45
+          description: First ExternalIP from status.addresses, if any.
+        pod_cidr:
+          type: string
+          maxLength: 64
+        provider_id:
+          type: string
+          maxLength: 256
+          description: |
+            Cloud provider identifier from spec.providerID
+            (e.g. `aws:///eu-west-1a/i-0abc1234567890def`).
+        instance_type:
+          type: string
+          maxLength: 128
+          description: |
+            Value of the `node.kubernetes.io/instance-type` label
+            (e.g. `m6i.xlarge`, `Standard_D4s_v5`).
+        zone:
+          type: string
+          maxLength: 64
+          description: |
+            Value of the `topology.kubernetes.io/zone` label
+            (e.g. `eu-west-1a`).
+        capacity_cpu:
+          type: string
+          maxLength: 32
+          description: Total CPU the node reports via status.capacity.cpu (quantity).
+        capacity_memory:
+          type: string
+          maxLength: 32
+        capacity_pods:
+          type: string
+          maxLength: 32
+        capacity_ephemeral_storage:
+          type: string
+          maxLength: 32
+        allocatable_cpu:
+          type: string
+          maxLength: 32
+          description: CPU schedulable by Kubernetes after system reservations.
+        allocatable_memory:
+          type: string
+          maxLength: 32
+        allocatable_pods:
+          type: string
+          maxLength: 32
+        allocatable_ephemeral_storage:
+          type: string
+          maxLength: 32
+        conditions:
+          type: array
+          description: |
+            Status conditions from the Node (Ready, MemoryPressure,
+            DiskPressure, PIDPressure, NetworkUnavailable). Each entry
+            preserves the Kubernetes shape so readers can filter by
+            `type`/`status` without reparse.
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 32
+        taints:
+          type: array
+          description: |
+            Scheduling taints from spec.taints. Each entry has
+            `{key, value, effect}` — a pod lands here only if it
+            tolerates every taint whose effect is NoSchedule/NoExecute.
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 64
+        unschedulable:
+          type: boolean
+          description: spec.unschedulable — the kubectl `cordon` flag.
+        ready:
+          type: boolean
+          description: |
+            Convenience boolean derived from the `Ready` status condition.
+            The full condition (with reason/lastTransitionTime) is in the
+            `conditions` array.
         labels:
           type: object
           description: Arbitrary user-supplied string key/value labels.

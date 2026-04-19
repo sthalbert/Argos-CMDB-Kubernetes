@@ -75,9 +75,11 @@ export function Nodes() {
               <tr>
                 <th>Name</th>
                 <th>Cluster</th>
-                <th>Kubelet</th>
-                <th>OS image</th>
-                <th>Arch</th>
+                <th>Role</th>
+                <th>Zone</th>
+                <th>Instance type</th>
+                <th>CPU / Mem</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -97,9 +99,24 @@ export function Nodes() {
                         <IdLink to={`/clusters/${n.cluster_id}`} id={n.cluster_id} />
                       )}
                     </td>
-                    <td>{n.kubelet_version ? <code>{n.kubelet_version}</code> : <Dash />}</td>
-                    <td>{n.os_image || <Dash />}</td>
-                    <td>{n.architecture || <Dash />}</td>
+                    <td>{n.role ? <span className="pill">{n.role}</span> : <Dash />}</td>
+                    <td>{n.zone ? <code>{n.zone}</code> : <Dash />}</td>
+                    <td>{n.instance_type ? <code>{n.instance_type}</code> : <Dash />}</td>
+                    <td>
+                      {n.capacity_cpu || n.capacity_memory ? (
+                        <code>
+                          {n.capacity_cpu || '?'} / {n.capacity_memory || '?'}
+                        </code>
+                      ) : (
+                        <Dash />
+                      )}
+                    </td>
+                    <td>
+                      <NodeStatusBadge
+                        ready={n.ready}
+                        unschedulable={n.unschedulable}
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -109,6 +126,25 @@ export function Nodes() {
       </AsyncView>
     </>
   );
+}
+
+// Compact at-a-glance status: green Ready, orange cordoned, red NotReady.
+function NodeStatusBadge({
+  ready,
+  unschedulable,
+}: {
+  ready?: boolean | null;
+  unschedulable?: boolean | null;
+}) {
+  if (ready === null || ready === undefined) return <Dash />;
+  const parts = [ready ? 'Ready' : 'NotReady'];
+  if (unschedulable) parts.push('Cordoned');
+  const cls = ready
+    ? unschedulable
+      ? 'status-warn'
+      : 'status-ok'
+    : 'status-bad';
+  return <span className={`pill ${cls}`}>{parts.join(' · ')}</span>;
 }
 
 export function Namespaces() {

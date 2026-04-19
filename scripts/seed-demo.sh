@@ -45,12 +45,73 @@ STAG_ID=$(jval "$STAG" id)
 echo "stag id=$STAG_ID"
 
 echo "=== nodes ==="
-for n in "worker-01:m6i.xlarge" "worker-02:m6i.xlarge" "worker-03:m6i.xlarge" "cp-01:m6i.large"; do
-    name="${n%%:*}"
-    inst="${n##*:}"
-    post /v1/nodes "{\"cluster_id\":\"$PROD_ID\",\"name\":\"${name}.prod\",\"display_name\":\"$name\",\"kubelet_version\":\"v1.30.3\",\"os_image\":\"Bottlerocket OS 1.20.0\",\"architecture\":\"amd64\",\"labels\":{\"node.kubernetes.io/instance-type\":\"$inst\"}}" >/dev/null
-done
-post /v1/nodes "{\"cluster_id\":\"$STAG_ID\",\"name\":\"worker-01.staging\",\"kubelet_version\":\"v1.30.3\",\"architecture\":\"amd64\"}" >/dev/null
+# Helper: build a full Mercator-aligned Node payload. Assigns one zone /
+# instance type per worker so the UI cartography looks lived-in.
+post_node() {
+    local cluster_id="$1"
+    local name="$2"
+    local display_name="$3"
+    local role="$4"
+    local inst="$5"
+    local zone="$6"
+    local ip_suffix="$7"
+    local ready="$8"
+    local unschedulable="$9"
+    local taints_json="${10}"
+    post /v1/nodes "{
+      \"cluster_id\":\"$cluster_id\",
+      \"name\":\"$name\",
+      \"display_name\":\"$display_name\",
+      \"role\":\"$role\",
+      \"kubelet_version\":\"v1.30.3\",
+      \"kube_proxy_version\":\"v1.30.3\",
+      \"container_runtime_version\":\"containerd://1.7.13\",
+      \"os_image\":\"Bottlerocket OS 1.20.0\",
+      \"operating_system\":\"linux\",
+      \"kernel_version\":\"6.1.84\",
+      \"architecture\":\"amd64\",
+      \"internal_ip\":\"10.0.1.$ip_suffix\",
+      \"pod_cidr\":\"10.244.$ip_suffix.0/24\",
+      \"provider_id\":\"aws:///$zone/i-0abc12345$ip_suffix\",
+      \"instance_type\":\"$inst\",
+      \"zone\":\"$zone\",
+      \"capacity_cpu\":\"4\",
+      \"capacity_memory\":\"16Gi\",
+      \"capacity_pods\":\"110\",
+      \"capacity_ephemeral_storage\":\"100Gi\",
+      \"allocatable_cpu\":\"3900m\",
+      \"allocatable_memory\":\"15Gi\",
+      \"allocatable_pods\":\"110\",
+      \"allocatable_ephemeral_storage\":\"95Gi\",
+      \"ready\":$ready,
+      \"unschedulable\":$unschedulable,
+      \"conditions\":[
+        {\"type\":\"Ready\",\"status\":\"$( [ "$ready" = "true" ] && echo True || echo False )\",\"reason\":\"KubeletReady\",\"message\":\"kubelet is posting ready status\"},
+        {\"type\":\"MemoryPressure\",\"status\":\"False\",\"reason\":\"KubeletHasSufficientMemory\"},
+        {\"type\":\"DiskPressure\",\"status\":\"False\",\"reason\":\"KubeletHasNoDiskPressure\"},
+        {\"type\":\"PIDPressure\",\"status\":\"False\",\"reason\":\"KubeletHasSufficientPID\"},
+        {\"type\":\"NetworkUnavailable\",\"status\":\"False\",\"reason\":\"RouteCreated\"}
+      ],
+      \"taints\":$taints_json,
+      \"labels\":{
+        \"node.kubernetes.io/instance-type\":\"$inst\",
+        \"topology.kubernetes.io/zone\":\"$zone\",
+        \"topology.kubernetes.io/region\":\"eu-west-1\"
+      }
+    }" >/dev/null
+}
+
+# Prod: control plane + 3 workers spread across zones. worker-03 is
+# cordoned (unschedulable=true) so the UI shows the "Ready · Cordoned"
+# state; worker-02 carries a dedicated=gpu taint so it illustrates the
+# scheduling-hint view.
+post_node "$PROD_ID" "cp-01.prod"     "cp-01"     "control-plane" "m6i.large"   "eu-west-1a" "10" "true"  "false" '[{"key":"node-role.kubernetes.io/control-plane","effect":"NoSchedule"}]'
+post_node "$PROD_ID" "worker-01.prod" "worker-01" "worker"        "m6i.xlarge"  "eu-west-1a" "21" "true"  "false" '[]'
+post_node "$PROD_ID" "worker-02.prod" "worker-02" "worker"        "g5.2xlarge"  "eu-west-1b" "22" "true"  "false" '[{"key":"dedicated","value":"gpu","effect":"NoSchedule"}]'
+post_node "$PROD_ID" "worker-03.prod" "worker-03" "worker"        "m6i.xlarge"  "eu-west-1c" "23" "true"  "true"  '[]'
+
+# Staging: a single, simpler worker.
+post_node "$STAG_ID" "worker-01.staging" "worker-01" "worker"     "t3.medium"   "eu-west-1a" "11" "true"  "false" '[]'
 echo "nodes seeded"
 
 echo "=== namespaces ==="

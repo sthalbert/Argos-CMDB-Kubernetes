@@ -287,6 +287,19 @@ dl.kv-list {
   color: #0e1012;
 }
 
+.pill.status-ok {
+  background: #163821;
+  color: #7bd88f;
+}
+.pill.status-warn {
+  background: #3b2b12;
+  color: #fab661;
+}
+.pill.status-bad {
+  background: #3a171c;
+  color: #f7716e;
+}
+
 .impact-callout {
   background: #1a1d22;
   border: 1px solid var(--border);

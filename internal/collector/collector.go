@@ -18,12 +18,40 @@ import (
 // NodeInfo is the subset of a Kubernetes Node the collector consumes. It
 // lives in this package (not in api) so the Kubernetes-facing KubeSource
 // interface stays decoupled from the CMDB wire types.
+//
+// Modelled on Mercator's logical-server entity plus Kubernetes-specific
+// additions needed for incident response (role, taints, conditions,
+// capacity/allocatable pairs). Everything here is observed state — the
+// collector overwrites it every tick via UpsertNode.
 type NodeInfo struct {
-	Name           string
-	KubeletVersion string
-	OsImage        string
-	Architecture   string
-	Labels         map[string]string
+	Name                         string
+	Role                         string
+	KubeletVersion               string
+	KubeProxyVersion             string
+	ContainerRuntimeVersion      string
+	OsImage                      string
+	OperatingSystem              string
+	KernelVersion                string
+	Architecture                 string
+	InternalIP                   string
+	ExternalIP                   string
+	PodCIDR                      string
+	ProviderID                   string
+	InstanceType                 string
+	Zone                         string
+	CapacityCPU                  string
+	CapacityMemory               string
+	CapacityPods                 string
+	CapacityEphemeralStorage     string
+	AllocatableCPU               string
+	AllocatableMemory            string
+	AllocatablePods              string
+	AllocatableEphemeralStorage  string
+	Conditions                   []map[string]interface{}
+	Taints                       []map[string]interface{}
+	Unschedulable                bool
+	Ready                        bool
+	Labels                       map[string]string
 }
 
 // NamespaceInfo is the subset of a Kubernetes Namespace the collector consumes.
@@ -352,12 +380,42 @@ func (c *Collector) ingestNodes(ctx context.Context, clusterID uuid.UUID) {
 	var upserted, failed int
 	keepNames := make([]string, 0, len(nodes))
 	for _, n := range nodes {
+		n := n
 		in := api.NodeCreate{
-			ClusterId:      clusterID,
-			Name:           n.Name,
-			KubeletVersion: ptrIfNonEmpty(n.KubeletVersion),
-			OsImage:        ptrIfNonEmpty(n.OsImage),
-			Architecture:   ptrIfNonEmpty(n.Architecture),
+			ClusterId:                   clusterID,
+			Name:                        n.Name,
+			Role:                        ptrIfNonEmpty(n.Role),
+			KubeletVersion:              ptrIfNonEmpty(n.KubeletVersion),
+			KubeProxyVersion:            ptrIfNonEmpty(n.KubeProxyVersion),
+			ContainerRuntimeVersion:     ptrIfNonEmpty(n.ContainerRuntimeVersion),
+			OsImage:                     ptrIfNonEmpty(n.OsImage),
+			OperatingSystem:             ptrIfNonEmpty(n.OperatingSystem),
+			KernelVersion:               ptrIfNonEmpty(n.KernelVersion),
+			Architecture:                ptrIfNonEmpty(n.Architecture),
+			InternalIp:                  ptrIfNonEmpty(n.InternalIP),
+			ExternalIp:                  ptrIfNonEmpty(n.ExternalIP),
+			PodCidr:                     ptrIfNonEmpty(n.PodCIDR),
+			ProviderId:                  ptrIfNonEmpty(n.ProviderID),
+			InstanceType:                ptrIfNonEmpty(n.InstanceType),
+			Zone:                        ptrIfNonEmpty(n.Zone),
+			CapacityCpu:                 ptrIfNonEmpty(n.CapacityCPU),
+			CapacityMemory:              ptrIfNonEmpty(n.CapacityMemory),
+			CapacityPods:                ptrIfNonEmpty(n.CapacityPods),
+			CapacityEphemeralStorage:    ptrIfNonEmpty(n.CapacityEphemeralStorage),
+			AllocatableCpu:              ptrIfNonEmpty(n.AllocatableCPU),
+			AllocatableMemory:           ptrIfNonEmpty(n.AllocatableMemory),
+			AllocatablePods:             ptrIfNonEmpty(n.AllocatablePods),
+			AllocatableEphemeralStorage: ptrIfNonEmpty(n.AllocatableEphemeralStorage),
+			Unschedulable:               &n.Unschedulable,
+			Ready:                       &n.Ready,
+		}
+		if len(n.Conditions) > 0 {
+			conds := n.Conditions
+			in.Conditions = &conds
+		}
+		if len(n.Taints) > 0 {
+			taints := n.Taints
+			in.Taints = &taints
 		}
 		if len(n.Labels) > 0 {
 			labels := n.Labels

@@ -16,6 +16,26 @@ import * as api from '../api';
 import { useResource, useResources } from '../hooks';
 import { AsyncView, Dash, IdLink, KV, Labels, LayerPill, SectionTitle, Empty } from '../components';
 
+// Inline status badge used in detail-page h2s. Same colour scheme as the
+// list-page NodeStatusBadge (green Ready, orange cordoned, red NotReady)
+// but smaller and positioned next to the layer pill.
+function NodeStatusInline({
+  ready,
+  unschedulable,
+}: {
+  ready?: boolean | null;
+  unschedulable?: boolean | null;
+}) {
+  if (ready === null || ready === undefined) return null;
+  const label = ready
+    ? unschedulable
+      ? 'Ready · Cordoned'
+      : 'Ready'
+    : 'NotReady';
+  const cls = ready ? (unschedulable ? 'status-warn' : 'status-ok') : 'status-bad';
+  return <span className={`pill ${cls}`} style={{ fontSize: '0.8rem' }}>{label}</span>;
+}
+
 // --- Cluster detail -------------------------------------------------------
 
 export function ClusterDetail() {
@@ -610,16 +630,150 @@ export function NodeDetail() {
         {(n) => (
           <>
             <h2>
-              {n.display_name || n.name} <LayerPill layer={n.layer} />
+              {n.display_name || n.name} <LayerPill layer={n.layer} />{' '}
+              <NodeStatusInline ready={n.ready} unschedulable={n.unschedulable} />
             </h2>
+
+            <SectionTitle>Identity</SectionTitle>
             <dl className="kv-list">
               <KV k="Name" v={<code>{n.name}</code>} />
               <KV k="Cluster" v={<IdLink to={`/clusters/${n.cluster_id}`} id={n.cluster_id} />} />
-              <KV k="Kubelet" v={n.kubelet_version && <code>{n.kubelet_version}</code>} />
-              <KV k="OS image" v={n.os_image} />
-              <KV k="Arch" v={n.architecture} />
-              <KV k="Labels" v={<Labels labels={n.labels} />} />
+              <KV k="Role" v={n.role && <span className="pill">{n.role}</span>} />
+              <KV k="Provider ID" v={n.provider_id && <code>{n.provider_id}</code>} />
+              <KV k="Instance type" v={n.instance_type && <code>{n.instance_type}</code>} />
+              <KV k="Zone" v={n.zone && <code>{n.zone}</code>} />
             </dl>
+
+            <SectionTitle>OS &amp; runtime</SectionTitle>
+            <dl className="kv-list">
+              <KV k="Kubelet" v={n.kubelet_version && <code>{n.kubelet_version}</code>} />
+              <KV k="Kube-proxy" v={n.kube_proxy_version && <code>{n.kube_proxy_version}</code>} />
+              <KV k="Container runtime" v={n.container_runtime_version && <code>{n.container_runtime_version}</code>} />
+              <KV k="OS image" v={n.os_image} />
+              <KV k="Operating system" v={n.operating_system} />
+              <KV k="Kernel" v={n.kernel_version && <code>{n.kernel_version}</code>} />
+              <KV k="Architecture" v={n.architecture} />
+            </dl>
+
+            <SectionTitle>Networking</SectionTitle>
+            <dl className="kv-list">
+              <KV k="Internal IP" v={n.internal_ip && <code>{n.internal_ip}</code>} />
+              <KV k="External IP" v={n.external_ip && <code>{n.external_ip}</code>} />
+              <KV k="Pod CIDR" v={n.pod_cidr && <code>{n.pod_cidr}</code>} />
+            </dl>
+
+            <SectionTitle>Resources</SectionTitle>
+            <table className="entities">
+              <thead>
+                <tr>
+                  <th>Dimension</th>
+                  <th>Capacity</th>
+                  <th>Allocatable</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>CPU</td>
+                  <td>{n.capacity_cpu ? <code>{n.capacity_cpu}</code> : <Dash />}</td>
+                  <td>{n.allocatable_cpu ? <code>{n.allocatable_cpu}</code> : <Dash />}</td>
+                </tr>
+                <tr>
+                  <td>Memory</td>
+                  <td>{n.capacity_memory ? <code>{n.capacity_memory}</code> : <Dash />}</td>
+                  <td>{n.allocatable_memory ? <code>{n.allocatable_memory}</code> : <Dash />}</td>
+                </tr>
+                <tr>
+                  <td>Pods</td>
+                  <td>{n.capacity_pods ? <code>{n.capacity_pods}</code> : <Dash />}</td>
+                  <td>{n.allocatable_pods ? <code>{n.allocatable_pods}</code> : <Dash />}</td>
+                </tr>
+                <tr>
+                  <td>Ephemeral storage</td>
+                  <td>
+                    {n.capacity_ephemeral_storage ? <code>{n.capacity_ephemeral_storage}</code> : <Dash />}
+                  </td>
+                  <td>
+                    {n.allocatable_ephemeral_storage ? (
+                      <code>{n.allocatable_ephemeral_storage}</code>
+                    ) : (
+                      <Dash />
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <SectionTitle count={n.conditions?.length || 0}>Conditions</SectionTitle>
+            {!n.conditions?.length ? (
+              <Empty message="No conditions reported." />
+            ) : (
+              <table className="entities">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Reason</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {n.conditions.map((c) => {
+                    const healthy =
+                      (c.type === 'Ready' && c.status === 'True') ||
+                      (c.type !== 'Ready' && c.status === 'False');
+                    return (
+                      <tr key={c.type}>
+                        <td>
+                          <strong>{c.type}</strong>
+                        </td>
+                        <td>
+                          <span className={`pill ${healthy ? 'status-ok' : 'status-bad'}`}>
+                            {c.status}
+                          </span>
+                        </td>
+                        <td>{c.reason || <Dash />}</td>
+                        <td>
+                          <span className="muted" style={{ fontSize: '0.85rem' }}>
+                            {c.message}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+
+            <SectionTitle count={n.taints?.length || 0}>Taints</SectionTitle>
+            {!n.taints?.length ? (
+              <Empty message="No taints — every pod can schedule here." />
+            ) : (
+              <table className="entities">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Value</th>
+                    <th>Effect</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {n.taints.map((t, i) => (
+                    <tr key={i}>
+                      <td>
+                        <code>{t.key}</code>
+                      </td>
+                      <td>{t.value ? <code>{t.value}</code> : <Dash />}</td>
+                      <td>
+                        <span className="pill">{t.effect}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <SectionTitle>Labels</SectionTitle>
+            <Labels labels={n.labels} />
 
             <AsyncView state={pods}>
               {(p) => {
