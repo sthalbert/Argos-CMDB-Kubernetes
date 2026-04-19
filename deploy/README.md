@@ -44,9 +44,10 @@ kind load docker-image argos:dev --name <your-kind-cluster>
 ## Deploy
 
 ```sh
-# 1. Credentials. Copy the template, fill in real values, apply.
+# 1. Credentials (database only; auth tokens are issued by an admin in
+#    the UI now, not injected via env vars — per ADR-0007).
 cp deploy/secrets.example.yaml /tmp/argos-credentials.yaml
-# ...edit /tmp/argos-credentials.yaml...
+# ...edit /tmp/argos-credentials.yaml — set ARGOS_DATABASE_URL...
 kubectl apply -f /tmp/argos-credentials.yaml
 
 # 2. Everything else.
@@ -57,31 +58,72 @@ kubectl -n argos-system get pods -w
 kubectl -n argos-system logs -l app.kubernetes.io/name=argos -f
 ```
 
-The first time the collector ticks you'll see:
+### First-run bootstrap
+
+On first boot with an empty database, argosd creates an `admin` user and
+prints its password **once** to the startup log inside a banner:
 
 ```
-collector: cluster not registered; POST /v1/clusters first cluster_name=in-cluster
+WARN  ========================================================================
+      ARGOS FIRST-RUN BOOTSTRAP
+      A default admin user has been created:
+        username: admin
+        password: <16 random chars, or whatever you set via env>
+        source:   generated randomly; capture now — it won't be printed again
+      This account MUST rotate its password on first login.
+      ========================================================================
 ```
 
-That's expected — the CMDB requires explicit cluster registration before the collector writes anything (per ADR-0005). Register it:
+For a predictable password, set `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` on the
+Deployment before the first start. It's only consulted when no admin
+user exists yet — safe to leave set across restarts.
+
+### Register a cluster
+
+The CMDB requires explicit cluster registration before the collector writes
+anything (per ADR-0005). Register it through the admin session — first
+log in with the bootstrap password, then:
 
 ```sh
-# Port-forward the argosd service for a local curl (or use any client).
+# Port-forward the argosd service for a local curl.
 kubectl -n argos-system port-forward svc/argosd 8080:8080 &
 
-# Replace TOKEN with the value from your Secret's ARGOS_API_TOKEN.
-curl -sS -X POST http://localhost:8080/v1/clusters \
-  -H "Authorization: Bearer TOKEN" \
-  -H "Content-Type: application/json" \
+# Log in, stash the session cookie.
+curl -sS -c /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"<your new rotated password>"}'
+
+# Register the cluster.
+curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/clusters \
+  -H 'Content-Type: application/json' \
   -d '{"name":"in-cluster","display_name":"Self","environment":"dev"}'
 ```
 
-On the next tick (≤ 5 minutes with defaults) the collector will refresh `kubernetes_version` and populate nodes, namespaces, pods, workloads, services, ingresses, persistent volumes, and persistent volume claims.
+On the next tick (≤ 5 minutes with defaults) the collector refreshes
+`kubernetes_version` and populates nodes, namespaces, pods, workloads,
+services, ingresses, persistent volumes, and persistent volume claims.
 
-Verify:
+### Issue a machine token (for CI / agents)
+
+Every non-human caller (CI scripts, agent-per-cluster deployments,
+scrapers) uses a bearer token minted by an admin:
 
 ```sh
-curl -sS -H "Authorization: Bearer TOKEN" http://localhost:8080/v1/namespaces | jq '.items | length'
+curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"ci-pipeline","scopes":["read","write"]}'
+# -> {"token":"argos_pat_....","prefix":"...","id":"...","name":"ci-pipeline",...}
+```
+
+The `token` field is the plaintext — store it in a secrets manager now;
+only the argon2id hash is persisted and this is the only response that
+carries the plaintext. Revoke later with
+`DELETE /v1/admin/tokens/{id}` or in the admin UI.
+
+### Verify
+
+```sh
+curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/namespaces | jq '.items | length'
 ```
 
 ### Demo data without a cluster
@@ -98,10 +140,13 @@ The React SPA ships inside the same binary at `/ui/`. Port-forward the service a
 
 ```sh
 kubectl -n argos-system port-forward svc/argosd 8080:8080 &
-open http://localhost:8080/          # paste the bearer token to sign in
+open http://localhost:8080/
 ```
 
-The UI is served unauthenticated (static assets only); the API calls it makes from the browser carry the bearer token you enter on the login page. See [`ui/README.md`](../ui/README.md) for the page-by-page map.
+Sign in with `admin` + the bootstrap password from the startup log. The
+first login forces you through the password-change page; after that the
+normal chrome appears (role-aware nav, sign-out button). See
+[`ui/README.md`](../ui/README.md) for the page-by-page map.
 
 ## Metrics
 

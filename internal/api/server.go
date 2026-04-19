@@ -8,18 +8,22 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+
+	"github.com/sthalbert/argos/internal/auth"
 )
 
 // Server implements ServerInterface for the Argos REST API.
 type Server struct {
-	version string
-	store   Store
+	version       string
+	store         Store
+	cookiePolicy  auth.SecureCookiePolicy
 }
 
 // NewServer wires the handlers with a persistence backend and the build
-// version reported on health probes.
-func NewServer(version string, store Store) *Server {
-	return &Server{version: version, store: store}
+// version reported on health probes. `cookiePolicy` governs the Secure
+// flag on session cookies (see ADR-0007); auto = mirror request scheme.
+func NewServer(version string, store Store, cookiePolicy auth.SecureCookiePolicy) *Server {
+	return &Server{version: version, store: store, cookiePolicy: cookiePolicy}
 }
 
 var _ ServerInterface = (*Server)(nil)

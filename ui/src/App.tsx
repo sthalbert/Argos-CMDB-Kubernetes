@@ -1,6 +1,8 @@
-import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { clearToken, getToken } from './api';
+import { useEffect, useState } from 'react';
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import * as api from './api';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import ImageSearch from './pages/Search';
 import {
   Clusters,
@@ -22,17 +24,59 @@ import {
   IngressDetail,
 } from './pages/Details';
 
-function RequireAuth({ children }: { children: React.ReactNode }) {
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
+// --- auth gate ----------------------------------------------------------
+
+// AuthState mirrors GET /v1/auth/me. `none` = not logged in,
+// `loading` = probe in flight, `ready` = me known.
+type AuthState =
+  | { status: 'loading' }
+  | { status: 'none' }
+  | { status: 'ready'; me: api.Me };
+
+// useAuth probes /v1/auth/me on mount and on route changes. A 401 from
+// the probe just means "not logged in"; network errors also land on
+// `none` (the login page surfaces them on the next attempt).
+function useAuth(): AuthState {
+  const [state, setState] = useState<AuthState>({ status: 'loading' });
+  const location = useLocation();
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getMe()
+      .then((me) => {
+        if (!cancelled) setState({ status: 'ready', me });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ status: 'none' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname]);
+  return state;
+}
+
+function RequireAuth({ auth, children }: { auth: AuthState; children: React.ReactNode }) {
+  if (auth.status === 'loading') return <p className="loading">Checking session…</p>;
+  if (auth.status === 'none') return <Navigate to="/login" replace />;
+  // Forced rotation: the API will 403 every other endpoint until the
+  // user rotates. Redirect proactively so pages don't flash errors.
+  if (auth.me.must_change_password) {
+    return <Navigate to="/change-password" replace />;
   }
   return <>{children}</>;
 }
 
-function Chrome({ children }: { children: React.ReactNode }) {
+// --- chrome -------------------------------------------------------------
+
+function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
   const navigate = useNavigate();
-  const logout = () => {
-    clearToken();
+  const signOut = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // Ignore; we're clearing local state either way.
+    }
     navigate('/login', { replace: true });
   };
   const link = (to: string, label: string) => (
@@ -58,25 +102,51 @@ function Chrome({ children }: { children: React.ReactNode }) {
             {link('/search/image', 'Search')}
           </nav>
         </div>
-        <button onClick={logout}>Sign out</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>
+            {me.username} <span className="pill">{me.role}</span>
+          </span>
+          <button onClick={signOut}>Sign out</button>
+        </div>
       </header>
       <main>{children}</main>
     </>
   );
 }
 
-// Wraps a page element in the auth gate + header/main chrome. Kept as a
-// helper so every route below stays a one-liner.
-const authed = (el: React.ReactNode) => (
-  <RequireAuth>
-    <Chrome>{el}</Chrome>
-  </RequireAuth>
-);
+// --- routes -------------------------------------------------------------
 
 export default function App() {
+  const auth = useAuth();
+
+  const authed = (el: React.ReactNode) => (
+    <RequireAuth auth={auth}>
+      {auth.status === 'ready' && <Chrome me={auth.me}>{el}</Chrome>}
+    </RequireAuth>
+  );
+
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
+      <Route
+        path="/login"
+        element={
+          auth.status === 'ready' && !auth.me.must_change_password ? (
+            <Navigate to="/clusters" replace />
+          ) : (
+            <Login />
+          )
+        }
+      />
+      <Route
+        path="/change-password"
+        element={
+          auth.status === 'none' ? (
+            <Navigate to="/login" replace />
+          ) : (
+            <ChangePassword forced={auth.status === 'ready' && !!auth.me.must_change_password} />
+          )
+        }
+      />
 
       <Route path="/clusters" element={authed(<Clusters />)} />
       <Route path="/clusters/:id" element={authed(<ClusterDetail />)} />

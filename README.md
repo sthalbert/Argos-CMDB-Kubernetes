@@ -59,8 +59,16 @@ against real clusters; expect additive changes until 1.0.
   cursor pagination and merge-patch updates. Errors follow
   [RFC 7807](https://datatracker.ietf.org/doc/html/rfc7807)
   (`application/problem+json`).
-- **Bearer-token auth** with per-operation scopes (`read` / `write` / `delete`
-  / `admin`) declared in the spec and enforced server-side.
+- **Dual-path auth** per
+  [ADR-0007](docs/adr/adr-0007-auth-and-rbac.md): humans log in with
+  username + password → server-side session cookie; machines use
+  `Authorization: Bearer` with tokens minted by an admin in the UI
+  (argon2id-hashed, plaintext shown once, immediate revocation). Four
+  fixed roles — `admin` / `editor` / `auditor` / `viewer` — map to the
+  existing per-operation scope declarations. First install bootstraps an
+  `admin` user with a random password printed once to the startup log
+  (`must_change_password` forces rotation on first login). OIDC lands in
+  a follow-up PR.
 - **Filter endpoints** for incident-response queries:
   - `GET /v1/workloads?image=log4j:2.15` — case-insensitive substring match
     over every container's `image` field, init containers included.
@@ -127,21 +135,21 @@ docker run -d --rm --name argos-pg \
   -e POSTGRES_PASSWORD=argos -e POSTGRES_DB=argos \
   -p 5432:5432 postgres:16-alpine
 
-# 2. Build and run argosd
+# 2. Build and run argosd with a known bootstrap password
 make ui-build        # produce ui/dist for embedding
 make build           # produce bin/argosd
 ARGOS_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
-  ARGOS_API_TOKEN=dev ./bin/argosd
+  ARGOS_BOOTSTRAP_ADMIN_PASSWORD="local-dev-bootstrap-0123456789" \
+  ./bin/argosd
 
-# 3. Try it
-# API
-curl -H 'Authorization: Bearer dev' \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"demo","environment":"staging"}' \
-  http://localhost:8080/v1/clusters
+# 3. Sign in
+open http://localhost:8080/   # redirects to /ui/
+# → user: admin
+# → pass: local-dev-bootstrap-0123456789
+# → rotate on first login (must_change_password is enforced)
 
-# UI
-open http://localhost:8080/   # redirects to /ui/, paste `dev` to sign in
+# 4. Mint a machine token via the admin panel — or via curl, using the
+#    session cookie you just picked up in the browser.
 ```
 
 ### Deploy into a Kubernetes cluster
@@ -158,8 +166,8 @@ All configuration is env-based.
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `ARGOS_DATABASE_URL` | yes | — | PostgreSQL DSN. |
-| `ARGOS_API_TOKEN` | † | — | Convenience: a single token granted `admin`. |
-| `ARGOS_API_TOKENS` | † | — | JSON array of `{name, token, scopes}` tuples. Merged with `ARGOS_API_TOKEN`. |
+| `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` | no | random | First-install only: password for the auto-created `admin` user. If unset, argosd generates one and prints it once to the startup log. |
+| `ARGOS_SESSION_SECURE_COOKIE` | no | `auto` | Session-cookie `Secure` flag: `auto` (mirror request scheme), `always`, or `never`. |
 | `ARGOS_ADDR` | no | `:8080` | HTTP listen address. |
 | `ARGOS_AUTO_MIGRATE` | no | `true` | Run embedded goose migrations on startup. |
 | `ARGOS_SHUTDOWN_TIMEOUT` | no | `15s` | Graceful shutdown budget on SIGINT / SIGTERM. |
@@ -170,8 +178,10 @@ All configuration is env-based.
 | `ARGOS_COLLECTOR_FETCH_TIMEOUT` | no | `20s` | Per-poll Kubernetes API timeout. |
 | `ARGOS_COLLECTOR_RECONCILE` | no | `true` | Delete rows that no longer appear in the live listing. |
 
-† At least one of `ARGOS_API_TOKEN` or `ARGOS_API_TOKENS` must be set.
-`/healthz` and `/readyz` stay unauthenticated.
+`/healthz`, `/readyz`, `/metrics`, `/ui/*`, and `/v1/auth/login` stay
+unauthenticated. Everything else requires either a session cookie
+(obtained via login) or a machine bearer token (minted in the admin
+panel).
 
 ## Development
 
@@ -191,9 +201,11 @@ make test
 
 # UI with hot reload (proxies /v1 + /healthz + /metrics to :8080):
 #   terminal 1
-ARGOS_DATABASE_URL=... ARGOS_API_TOKEN=dev ./bin/argosd
+ARGOS_DATABASE_URL=... \
+  ARGOS_BOOTSTRAP_ADMIN_PASSWORD=local-dev-passphrase \
+  ./bin/argosd
 #   terminal 2
-make ui-dev       # open http://localhost:5173/ui/
+make ui-dev       # open http://localhost:5173/ui/, sign in with admin
 ```
 
 Integration tests that hit PostgreSQL are gated on `PGX_TEST_DATABASE`. Unset

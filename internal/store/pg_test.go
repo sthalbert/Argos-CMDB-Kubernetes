@@ -6,10 +6,12 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/argos/internal/api"
+	"github.com/sthalbert/argos/internal/auth"
 )
 
 // newTestPG returns a PG connected to PGX_TEST_DATABASE, or calls t.Skip
@@ -32,10 +34,13 @@ func newTestPG(t *testing.T) *PG {
 		t.Fatalf("migrate: %v", err)
 	}
 	t.Cleanup(func() {
-		// CASCADE is required because nodes has a FK to clusters; without it
-		// a plain TRUNCATE fails when the nodes table is non-empty and test
-		// residue leaks across tests that share the same database.
-		_, _ = pg.pool.Exec(context.Background(), "TRUNCATE clusters CASCADE")
+		// Wipe every data table between tests. CASCADE is required on
+		// clusters because nodes (and namespaces, etc.) FK onto it; the
+		// auth tables stand on their own so TRUNCATE them alongside.
+		// api_tokens RESTRICTs on user deletion, so truncate them in
+		// order (api_tokens → users gets CASCADEd via sessions / identities).
+		_, _ = pg.pool.Exec(context.Background(),
+			"TRUNCATE clusters, api_tokens, sessions, user_identities, users CASCADE")
 		pg.Close()
 	})
 	return pg
@@ -1204,6 +1209,152 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	if len(wls) != 1 || wls[0].Name != "api" {
 		t.Errorf("workload image=log4j matched=%v, want [api]", wls)
 	}
+}
+
+// Exercises migration 00014 via the full auth CRUD path: user creation
+// (argon2id storage), case-insensitive username lookup, session
+// lifecycle, forced password rotation cascading to session deletion,
+// machine-token minting + prefix lookup + argon2id verify + revocation.
+// The bits the middleware hits live behind auth.Store — covered here
+// too via the PG impl so CI catches regressions.
+func TestPGAuthSubstrate(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	// --- user creation + case-insensitive lookup --------------------
+	hash, err := auth.HashPassword("correct-horse-battery-staple")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	u, err := pg.CreateUser(ctx, api.UserInsert{
+		Username:           "Alice",
+		PasswordHash:       hash,
+		Role:               auth.RoleAdmin,
+		MustChangePassword: true,
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if u.Id == nil {
+		t.Fatal("created user missing id")
+	}
+
+	// Case-insensitive username uniqueness.
+	if _, err := pg.CreateUser(ctx, api.UserInsert{
+		Username: "ALICE", PasswordHash: hash, Role: auth.RoleViewer,
+	}); !errors.Is(err, api.ErrConflict) {
+		t.Errorf("case-insensitive dup: got %v, want ErrConflict", err)
+	}
+
+	// Lookup via GetUserByUsername matches case-insensitively.
+	got, err := pg.GetUserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatalf("get by username: %v", err)
+	}
+	if got.PasswordHash != hash {
+		t.Errorf("hash mismatch on read-back")
+	}
+	if err := auth.VerifyPassword("correct-horse-battery-staple", got.PasswordHash); err != nil {
+		t.Errorf("verify after round-trip: %v", err)
+	}
+
+	// --- count active admins --------------------------------------
+	n, err := pg.CountActiveAdmins(ctx)
+	if err != nil {
+		t.Fatalf("count admins: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("admin count=%d, want 1", n)
+	}
+
+	// --- sessions ------------------------------------------------
+	sid, err := auth.RandomSecret(32)
+	if err != nil {
+		t.Fatalf("mint session id: %v", err)
+	}
+	now := time.Now().UTC()
+	expires := now.Add(auth.SessionDuration)
+	if err := pg.CreateSession(ctx, api.SessionInsert{
+		ID:        sid,
+		UserID:    *u.Id,
+		CreatedAt: now,
+		ExpiresAt: expires,
+		UserAgent: "go-test/1.0",
+		SourceIP:  "10.0.0.1",
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	active, err := pg.GetActiveSession(ctx, sid)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if active.UserID != *u.Id {
+		t.Errorf("session user mismatch")
+	}
+
+	// Touch extends expiry.
+	later := now.Add(time.Hour)
+	newExpiry := later.Add(auth.SessionDuration)
+	if err := pg.TouchSession(ctx, sid, later, newExpiry); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+
+	// --- password change cascades to session revocation -----------
+	newHash, _ := auth.HashPassword("another-good-passphrase")
+	if err := pg.SetUserPassword(ctx, *u.Id, newHash, false); err != nil {
+		t.Fatalf("set password: %v", err)
+	}
+	if _, err := pg.GetActiveSession(ctx, sid); !errors.Is(err, auth.ErrUnauthorized) {
+		t.Errorf("session after password change: got %v, want ErrUnauthorized", err)
+	}
+
+	// --- api token mint + verify + revoke -----------------------
+	minted, err := auth.MintToken()
+	if err != nil {
+		t.Fatalf("mint token: %v", err)
+	}
+	tok, err := pg.CreateAPIToken(ctx, api.APITokenInsert{
+		ID:              uuidMustParse(t, (*u.Id).String()),
+		Name:            "ci",
+		Prefix:          minted.Prefix,
+		Hash:            minted.Hash,
+		Scopes:          []string{auth.ScopeRead, auth.ScopeWrite},
+		CreatedByUserID: *u.Id,
+	})
+	if err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	got2, err := pg.GetActiveTokenByPrefix(ctx, minted.Prefix)
+	if err != nil {
+		t.Fatalf("lookup by prefix: %v", err)
+	}
+	if err := auth.VerifyPassword(minted.Plaintext, got2.Hash); err != nil {
+		t.Errorf("verify token hash: %v", err)
+	}
+
+	if err := pg.RevokeAPIToken(ctx, *tok.Id, time.Now().UTC()); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if _, err := pg.GetActiveTokenByPrefix(ctx, minted.Prefix); !errors.Is(err, auth.ErrUnauthorized) {
+		t.Errorf("revoked token still looks active: %v", err)
+	}
+	// Second revoke is idempotent.
+	if err := pg.RevokeAPIToken(ctx, *tok.Id, time.Now().UTC()); err != nil {
+		t.Errorf("second revoke: %v", err)
+	}
+
+	// --- FK RESTRICT on user delete with outstanding tokens -----
+	if err := pg.DeleteUser(ctx, *u.Id); !errors.Is(err, api.ErrConflict) {
+		t.Errorf("delete user with active tokens: got %v, want ErrConflict", err)
+	}
+}
+
+func uuidMustParse(t *testing.T, s string) uuid.UUID {
+	t.Helper()
+	// In this test we want a brand-new UUID — the argument is only
+	// used to satisfy the signature; return uuid.New().
+	return uuid.New()
 }
 
 // Exercises the enriched Node columns added in migration 00012. Upserts

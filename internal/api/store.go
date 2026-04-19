@@ -3,8 +3,11 @@ package api
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sthalbert/argos/internal/auth"
 )
 
 // Sentinel errors returned by Store implementations. Handlers translate these
@@ -257,4 +260,139 @@ type Store interface {
 
 	// DeletePersistentVolumeClaimsNotIn mirrors DeletePodsNotIn.
 	DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+
+	// --- Auth substrate (ADR-0007) ---------------------------------------
+	//
+	// The auth package also defines a narrower `auth.Store` interface with
+	// just the lookup methods the middleware needs. The PG store satisfies
+	// both; see `internal/auth/middleware.go` for the contract.
+
+	// CountActiveAdmins returns the number of `admin`-role users without a
+	// `disabled_at` timestamp. Used by the first-install bootstrap check.
+	CountActiveAdmins(ctx context.Context) (int, error)
+
+	// CreateUser inserts a new human user. Returns ErrConflict on
+	// case-insensitive username collision.
+	CreateUser(ctx context.Context, in UserInsert) (User, error)
+
+	// GetUser fetches by id. ErrNotFound if absent.
+	GetUser(ctx context.Context, id uuid.UUID) (User, error)
+
+	// GetUserByUsername looks up by case-insensitive username — the login
+	// path. Returns ErrNotFound when no such user exists or the account
+	// is disabled, to prevent username enumeration via timing differences
+	// (callers always do an argon2 verify regardless).
+	GetUserByUsername(ctx context.Context, username string) (UserWithSecret, error)
+
+	// ListUsers returns a page of users (admin view).
+	ListUsers(ctx context.Context, limit int, cursor string) (items []User, nextCursor string, err error)
+
+	// UpdateUser applies merge-patch on role / disabled / must_change_password.
+	// Password changes go through SetUserPassword because they need the
+	// hashed form, not plaintext.
+	UpdateUser(ctx context.Context, id uuid.UUID, in UserPatch) (User, error)
+
+	// SetUserPassword stores a new argon2id hash, toggling the
+	// must_change_password flag as specified. On success also deletes every
+	// active session for the user so a password change effectively logs
+	// out other tabs/devices.
+	SetUserPassword(ctx context.Context, id uuid.UUID, hash string, mustChange bool) error
+
+	// TouchUserLogin refreshes last_login_at — called on successful login.
+	TouchUserLogin(ctx context.Context, id uuid.UUID, now time.Time) error
+
+	// DeleteUser removes a user. ON DELETE CASCADE sweeps their sessions
+	// and identities; api_tokens they minted are retained (ON DELETE
+	// RESTRICT) so CI pipelines don't silently break on admin churn.
+	DeleteUser(ctx context.Context, id uuid.UUID) error
+
+	// CreateSession inserts a new session row.
+	CreateSession(ctx context.Context, in SessionInsert) error
+
+	// GetActiveSession, TouchSession — the auth.Store methods, declared
+	// here so a single PG implementation satisfies both interfaces.
+	GetActiveSession(ctx context.Context, id string) (auth.Session, error)
+	TouchSession(ctx context.Context, id string, now time.Time, newExpiry time.Time) error
+
+	// GetUserForAuth — auth.Store lookup: lightweight view the middleware
+	// needs after a session resolves.
+	GetUserForAuth(ctx context.Context, id uuid.UUID) (auth.User, error)
+
+	// DeleteSession revokes a single session by id.
+	DeleteSession(ctx context.Context, id string) error
+
+	// DeleteSessionsForUser revokes all active sessions for a user. Called
+	// when the user is disabled or changes their password.
+	DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error
+
+	// ListSessions returns a page of active sessions with denormalised
+	// username for admin display.
+	ListSessions(ctx context.Context, limit int, cursor string) (items []Session, nextCursor string, err error)
+
+	// CreateAPIToken inserts a new token row. `hash` is argon2id of the
+	// full plaintext; `prefix` is the first 8 chars of the plaintext
+	// stored in the clear for O(1) lookup.
+	CreateAPIToken(ctx context.Context, in APITokenInsert) (ApiToken, error)
+
+	// GetActiveTokenByPrefix, TouchToken — auth.Store lookup path.
+	GetActiveTokenByPrefix(ctx context.Context, prefix string) (auth.APIToken, error)
+	TouchToken(ctx context.Context, id uuid.UUID, now time.Time) error
+
+	// ListAPITokens (admin view, metadata only — plaintext is never in
+	// responses except at creation).
+	ListAPITokens(ctx context.Context, limit int, cursor string) (items []ApiToken, nextCursor string, err error)
+
+	// RevokeAPIToken sets revoked_at. Idempotent: revoking an
+	// already-revoked token returns nil.
+	RevokeAPIToken(ctx context.Context, id uuid.UUID, now time.Time) error
+}
+
+// UserInsert carries the data the store needs to create a user. Kept
+// separate from the API's UserCreate because the store sees the
+// password hash, not the plaintext — hashing happens in the handler.
+type UserInsert struct {
+	Username           string
+	PasswordHash       string
+	Role               string
+	MustChangePassword bool
+}
+
+// UserPatch is the merge-patch view for UpdateUser. All fields optional.
+// Nil means "don't touch"; non-nil means "set to this value".
+type UserPatch struct {
+	Role               *string
+	MustChangePassword *bool
+	Disabled           *bool
+}
+
+// UserWithSecret extends the outward-facing User with the stored
+// password hash — never serialised over the wire.
+type UserWithSecret struct {
+	User
+	PasswordHash string
+}
+
+// SessionInsert carries the data for a new session row. The id field
+// doubles as the cookie value; it's generated by the login handler
+// and handed to CreateSession to persist.
+type SessionInsert struct {
+	ID         string
+	UserID     uuid.UUID
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	UserAgent  string
+	SourceIP   string
+}
+
+// APITokenInsert carries the persistable fields for a new minted token.
+// The plaintext itself is never persisted — only `Prefix` (cleartext)
+// and `Hash` (argon2id).
+type APITokenInsert struct {
+	ID              uuid.UUID
+	Name            string
+	Prefix          string
+	Hash            string
+	Scopes          []string
+	CreatedByUserID uuid.UUID
+	ExpiresAt       *time.Time
 }

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sthalbert/argos/internal/auth"
 )
 
 // memStore is an in-memory api.Store implementation used to exercise the
@@ -37,6 +39,7 @@ type memStore struct {
 	pvsByNatKey       map[string]uuid.UUID // "<cluster_id>/<name>" -> pv id
 	pvcsByID          map[uuid.UUID]PersistentVolumeClaim
 	pvcsByNatKey      map[string]uuid.UUID // "<namespace_id>/<name>" -> pvc id
+	authState         memAuthState         // users / sessions / tokens (ADR-0007)
 	pingErr           error
 	createdN          int
 }
@@ -61,6 +64,7 @@ func newMemStore() *memStore {
 		pvsByNatKey:       make(map[string]uuid.UUID),
 		pvcsByID:          make(map[uuid.UUID]PersistentVolumeClaim),
 		pvcsByNatKey:      make(map[string]uuid.UUID),
+		authState:         newMemAuthState(),
 	}
 }
 
@@ -1707,7 +1711,7 @@ func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespac
 
 func newTestHandler(t *testing.T, store Store) http.Handler {
 	t.Helper()
-	return Handler(NewServer("test", store))
+	return Handler(NewServer("test", store, auth.SecureNever))
 }
 
 func TestHealthAndReadiness(t *testing.T) {

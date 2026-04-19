@@ -53,9 +53,18 @@ tags:
       Namespace-scoped PersistentVolumeClaim resources — the workload-side
       request for storage, bound to a PersistentVolume once the storage class
       provisioner has satisfied it. Layer `applicative`.
+  - name: auth
+    description: |
+      Human authentication — username / password login, session management,
+      password change. Per ADR-0007.
+  - name: admin
+    description: |
+      Admin-only endpoints: user management, machine-token issuance,
+      active-session review. Gated on the `admin` scope (role=admin).
 
 security:
   - BearerAuth: []
+  - SessionCookie: []
 
 paths:
 
@@ -1274,6 +1283,355 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Start a human session
+      description: |
+        Exchanges a username + password for a session cookie. Returns 401
+        with an opaque problem body on any failure (no distinction between
+        unknown user and bad password). Sets `argos_session` as HttpOnly +
+        SameSite=Strict; the browser carries it on subsequent same-origin
+        requests automatically.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '204':
+          description: Session created.
+          headers:
+            Set-Cookie:
+              description: Session cookie.
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: End the current human session
+      description: |
+        Deletes the server-side session row and clears the cookie.
+        Succeeds silently for callers authenticating via bearer token
+        (nothing to revoke) so logout is idempotent.
+      operationId: logout
+      security:
+        - BearerAuth: []
+        - SessionCookie: []
+      responses:
+        '204':
+          description: Session cleared.
+
+  /v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Who am I, and what can I do
+      description: |
+        Returns the caller's identity, role, effective scopes, and the
+        `must_change_password` flag. The UI reads this to render
+        role-aware navigation and redirect to the forced-change page.
+      operationId: getMe
+      security:
+        - BearerAuth: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Caller identity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/change-password:
+    post:
+      tags: [auth]
+      summary: Change the current user's password
+      description: |
+        Verifies the current password, hashes the new one (argon2id),
+        clears `must_change_password`, and invalidates every other
+        active session for the same user. Bearer-token callers get 403 —
+        tokens cannot change a user's password.
+      operationId: changePassword
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/users:
+    get:
+      tags: [admin]
+      summary: List human users
+      operationId: listUsers
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paged list of users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [admin]
+      summary: Create a human user
+      operationId: createUser
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/admin/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [admin]
+      summary: Get a user
+      operationId: getUser
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '200':
+          description: User.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [admin]
+      summary: Update a user's role, password, or disabled state
+      description: |
+        Merge-patch semantics. Setting `password` rehashes and forces
+        `must_change_password=true`. Setting `disabled` to true revokes
+        every active session for that user.
+      operationId: updateUser
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [admin]
+      summary: Delete a user
+      description: |
+        Cascades to the user's sessions and OIDC identities. API tokens
+        the user minted are retained (ON DELETE RESTRICT) — revoke them
+        explicitly first, or leave them active for the next admin.
+      operationId: deleteUser
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/admin/tokens:
+    get:
+      tags: [admin]
+      summary: List machine tokens (metadata only — plaintext never leaves creation)
+      operationId: listApiTokens
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paged list of tokens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [admin]
+      summary: Mint a new machine token
+      description: |
+        Returns the full plaintext token exactly once in the response.
+        argosd persists only its argon2id hash — this value cannot be
+        retrieved later. If lost, revoke and mint a new one.
+      operationId: createApiToken
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiTokenCreate'
+      responses:
+        '201':
+          description: Token minted; plaintext shown once in the body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenMint'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/tokens/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TokenId'
+    delete:
+      tags: [admin]
+      summary: Revoke a machine token
+      description: |
+        Sets `revoked_at`; subsequent requests bearing the token receive
+        401 immediately. Token rows are kept for audit continuity — use
+        the list endpoint to review past revocations.
+      operationId: revokeApiToken
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '204':
+          description: Revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/sessions:
+    get:
+      tags: [admin]
+      summary: List active human sessions
+      operationId: listSessions
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paged list of sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/sessions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    delete:
+      tags: [admin]
+      summary: Revoke an active session
+      description: |
+        Deletes the row; the next request bearing that cookie gets 401
+        and the UI redirects to login.
+      operationId: revokeSession
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '204':
+          description: Revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
 
   securitySchemes:
@@ -1292,6 +1650,22 @@ components:
 
         Tokens carrying the `admin` scope implicitly satisfy any scope required
         by an operation.
+
+        Per ADR-0007, machine tokens are created by an admin in the UI
+        (see `POST /v1/admin/tokens`) rather than injected through env vars.
+
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: argos_session
+      description: |
+        Human session cookie set by `POST /v1/auth/login`. HttpOnly,
+        SameSite=Strict, 8-hour sliding expiry. Per ADR-0007.
+
+        Every operation accepts either `BearerAuth` or `SessionCookie` —
+        scope enforcement reads from the caller's role (for sessions) or
+        token scopes (for bearer), so the two paths share the same
+        downstream authorisation check.
 
   parameters:
 
@@ -1493,6 +1867,33 @@ components:
       schema:
         type: string
         format: uuid
+
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned user identifier.
+      schema:
+        type: string
+        format: uuid
+
+    TokenId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned API token identifier.
+      schema:
+        type: string
+        format: uuid
+
+    SessionId:
+      name: id
+      in: path
+      required: true
+      description: Session identifier (the cookie value).
+      schema:
+        type: string
+        maxLength: 64
 
     Limit:
       name: limit
@@ -2813,3 +3214,315 @@ components:
           description: |
             Opaque cursor to pass as `?cursor=` to fetch the next page.
             Absent or null when no more pages remain.
+
+    Role:
+      type: string
+      description: |
+        Fixed role set per ADR-0007. Each role maps to a fixed scope set —
+        the scope check in the OpenAPI `security` blocks is unchanged, the
+        session middleware just attaches the scopes derived from role.
+      enum:
+        - admin
+        - editor
+        - auditor
+        - viewer
+
+    LoginRequest:
+      description: Username + password, both required.
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          maxLength: 256
+        password:
+          type: string
+          maxLength: 1024
+
+    ChangePasswordRequest:
+      description: Current password + new password.
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          maxLength: 1024
+        new_password:
+          type: string
+          description: |
+            Minimum 12 characters per NIST 800-63B guidance. No other
+            composition rules — a long passphrase is acceptable and
+            preferred over short complex strings.
+          minLength: 12
+          maxLength: 1024
+
+    Me:
+      description: Caller identity, role, and effective scopes.
+      type: object
+      required: [kind, scopes]
+      properties:
+        kind:
+          type: string
+          enum: [user, token]
+          description: |
+            `user` when authenticated via session cookie, `token` when
+            via `Authorization: Bearer`. UIs render accordingly.
+        id:
+          type: string
+          format: uuid
+          description: User id when kind=user, token id when kind=token.
+        username:
+          type: string
+          description: Present when kind=user.
+        token_name:
+          type: string
+          description: Present when kind=token.
+        role:
+          allOf:
+            - $ref: '#/components/schemas/Role'
+          description: Present when kind=user.
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Effective scopes after role→scope mapping or token declaration.
+        must_change_password:
+          type: boolean
+          description: |
+            Present when kind=user. True for bootstrap admins and users
+            whose password was reset by an admin — the UI blocks every
+            route except `/change-password` until this is cleared.
+
+    User:
+      description: A human user registered in argosd.
+      type: object
+      required: [id, username, role, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        username:
+          type: string
+          maxLength: 256
+        role:
+          $ref: '#/components/schemas/Role'
+        must_change_password:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        disabled_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+
+    UserCreate:
+      description: Payload to create a new human user.
+      type: object
+      required: [username, password, role]
+      properties:
+        username:
+          type: string
+          pattern: '^[a-zA-Z0-9._-]+$'
+          minLength: 1
+          maxLength: 256
+        password:
+          type: string
+          minLength: 12
+          maxLength: 1024
+        role:
+          $ref: '#/components/schemas/Role'
+        must_change_password:
+          type: boolean
+          description: |
+            Default true — the standard "admin provisions, user rotates on
+            first login" flow. Set false for seeded users in automation.
+
+    UserUpdate:
+      description: |
+        Merge-patch body. Setting `password` rehashes and forces
+        `must_change_password=true`. Setting `disabled=true` revokes
+        every active session for the user.
+      type: object
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+        password:
+          type: string
+          minLength: 12
+          maxLength: 1024
+        must_change_password:
+          type: boolean
+        disabled:
+          type: boolean
+
+    UserList:
+      description: Paged list of users.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        next_cursor:
+          type: string
+          nullable: true
+
+    ApiToken:
+      description: |
+        Metadata for a machine token. The plaintext is never in this
+        response — it's only returned once by `createApiToken`.
+      type: object
+      required: [id, name, prefix, scopes, created_by_user_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Human-chosen label (e.g., `"ci-release-pipeline"`).
+          maxLength: 256
+        prefix:
+          type: string
+          description: |
+            First 8 characters of the plaintext token. Displayed alongside
+            the token name so operators can identify which token is in use
+            without revealing the full value.
+          readOnly: true
+        scopes:
+          type: array
+          items:
+            type: string
+        created_by_user_id:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+
+    ApiTokenCreate:
+      description: Payload to mint a new machine token.
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [read, write, delete]
+          minItems: 1
+          description: |
+            Scopes to grant. Admin scope cannot be granted to tokens —
+            admin-only endpoints are session-only for accountability.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional expiry. If absent, the token is valid until revoked.
+
+    ApiTokenMint:
+      description: |
+        Response returned by `createApiToken`. The `token` field carries
+        the full plaintext — copy it now, it won't appear anywhere else.
+      allOf:
+        - $ref: '#/components/schemas/ApiToken'
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: |
+                Plaintext token, format `argos_pat_<8chars>_<random>`.
+                Presented exactly once. Store in a secrets manager; do
+                not commit to source control.
+
+    ApiTokenList:
+      description: Paged list of tokens.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiToken'
+        next_cursor:
+          type: string
+          nullable: true
+
+    Session:
+      description: An active human session.
+      type: object
+      required: [id, user_id, created_at, last_used_at, expires_at]
+      properties:
+        id:
+          type: string
+          description: |
+            Session identifier. Only the prefix is shown to admins;
+            the full id is never leaked in a list response.
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          description: Denormalised for admin convenience.
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        user_agent:
+          type: string
+          nullable: true
+        source_ip:
+          type: string
+          nullable: true
+
+    SessionList:
+      description: Paged list of active sessions.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+        next_cursor:
+          type: string
+          nullable: true

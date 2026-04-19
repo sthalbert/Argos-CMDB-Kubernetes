@@ -11,11 +11,13 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/sthalbert/argos/internal/api"
+	"github.com/sthalbert/argos/internal/auth"
 	"github.com/sthalbert/argos/internal/collector"
 	"github.com/sthalbert/argos/internal/metrics"
 	"github.com/sthalbert/argos/internal/store"
@@ -42,7 +44,15 @@ func run() error {
 	if dsn == "" {
 		return errors.New("ARGOS_DATABASE_URL is required")
 	}
-	tokenStore, err := loadTokenStore()
+	// Per ADR-0007: env-var token bootstrap is removed. Fail loudly so
+	// operators migrating from v0 know to read the admin password from
+	// the startup log instead.
+	if os.Getenv("ARGOS_API_TOKEN") != "" || os.Getenv("ARGOS_API_TOKENS") != "" {
+		return errors.New("ARGOS_API_TOKEN / ARGOS_API_TOKENS are no longer supported; " +
+			"the bootstrap admin password is printed in the startup log on first run, " +
+			"and machine tokens are issued in the admin panel — see ADR-0007")
+	}
+	cookiePolicy, err := parseCookiePolicy()
 	if err != nil {
 		return err
 	}
@@ -71,6 +81,10 @@ func run() error {
 		slog.Info("migrations applied")
 	}
 
+	if err := bootstrapAdminIfNeeded(rootCtx, pg); err != nil {
+		return fmt.Errorf("bootstrap admin: %w", err)
+	}
+
 	drainCollectors, err := maybeStartCollectors(rootCtx, pg)
 	if err != nil {
 		return err
@@ -85,9 +99,9 @@ func run() error {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
-	api.HandlerWithOptions(api.NewServer(version, pg), api.StdHTTPServerOptions{
+	api.HandlerWithOptions(api.NewServer(version, pg, cookiePolicy), api.StdHTTPServerOptions{
 		BaseRouter:  mux,
-		Middlewares: []api.MiddlewareFunc{api.BearerAuth(tokenStore)},
+		Middlewares: []api.MiddlewareFunc{api.AuthMiddleware(pg, cookiePolicy)},
 	})
 
 	srv := &http.Server{
@@ -222,41 +236,75 @@ func maybeStartCollectors(ctx context.Context, s api.Store) (func(), error) {
 	return wg.Wait, nil
 }
 
-// loadTokenStore merges ARGOS_API_TOKEN (a convenience single admin token)
-// and ARGOS_API_TOKENS (a JSON array of full scoped tokens) into a validated
-// TokenStore. Returns an error if neither env var is set.
-func loadTokenStore() (*api.TokenStore, error) {
-	var tokens []api.ScopedToken
-
-	if adminToken := os.Getenv("ARGOS_API_TOKEN"); adminToken != "" {
-		tokens = append(tokens, api.ScopedToken{
-			Name:   "env:ARGOS_API_TOKEN",
-			Token:  adminToken,
-			Scopes: []string{api.ScopeAdmin},
-		})
-	}
-
-	parsed, err := api.ParseTokensJSON(os.Getenv("ARGOS_API_TOKENS"))
+// bootstrapAdminIfNeeded ensures at least one active admin user exists in
+// the database. Runs on every start; idempotent once an admin is present.
+//
+// Password sources, in order:
+//   - ARGOS_BOOTSTRAP_ADMIN_PASSWORD env var — operators who want a
+//     predictable password they control;
+//   - otherwise, a fresh 16-char random printed once at WARN level with
+//     a loud banner so it can't be missed in kubectl logs.
+//
+// Either way the user is flagged must_change_password so the first UI
+// login is forced into rotation.
+func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
+	n, err := s.CountActiveAdmins(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("ARGOS_API_TOKENS: %w", err)
+		return err
 	}
-	for i, p := range parsed {
-		if p.Name == "" {
-			p.Name = fmt.Sprintf("env:ARGOS_API_TOKENS[%d]", i)
+	if n > 0 {
+		return nil
+	}
+
+	password := os.Getenv("ARGOS_BOOTSTRAP_ADMIN_PASSWORD")
+	fromEnv := password != ""
+	if !fromEnv {
+		password, err = auth.RandomSecret(12)
+		if err != nil {
+			return fmt.Errorf("generate bootstrap password: %w", err)
 		}
-		tokens = append(tokens, p)
 	}
 
-	if len(tokens) == 0 {
-		return nil, api.ErrNoTokensConfigured
-	}
-
-	store, err := api.NewTokenStore(tokens)
+	hash, err := auth.HashPassword(password)
 	if err != nil {
-		return nil, fmt.Errorf("build token store: %w", err)
+		return fmt.Errorf("hash bootstrap password: %w", err)
 	}
-	slog.Info("auth tokens loaded", "count", store.Len())
-	return store, nil
+	if _, err := s.CreateUser(ctx, api.UserInsert{
+		Username:           "admin",
+		PasswordHash:       hash,
+		Role:               auth.RoleAdmin,
+		MustChangePassword: true,
+	}); err != nil {
+		return err
+	}
+
+	banner := strings.Repeat("=", 72)
+	source := "ARGOS_BOOTSTRAP_ADMIN_PASSWORD"
+	if !fromEnv {
+		source = "generated randomly; capture now — it won't be printed again"
+	}
+	slog.Warn("\n" + banner +
+		"\n  ARGOS FIRST-RUN BOOTSTRAP" +
+		"\n  A default admin user has been created:" +
+		"\n    username: admin" +
+		"\n    password: " + password +
+		"\n    source:   " + source +
+		"\n  This account MUST rotate its password on first login." +
+		"\n" + banner)
+	return nil
+}
+
+func parseCookiePolicy() (auth.SecureCookiePolicy, error) {
+	switch strings.ToLower(envOr("ARGOS_SESSION_SECURE_COOKIE", "auto")) {
+	case "auto":
+		return auth.SecureAuto, nil
+	case "always", "true", "yes":
+		return auth.SecureAlways, nil
+	case "never", "false", "no":
+		return auth.SecureNever, nil
+	default:
+		return 0, errors.New("ARGOS_SESSION_SECURE_COOKIE must be auto / always / never")
+	}
 }
 
 func envOr(key, fallback string) string {

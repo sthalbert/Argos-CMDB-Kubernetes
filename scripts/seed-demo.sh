@@ -1,18 +1,46 @@
 #!/usr/bin/env bash
 # Seed the Argos CMDB with a realistic-looking multi-cluster inventory for
-# demo / screenshot purposes. Idempotent-ish: re-running after the fact will
-# hit 409 Conflict on every POST, which is fine — the point is to populate
-# an empty DB once. Expects argosd listening on :8080 with token `dev`.
+# demo / screenshot purposes. Idempotent-ish: re-running after the fact
+# will hit 409 Conflict on every POST, which is fine — the point is to
+# populate an empty DB once.
+#
+# Per ADR-0007, argosd no longer accepts env-var bearer tokens. This script
+# picks one of two auth paths:
+#   - ARGOS_TOKEN=<argos_pat_...>  — use an admin-minted machine token.
+#   - ARGOS_USER + ARGOS_PASSWORD  — log in as a human and ride the
+#     session cookie. Defaults: admin / $ARGOS_BOOTSTRAP_ADMIN_PASSWORD
+#     if you set it on argosd (matches the local-dev pattern in README).
 set -euo pipefail
 
 BASE="${ARGOS_BASE:-http://localhost:8080}"
-TOKEN="${ARGOS_TOKEN:-dev}"
-AUTH="Authorization: Bearer ${TOKEN}"
 CT="Content-Type: application/json"
+COOKIE_JAR="${COOKIE_JAR:-/tmp/argos-seed.cookies}"
+
+if [ -n "${ARGOS_TOKEN:-}" ]; then
+    AUTH_ARGS=(-H "Authorization: Bearer ${ARGOS_TOKEN}")
+else
+    # Session login.
+    rm -f "$COOKIE_JAR"
+    USER="${ARGOS_USER:-admin}"
+    PASS="${ARGOS_PASSWORD:-${ARGOS_BOOTSTRAP_ADMIN_PASSWORD:-}}"
+    if [ -z "$PASS" ]; then
+        echo "ARGOS_PASSWORD (or ARGOS_BOOTSTRAP_ADMIN_PASSWORD) must be set" >&2
+        exit 2
+    fi
+    STATUS=$(curl -sS -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' \
+        -X POST "${BASE}/v1/auth/login" \
+        -H "$CT" \
+        -d "{\"username\":\"${USER}\",\"password\":\"${PASS}\"}")
+    if [ "$STATUS" != "204" ]; then
+        echo "login failed with status $STATUS — is argosd running, and is must_change_password cleared?" >&2
+        exit 2
+    fi
+    AUTH_ARGS=(-b "$COOKIE_JAR")
+fi
 
 post() {
     local path="$1" body="$2"
-    curl -sS -X POST -H "$AUTH" -H "$CT" -d "$body" "${BASE}${path}"
+    curl -sS "${AUTH_ARGS[@]}" -X POST -H "$CT" -d "$body" "${BASE}${path}"
     echo
 }
 
@@ -276,6 +304,6 @@ echo "pv/pvc seeded"
 echo
 echo "=== summary ==="
 for kind in clusters nodes namespaces workloads pods services ingresses persistentvolumes persistentvolumeclaims; do
-    count=$(curl -sS -H "$AUTH" "${BASE}/v1/${kind}?limit=200" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['items']))")
+    count=$(curl -sS "${AUTH_ARGS[@]}" "${BASE}/v1/${kind}?limit=200" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['items']))")
     printf "  %-25s %s\n" "$kind" "$count"
 done

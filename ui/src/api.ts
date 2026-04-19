@@ -1,23 +1,11 @@
 // Thin fetch wrapper around the Argos REST API. Hand-written for v0 — a
 // generated OpenAPI client can replace this when the surface grows.
 //
-// The bearer token is stored in sessionStorage (cleared on tab close),
-// matching ADR-0006's auth choice. Callers read it via getToken() and
-// pass it via request() which injects the Authorization header.
-
-const TOKEN_KEY = 'argos.token';
-
-export function getToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token: string): void {
-  sessionStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY);
-}
+// Auth per ADR-0007: humans use server-side sessions via an HttpOnly
+// SameSite=Strict cookie that the browser sets automatically after
+// POST /v1/auth/login. Machines use `Authorization: Bearer <token>`
+// with tokens minted in the admin panel. The browser SPA lives in the
+// session world; it never touches `Authorization` headers.
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -26,10 +14,14 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string): Promise<T> {
-  const token = getToken();
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'same-origin',
+    ...init,
+    headers: {
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init?.headers || {}),
+    },
   });
   if (!res.ok) {
     // RFC 7807 problem+json bodies carry a useful 'detail'. Fall back to status text.
@@ -46,15 +38,13 @@ async function request<T>(path: string): Promise<T> {
     }
     throw new ApiError(res.status, detail);
   }
-  // DELETE endpoints return 204 with an empty body; surface undefined.
+  // 204 is used by login / logout / delete; don't try to parse a body.
   if (res.status === 204) {
     return undefined as unknown as T;
   }
   return res.json() as Promise<T>;
 }
 
-// query flattens a (sparse) record into a ?k1=v1&k2=v2 suffix. Keys whose
-// value is undefined/null/empty are dropped. Values are percent-encoded.
 function query(params?: Record<string, string | number | undefined | null>): string {
   if (!params) return '';
   const entries = Object.entries(params)
@@ -63,7 +53,46 @@ function query(params?: Record<string, string | number | undefined | null>): str
   return entries.length ? `?${entries.join('&')}` : '';
 }
 
-// Shared shapes -----------------------------------------------------------
+// --- Auth ---------------------------------------------------------------
+
+export type Role = 'admin' | 'editor' | 'auditor' | 'viewer';
+
+export interface Me {
+  kind: 'user' | 'token';
+  id?: string;
+  username?: string;
+  token_name?: string;
+  role?: Role;
+  scopes: string[];
+  must_change_password?: boolean;
+}
+
+export function login(username: string, password: string): Promise<void> {
+  return request<void>('/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function logout(): Promise<void> {
+  return request<void>('/v1/auth/logout', { method: 'POST' });
+}
+
+export function getMe(): Promise<Me> {
+  return request<Me>('/v1/auth/me');
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return request<void>('/v1/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+}
+
+// Shared shapes ------------------------------------------------------------
 
 export interface PagedResponse<T> {
   items: T[];
@@ -86,8 +115,6 @@ export interface Container {
   image_id?: string;
   init?: boolean;
 }
-
-// Entity schemas (subset of openapi.yaml — kept narrow to what the UI uses).
 
 export interface Cluster {
   id: string;
@@ -211,9 +238,6 @@ export interface LoadBalancerPort {
   error?: string;
 }
 
-// One entry from status.loadBalancer.ingress[] — mirrors the Kubernetes
-// shape. IP for VIP-style setups (MetalLB, Kube-VIP, hardware LB), or
-// hostname for cloud-managed LBs (AWS ELB / GCLB-style DNS).
 export interface LoadBalancerAddress {
   ip?: string;
   hostname?: string;

@@ -1,9 +1,14 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError, getHealthz, setToken } from '../api';
+import { ApiError, login } from '../api';
+
+// Username + password login per ADR-0007. A successful POST sets the
+// session cookie server-side; we never see the cookie value in JS.
+// OIDC button space-reserved for PR #3 (the OIDC landing PR).
 
 export default function Login() {
-  const [token, setTokenInput] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
@@ -11,22 +16,23 @@ export default function Login() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!token.trim()) {
-      setError('Token required.');
+    if (!username.trim() || !password) {
+      setError('Username and password required.');
       return;
     }
     setBusy(true);
-    // Stash the token so the first authenticated call can read it, then
-    // probe a cheap endpoint to confirm the token is accepted. /healthz is
-    // unauthenticated but exercises the network path; a follow-up
-    // whoami / scope-probe endpoint will replace this once it exists.
-    setToken(token.trim());
     try {
-      await getHealthz();
+      await login(username.trim(), password);
+      // The server responds 204 and sets the session cookie; the UI
+      // doesn't need to read anything back. Land on /clusters; the
+      // /auth/me probe wired into the Chrome will redirect to the
+      // change-password page if must_change_password is true.
       navigate('/clusters', { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(`Server rejected the token (${err.status}): ${err.message}`);
+        // 401 is the common case — opaque "invalid credentials" per
+        // the ADR. Surface it as-is.
+        setError(err.message || 'Invalid credentials.');
       } else {
         setError(`Network error: ${String(err)}`);
       }
@@ -39,19 +45,31 @@ export default function Login() {
     <form className="login" onSubmit={onSubmit}>
       <h2>Sign in</h2>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        Paste an API token issued via <code>ARGOS_API_TOKEN</code> or{' '}
-        <code>ARGOS_API_TOKENS</code>. The token is kept in this tab only.
+        First install? Read the <code>ARGOS FIRST-RUN BOOTSTRAP</code> banner
+        in the argosd startup log for the initial admin password.
       </p>
-      <label htmlFor="token">Bearer token</label>
+
+      <label htmlFor="username">Username</label>
       <input
-        id="token"
-        type="password"
-        autoComplete="off"
+        id="username"
+        type="text"
+        autoComplete="username"
         autoFocus
-        value={token}
-        onChange={(e) => setTokenInput(e.target.value)}
-        placeholder="e.g. 1f8b0a…"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
       />
+
+      <label htmlFor="password" style={{ marginTop: '0.75rem' }}>
+        Password
+      </label>
+      <input
+        id="password"
+        type="password"
+        autoComplete="current-password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+
       <button type="submit" disabled={busy}>
         {busy ? 'Signing in…' : 'Sign in'}
       </button>
