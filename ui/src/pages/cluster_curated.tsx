@@ -98,6 +98,7 @@ function ClusterCuratedForm({
   onSaved: () => void;
 }) {
   const [environment, setEnvironment] = useState(cluster.environment || '');
+  const [provider, setProvider] = useState(cluster.provider || '');
   const [region, setRegion] = useState(cluster.region || '');
   const [labelsText, setLabelsText] = useState(formatKV(cluster.labels));
   const [owner, setOwner] = useState(cluster.owner || '');
@@ -128,6 +129,7 @@ function ClusterCuratedForm({
       if (!cluster.id) throw new Error('cluster missing id');
       await api.updateCluster(cluster.id, {
         environment: environment.trim(),
+        provider: provider.trim(),
         region: region.trim(),
         labels: labels,
         owner: owner.trim(),
@@ -158,6 +160,15 @@ function ClusterCuratedForm({
               value={environment}
               onChange={(e) => setEnvironment(e.target.value)}
               placeholder="dev / staging / prod"
+            />
+          </div>
+          <div>
+            <label>Provider</label>
+            <input
+              type="text"
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+              placeholder="gke / eks / aks / openshift / onprem"
             />
           </div>
           <div>
