@@ -78,7 +78,9 @@ func (p *PG) CreateCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 	}
 	annotationsJSON, err := marshalLabels(in.Annotations)
 	if err != nil {
-		return api.Cluster{}, err
+		// marshalLabels' own message says "marshal labels"; rewrap so
+		// the operator-facing error points at annotations instead.
+		return api.Cluster{}, fmt.Errorf("marshal cluster annotations: %w", err)
 	}
 
 	const q = `
@@ -290,7 +292,7 @@ func (p *PG) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpda
 	if in.Annotations != nil {
 		b, err := marshalLabels(in.Annotations)
 		if err != nil {
-			return api.Cluster{}, err
+			return api.Cluster{}, fmt.Errorf("marshal cluster annotations: %w", err)
 		}
 		appendSet("annotations", b)
 	}
