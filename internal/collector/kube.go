@@ -167,11 +167,20 @@ func (k *KubeClient) ListNodes(ctx context.Context) ([]NodeInfo, error) {
 	for i := range list.Items {
 		n := &list.Items[i]
 		internal, external := nodeAddresses(n)
+		// KubeProxyVersion was deprecated in K8s 1.31 because kube-proxy is
+		// optional (Cilium, kube-router with proxy-less mode). The field
+		// still exists in the API and remains populated by conventional
+		// distributions — keep reading it; empty string is fine when the
+		// cluster omits it. staticcheck flags the access, so suppress it
+		// locally rather than drop a field Mercator-aligned clusters use.
+		//nolint:staticcheck // SA1019 — deprecated but still relevant for classic clusters.
+		kubeProxyVersion := n.Status.NodeInfo.KubeProxyVersion
+
 		info := NodeInfo{
 			Name:                        n.Name,
 			Role:                        nodeRole(n),
 			KubeletVersion:              n.Status.NodeInfo.KubeletVersion,
-			KubeProxyVersion:            n.Status.NodeInfo.KubeProxyVersion,
+			KubeProxyVersion:            kubeProxyVersion,
 			ContainerRuntimeVersion:     n.Status.NodeInfo.ContainerRuntimeVersion,
 			OsImage:                     n.Status.NodeInfo.OSImage,
 			OperatingSystem:             n.Status.NodeInfo.OperatingSystem,
