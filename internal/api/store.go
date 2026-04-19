@@ -14,6 +14,24 @@ var (
 	ErrConflict = errors.New("conflict")
 )
 
+// PodListFilter collects the optional filters accepted by ListPods. Nil
+// fields are ignored; all present fields are AND-combined. Stored as a
+// struct (not positional args) so future filters are additive.
+type PodListFilter struct {
+	NamespaceID *uuid.UUID
+	NodeName    *string
+	// ImageSubstring matches any container (init included) whose `image`
+	// field case-insensitively contains the substring.
+	ImageSubstring *string
+}
+
+// WorkloadListFilter mirrors PodListFilter for ListWorkloads.
+type WorkloadListFilter struct {
+	NamespaceID    *uuid.UUID
+	Kind           *WorkloadKind
+	ImageSubstring *string
+}
+
 // Store is the persistence contract consumed by the REST handlers.
 // Implementations must be safe for concurrent use by multiple goroutines.
 type Store interface {
@@ -105,9 +123,9 @@ type Store interface {
 	// GetPod fetches a pod by id. Returns ErrNotFound if absent.
 	GetPod(ctx context.Context, id uuid.UUID) (Pod, error)
 
-	// ListPods returns up to limit pods after the given opaque cursor. When
-	// namespaceID is non-nil, results are filtered to that namespace.
-	ListPods(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []Pod, nextCursor string, err error)
+	// ListPods returns up to limit pods after the given opaque cursor,
+	// optionally filtered. See PodListFilter for the accepted predicates.
+	ListPods(ctx context.Context, filter PodListFilter, limit int, cursor string) (items []Pod, nextCursor string, err error)
 
 	// UpdatePod applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the pod does not exist.
@@ -131,8 +149,9 @@ type Store interface {
 	GetWorkload(ctx context.Context, id uuid.UUID) (Workload, error)
 
 	// ListWorkloads returns up to limit workloads after the given opaque
-	// cursor, optionally filtered by namespace and/or kind.
-	ListWorkloads(ctx context.Context, namespaceID *uuid.UUID, kind *WorkloadKind, limit int, cursor string) (items []Workload, nextCursor string, err error)
+	// cursor, optionally filtered. See WorkloadListFilter for the accepted
+	// predicates.
+	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) (items []Workload, nextCursor string, err error)
 
 	// UpdateWorkload applies merge-patch on mutable fields. Returns
 	// ErrNotFound if the workload does not exist.

@@ -435,15 +435,27 @@ func (m *memStore) GetPod(_ context.Context, id uuid.UUID) (Pod, error) {
 	return p, nil
 }
 
-func (m *memStore) ListPods(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]Pod, string, error) {
+func (m *memStore) ListPods(_ context.Context, filter PodListFilter, limit int, _ string) ([]Pod, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
 		limit = 50
 	}
+	needle := ""
+	if filter.ImageSubstring != nil {
+		needle = strings.ToLower(*filter.ImageSubstring)
+	}
 	out := make([]Pod, 0, len(m.podsByID))
 	for _, p := range m.podsByID {
-		if namespaceID != nil && p.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && p.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.NodeName != nil {
+			if p.NodeName == nil || *p.NodeName != *filter.NodeName {
+				continue
+			}
+		}
+		if needle != "" && !podContainersMatch(p.Containers, needle) {
 			continue
 		}
 		out = append(out, p)
@@ -452,6 +464,24 @@ func (m *memStore) ListPods(_ context.Context, namespaceID *uuid.UUID, limit int
 		out = out[:limit]
 	}
 	return out, "", nil
+}
+
+// podContainersMatch is the mem-store analogue of the PG ILIKE filter —
+// case-insensitive substring match over every container's image string.
+func podContainersMatch(containers *ContainerList, needleLower string) bool {
+	if containers == nil {
+		return false
+	}
+	for _, c := range *containers {
+		img, ok := c["image"].(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(strings.ToLower(img), needleLower) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *memStore) UpdatePod(_ context.Context, id uuid.UUID, in PodUpdate) (Pod, error) {
@@ -610,18 +640,25 @@ func (m *memStore) GetWorkload(_ context.Context, id uuid.UUID) (Workload, error
 	return wl, nil
 }
 
-func (m *memStore) ListWorkloads(_ context.Context, namespaceID *uuid.UUID, kind *WorkloadKind, limit int, _ string) ([]Workload, string, error) {
+func (m *memStore) ListWorkloads(_ context.Context, filter WorkloadListFilter, limit int, _ string) ([]Workload, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
 		limit = 50
 	}
+	needle := ""
+	if filter.ImageSubstring != nil {
+		needle = strings.ToLower(*filter.ImageSubstring)
+	}
 	out := make([]Workload, 0, len(m.workloadsByID))
 	for _, wl := range m.workloadsByID {
-		if namespaceID != nil && wl.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && wl.NamespaceId != *filter.NamespaceID {
 			continue
 		}
-		if kind != nil && wl.Kind != *kind {
+		if filter.Kind != nil && wl.Kind != *filter.Kind {
+			continue
+		}
+		if needle != "" && !podContainersMatch(wl.Containers, needle) {
 			continue
 		}
 		out = append(out, wl)

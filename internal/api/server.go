@@ -305,7 +305,8 @@ func (s *Server) DeleteNamespace(w http.ResponseWriter, r *http.Request, id Name
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListPods returns a paged list of pods, optionally filtered by namespace_id.
+// ListPods returns a paged list of pods, optionally filtered by namespace_id,
+// node_name, and/or container image substring.
 func (s *Server) ListPods(w http.ResponseWriter, r *http.Request, params ListPodsParams) {
 	limit := 0
 	if params.Limit != nil {
@@ -315,8 +316,13 @@ func (s *Server) ListPods(w http.ResponseWriter, r *http.Request, params ListPod
 	if params.Cursor != nil {
 		cursor = *params.Cursor
 	}
+	filter := PodListFilter{
+		NamespaceID:    params.NamespaceId,
+		NodeName:       params.NodeName,
+		ImageSubstring: params.Image,
+	}
 
-	items, next, err := s.store.ListPods(r.Context(), params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListPods(r.Context(), filter, limit, cursor)
 	if err != nil {
 		s.writeStoreError(w, "listPods", err)
 		return
@@ -410,8 +416,13 @@ func (s *Server) ListWorkloads(w http.ResponseWriter, r *http.Request, params Li
 		writeProblem(w, http.StatusBadRequest, "Invalid filter", "query 'kind' is not a known workload kind")
 		return
 	}
+	filter := WorkloadListFilter{
+		NamespaceID:    params.NamespaceId,
+		Kind:           params.Kind,
+		ImageSubstring: params.Image,
+	}
 
-	items, next, err := s.store.ListWorkloads(r.Context(), params.NamespaceId, params.Kind, limit, cursor)
+	items, next, err := s.store.ListWorkloads(r.Context(), filter, limit, cursor)
 	if err != nil {
 		s.writeStoreError(w, "listWorkloads", err)
 		return

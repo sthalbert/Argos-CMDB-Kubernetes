@@ -815,7 +815,7 @@ func (p *PG) GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error) {
 }
 
 // ListPods returns up to limit pods, optionally filtered by namespace.
-func (p *PG) ListPods(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Pod, string, error) {
+func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -827,12 +827,27 @@ func (p *PG) ListPods(ctx context.Context, namespaceID *uuid.UUID, limit int, cu
 	sb.WriteString(`SELECT id, namespace_id, name, phase, node_name, pod_ip,
 	                       workload_id, containers, labels, created_at, updated_at
 	                FROM pods`)
-	args := make([]any, 0, 4)
-	conds := make([]string, 0, 2)
+	args := make([]any, 0, 6)
+	conds := make([]string, 0, 4)
 
-	if namespaceID != nil {
-		args = append(args, *namespaceID)
+	if filter.NamespaceID != nil {
+		args = append(args, *filter.NamespaceID)
 		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
+	}
+	if filter.NodeName != nil {
+		args = append(args, *filter.NodeName)
+		conds = append(conds, fmt.Sprintf("node_name = $%d", len(args)))
+	}
+	if filter.ImageSubstring != nil && *filter.ImageSubstring != "" {
+		// Case-insensitive substring match against any container's `image`
+		// string. jsonb_array_elements unpacks the array so we can compare
+		// ->>'image' element-by-element; EXISTS short-circuits on first hit.
+		// The ILIKE pattern is built with %…% wrapping.
+		args = append(args, "%"+*filter.ImageSubstring+"%")
+		conds = append(conds, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(containers) elem WHERE elem->>'image' ILIKE $%d)",
+			len(args),
+		))
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
@@ -1082,8 +1097,8 @@ func (p *PG) GetWorkload(ctx context.Context, id uuid.UUID) (api.Workload, error
 }
 
 // ListWorkloads returns up to limit workloads, optionally filtered by
-// namespace and/or kind.
-func (p *PG) ListWorkloads(ctx context.Context, namespaceID *uuid.UUID, kind *api.WorkloadKind, limit int, cursor string) ([]api.Workload, string, error) {
+// namespace, kind, and/or container image substring.
+func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1095,16 +1110,23 @@ func (p *PG) ListWorkloads(ctx context.Context, namespaceID *uuid.UUID, kind *ap
 	sb.WriteString(`SELECT id, namespace_id, kind, name, replicas, ready_replicas,
 	                       containers, labels, spec, created_at, updated_at
 	                FROM workloads`)
-	args := make([]any, 0, 5)
-	conds := make([]string, 0, 3)
+	args := make([]any, 0, 6)
+	conds := make([]string, 0, 4)
 
-	if namespaceID != nil {
-		args = append(args, *namespaceID)
+	if filter.NamespaceID != nil {
+		args = append(args, *filter.NamespaceID)
 		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
 	}
-	if kind != nil {
-		args = append(args, string(*kind))
+	if filter.Kind != nil {
+		args = append(args, string(*filter.Kind))
 		conds = append(conds, fmt.Sprintf("kind = $%d", len(args)))
+	}
+	if filter.ImageSubstring != nil && *filter.ImageSubstring != "" {
+		args = append(args, "%"+*filter.ImageSubstring+"%")
+		conds = append(conds, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(containers) elem WHERE elem->>'image' ILIKE $%d)",
+			len(args),
+		))
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)

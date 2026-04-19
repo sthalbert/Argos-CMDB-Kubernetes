@@ -495,6 +495,8 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/PodNamespaceIdFilter'
+        - $ref: '#/components/parameters/PodImageFilter'
+        - $ref: '#/components/parameters/PodNodeNameFilter'
       responses:
         '200':
           description: Paged list of pods.
@@ -627,6 +629,7 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/WorkloadNamespaceIdFilter'
         - $ref: '#/components/parameters/WorkloadKindFilter'
+        - $ref: '#/components/parameters/WorkloadImageFilter'
       responses:
         '200':
           description: Paged list of workloads.
@@ -1355,6 +1358,31 @@ components:
         type: string
         format: uuid
 
+    PodImageFilter:
+      name: image
+      in: query
+      required: false
+      description: |
+        Case-insensitive substring match against any container's `image`
+        field in the pod's containers JSON (init containers included).
+        Handy for answering "which pods run `log4j:2.15.0`?" — a partial
+        like `log4j:2.15` will match `log4j:2.15.0`, `log4j:2.15.1`, etc.
+      schema:
+        type: string
+        maxLength: 253
+
+    PodNodeNameFilter:
+      name: node_name
+      in: query
+      required: false
+      description: |
+        Exact match against the pod's `node_name`. Lets the Node detail
+        view answer "which pods are hosted on this node?" without
+        paginating every pod in the cluster.
+      schema:
+        type: string
+        maxLength: 253
+
     WorkloadId:
       name: id
       in: path
@@ -1380,6 +1408,19 @@ components:
       description: Return only workloads of this kind.
       schema:
         $ref: '#/components/schemas/WorkloadKind'
+
+    WorkloadImageFilter:
+      name: image
+      in: query
+      required: false
+      description: |
+        Case-insensitive substring match against any container's `image`
+        field in the workload's containers JSON (init containers included).
+        Mirrors the PodImageFilter so both kinds answer the same
+        "which assets run this component version?" question.
+      schema:
+        type: string
+        maxLength: 253
 
     ServiceId:
       name: id

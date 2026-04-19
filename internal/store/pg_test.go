@@ -439,7 +439,7 @@ func TestPGPodCRUD(t *testing.T) {
 		t.Errorf("phase=%v", updated.Phase)
 	}
 
-	items, _, err := pg.ListPods(ctx, ns.Id, 10, "")
+	items, _, err := pg.ListPods(ctx, api.PodListFilter{NamespaceID: ns.Id}, 10, "")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -559,7 +559,7 @@ func TestPGWorkloadCRUD(t *testing.T) {
 
 	// Filter by kind.
 	depKind := api.Deployment
-	items, _, err := pg.ListWorkloads(ctx, ns.Id, &depKind, 10, "")
+	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: ns.Id, Kind: &depKind}, 10, "")
 	if err != nil {
 		t.Fatalf("list by kind: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 	}
 
 	// Sanity: only Deployment/web remains.
-	items, _, err := pg.ListWorkloads(ctx, ns.Id, nil, 10, "")
+	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: ns.Id}, 10, "")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -1104,5 +1104,104 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Name != "pv-b" {
 		t.Errorf("list=%v, want only pv-b", items)
+	}
+}
+
+// Exercises the image-substring and node_name filters on ListPods and
+// ListWorkloads (needed for the UI's image search + Node detail view).
+// JSONB ILIKE over jsonb_array_elements('containers') is the load-bearing
+// bit — we seed containers with a mix of matching / non-matching images
+// and confirm the case-insensitive substring predicate picks only the hits.
+func TestPGListFiltersForImageAndNode(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: "filter-test"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	node1 := "worker-01"
+	node2 := "worker-02"
+	nginxContainers := api.ContainerList{{"name": "web", "image": "NGINX:1.27-alpine", "init": false}}
+	log4jContainers := api.ContainerList{{"name": "app", "image": "registry.example.com/shop/api:1.4.2", "init": false}, {"name": "logger", "image": "log4j:2.15.0", "init": true}}
+	otherContainers := api.ContainerList{{"name": "misc", "image": "busybox:1.36", "init": false}}
+
+	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-1", NodeName: &node1, Containers: &nginxContainers}); err != nil {
+		t.Fatalf("web-1: %v", err)
+	}
+	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "api-1", NodeName: &node1, Containers: &log4jContainers}); err != nil {
+		t.Fatalf("api-1: %v", err)
+	}
+	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "misc-1", NodeName: &node2, Containers: &otherContainers}); err != nil {
+		t.Fatalf("misc-1: %v", err)
+	}
+
+	// node_name filter — only worker-01 pods.
+	node1Filter := api.PodListFilter{NodeName: &node1}
+	gotByNode, _, err := pg.ListPods(ctx, node1Filter, 10, "")
+	if err != nil {
+		t.Fatalf("list by node: %v", err)
+	}
+	if len(gotByNode) != 2 {
+		t.Errorf("node=%s matched %d pods, want 2", node1, len(gotByNode))
+	}
+
+	// Image filter, case-insensitive substring — "nginx" matches NGINX:1.27-alpine only.
+	nginxSub := "nginx"
+	gotNginx, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &nginxSub}, 10, "")
+	if err != nil {
+		t.Fatalf("list by image nginx: %v", err)
+	}
+	if len(gotNginx) != 1 || gotNginx[0].Name != "web-1" {
+		t.Errorf("image=nginx matched=%v, want [web-1]", gotNginx)
+	}
+
+	// Init containers participate — "log4j:2.15" hits api-1 via its init container.
+	log4jSub := "log4j:2.15"
+	gotLog4j, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &log4jSub}, 10, "")
+	if err != nil {
+		t.Fatalf("list by image log4j: %v", err)
+	}
+	if len(gotLog4j) != 1 || gotLog4j[0].Name != "api-1" {
+		t.Errorf("image=log4j:2.15 matched=%v, want [api-1]", gotLog4j)
+	}
+
+	// Empty match returns no rows — no false positives.
+	noMatch := "definitely-not-present"
+	gotNone, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &noMatch}, 10, "")
+	if err != nil {
+		t.Fatalf("list by image none: %v", err)
+	}
+	if len(gotNone) != 0 {
+		t.Errorf("image=bogus matched=%v, want none", gotNone)
+	}
+
+	// Combined: node + image filter AND together.
+	both, _, err := pg.ListPods(ctx, api.PodListFilter{NodeName: &node1, ImageSubstring: &nginxSub}, 10, "")
+	if err != nil {
+		t.Fatalf("list combined: %v", err)
+	}
+	if len(both) != 1 || both[0].Name != "web-1" {
+		t.Errorf("combined=%v, want [web-1]", both)
+	}
+
+	// Same image filter works for workloads.
+	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "api", Containers: &log4jContainers}); err != nil {
+		t.Fatalf("workload api: %v", err)
+	}
+	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Containers: &nginxContainers}); err != nil {
+		t.Fatalf("workload web: %v", err)
+	}
+	wls, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &log4jSub}, 10, "")
+	if err != nil {
+		t.Fatalf("list workloads: %v", err)
+	}
+	if len(wls) != 1 || wls[0].Name != "api" {
+		t.Errorf("workload image=log4j matched=%v, want [api]", wls)
 	}
 }
