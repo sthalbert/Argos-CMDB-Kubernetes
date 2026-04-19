@@ -1680,6 +1680,68 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /v1/admin/audit:
+    get:
+      tags: [admin]
+      summary: List audit events
+      description: |
+        Paged, newest-first list of recorded API actions. Requires the
+        `audit` scope, granted to both `admin` and `auditor` roles —
+        auditors get read-only visibility without the ability to manage
+        users or tokens.
+
+        Filters are AND-combined. `since` / `until` bound the
+        `occurred_at` range (half-open: `[since, until)`).
+      operationId: listAuditEvents
+      security:
+        - BearerAuth: [audit]
+        - SessionCookie: [audit]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter to events emitted by this user.
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+          description: Filter to events affecting a specific resource kind (e.g. `cluster`, `user`).
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+          description: Filter to events affecting a specific resource id.
+        - name: action
+          in: query
+          schema:
+            type: string
+          description: Filter to a specific action verb (e.g. `user.create`).
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paged list of audit events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /v1/admin/sessions/{id}:
     parameters:
       - $ref: '#/components/parameters/SessionId'
@@ -3614,6 +3676,77 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Session'
+        next_cursor:
+          type: string
+          nullable: true
+
+    AuditEvent:
+      description: |
+        One recorded API action. Written by the audit middleware after
+        the wrapped handler completes; never updated in place.
+      type: object
+      required: [id, occurred_at, actor_kind, action, http_method, http_path, http_status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        actor_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null for unauthenticated requests (e.g. failed logins).
+        actor_kind:
+          type: string
+          enum: [user, token, anonymous, system]
+        actor_username:
+          type: string
+          nullable: true
+        actor_role:
+          type: string
+          nullable: true
+        action:
+          type: string
+          description: |
+            Dot-separated verb such as `user.create`, `cluster.update`,
+            `auth.login.success`, `auth.login.failure`.
+        resource_type:
+          type: string
+          nullable: true
+          description: Kind of the target entity (e.g. `cluster`, `user`, `api_token`).
+        resource_id:
+          type: string
+          nullable: true
+          description: Stringified id of the target — may not be a UUID for all kinds.
+        http_method:
+          type: string
+        http_path:
+          type: string
+        http_status:
+          type: integer
+        source_ip:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Action-specific payload. Always an object when present.
+
+    AuditEventList:
+      description: Paged list of audit events, newest first.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
         next_cursor:
           type: string
           nullable: true

@@ -204,6 +204,51 @@ export function revokeSession(id: string) {
   return request<void>(`/v1/admin/sessions/${id}`, { method: 'DELETE' });
 }
 
+// Audit events -----------------------------------------------------------
+
+export type AuditActorKind = 'user' | 'token' | 'anonymous' | 'system';
+
+export interface AuditEvent {
+  id: string;
+  occurred_at: string;
+  actor_id?: string | null;
+  actor_kind: AuditActorKind;
+  actor_username?: string | null;
+  actor_role?: string | null;
+  action: string;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  http_method: string;
+  http_path: string;
+  http_status: number;
+  source_ip?: string | null;
+  user_agent?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
+export interface AuditFilter {
+  actorId?: string;
+  resourceType?: string;
+  resourceId?: string;
+  action?: string;
+  since?: string;
+  until?: string;
+  cursor?: string;
+}
+
+export function listAuditEvents(filter: AuditFilter = {}) {
+  const q = new URLSearchParams();
+  q.set('limit', '100');
+  if (filter.actorId) q.set('actor_id', filter.actorId);
+  if (filter.resourceType) q.set('resource_type', filter.resourceType);
+  if (filter.resourceId) q.set('resource_id', filter.resourceId);
+  if (filter.action) q.set('action', filter.action);
+  if (filter.since) q.set('since', filter.since);
+  if (filter.until) q.set('until', filter.until);
+  if (filter.cursor) q.set('cursor', filter.cursor);
+  return request<PagedResponse<AuditEvent>>(`/v1/admin/audit?${q.toString()}`);
+}
+
 // Shared shapes ------------------------------------------------------------
 
 export interface PagedResponse<T> {

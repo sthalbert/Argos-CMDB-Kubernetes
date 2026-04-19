@@ -40,7 +40,7 @@ func newTestPG(t *testing.T) *PG {
 		// api_tokens RESTRICTs on user deletion, so truncate them in
 		// order (api_tokens → users gets CASCADEd via sessions / identities).
 		_, _ = pg.pool.Exec(context.Background(),
-			"TRUNCATE clusters, api_tokens, sessions, user_identities, oidc_auth_states, users CASCADE")
+			"TRUNCATE clusters, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
 		pg.Close()
 	})
 	return pg
@@ -1635,5 +1635,114 @@ func TestPGOIDCShadowUsersAndAuthState(t *testing.T) {
 	}
 	if _, _, err := pg.ConsumeOidcAuthState(ctx, expiredState); !errors.Is(err, api.ErrNotFound) {
 		t.Errorf("expired consume: got %v, want ErrNotFound", err)
+	}
+}
+
+// Exercises InsertAuditEvent + ListAuditEvents with filter + cursor
+// round-tripping. Validates the order-by-occurred_at-DESC contract and
+// that JSONB details survive the round trip.
+func TestPGAuditEventsRoundTrip(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	base := time.Now().UTC().Truncate(time.Microsecond)
+	events := []api.AuditEventInsert{
+		{
+			ID: uuid.New(), OccurredAt: base.Add(-3 * time.Minute),
+			ActorID: &userID, ActorKind: "user", ActorUsername: "alice", ActorRole: "admin",
+			Action: "cluster.create", ResourceType: "cluster", ResourceID: "c1",
+			HTTPMethod: "POST", HTTPPath: "/v1/clusters", HTTPStatus: 201,
+			SourceIP: "10.0.0.1", UserAgent: "curl/8",
+			Details: map[string]any{"body": map[string]any{"name": "prod"}},
+		},
+		{
+			ID: uuid.New(), OccurredAt: base.Add(-2 * time.Minute),
+			ActorID: &userID, ActorKind: "user", ActorUsername: "alice", ActorRole: "admin",
+			Action: "cluster.update", ResourceType: "cluster", ResourceID: "c1",
+			HTTPMethod: "PATCH", HTTPPath: "/v1/clusters/c1", HTTPStatus: 200,
+		},
+		{
+			ID: uuid.New(), OccurredAt: base.Add(-1 * time.Minute),
+			ActorKind: "anonymous",
+			Action:    "auth.login.failure",
+			HTTPMethod: "POST", HTTPPath: "/v1/auth/login", HTTPStatus: 401,
+		},
+	}
+	for _, ev := range events {
+		if err := pg.InsertAuditEvent(ctx, ev); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	// Default list: newest first, no filter.
+	got, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 10, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(got))
+	}
+	if got[0].Action != "auth.login.failure" {
+		t.Errorf("newest-first: first row action=%q", got[0].Action)
+	}
+	// JSONB round-trip check.
+	if got[2].Details == nil {
+		t.Fatal("expected details on first cluster event")
+	}
+
+	// Filter by actor.
+	actorFiltered, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{ActorID: &userID}, 10, "")
+	if err != nil {
+		t.Fatalf("list actor: %v", err)
+	}
+	if len(actorFiltered) != 2 {
+		t.Errorf("actor filter: got %d, want 2", len(actorFiltered))
+	}
+
+	// Filter by resource.
+	resType := "cluster"
+	resID := "c1"
+	resFiltered, _, err := pg.ListAuditEvents(ctx,
+		api.AuditEventFilter{ResourceType: &resType, ResourceID: &resID}, 10, "")
+	if err != nil {
+		t.Fatalf("list resource: %v", err)
+	}
+	if len(resFiltered) != 2 {
+		t.Errorf("resource filter: got %d, want 2", len(resFiltered))
+	}
+
+	// Filter by time window [since, until).
+	since := base.Add(-2*time.Minute - 30*time.Second)
+	until := base.Add(-30 * time.Second)
+	windowed, _, err := pg.ListAuditEvents(ctx,
+		api.AuditEventFilter{Since: &since, Until: &until}, 10, "")
+	if err != nil {
+		t.Fatalf("list window: %v", err)
+	}
+	if len(windowed) != 2 {
+		t.Errorf("window filter: got %d, want 2 (events at -2m and -1m)", len(windowed))
+	}
+
+	// Cursor pagination: page size 2 should yield 2 + next cursor, then 1.
+	page1, next, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 2, "")
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if len(page1) != 2 {
+		t.Errorf("page1 size = %d", len(page1))
+	}
+	if next == "" {
+		t.Fatal("expected next cursor")
+	}
+	page2, next2, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 2, next)
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if len(page2) != 1 {
+		t.Errorf("page2 size = %d", len(page2))
+	}
+	if next2 != "" {
+		t.Errorf("expected no next cursor after last page, got %q", next2)
 	}
 }

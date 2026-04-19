@@ -59,6 +59,11 @@ against real clusters; expect additive changes until 1.0.
   cursor pagination and merge-patch updates. Errors follow
   [RFC 7807](https://datatracker.ietf.org/doc/html/rfc7807)
   (`application/problem+json`).
+- **Audit log** writes every state-changing call and every admin-panel
+  read into an append-only `audit_events` table. Admins and auditors can
+  browse it at `/ui/admin/audit` with filters for actor, resource kind,
+  action verb, and time range. Password / token fields are scrubbed
+  before persistence.
 - **Dual-path auth** per
   [ADR-0007](docs/adr/adr-0007-auth-and-rbac.md): humans log in with
   either local username + password **or** OIDC (authorization-code flow

@@ -115,8 +115,14 @@ func run() error {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
 	api.HandlerWithOptions(api.NewServer(version, pg, cookiePolicy, oidcProvider), api.StdHTTPServerOptions{
-		BaseRouter:  mux,
-		Middlewares: []api.MiddlewareFunc{api.AuthMiddleware(pg, cookiePolicy)},
+		BaseRouter: mux,
+		// Order matters: the outer middleware runs first, so the audit
+		// layer sits *after* auth — it sees the resolved caller on the
+		// request context and the final response status.
+		Middlewares: []api.MiddlewareFunc{
+			api.AuthMiddleware(pg, cookiePolicy),
+			api.AuditMiddleware(pg),
+		},
 	})
 
 	srv := &http.Server{

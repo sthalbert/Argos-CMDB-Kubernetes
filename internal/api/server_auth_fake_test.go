@@ -28,6 +28,8 @@ type memAuthState struct {
 	// OIDC substrate
 	identities     map[string]uuid.UUID // "<issuer>\x00<subject>" -> user id
 	oidcAuthStates map[string]memOidcState
+	// Audit substrate
+	auditEvents []AuditEvent
 }
 
 type memOidcState struct {
@@ -560,4 +562,84 @@ func (m *memStore) ConsumeOidcAuthState(_ context.Context, state string) (string
 	}
 	delete(m.authState.oidcAuthStates, state)
 	return s.codeVerifier, s.nonce, nil
+}
+
+func (m *memStore) InsertAuditEvent(_ context.Context, in AuditEventInsert) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ev := AuditEvent{
+		Id:         in.ID,
+		OccurredAt: in.OccurredAt,
+		ActorId:    in.ActorID,
+		ActorKind:  AuditEventActorKind(in.ActorKind),
+		Action:     in.Action,
+		HttpMethod: in.HTTPMethod,
+		HttpPath:   in.HTTPPath,
+		HttpStatus: in.HTTPStatus,
+	}
+	if in.ActorUsername != "" {
+		v := in.ActorUsername
+		ev.ActorUsername = &v
+	}
+	if in.ActorRole != "" {
+		v := in.ActorRole
+		ev.ActorRole = &v
+	}
+	if in.ResourceType != "" {
+		v := in.ResourceType
+		ev.ResourceType = &v
+	}
+	if in.ResourceID != "" {
+		v := in.ResourceID
+		ev.ResourceId = &v
+	}
+	if in.SourceIP != "" {
+		v := in.SourceIP
+		ev.SourceIp = &v
+	}
+	if in.UserAgent != "" {
+		v := in.UserAgent
+		ev.UserAgent = &v
+	}
+	if in.Details != nil {
+		d := map[string]interface{}(in.Details)
+		ev.Details = &d
+	}
+	m.authState.auditEvents = append(m.authState.auditEvents, ev)
+	return nil
+}
+
+func (m *memStore) ListAuditEvents(_ context.Context, filter AuditEventFilter, limit int, _ string) ([]AuditEvent, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]AuditEvent, 0, len(m.authState.auditEvents))
+	for i := len(m.authState.auditEvents) - 1; i >= 0; i-- {
+		ev := m.authState.auditEvents[i]
+		if filter.ActorID != nil && (ev.ActorId == nil || *ev.ActorId != *filter.ActorID) {
+			continue
+		}
+		if filter.ResourceType != nil && (ev.ResourceType == nil || *ev.ResourceType != *filter.ResourceType) {
+			continue
+		}
+		if filter.ResourceID != nil && (ev.ResourceId == nil || *ev.ResourceId != *filter.ResourceID) {
+			continue
+		}
+		if filter.Action != nil && ev.Action != *filter.Action {
+			continue
+		}
+		if filter.Since != nil && ev.OccurredAt.Before(*filter.Since) {
+			continue
+		}
+		if filter.Until != nil && !ev.OccurredAt.Before(*filter.Until) {
+			continue
+		}
+		out = append(out, ev)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
 }

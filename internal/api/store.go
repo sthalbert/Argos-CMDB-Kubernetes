@@ -374,6 +374,15 @@ type Store interface {
 	// state, returning the code_verifier + nonce. Rejects expired rows
 	// with ErrNotFound. One-shot by design.
 	ConsumeOidcAuthState(ctx context.Context, state string) (codeVerifier, nonce string, err error)
+
+	// InsertAuditEvent appends one row to audit_events. Called from the
+	// audit middleware after the wrapped handler has produced a status.
+	// Never returns ErrConflict — id collisions are caller bugs.
+	InsertAuditEvent(ctx context.Context, in AuditEventInsert) error
+
+	// ListAuditEvents returns the newest events first, paged by opaque
+	// cursor. filter fields are AND-combined; nil fields are ignored.
+	ListAuditEvents(ctx context.Context, filter AuditEventFilter, limit int, cursor string) (items []AuditEvent, nextCursor string, err error)
 }
 
 // UserIdentityInsert carries the federation tuple persisted on first
@@ -442,4 +451,37 @@ type APITokenInsert struct {
 	Scopes          []string
 	CreatedByUserID uuid.UUID
 	ExpiresAt       *time.Time
+}
+
+// AuditEventInsert is the payload the middleware hands the store.
+// All fields are snapshot values at the moment the request completed —
+// audit rows are immutable, so nothing references the caller's live
+// identity after insertion.
+type AuditEventInsert struct {
+	ID            uuid.UUID
+	OccurredAt    time.Time
+	ActorID       *uuid.UUID
+	ActorKind     string // "user" | "token" | "anonymous" | "system"
+	ActorUsername string
+	ActorRole     string
+	Action        string  // dot-separated verb, e.g. "user.create", "cluster.update"
+	ResourceType  string  // kind name, e.g. "cluster", "user", "api_token"
+	ResourceID    string  // stringified id — UUID for most kinds, session public_id, token id, …
+	HTTPMethod    string
+	HTTPPath      string
+	HTTPStatus    int
+	SourceIP      string
+	UserAgent     string
+	Details       map[string]any // JSONB payload, nil-friendly
+}
+
+// AuditEventFilter collects the optional server-side filters. Nil
+// fields are ignored; set fields are AND-combined.
+type AuditEventFilter struct {
+	ActorID      *uuid.UUID
+	ResourceType *string
+	ResourceID   *string
+	Action       *string
+	Since        *time.Time
+	Until        *time.Time
 }

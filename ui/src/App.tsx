@@ -27,6 +27,7 @@ import AdminLayout from './pages/admin/AdminLayout';
 import UsersPage from './pages/admin/Users';
 import TokensPage from './pages/admin/Tokens';
 import SessionsPage from './pages/admin/Sessions';
+import AuditPage from './pages/admin/Audit';
 
 // --- auth gate ----------------------------------------------------------
 
@@ -72,11 +73,13 @@ function RequireAuth({ auth, children }: { auth: AuthState; children: React.Reac
 }
 
 // RequireAdmin wraps the admin routes. Server-side the /v1/admin/*
-// endpoints already enforce admin; this is just UX — redirect
-// non-admins back to /clusters instead of letting them browse pages
-// that will 403 every request.
+// endpoints already enforce admin / audit scope; this is just UX —
+// redirect non-admin-non-auditor roles back to /clusters instead of
+// letting them browse pages that will 403 every request. Auditors get
+// in so they can reach /admin/audit, but individual tabs gate on
+// role === 'admin' inside AdminLayout.
 function RequireAdmin({ auth, children }: { auth: AuthState; children: React.ReactNode }) {
-  if (auth.status === 'ready' && auth.me.role !== 'admin') {
+  if (auth.status === 'ready' && auth.me.role !== 'admin' && auth.me.role !== 'auditor') {
     return <Navigate to="/clusters" replace />;
   }
   return <>{children}</>;
@@ -115,7 +118,8 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
             {link('/persistentvolumes', 'PVs')}
             {link('/persistentvolumeclaims', 'PVCs')}
             {link('/search/image', 'Search')}
-            {me.role === 'admin' && link('/admin/users', 'Admin')}
+            {(me.role === 'admin' || me.role === 'auditor') &&
+              link(me.role === 'admin' ? '/admin/users' : '/admin/audit', 'Admin')}
           </nav>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -187,19 +191,25 @@ export default function App() {
 
       <Route path="/search/image" element={authed(<ImageSearch />)} />
 
-      {/* Admin panel — only renders the layout when the caller is admin. */}
+      {/* Admin panel — admins see every tab; auditors only get Audit. */}
       <Route
         path="/admin"
         element={authed(
           <RequireAdmin auth={auth}>
-            <AdminLayout />
+            {auth.status === 'ready' && <AdminLayout role={auth.me.role ?? 'viewer'} />}
           </RequireAdmin>,
         )}
       >
-        <Route index element={<Navigate to="users" replace />} />
+        <Route
+          index
+          element={
+            <Navigate to={auth.status === 'ready' && auth.me.role === 'admin' ? 'users' : 'audit'} replace />
+          }
+        />
         <Route path="users" element={<UsersPage />} />
         <Route path="tokens" element={<TokensPage />} />
         <Route path="sessions" element={<SessionsPage />} />
+        <Route path="audit" element={<AuditPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/clusters" replace />} />
