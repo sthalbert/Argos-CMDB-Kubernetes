@@ -7,31 +7,53 @@ import (
 
 func TestMintTokenFormat(t *testing.T) {
 	t.Parallel()
-	tok, err := MintToken()
-	if err != nil {
-		t.Fatalf("MintToken: %v", err)
-	}
+	// Run the mint a few times because the suffix is base64url, which
+	// can legitimately contain `_`. Earlier revisions of this test
+	// split the plaintext on every `_` and failed intermittently
+	// whenever the random suffix happened to carry one; ParseToken
+	// itself uses IndexByte to find the first `_`, so match that
+	// (the first `_` after the scheme is always the separator because
+	// the prefix is hex-only).
+	for i := 0; i < 50; i++ {
+		tok, err := MintToken()
+		if err != nil {
+			t.Fatalf("MintToken: %v", err)
+		}
 
-	if !strings.HasPrefix(tok.Plaintext, TokenScheme) {
-		t.Errorf("plaintext missing scheme: %q", tok.Plaintext)
-	}
-	// Shape: argos_pat_<8>_<32>
-	parts := strings.Split(strings.TrimPrefix(tok.Plaintext, TokenScheme), "_")
-	if len(parts) != 2 {
-		t.Fatalf("plaintext wrong segment count: %v", parts)
-	}
-	if len(parts[0]) != 8 {
-		t.Errorf("prefix len=%d, want 8", len(parts[0]))
-	}
-	if tok.Prefix != parts[0] {
-		t.Errorf("stored prefix %q differs from plaintext prefix %q", tok.Prefix, parts[0])
-	}
-	if !strings.HasPrefix(tok.Hash, "$argon2id$") {
-		t.Errorf("hash not argon2id")
-	}
-	// The stored hash must verify against the plaintext.
-	if err := VerifyPassword(tok.Plaintext, tok.Hash); err != nil {
-		t.Errorf("minted hash does not verify: %v", err)
+		if !strings.HasPrefix(tok.Plaintext, TokenScheme) {
+			t.Errorf("plaintext missing scheme: %q", tok.Plaintext)
+		}
+
+		rest := strings.TrimPrefix(tok.Plaintext, TokenScheme)
+		sep := strings.IndexByte(rest, '_')
+		if sep != 8 {
+			t.Fatalf("first `_` should be at position 8 (after 8-hex prefix), got %d in %q", sep, rest)
+		}
+
+		prefix := rest[:sep]
+		// Prefix is hex — must not contain `_` itself.
+		if strings.ContainsRune(prefix, '_') {
+			t.Errorf("prefix contains underscore: %q", prefix)
+		}
+		if tok.Prefix != prefix {
+			t.Errorf("stored prefix %q differs from plaintext prefix %q", tok.Prefix, prefix)
+		}
+
+		if !strings.HasPrefix(tok.Hash, "$argon2id$") {
+			t.Errorf("hash not argon2id")
+		}
+		if err := VerifyPassword(tok.Plaintext, tok.Hash); err != nil {
+			t.Errorf("minted hash does not verify: %v", err)
+		}
+
+		// ParseToken should split identically.
+		gotPrefix, gotFull, err := ParseToken(tok.Plaintext)
+		if err != nil {
+			t.Errorf("ParseToken on a freshly minted plaintext failed: %v", err)
+		}
+		if gotPrefix != prefix || gotFull != tok.Plaintext {
+			t.Errorf("ParseToken roundtrip: prefix=%q full=%q", gotPrefix, gotFull)
+		}
 	}
 }
 
