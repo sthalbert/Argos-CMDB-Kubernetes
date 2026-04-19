@@ -127,7 +127,9 @@ func (p *PG) CreateCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 func (p *PG) GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error) {
 	const q = `
 		SELECT id, name, display_name, environment, provider, region,
-		       kubernetes_version, api_endpoint, labels, created_at, updated_at
+		       kubernetes_version, api_endpoint, labels,
+		       owner, criticality, notes, runbook_url, annotations,
+		       created_at, updated_at
 		FROM clusters
 		WHERE id = $1
 	`
@@ -146,7 +148,9 @@ func (p *PG) GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error) 
 func (p *PG) GetClusterByName(ctx context.Context, name string) (api.Cluster, error) {
 	const q = `
 		SELECT id, name, display_name, environment, provider, region,
-		       kubernetes_version, api_endpoint, labels, created_at, updated_at
+		       kubernetes_version, api_endpoint, labels,
+		       owner, criticality, notes, runbook_url, annotations,
+		       created_at, updated_at
 		FROM clusters
 		WHERE name = $1
 	`
