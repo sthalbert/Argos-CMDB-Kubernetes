@@ -19,12 +19,21 @@ import (
 // Auth-substrate state, attached to memStore via an embedded field.
 // Declared here so the additions don't bloat the big fake struct.
 type memAuthState struct {
-	users      map[uuid.UUID]User
-	userHashes map[uuid.UUID]string
-	userByName map[string]uuid.UUID // lowercase username -> id
-	sessions   map[string]memSession
-	tokens     map[uuid.UUID]memToken
+	users         map[uuid.UUID]User
+	userHashes    map[uuid.UUID]string
+	userByName    map[string]uuid.UUID // lowercase username -> id
+	sessions      map[string]memSession
+	tokens        map[uuid.UUID]memToken
 	tokenByPrefix map[string]uuid.UUID
+	// OIDC substrate
+	identities     map[string]uuid.UUID // "<issuer>\x00<subject>" -> user id
+	oidcAuthStates map[string]memOidcState
+}
+
+type memOidcState struct {
+	codeVerifier string
+	nonce        string
+	expires      time.Time
 }
 
 type memSession struct {
@@ -53,14 +62,18 @@ type memToken struct {
 
 func newMemAuthState() memAuthState {
 	return memAuthState{
-		users:         make(map[uuid.UUID]User),
-		userHashes:    make(map[uuid.UUID]string),
-		userByName:    make(map[string]uuid.UUID),
-		sessions:      make(map[string]memSession),
-		tokens:        make(map[uuid.UUID]memToken),
-		tokenByPrefix: make(map[string]uuid.UUID),
+		users:          make(map[uuid.UUID]User),
+		userHashes:     make(map[uuid.UUID]string),
+		userByName:     make(map[string]uuid.UUID),
+		sessions:       make(map[string]memSession),
+		tokens:         make(map[uuid.UUID]memToken),
+		tokenByPrefix:  make(map[string]uuid.UUID),
+		identities:     make(map[string]uuid.UUID),
+		oidcAuthStates: make(map[string]memOidcState),
 	}
 }
+
+func identityKey(issuer, subject string) string { return issuer + "\x00" + subject }
 
 // --- Store methods on memStore ------------------------------------------
 
@@ -475,4 +488,76 @@ func (m *memStore) RevokeAPIToken(_ context.Context, id uuid.UUID, now time.Time
 		m.authState.tokens[id] = t
 	}
 	return nil
+}
+
+func (m *memStore) GetUserByIdentity(_ context.Context, issuer, subject string) (User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id, ok := m.authState.identities[identityKey(issuer, subject)]
+	if !ok {
+		return User{}, ErrNotFound
+	}
+	u := m.authState.users[id]
+	if u.DisabledAt != nil {
+		return User{}, ErrNotFound
+	}
+	return u, nil
+}
+
+func (m *memStore) CreateUserWithIdentity(_ context.Context, in UserInsert, ident UserIdentityInsert) (User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := strings.ToLower(in.Username)
+	if _, dup := m.authState.userByName[key]; dup {
+		return User{}, fmt.Errorf("username already exists: %w", ErrConflict)
+	}
+	ik := identityKey(ident.Issuer, ident.Subject)
+	if _, dup := m.authState.identities[ik]; dup {
+		return User{}, fmt.Errorf("identity already exists: %w", ErrConflict)
+	}
+	id := uuid.New()
+	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
+	m.createdN++
+	mc := in.MustChangePassword
+	u := User{
+		Id:                 &id,
+		Username:           in.Username,
+		Role:               Role(in.Role),
+		MustChangePassword: &mc,
+		CreatedAt:          &now,
+		UpdatedAt:          &now,
+	}
+	m.authState.users[id] = u
+	m.authState.userHashes[id] = in.PasswordHash
+	m.authState.userByName[key] = id
+	m.authState.identities[ik] = id
+	return u, nil
+}
+
+func (m *memStore) TouchUserIdentity(_ context.Context, _ uuid.UUID, _, _ string, _ time.Time) error {
+	// No-op in the fake; the test surface doesn't assert on last_seen_at.
+	return nil
+}
+
+func (m *memStore) CreateOidcAuthState(_ context.Context, in OidcAuthStateInsert) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.authState.oidcAuthStates[in.State] = memOidcState{
+		codeVerifier: in.CodeVerifier,
+		nonce:        in.Nonce,
+		expires:      in.ExpiresAt,
+	}
+	return nil
+}
+
+func (m *memStore) ConsumeOidcAuthState(_ context.Context, state string) (string, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.authState.oidcAuthStates[state]
+	if !ok || time.Now().After(s.expires) {
+		delete(m.authState.oidcAuthStates, state)
+		return "", "", ErrNotFound
+	}
+	delete(m.authState.oidcAuthStates, state)
+	return s.codeVerifier, s.nonce, nil
 }

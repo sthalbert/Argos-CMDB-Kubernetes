@@ -82,6 +82,17 @@ export function getMe(): Promise<Me> {
   return request<Me>('/v1/auth/me');
 }
 
+export interface AuthConfig {
+  oidc: {
+    enabled: boolean;
+    label?: string;
+  };
+}
+
+export function getAuthConfig(): Promise<AuthConfig> {
+  return request<AuthConfig>('/v1/auth/config');
+}
+
 export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   return request<void>('/v1/auth/change-password', {
     method: 'POST',

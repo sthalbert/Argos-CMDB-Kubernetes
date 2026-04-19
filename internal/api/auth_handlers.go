@@ -6,8 +6,12 @@ package api
 // internal/auth; this file just wires the HTTP shape onto the store.
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -15,6 +19,232 @@ import (
 
 	"github.com/sthalbert/argos/internal/auth"
 )
+
+// --- /v1/auth/config + OIDC ----------------------------------------------
+
+// GetAuthConfig surfaces what the login page needs pre-session.
+func (s *Server) GetAuthConfig(w http.ResponseWriter, _ *http.Request) {
+	resp := AuthConfig{}
+	enabled := s.oidc != nil
+	resp.Oidc.Enabled = enabled
+	if enabled {
+		label := s.oidc.Config.Label
+		resp.Oidc.Label = &label
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// OidcAuthorize mints state + PKCE + nonce, stores them, redirects to
+// the IdP. 404 when OIDC is unconfigured.
+func (s *Server) OidcAuthorize(w http.ResponseWriter, r *http.Request) {
+	if s.oidc == nil {
+		writeProblem(w, http.StatusNotFound, "OIDC not configured", "")
+		return
+	}
+	state, err := auth.GenerateOIDCState()
+	if err != nil {
+		s.writeStoreError(w, "oidcAuthorize state", err)
+		return
+	}
+	verifier, challenge, err := auth.GeneratePKCE()
+	if err != nil {
+		s.writeStoreError(w, "oidcAuthorize pkce", err)
+		return
+	}
+	nonce, err := auth.GenerateNonce()
+	if err != nil {
+		s.writeStoreError(w, "oidcAuthorize nonce", err)
+		return
+	}
+	now := time.Now().UTC()
+	if err := s.store.CreateOidcAuthState(r.Context(), OidcAuthStateInsert{
+		State:        state,
+		CodeVerifier: verifier,
+		Nonce:        nonce,
+		CreatedAt:    now,
+		ExpiresAt:    now.Add(oidcStateTTL),
+	}); err != nil {
+		s.writeStoreError(w, "oidcAuthorize store", err)
+		return
+	}
+
+	http.Redirect(w, r, s.oidc.AuthorizeURL(state, challenge, nonce), http.StatusFound)
+}
+
+// OidcCallback completes the flow, finds-or-creates the shadow user,
+// mints a session, and redirects to the UI. On failure redirects to
+// /ui/login?oidc_error=<reason> so the UI can surface what went wrong.
+func (s *Server) OidcCallback(w http.ResponseWriter, r *http.Request, params OidcCallbackParams) {
+	if s.oidc == nil {
+		writeProblem(w, http.StatusNotFound, "OIDC not configured", "")
+		return
+	}
+
+	verifier, nonce, err := s.store.ConsumeOidcAuthState(r.Context(), params.State)
+	if err != nil {
+		// Either unknown or expired. Either way, loop the user back to
+		// login with a hint — avoids a dead-end white page when they
+		// bookmark an old callback URL or replay one.
+		oidcFail(w, r, "state_expired_or_unknown")
+		return
+	}
+
+	claims, err := s.oidc.Exchange(r.Context(), params.Code, verifier, nonce)
+	if err != nil {
+		slog.Warn("oidc: exchange or id-token verify failed", "error", err)
+		oidcFail(w, r, "exchange_failed")
+		return
+	}
+
+	user, err := s.findOrCreateOidcUser(r.Context(), claims)
+	if err != nil {
+		slog.Error("oidc: shadow-user resolution failed", "error", err)
+		oidcFail(w, r, "user_lookup_failed")
+		return
+	}
+
+	// Mint session — same shape as the local-login path.
+	sid, err := auth.RandomSecret(32)
+	if err != nil {
+		oidcFail(w, r, "session_mint_failed")
+		return
+	}
+	now := time.Now().UTC()
+	expires := now.Add(auth.SessionDuration)
+	if err := s.store.CreateSession(r.Context(), SessionInsert{
+		ID:        sid,
+		UserID:    *user.Id,
+		CreatedAt: now,
+		ExpiresAt: expires,
+		UserAgent: r.UserAgent(),
+		SourceIP:  clientIP(r),
+	}); err != nil {
+		oidcFail(w, r, "session_create_failed")
+		return
+	}
+	_ = s.store.TouchUserLogin(r.Context(), *user.Id, now)
+	_ = s.store.TouchUserIdentity(r.Context(), *user.Id, claims.Issuer, claims.Sub, now)
+
+	auth.SetSessionCookie(w, r, sid, expires, s.cookiePolicy)
+	http.Redirect(w, r, "/ui/", http.StatusFound)
+}
+
+// findOrCreateOidcUser looks up by (issuer, sub); on miss, creates a
+// shadow user. First-login role is viewer per ADR-0007 — admins promote.
+func (s *Server) findOrCreateOidcUser(ctx context.Context, claims *auth.OIDCClaims) (User, error) {
+	u, err := s.store.GetUserByIdentity(ctx, claims.Issuer, claims.Sub)
+	if err == nil {
+		return u, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return User{}, err
+	}
+
+	// First login → create. Username: prefer preferred_username, then
+	// email's local part, then a sub-derived fallback. Resolve collisions
+	// by appending a short random suffix — case-insensitive username
+	// uniqueness is enforced at the DB.
+	base := deriveUsername(claims)
+	username := base
+	for attempt := 0; attempt < 5; attempt++ {
+		// Shadow users never use the password path; fill the hash slot
+		// with a deliberately unusable sentinel so VerifyPassword always
+		// fails if someone tries the local-login flow with this name.
+		// argon2id verify against a junk PHC string returns
+		// ErrInvalidHashFormat, which the login handler surfaces as 401.
+		out, err := s.store.CreateUserWithIdentity(ctx,
+			UserInsert{
+				Username:           username,
+				PasswordHash:       "$argon2id$shadow$oidc", // never verifies
+				Role:               auth.RoleViewer,
+				MustChangePassword: false,
+			},
+			UserIdentityInsert{
+				Issuer:  claims.Issuer,
+				Subject: claims.Sub,
+				Email:   claims.Email,
+			},
+		)
+		if err == nil {
+			return out, nil
+		}
+		// Two distinct conflict cases:
+		//   - username taken → retry with a suffix
+		//   - identity taken (race with a parallel first-login) → re-read
+		if !errors.Is(err, ErrConflict) {
+			return User{}, err
+		}
+		// Was it the identity? Re-reading resolves the race.
+		if u, rerr := s.store.GetUserByIdentity(ctx, claims.Issuer, claims.Sub); rerr == nil {
+			return u, nil
+		}
+		// Must've been the username — suffix and retry.
+		suffix, sErr := auth.RandomSecret(3)
+		if sErr != nil {
+			return User{}, sErr
+		}
+		username = base + "-" + suffix
+	}
+	return User{}, fmt.Errorf("could not pick a free username after retries")
+}
+
+// deriveUsername picks a friendly local username from the OIDC claims.
+// Output is lowercased and stripped down to characters the `users.username`
+// constraint (`^[a-zA-Z0-9._-]+$` in the OpenAPI schema) accepts.
+func deriveUsername(c *auth.OIDCClaims) string {
+	candidates := []string{c.PreferredUsername, emailLocalPart(c.Email), "oidc-" + shortSub(c.Sub)}
+	for _, raw := range candidates {
+		if u := sanitiseUsername(raw); u != "" {
+			return u
+		}
+	}
+	return "oidc-user"
+}
+
+func emailLocalPart(email string) string {
+	if i := strings.IndexByte(email, '@'); i > 0 {
+		return email[:i]
+	}
+	return ""
+}
+
+func shortSub(sub string) string {
+	const n = 8
+	if len(sub) <= n {
+		return sub
+	}
+	return sub[:n]
+}
+
+func sanitiseUsername(in string) string {
+	in = strings.TrimSpace(strings.ToLower(in))
+	out := make([]byte, 0, len(in))
+	for i := 0; i < len(in); i++ {
+		c := in[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
+			out = append(out, c)
+		default:
+			// drop
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return string(out)
+}
+
+// oidcFail bounces the browser back to the login page with a
+// query-string code. The UI shows a matching explanation; logs carry
+// the full reason.
+func oidcFail(w http.ResponseWriter, r *http.Request, code string) {
+	http.Redirect(w, r, "/ui/login?oidc_error="+url.QueryEscape(code), http.StatusFound)
+}
+
+// oidcStateTTL bounds how long a user can take to complete the IdP's
+// login page before the pending authorization expires. 5 minutes is
+// plenty and matches common OAuth2 implementations.
+const oidcStateTTL = 5 * time.Minute
 
 // --- /v1/auth ------------------------------------------------------------
 

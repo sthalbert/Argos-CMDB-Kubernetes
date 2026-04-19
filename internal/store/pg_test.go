@@ -40,7 +40,7 @@ func newTestPG(t *testing.T) *PG {
 		// api_tokens RESTRICTs on user deletion, so truncate them in
 		// order (api_tokens → users gets CASCADEd via sessions / identities).
 		_, _ = pg.pool.Exec(context.Background(),
-			"TRUNCATE clusters, api_tokens, sessions, user_identities, users CASCADE")
+			"TRUNCATE clusters, api_tokens, sessions, user_identities, oidc_auth_states, users CASCADE")
 		pg.Close()
 	})
 	return pg
@@ -1521,5 +1521,119 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 	}
 	if got2.Conditions != nil {
 		t.Errorf("conditions after clear: got %v, want nil", got2.Conditions)
+	}
+}
+
+// Exercises the OIDC-specific store methods: the (issuer, subject) → user
+// shadow mapping, atomic create-with-identity, and the one-shot auth
+// state consume + sweep.
+func TestPGOIDCShadowUsersAndAuthState(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	// --- CreateUserWithIdentity + GetUserByIdentity round-trip ------
+	u, err := pg.CreateUserWithIdentity(ctx,
+		api.UserInsert{
+			Username:     "alice-oidc",
+			PasswordHash: "$argon2id$shadow$oidc",
+			Role:         auth.RoleViewer,
+		},
+		api.UserIdentityInsert{
+			Issuer:  "https://idp.example.com",
+			Subject: "sub-alice",
+			Email:   "alice@example.com",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create user with identity: %v", err)
+	}
+	if u.Id == nil {
+		t.Fatal("created user missing id")
+	}
+
+	got, err := pg.GetUserByIdentity(ctx, "https://idp.example.com", "sub-alice")
+	if err != nil {
+		t.Fatalf("get by identity: %v", err)
+	}
+	if *got.Id != *u.Id {
+		t.Errorf("identity lookup returned wrong user")
+	}
+
+	// --- duplicate (issuer, subject) rejected -----------------------
+	if _, err := pg.CreateUserWithIdentity(ctx,
+		api.UserInsert{
+			Username: "bob-oidc", PasswordHash: "$argon2id$shadow$oidc", Role: auth.RoleViewer,
+		},
+		api.UserIdentityInsert{
+			Issuer: "https://idp.example.com", Subject: "sub-alice",
+		},
+	); !errors.Is(err, api.ErrConflict) {
+		t.Errorf("dup identity: got %v, want ErrConflict", err)
+	}
+
+	// --- missing identity returns ErrNotFound, not some other error --
+	if _, err := pg.GetUserByIdentity(ctx, "https://idp.example.com", "no-such-sub"); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("unknown identity: got %v, want ErrNotFound", err)
+	}
+
+	// --- TouchUserIdentity updates last_seen_at --------------------
+	before := time.Now().UTC()
+	later := before.Add(2 * time.Minute)
+	if err := pg.TouchUserIdentity(ctx, *u.Id, "https://idp.example.com", "sub-alice", later); err != nil {
+		t.Fatalf("touch identity: %v", err)
+	}
+
+	// --- disabled user is filtered out of GetUserByIdentity --------
+	disabled := true
+	if _, err := pg.UpdateUser(ctx, *u.Id, api.UserPatch{Disabled: &disabled}); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	if _, err := pg.GetUserByIdentity(ctx, "https://idp.example.com", "sub-alice"); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("disabled-user identity lookup: got %v, want ErrNotFound", err)
+	}
+
+	// --- OIDC auth state: consume is one-shot ----------------------
+	state, err := auth.GenerateOIDCState()
+	if err != nil {
+		t.Fatalf("mint state: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := pg.CreateOidcAuthState(ctx, api.OidcAuthStateInsert{
+		State:        state,
+		CodeVerifier: "verifier-123",
+		Nonce:        "nonce-abc",
+		CreatedAt:    now,
+		ExpiresAt:    now.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatalf("create auth state: %v", err)
+	}
+
+	v, n, err := pg.ConsumeOidcAuthState(ctx, state)
+	if err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	if v != "verifier-123" || n != "nonce-abc" {
+		t.Errorf("wrong payload: verifier=%q nonce=%q", v, n)
+	}
+
+	// Second consume on the same state must miss (one-shot).
+	if _, _, err := pg.ConsumeOidcAuthState(ctx, state); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("second consume: got %v, want ErrNotFound", err)
+	}
+
+	// --- expired row is swept, not returned ------------------------
+	expiredState, _ := auth.GenerateOIDCState()
+	past := now.Add(-10 * time.Minute)
+	if err := pg.CreateOidcAuthState(ctx, api.OidcAuthStateInsert{
+		State:        expiredState,
+		CodeVerifier: "v",
+		Nonce:        "n",
+		CreatedAt:    past,
+		ExpiresAt:    now.Add(-1 * time.Minute),
+	}); err != nil {
+		t.Fatalf("create expired state: %v", err)
+	}
+	if _, _, err := pg.ConsumeOidcAuthState(ctx, expiredState); !errors.Is(err, api.ErrNotFound) {
+		t.Errorf("expired consume: got %v, want ErrNotFound", err)
 	}
 }

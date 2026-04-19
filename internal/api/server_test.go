@@ -1711,7 +1711,7 @@ func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespac
 
 func newTestHandler(t *testing.T, store Store) http.Handler {
 	t.Helper()
-	return Handler(NewServer("test", store, auth.SecureNever))
+	return Handler(NewServer("test", store, auth.SecureNever, nil))
 }
 
 func TestHealthAndReadiness(t *testing.T) {

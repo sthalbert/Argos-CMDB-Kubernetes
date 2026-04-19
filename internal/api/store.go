@@ -350,6 +350,48 @@ type Store interface {
 	// RevokeAPIToken sets revoked_at. Idempotent: revoking an
 	// already-revoked token returns nil.
 	RevokeAPIToken(ctx context.Context, id uuid.UUID, now time.Time) error
+
+	// --- OIDC auth substrate (ADR-0007 PR 3) ----------------------------
+
+	// GetUserByIdentity returns the user linked to (issuer, subject) via
+	// the user_identities table, or ErrNotFound when no identity row is
+	// present — i.e., the IdP user has never logged in before. Disabled
+	// users are treated as NotFound to match local-login semantics.
+	GetUserByIdentity(ctx context.Context, issuer, subject string) (User, error)
+
+	// CreateUserWithIdentity inserts a user and its OIDC identity row in
+	// one transaction. On username collision the caller is expected to
+	// pick a new one and retry.
+	CreateUserWithIdentity(ctx context.Context, in UserInsert, ident UserIdentityInsert) (User, error)
+
+	// TouchUserIdentity refreshes last_seen_at on the identity row.
+	TouchUserIdentity(ctx context.Context, userID uuid.UUID, issuer, subject string, now time.Time) error
+
+	// CreateOidcAuthState persists the in-flight auth-code state.
+	CreateOidcAuthState(ctx context.Context, in OidcAuthStateInsert) error
+
+	// ConsumeOidcAuthState atomically reads and deletes the row keyed on
+	// state, returning the code_verifier + nonce. Rejects expired rows
+	// with ErrNotFound. One-shot by design.
+	ConsumeOidcAuthState(ctx context.Context, state string) (codeVerifier, nonce string, err error)
+}
+
+// UserIdentityInsert carries the federation tuple persisted on first
+// OIDC login. Email is optional but useful for admin display.
+type UserIdentityInsert struct {
+	Issuer  string
+	Subject string
+	Email   string
+}
+
+// OidcAuthStateInsert is the transient row stashed during an outbound
+// OIDC redirect, consumed on the inbound callback.
+type OidcAuthStateInsert struct {
+	State        string
+	CodeVerifier string
+	Nonce        string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
 }
 
 // UserInsert carries the data the store needs to create a user. Kept

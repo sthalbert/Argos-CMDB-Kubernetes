@@ -1283,6 +1283,77 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/auth/config:
+    get:
+      tags: [auth]
+      summary: Public auth configuration the UI needs pre-login
+      description: |
+        Returns knobs the login page needs to render — today just
+        whether OIDC is configured and, if so, the button label.
+        Intentionally public; nothing returned here is sensitive.
+      operationId: getAuthConfig
+      security: []
+      responses:
+        '200':
+          description: Auth configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfig'
+
+  /v1/auth/oidc/authorize:
+    get:
+      tags: [auth]
+      summary: Start the OIDC authorization-code flow
+      description: |
+        Mints a fresh state, PKCE code_verifier/challenge pair, and
+        nonce; persists the verifier + nonce in `oidc_auth_states`;
+        302s to the configured IdP's authorize endpoint. Returns 404
+        when OIDC is not configured.
+      operationId: oidcAuthorize
+      security: []
+      responses:
+        '302':
+          description: Redirect to the IdP.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        '404':
+          description: OIDC is not configured on this argosd.
+
+  /v1/auth/oidc/callback:
+    get:
+      tags: [auth]
+      summary: Complete the OIDC authorization-code flow
+      description: |
+        Consumes the state / PKCE verifier / nonce stashed at authorize
+        time, exchanges the code with the IdP, verifies the ID token
+        (issuer, audience, signature, nonce), finds or creates the
+        shadow user keyed on `(issuer, sub)`, mints a session, 302s to
+        `/ui/`. Failures land on `/ui/login?oidc_error=<reason>`.
+      operationId: oidcCallback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the UI.
+          headers:
+            Location:
+              schema:
+                type: string
+
   /v1/auth/login:
     post:
       tags: [auth]
@@ -3226,6 +3297,26 @@ components:
         - editor
         - auditor
         - viewer
+
+    AuthConfig:
+      description: |
+        Pre-login auth configuration needed by the UI. Intentionally
+        readable without auth so the login page can render the OIDC
+        button before the user has a session.
+      type: object
+      required: [oidc]
+      properties:
+        oidc:
+          type: object
+          required: [enabled]
+          properties:
+            enabled:
+              type: boolean
+            label:
+              type: string
+              description: |
+                Button label on the login page, e.g. "Sign in with
+                Okta". Controlled by `ARGOS_OIDC_LABEL`.
 
     LoginRequest:
       description: Username + password, both required.

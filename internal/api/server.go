@@ -14,16 +14,18 @@ import (
 
 // Server implements ServerInterface for the Argos REST API.
 type Server struct {
-	version       string
-	store         Store
-	cookiePolicy  auth.SecureCookiePolicy
+	version      string
+	store        Store
+	cookiePolicy auth.SecureCookiePolicy
+	oidc         *auth.OIDCProvider // nil when OIDC is not configured
 }
 
 // NewServer wires the handlers with a persistence backend and the build
 // version reported on health probes. `cookiePolicy` governs the Secure
 // flag on session cookies (see ADR-0007); auto = mirror request scheme.
-func NewServer(version string, store Store, cookiePolicy auth.SecureCookiePolicy) *Server {
-	return &Server{version: version, store: store, cookiePolicy: cookiePolicy}
+// `oidc` may be nil to disable the OIDC flow entirely.
+func NewServer(version string, store Store, cookiePolicy auth.SecureCookiePolicy, oidc *auth.OIDCProvider) *Server {
+	return &Server{version: version, store: store, cookiePolicy: cookiePolicy, oidc: oidc}
 }
 
 var _ ServerInterface = (*Server)(nil)

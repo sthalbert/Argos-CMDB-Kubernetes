@@ -78,6 +78,29 @@ For a predictable password, set `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` on the
 Deployment before the first start. It's only consulted when no admin
 user exists yet — safe to leave set across restarts.
 
+### Optional: enable OIDC sign-in
+
+Set the `ARGOS_OIDC_*` variables in `secrets.example.yaml` to let users
+federate from your IdP instead of (or alongside) local passwords. The
+local `admin` bootstrap still happens — OIDC is additive, not a
+replacement — so you always have a break-glass login.
+
+What the operator needs to do:
+
+1. Register argosd as an application at the IdP. Redirect URI
+   must be `https://<argos-host>/v1/auth/oidc/callback`; grant types:
+   `authorization_code`; request `openid email profile` scopes.
+2. Fill in `ARGOS_OIDC_ISSUER`, `ARGOS_OIDC_CLIENT_ID`,
+   `ARGOS_OIDC_CLIENT_SECRET`, `ARGOS_OIDC_REDIRECT_URL` in the Secret.
+   Optional: `ARGOS_OIDC_LABEL` (button text), `ARGOS_OIDC_SCOPES`.
+3. Restart argosd. On boot it fetches the issuer's discovery document
+   and fails loudly if unreachable — misconfiguration surfaces at
+   startup, not on a user's first login attempt.
+
+First-time OIDC users land as role `viewer` (authorization is not
+claim-driven — ADR-0007). An `admin` promotes them through the admin
+panel at `/ui/admin/users` as needed.
+
 ### Register a cluster
 
 The CMDB requires explicit cluster registration before the collector writes

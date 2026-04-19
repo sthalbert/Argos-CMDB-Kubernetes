@@ -134,6 +134,37 @@ form.login button:hover {
   margin-top: 0.75rem;
 }
 
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.25rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+form.login button.login-oidc {
+  margin-top: 0;
+  background: transparent;
+  color: #dfe4ea;
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+form.login button.login-oidc:hover {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+  background: transparent;
+}
+
 table.entities {
   width: 100%;
   border-collapse: collapse;

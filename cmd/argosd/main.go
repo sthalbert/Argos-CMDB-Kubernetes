@@ -56,6 +56,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	oidcCfg := loadOIDCConfig()
 	shutdownTimeout, err := parseDurationEnv("ARGOS_SHUTDOWN_TIMEOUT", 15*time.Second)
 	if err != nil {
 		return err
@@ -85,6 +86,20 @@ func run() error {
 		return fmt.Errorf("bootstrap admin: %w", err)
 	}
 
+	// Resolve the OIDC provider (if configured). Fatal on misconfig —
+	// operator should see the error at boot, not per-request 500s.
+	oidcProvider, err := auth.NewOIDCProvider(rootCtx, oidcCfg)
+	if err != nil {
+		return fmt.Errorf("oidc provider: %w", err)
+	}
+	if oidcProvider != nil {
+		slog.Info("oidc configured",
+			"issuer", oidcProvider.Config.Issuer,
+			"redirect_url", oidcProvider.Config.RedirectURL,
+			"label", oidcProvider.Config.Label,
+		)
+	}
+
 	drainCollectors, err := maybeStartCollectors(rootCtx, pg)
 	if err != nil {
 		return err
@@ -99,7 +114,7 @@ func run() error {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
-	api.HandlerWithOptions(api.NewServer(version, pg, cookiePolicy), api.StdHTTPServerOptions{
+	api.HandlerWithOptions(api.NewServer(version, pg, cookiePolicy, oidcProvider), api.StdHTTPServerOptions{
 		BaseRouter:  mux,
 		Middlewares: []api.MiddlewareFunc{api.AuthMiddleware(pg, cookiePolicy)},
 	})
@@ -292,6 +307,29 @@ func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
 		"\n  This account MUST rotate its password on first login." +
 		"\n" + banner)
 	return nil
+}
+
+// loadOIDCConfig reads the ARGOS_OIDC_* env vars. Returns a zero-value
+// config (Issuer == "") when OIDC is not configured; NewOIDCProvider
+// treats that as "disabled". Validation happens in NewOIDCProvider.
+func loadOIDCConfig() auth.OIDCConfig {
+	cfg := auth.OIDCConfig{
+		Issuer:       os.Getenv("ARGOS_OIDC_ISSUER"),
+		ClientID:     os.Getenv("ARGOS_OIDC_CLIENT_ID"),
+		ClientSecret: os.Getenv("ARGOS_OIDC_CLIENT_SECRET"),
+		RedirectURL:  os.Getenv("ARGOS_OIDC_REDIRECT_URL"),
+		Label:        os.Getenv("ARGOS_OIDC_LABEL"),
+	}
+	if raw := os.Getenv("ARGOS_OIDC_SCOPES"); raw != "" {
+		parts := strings.Split(raw, ",")
+		cfg.Scopes = make([]string, 0, len(parts))
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				cfg.Scopes = append(cfg.Scopes, p)
+			}
+		}
+	}
+	return cfg
 }
 
 func parseCookiePolicy() (auth.SecureCookiePolicy, error) {

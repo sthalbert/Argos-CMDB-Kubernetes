@@ -621,6 +621,142 @@ func (p *PG) RevokeAPIToken(ctx context.Context, id uuid.UUID, now time.Time) er
 	return nil
 }
 
+// --- OIDC identities + auth states --------------------------------------
+
+func (p *PG) GetUserByIdentity(ctx context.Context, issuer, subject string) (api.User, error) {
+	// user_identities also has an id / created_at column — qualify every
+	// selected column with the users alias so the planner doesn't reject
+	// the unqualified reference as ambiguous (SQLSTATE 42702).
+	q := `SELECT u.id, u.username, u.role, u.must_change_password,
+	             u.created_at, u.updated_at, u.last_login_at, u.disabled_at
+	      FROM users u
+	      JOIN user_identities ui ON ui.user_id = u.id
+	      WHERE ui.issuer = $1 AND ui.subject = $2 AND u.disabled_at IS NULL`
+	u, err := scanUser(p.pool.QueryRow(ctx, q, issuer, subject))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.User{}, api.ErrNotFound
+		}
+		return api.User{}, fmt.Errorf("select user by identity: %w", err)
+	}
+	return u, nil
+}
+
+// CreateUserWithIdentity wraps the user + user_identity INSERTs in a
+// single transaction. Callers that hit ErrConflict (23505 on username)
+// pick a different username and retry.
+func (p *PG) CreateUserWithIdentity(ctx context.Context, in api.UserInsert, ident api.UserIdentityInsert) (api.User, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return api.User{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	id := uuid.New()
+	now := time.Now().UTC()
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO users (id, username, password_hash, role, must_change_password, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+		id, in.Username, in.PasswordHash, in.Role, in.MustChangePassword, now,
+	); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return api.User{}, fmt.Errorf("user %q already exists: %w", in.Username, api.ErrConflict)
+		}
+		return api.User{}, fmt.Errorf("insert user: %w", err)
+	}
+
+	var emailArg any = ident.Email
+	if ident.Email == "" {
+		emailArg = nil
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO user_identities (id, user_id, issuer, subject, email, created_at, last_seen_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+		uuid.New(), id, ident.Issuer, ident.Subject, emailArg, now,
+	); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Race: another login registered this (issuer, subject) between
+			// our GetUserByIdentity check and the insert. Surface as
+			// ErrConflict so the handler can re-read and issue a session.
+			return api.User{}, fmt.Errorf("identity already exists: %w", api.ErrConflict)
+		}
+		return api.User{}, fmt.Errorf("insert identity: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return api.User{}, fmt.Errorf("commit tx: %w", err)
+	}
+
+	// Re-read through GetUser so the returned row is populated exactly
+	// the same way GetUserByIdentity / scanUser do.
+	return p.GetUser(ctx, id)
+}
+
+func (p *PG) TouchUserIdentity(ctx context.Context, userID uuid.UUID, issuer, subject string, now time.Time) error {
+	_, err := p.pool.Exec(ctx,
+		`UPDATE user_identities SET last_seen_at = $1
+		 WHERE user_id = $2 AND issuer = $3 AND subject = $4`,
+		now, userID, issuer, subject,
+	)
+	if err != nil {
+		return fmt.Errorf("touch identity: %w", err)
+	}
+	return nil
+}
+
+func (p *PG) CreateOidcAuthState(ctx context.Context, in api.OidcAuthStateInsert) error {
+	_, err := p.pool.Exec(ctx,
+		`INSERT INTO oidc_auth_states (state, code_verifier, nonce, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		in.State, in.CodeVerifier, in.Nonce, in.CreatedAt, in.ExpiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert oidc state: %w", err)
+	}
+	return nil
+}
+
+// ConsumeOidcAuthState does SELECT ... FOR UPDATE + DELETE in one tx so
+// the row is single-use even under concurrent callbacks carrying the
+// same state (an attack scenario, not a normal case).
+func (p *PG) ConsumeOidcAuthState(ctx context.Context, state string) (string, string, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var codeVerifier, nonce string
+	err = tx.QueryRow(ctx,
+		`SELECT code_verifier, nonce FROM oidc_auth_states
+		 WHERE state = $1 AND expires_at > NOW()
+		 FOR UPDATE`,
+		state,
+	).Scan(&codeVerifier, &nonce)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", api.ErrNotFound
+		}
+		return "", "", fmt.Errorf("select oidc state: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM oidc_auth_states WHERE state = $1`, state); err != nil {
+		return "", "", fmt.Errorf("delete oidc state: %w", err)
+	}
+	// Opportunistic cleanup of anything else that's expired — keeps the
+	// table tiny without a separate cron.
+	if _, err := tx.Exec(ctx, `DELETE FROM oidc_auth_states WHERE expires_at <= NOW()`); err != nil {
+		return "", "", fmt.Errorf("sweep expired oidc states: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", fmt.Errorf("commit tx: %w", err)
+	}
+	return codeVerifier, nonce, nil
+}
+
 func scanAPIToken(row pgx.Row) (api.ApiToken, error) {
 	var (
 		out         api.ApiToken

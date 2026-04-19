@@ -61,14 +61,16 @@ against real clusters; expect additive changes until 1.0.
   (`application/problem+json`).
 - **Dual-path auth** per
   [ADR-0007](docs/adr/adr-0007-auth-and-rbac.md): humans log in with
-  username + password → server-side session cookie; machines use
-  `Authorization: Bearer` with tokens minted by an admin in the UI
-  (argon2id-hashed, plaintext shown once, immediate revocation). Four
-  fixed roles — `admin` / `editor` / `auditor` / `viewer` — map to the
-  existing per-operation scope declarations. First install bootstraps an
-  `admin` user with a random password printed once to the startup log
-  (`must_change_password` forces rotation on first login). OIDC lands in
-  a follow-up PR.
+  either local username + password **or** OIDC (authorization-code flow
+  with PKCE + nonce + state; shadow users keyed on `(issuer, sub)`;
+  first-login role `viewer`, admins promote manually) → server-side
+  session cookie; machines use `Authorization: Bearer` with tokens
+  minted by an admin in the UI (argon2id-hashed, plaintext shown once,
+  immediate revocation). Four fixed roles — `admin` / `editor` /
+  `auditor` / `viewer` — map to the existing per-operation scope
+  declarations. First install bootstraps an `admin` user with a random
+  password printed once to the startup log (`must_change_password`
+  forces rotation on first login).
 - **Filter endpoints** for incident-response queries:
   - `GET /v1/workloads?image=log4j:2.15` — case-insensitive substring match
     over every container's `image` field, init containers included.
@@ -97,8 +99,10 @@ React + TypeScript SPA embedded in the binary at `/ui/` — see
 - **Component search** (`/ui/search/image`) with URL-persisted query —
   find every workload + pod running `log4j:2.15.0`, grouped by
   cluster / namespace with clickable breadcrumbs.
-- Bearer token kept in `sessionStorage` (cleared on tab close); no cookies,
-  no CORS, same-origin as the API.
+- Humans authenticate through the same-origin session cookie set by
+  `/v1/auth/login` (or the OIDC callback); no token paste, no CORS.
+  The "Sign in with <IdP>" button renders automatically when OIDC is
+  configured — the SPA probes `/v1/auth/config` on page load.
 
 ### Ops
 
