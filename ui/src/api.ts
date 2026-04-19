@@ -205,6 +205,21 @@ export interface ServicePort {
   node_port?: number;
 }
 
+export interface LoadBalancerPort {
+  port: number;
+  protocol?: string;
+  error?: string;
+}
+
+// One entry from status.loadBalancer.ingress[] — mirrors the Kubernetes
+// shape. IP for VIP-style setups (MetalLB, Kube-VIP, hardware LB), or
+// hostname for cloud-managed LBs (AWS ELB / GCLB-style DNS).
+export interface LoadBalancerAddress {
+  ip?: string;
+  hostname?: string;
+  ports?: LoadBalancerPort[];
+}
+
 export interface Service {
   id: string;
   namespace_id: string;
@@ -213,6 +228,7 @@ export interface Service {
   cluster_ip?: string | null;
   selector?: Record<string, string> | null;
   ports?: ServicePort[] | null;
+  load_balancer?: LoadBalancerAddress[] | null;
   labels?: Record<string, string> | null;
   layer: Layer;
   created_at: string;
@@ -240,6 +256,7 @@ export interface Ingress {
   ingress_class_name?: string | null;
   rules?: IngressRule[] | null;
   tls?: IngressTLS[] | null;
+  load_balancer?: LoadBalancerAddress[] | null;
   labels?: Record<string, string> | null;
   layer: Layer;
   created_at: string;

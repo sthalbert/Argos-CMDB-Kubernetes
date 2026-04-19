@@ -891,6 +891,7 @@ func (m *memStore) CreateIngress(_ context.Context, in IngressCreate) (Ingress, 
 		IngressClassName: in.IngressClassName,
 		Rules:            in.Rules,
 		Tls:              in.Tls,
+		LoadBalancer:     in.LoadBalancer,
 		Labels:           in.Labels,
 		CreatedAt:        &now,
 		UpdatedAt:        &now,
@@ -945,6 +946,9 @@ func (m *memStore) UpdateIngress(_ context.Context, id uuid.UUID, in IngressUpda
 	if in.Tls != nil {
 		i.Tls = in.Tls
 	}
+	if in.LoadBalancer != nil {
+		i.LoadBalancer = in.LoadBalancer
+	}
 	if in.Labels != nil {
 		i.Labels = in.Labels
 	}
@@ -980,6 +984,7 @@ func (m *memStore) UpsertIngress(_ context.Context, in IngressCreate) (Ingress, 
 		i.IngressClassName = in.IngressClassName
 		i.Rules = in.Rules
 		i.Tls = in.Tls
+		i.LoadBalancer = in.LoadBalancer
 		i.Labels = in.Labels
 		i.UpdatedAt = &now
 		m.ingressesByID[existingID] = i
@@ -993,6 +998,7 @@ func (m *memStore) UpsertIngress(_ context.Context, in IngressCreate) (Ingress, 
 		IngressClassName: in.IngressClassName,
 		Rules:            in.Rules,
 		Tls:              in.Tls,
+		LoadBalancer:     in.LoadBalancer,
 		Labels:           in.Labels,
 		CreatedAt:        &now,
 		UpdatedAt:        &now,
@@ -1038,16 +1044,17 @@ func (m *memStore) CreateService(_ context.Context, in ServiceCreate) (Service, 
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
 	m.createdN++
 	s := Service{
-		Id:          &id,
-		NamespaceId: in.NamespaceId,
-		Name:        in.Name,
-		Type:        in.Type,
-		ClusterIp:   in.ClusterIp,
-		Selector:    in.Selector,
-		Ports:       in.Ports,
-		Labels:      in.Labels,
-		CreatedAt:   &now,
-		UpdatedAt:   &now,
+		Id:           &id,
+		NamespaceId:  in.NamespaceId,
+		Name:         in.Name,
+		Type:         in.Type,
+		ClusterIp:    in.ClusterIp,
+		Selector:     in.Selector,
+		Ports:        in.Ports,
+		LoadBalancer: in.LoadBalancer,
+		Labels:       in.Labels,
+		CreatedAt:    &now,
+		UpdatedAt:    &now,
 	}
 	m.servicesByID[id] = s
 	m.servicesByNatKey[key] = id
@@ -1102,6 +1109,9 @@ func (m *memStore) UpdateService(_ context.Context, id uuid.UUID, in ServiceUpda
 	if in.Ports != nil {
 		s.Ports = in.Ports
 	}
+	if in.LoadBalancer != nil {
+		s.LoadBalancer = in.LoadBalancer
+	}
 	if in.Labels != nil {
 		s.Labels = in.Labels
 	}
@@ -1138,6 +1148,7 @@ func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, 
 		s.ClusterIp = in.ClusterIp
 		s.Selector = in.Selector
 		s.Ports = in.Ports
+		s.LoadBalancer = in.LoadBalancer
 		s.Labels = in.Labels
 		s.UpdatedAt = &now
 		m.servicesByID[existingID] = s
@@ -1145,11 +1156,12 @@ func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, 
 	}
 	id := uuid.New()
 	s := Service{
-		Id:          &id,
-		NamespaceId: in.NamespaceId,
-		Name:        in.Name,
-		Type:        in.Type,
-		ClusterIp:   in.ClusterIp,
+		Id:           &id,
+		NamespaceId:  in.NamespaceId,
+		Name:         in.Name,
+		Type:         in.Type,
+		ClusterIp:    in.ClusterIp,
+		LoadBalancer: in.LoadBalancer,
 		Selector:    in.Selector,
 		Ports:       in.Ports,
 		Labels:      in.Labels,

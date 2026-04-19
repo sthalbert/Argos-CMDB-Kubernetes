@@ -2327,6 +2327,18 @@ components:
           items:
             type: object
             additionalProperties: true
+        load_balancer:
+          type: array
+          description: |
+            External load-balancer addresses, mirroring
+            `status.loadBalancer.ingress[]`. Only Services of type
+            `LoadBalancer` typically carry entries; other types leave
+            the array empty. On-prem populated by MetalLB / Kube-VIP /
+            hardware LB; managed clusters by the cloud controller.
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 32
         labels:
           type: object
           description: Arbitrary user-supplied string key/value labels.
@@ -2438,6 +2450,20 @@ components:
           items:
             type: object
             additionalProperties: true
+        load_balancer:
+          type: array
+          description: |
+            External load-balancer addresses, mirroring
+            `status.loadBalancer.ingress[]`. Each entry is
+            `{ip?, hostname?, ports?}`. Populated by whatever fulfilled
+            the Ingress — a cloud controller on managed clusters, or
+            MetalLB / Kube-VIP / a hardware load balancer on-prem. A
+            single entry is typical; multi-entry setups appear with
+            dual-stack (v4+v6) or redundant VIPs.
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 32
         labels:
           type: object
           description: Arbitrary user-supplied string key/value labels.

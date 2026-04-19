@@ -505,10 +505,77 @@ func (k *KubeClient) ListIngresses(ctx context.Context) ([]IngressInfo, error) {
 			IngressClassName: className,
 			Rules:            rules,
 			TLS:              tls,
+			LoadBalancer:     netv1LoadBalancerIngress(ing.Status.LoadBalancer.Ingress),
 			Labels:           ing.Labels,
 		})
 	}
 	return out, nil
+}
+
+// netv1LoadBalancerIngress flattens NetworkingV1 LB entries into the
+// generic JSONB shape the store persists. Mirrors what controllers
+// write to status.loadBalancer.ingress[] — a mix of IP, hostname, and
+// optional per-port details. On-prem setups typically land with one
+// entry carrying the VIP from MetalLB / Kube-VIP / the hardware LB.
+func netv1LoadBalancerIngress(ingress []networkingv1.IngressLoadBalancerIngress) []map[string]interface{} {
+	if len(ingress) == 0 {
+		return nil
+	}
+	out := make([]map[string]interface{}, 0, len(ingress))
+	for _, entry := range ingress {
+		item := map[string]interface{}{}
+		if entry.IP != "" {
+			item["ip"] = entry.IP
+		}
+		if entry.Hostname != "" {
+			item["hostname"] = entry.Hostname
+		}
+		if len(entry.Ports) > 0 {
+			ports := make([]map[string]interface{}, 0, len(entry.Ports))
+			for _, p := range entry.Ports {
+				port := map[string]interface{}{"port": int(p.Port), "protocol": string(p.Protocol)}
+				if p.Error != nil && *p.Error != "" {
+					port["error"] = *p.Error
+				}
+				ports = append(ports, port)
+			}
+			item["ports"] = ports
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// corev1LoadBalancerIngress flattens CoreV1 LB entries — same shape as
+// the NetworkingV1 helper, but a different type. Services carry LB
+// entries when type=LoadBalancer and something has fulfilled them.
+func corev1LoadBalancerIngress(ingress []corev1.LoadBalancerIngress) []map[string]interface{} {
+	if len(ingress) == 0 {
+		return nil
+	}
+	out := make([]map[string]interface{}, 0, len(ingress))
+	for _, entry := range ingress {
+		item := map[string]interface{}{}
+		if entry.IP != "" {
+			item["ip"] = entry.IP
+		}
+		if entry.Hostname != "" {
+			item["hostname"] = entry.Hostname
+		}
+		if len(entry.Ports) > 0 {
+			ports := make([]map[string]interface{}, 0, len(entry.Ports))
+			for _, p := range entry.Ports {
+				port := map[string]interface{}{"port": int(p.Port), "protocol": string(p.Protocol)}
+				if p.Error != nil && *p.Error != "" {
+					port["error"] = *p.Error
+				}
+				ports = append(ports, port)
+			}
+			item["ports"] = ports
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func (k *KubeClient) ListServices(ctx context.Context) ([]ServiceInfo, error) {
@@ -532,13 +599,14 @@ func (k *KubeClient) ListServices(ctx context.Context) ([]ServiceInfo, error) {
 			ports = append(ports, entry)
 		}
 		out = append(out, ServiceInfo{
-			Name:      s.Name,
-			Namespace: s.Namespace,
-			Type:      string(s.Spec.Type),
-			ClusterIP: s.Spec.ClusterIP,
-			Selector:  s.Spec.Selector,
-			Ports:     ports,
-			Labels:    s.Labels,
+			Name:         s.Name,
+			Namespace:    s.Namespace,
+			Type:         string(s.Spec.Type),
+			ClusterIP:    s.Spec.ClusterIP,
+			Selector:     s.Spec.Selector,
+			Ports:        ports,
+			LoadBalancer: corev1LoadBalancerIngress(s.Status.LoadBalancer.Ingress),
+			Labels:       s.Labels,
 		})
 	}
 	return out, nil

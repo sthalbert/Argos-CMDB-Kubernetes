@@ -180,9 +180,21 @@ echo "pods seeded"
 
 echo "=== services ==="
 make_svc() {
-    local nsid="$1" name="$2" type="$3" cip="$4"
-    post /v1/services "{\"namespace_id\":\"$nsid\",\"name\":\"$name\",\"type\":\"$type\",\"cluster_ip\":\"$cip\",\"ports\":[{\"name\":\"http\",\"port\":80,\"protocol\":\"TCP\",\"target_port\":\"8080\"}]}" >/dev/null
+    local nsid="$1" name="$2" type="$3" cip="$4" lb_json="${5:-[]}"
+    post /v1/services "{
+      \"namespace_id\":\"$nsid\",
+      \"name\":\"$name\",
+      \"type\":\"$type\",
+      \"cluster_ip\":\"$cip\",
+      \"ports\":[{\"name\":\"http\",\"port\":80,\"protocol\":\"TCP\",\"target_port\":\"8080\"}],
+      \"load_balancer\":$lb_json
+    }" >/dev/null
 }
+# The ingress controller's front Service is a LoadBalancer — MetalLB
+# handed it a VIP from the on-prem pool. This is the address the external
+# router DNATs to, and what every Ingress in prod ultimately resolves to.
+make_svc "$KUBE_SYSTEM_PROD" ingress-nginx-controller LoadBalancer 10.96.0.50 \
+  '[{"ip":"192.168.10.42","ports":[{"port":80,"protocol":"TCP"},{"port":443,"protocol":"TCP"}]}]'
 make_svc "$SHOP_PROD" web       ClusterIP 10.96.100.10
 make_svc "$SHOP_PROD" api       ClusterIP 10.96.100.11
 make_svc "$SHOP_PROD" postgres  ClusterIP 10.96.100.12
@@ -192,6 +204,10 @@ make_svc "$SHOP_STAG" web       ClusterIP 10.96.100.10
 echo "services seeded"
 
 echo "=== ingresses ==="
+# shop ingress has its LB address populated via MetalLB — same VIP as the
+# ingress controller Service above. In the UI this shows up in the
+# "Load balancer" column on the list and in a dedicated section on the
+# detail page.
 post /v1/ingresses "{
   \"namespace_id\":\"$SHOP_PROD\",
   \"name\":\"shop\",
@@ -200,7 +216,8 @@ post /v1/ingresses "{
     {\"host\":\"shop.example.com\",\"paths\":[{\"path\":\"/\",\"path_type\":\"Prefix\",\"backend\":{\"service_name\":\"web\",\"service_port_number\":80}}]},
     {\"host\":\"api.shop.example.com\",\"paths\":[{\"path\":\"/\",\"path_type\":\"Prefix\",\"backend\":{\"service_name\":\"api\",\"service_port_number\":80}}]}
   ],
-  \"tls\":[{\"hosts\":[\"shop.example.com\",\"api.shop.example.com\"],\"secret_name\":\"shop-tls\"}]
+  \"tls\":[{\"hosts\":[\"shop.example.com\",\"api.shop.example.com\"],\"secret_name\":\"shop-tls\"}],
+  \"load_balancer\":[{\"ip\":\"192.168.10.42\",\"ports\":[{\"port\":80,\"protocol\":\"TCP\"},{\"port\":443,\"protocol\":\"TCP\"}]}]
 }" >/dev/null
 echo "ingresses seeded"
 

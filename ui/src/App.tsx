@@ -19,6 +19,7 @@ import {
   WorkloadDetail,
   PodDetail,
   NodeDetail,
+  IngressDetail,
 } from './pages/Details';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -94,6 +95,7 @@ export default function App() {
 
       <Route path="/services" element={authed(<Services />)} />
       <Route path="/ingresses" element={authed(<Ingresses />)} />
+      <Route path="/ingresses/:id" element={authed(<IngressDetail />)} />
       <Route path="/persistentvolumes" element={authed(<PersistentVolumes />)} />
       <Route path="/persistentvolumeclaims" element={authed(<PersistentVolumeClaims />)} />
 

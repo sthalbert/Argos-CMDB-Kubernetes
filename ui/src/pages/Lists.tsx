@@ -6,7 +6,7 @@
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
-import { AsyncView, Dash, IdLink, LayerPill } from '../components';
+import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses } from '../components';
 
 export function Clusters() {
   const state = useResource(() => api.listClusters(), []);
@@ -374,6 +374,7 @@ export function Services() {
                     <th>Type</th>
                     <th>ClusterIP</th>
                     <th>Ports</th>
+                    <th>Load balancer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -401,6 +402,9 @@ export function Services() {
                         ) : (
                           <Dash />
                         )}
+                      </td>
+                      <td>
+                        <LoadBalancerAddresses entries={s.load_balancer} />
                       </td>
                     </tr>
                   ))}
@@ -431,13 +435,16 @@ export function Ingresses() {
                     <th>Namespace</th>
                     <th>Class</th>
                     <th>Hosts</th>
+                    <th>Load balancer</th>
                   </tr>
                 </thead>
                 <tbody>
                   {resp.items.map((i) => (
                     <tr key={i.id}>
                       <td>
-                        <strong>{i.name}</strong>
+                        <Link to={`/ingresses/${i.id}`}>
+                          <strong>{i.name}</strong>
+                        </Link>
                       </td>
                       <td>
                         <NamespaceLink
@@ -458,6 +465,9 @@ export function Ingresses() {
                         ) : (
                           <Dash />
                         )}
+                      </td>
+                      <td>
+                        <LoadBalancerAddresses entries={i.load_balancer} />
                       </td>
                     </tr>
                   ))}

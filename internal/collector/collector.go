@@ -106,25 +106,32 @@ type WorkloadInfo struct {
 }
 
 // ServiceInfo is the subset of a Kubernetes Service the collector consumes.
+// LoadBalancer mirrors status.loadBalancer.ingress[] — empty for Services
+// whose type doesn't take one, populated by the cloud controller or
+// on-prem equivalents (MetalLB / Kube-VIP / hardware LB).
 type ServiceInfo struct {
-	Name      string
-	Namespace string
-	Type      string // K8s ServiceType as a string; passed through to api.ServiceType at upsert.
-	ClusterIP string
-	Selector  map[string]string
-	Ports     []map[string]interface{}
-	Labels    map[string]string
+	Name         string
+	Namespace    string
+	Type         string // K8s ServiceType as a string; passed through to api.ServiceType at upsert.
+	ClusterIP    string
+	Selector     map[string]string
+	Ports        []map[string]interface{}
+	LoadBalancer []map[string]interface{}
+	Labels       map[string]string
 }
 
 // IngressInfo is the subset of a Kubernetes Ingress the collector consumes.
-// Rules and TLS entries are flattened into generic maps so the store can
-// persist them as JSONB without coupling to client-go types.
+// Rules, TLS, and LoadBalancer entries are flattened into generic maps so
+// the store can persist them as JSONB without coupling to client-go types.
+// LoadBalancer mirrors status.loadBalancer.ingress[] — populated by the
+// ingress controller (or its underlying Service / cloud LB / MetalLB).
 type IngressInfo struct {
 	Name             string
 	Namespace        string
 	IngressClassName string
 	Rules            []map[string]interface{}
 	TLS              []map[string]interface{}
+	LoadBalancer     []map[string]interface{}
 	Labels           map[string]string
 }
 
@@ -770,6 +777,10 @@ func (c *Collector) ingestServices(ctx context.Context, namespaceIDsByName map[s
 			ports := s.Ports
 			in.Ports = &ports
 		}
+		if len(s.LoadBalancer) > 0 {
+			lb := s.LoadBalancer
+			in.LoadBalancer = &lb
+		}
 		if len(s.Labels) > 0 {
 			labels := s.Labels
 			in.Labels = &labels
@@ -835,6 +846,10 @@ func (c *Collector) ingestIngresses(ctx context.Context, namespaceIDsByName map[
 		if len(ing.TLS) > 0 {
 			tls := ing.TLS
 			in.Tls = &tls
+		}
+		if len(ing.LoadBalancer) > 0 {
+			lb := ing.LoadBalancer
+			in.LoadBalancer = &lb
 		}
 		if len(ing.Labels) > 0 {
 			labels := ing.Labels

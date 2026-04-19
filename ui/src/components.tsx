@@ -66,6 +66,44 @@ export const Code = ({ children }: { children: React.ReactNode }) => (
   <code className="inline-code">{children}</code>
 );
 
+// LoadBalancerAddresses renders each entry from status.loadBalancer.ingress
+// as a chip. IPs render monospaced; hostnames italicised so the two modes
+// are visually distinct even when an entry carries both (rare but valid —
+// cloud LBs sometimes expose both a DNS name and an eventual IP).
+export const LoadBalancerAddresses = ({
+  entries,
+}: {
+  entries?:
+    | Array<{ ip?: string; hostname?: string; ports?: Array<{ port: number; protocol?: string }> }>
+    | null;
+}) => {
+  if (!entries || entries.length === 0) return <Dash />;
+  return (
+    <div className="lb-list">
+      {entries.map((e, i) => {
+        const parts: React.ReactNode[] = [];
+        if (e.ip) parts.push(<code key="ip">{e.ip}</code>);
+        if (e.hostname) parts.push(<span key="h" className="lb-host">{e.hostname}</span>);
+        if (parts.length === 0) parts.push(<Dash key="empty" />);
+        const ports = e.ports
+          ?.map((p) => `${p.port}/${p.protocol || 'TCP'}`)
+          .join(', ');
+        return (
+          <span key={i} className="lb-entry">
+            {parts.map((p, idx) => (
+              <span key={idx}>
+                {idx > 0 ? <span className="muted"> · </span> : null}
+                {p}
+              </span>
+            ))}
+            {ports && <span className="muted lb-ports"> [{ports}]</span>}
+          </span>
+        );
+      })}
+    </div>
+  );
+};
+
 export const Labels = ({ labels }: { labels?: Record<string, string> | null }) => {
   if (!labels) return <Dash />;
   const entries = Object.entries(labels);

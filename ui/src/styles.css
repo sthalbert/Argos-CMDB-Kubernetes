@@ -287,6 +287,23 @@ dl.kv-list {
   color: #0e1012;
 }
 
+.lb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.lb-entry {
+  font-size: 0.85rem;
+}
+.lb-host {
+  font-style: italic;
+  color: #dfe4ea;
+}
+.lb-ports {
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .pill.status-ok {
   background: #163821;
   color: #7bd88f;

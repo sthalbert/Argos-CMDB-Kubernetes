@@ -1486,6 +1486,10 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 }
 
 // CreateService inserts a new service.
+// serviceColumns — same pattern as nodeColumns / ingressColumns.
+const serviceColumns = `id, namespace_id, name, type, cluster_ip,
+	selector, ports, load_balancer, labels, created_at, updated_at`
+
 func (p *PG) CreateService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1502,6 +1506,10 @@ func (p *PG) CreateService(ctx context.Context, in api.ServiceCreate) (api.Servi
 	if err != nil {
 		return api.Service{}, err
 	}
+	lbJSON, err := marshalPorts(in.LoadBalancer)
+	if err != nil {
+		return api.Service{}, err
+	}
 
 	var svcType *string
 	if in.Type != nil {
@@ -1509,15 +1517,10 @@ func (p *PG) CreateService(ctx context.Context, in api.ServiceCreate) (api.Servi
 		svcType = &t
 	}
 
-	const q = `
-		INSERT INTO services (
-			id, namespace_id, name, type, cluster_ip,
-			selector, ports, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-	`
+	q := `INSERT INTO services (` + serviceColumns + `) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`
 	_, err = p.pool.Exec(ctx, q,
 		id, in.NamespaceId, in.Name, svcType, in.ClusterIp,
-		selectorJSON, portsJSON, labelsJSON, now,
+		selectorJSON, portsJSON, lbJSON, labelsJSON, now,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -1533,27 +1536,23 @@ func (p *PG) CreateService(ctx context.Context, in api.ServiceCreate) (api.Servi
 	}
 
 	return api.Service{
-		Id:          &id,
-		NamespaceId: in.NamespaceId,
-		Name:        in.Name,
-		Type:        in.Type,
-		ClusterIp:   in.ClusterIp,
-		Selector:    in.Selector,
-		Ports:       in.Ports,
-		Labels:      in.Labels,
-		CreatedAt:   &now,
-		UpdatedAt:   &now,
+		Id:           &id,
+		NamespaceId:  in.NamespaceId,
+		Name:         in.Name,
+		Type:         in.Type,
+		ClusterIp:    in.ClusterIp,
+		Selector:     in.Selector,
+		Ports:        in.Ports,
+		LoadBalancer: in.LoadBalancer,
+		Labels:       in.Labels,
+		CreatedAt:    &now,
+		UpdatedAt:    &now,
 	}, nil
 }
 
 // GetService fetches a service by id.
 func (p *PG) GetService(ctx context.Context, id uuid.UUID) (api.Service, error) {
-	const q = `
-		SELECT id, namespace_id, name, type, cluster_ip,
-		       selector, ports, labels, created_at, updated_at
-		FROM services
-		WHERE id = $1
-	`
+	q := `SELECT ` + serviceColumns + ` FROM services WHERE id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	s, err := scanService(row)
 	if err != nil {
@@ -1575,9 +1574,9 @@ func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT id, namespace_id, name, type, cluster_ip,
-	                       selector, ports, labels, created_at, updated_at
-	                FROM services`)
+	sb.WriteString(`SELECT `)
+	sb.WriteString(serviceColumns)
+	sb.WriteString(` FROM services`)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 2)
 
@@ -1663,6 +1662,13 @@ func (p *PG) UpdateService(ctx context.Context, id uuid.UUID, in api.ServiceUpda
 		}
 		appendSet("ports", b)
 	}
+	if in.LoadBalancer != nil {
+		b, err := marshalPorts(in.LoadBalancer)
+		if err != nil {
+			return api.Service{}, err
+		}
+		appendSet("load_balancer", b)
+	}
 	if in.Labels != nil {
 		b, err := marshalLabels(in.Labels)
 		if err != nil {
@@ -1713,6 +1719,10 @@ func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Servi
 	if err != nil {
 		return api.Service{}, err
 	}
+	lbJSON, err := marshalPorts(in.LoadBalancer)
+	if err != nil {
+		return api.Service{}, err
+	}
 
 	var svcType *string
 	if in.Type != nil {
@@ -1720,24 +1730,20 @@ func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Servi
 		svcType = &t
 	}
 
-	const q = `
-		INSERT INTO services (
-			id, namespace_id, name, type, cluster_ip,
-			selector, ports, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+	q := `
+		INSERT INTO services (` + serviceColumns + `) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
 		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			type       = EXCLUDED.type,
-			cluster_ip = EXCLUDED.cluster_ip,
-			selector   = EXCLUDED.selector,
-			ports      = EXCLUDED.ports,
-			labels     = EXCLUDED.labels,
-			updated_at = EXCLUDED.updated_at
-		RETURNING id, namespace_id, name, type, cluster_ip,
-		          selector, ports, labels, created_at, updated_at
-	`
+			type          = EXCLUDED.type,
+			cluster_ip    = EXCLUDED.cluster_ip,
+			selector      = EXCLUDED.selector,
+			ports         = EXCLUDED.ports,
+			load_balancer = EXCLUDED.load_balancer,
+			labels        = EXCLUDED.labels,
+			updated_at    = EXCLUDED.updated_at
+		RETURNING ` + serviceColumns
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, svcType, in.ClusterIp,
-		selectorJSON, portsJSON, labelsJSON, now,
+		selectorJSON, portsJSON, lbJSON, labelsJSON, now,
 	)
 	s, err := scanService(row)
 	if err != nil {
@@ -1776,6 +1782,12 @@ func marshalPorts(ports *[]map[string]interface{}) ([]byte, error) {
 }
 
 // CreateIngress inserts a new ingress.
+// ingressColumns is the full INSERT / SELECT / RETURNING column list for
+// the ingresses table. Kept as a single const so the several SQL paths
+// stay in sync; the load_balancer JSONB sits between tls and labels.
+const ingressColumns = `id, namespace_id, name, ingress_class_name,
+	rules, tls, load_balancer, labels, created_at, updated_at`
+
 func (p *PG) CreateIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1792,16 +1804,15 @@ func (p *PG) CreateIngress(ctx context.Context, in api.IngressCreate) (api.Ingre
 	if err != nil {
 		return api.Ingress{}, err
 	}
+	lbJSON, err := marshalPorts(in.LoadBalancer)
+	if err != nil {
+		return api.Ingress{}, err
+	}
 
-	const q = `
-		INSERT INTO ingresses (
-			id, namespace_id, name, ingress_class_name,
-			rules, tls, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
-	`
+	q := `INSERT INTO ingresses (` + ingressColumns + `) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`
 	_, err = p.pool.Exec(ctx, q,
 		id, in.NamespaceId, in.Name, in.IngressClassName,
-		rulesJSON, tlsJSON, labelsJSON, now,
+		rulesJSON, tlsJSON, lbJSON, labelsJSON, now,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -1823,6 +1834,7 @@ func (p *PG) CreateIngress(ctx context.Context, in api.IngressCreate) (api.Ingre
 		IngressClassName: in.IngressClassName,
 		Rules:            in.Rules,
 		Tls:              in.Tls,
+		LoadBalancer:     in.LoadBalancer,
 		Labels:           in.Labels,
 		CreatedAt:        &now,
 		UpdatedAt:        &now,
@@ -1831,12 +1843,7 @@ func (p *PG) CreateIngress(ctx context.Context, in api.IngressCreate) (api.Ingre
 
 // GetIngress fetches an ingress by id.
 func (p *PG) GetIngress(ctx context.Context, id uuid.UUID) (api.Ingress, error) {
-	const q = `
-		SELECT id, namespace_id, name, ingress_class_name,
-		       rules, tls, labels, created_at, updated_at
-		FROM ingresses
-		WHERE id = $1
-	`
+	q := `SELECT ` + ingressColumns + ` FROM ingresses WHERE id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	ing, err := scanIngress(row)
 	if err != nil {
@@ -1858,9 +1865,9 @@ func (p *PG) ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit in
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT id, namespace_id, name, ingress_class_name,
-	                       rules, tls, labels, created_at, updated_at
-	                FROM ingresses`)
+	sb.WriteString(`SELECT `)
+	sb.WriteString(ingressColumns)
+	sb.WriteString(` FROM ingresses`)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 2)
 
@@ -1943,6 +1950,13 @@ func (p *PG) UpdateIngress(ctx context.Context, id uuid.UUID, in api.IngressUpda
 		}
 		appendSet("tls", b)
 	}
+	if in.LoadBalancer != nil {
+		b, err := marshalPorts(in.LoadBalancer)
+		if err != nil {
+			return api.Ingress{}, err
+		}
+		appendSet("load_balancer", b)
+	}
 	if in.Labels != nil {
 		b, err := marshalLabels(in.Labels)
 		if err != nil {
@@ -1993,24 +2007,24 @@ func (p *PG) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingre
 	if err != nil {
 		return api.Ingress{}, err
 	}
+	lbJSON, err := marshalPorts(in.LoadBalancer)
+	if err != nil {
+		return api.Ingress{}, err
+	}
 
-	const q = `
-		INSERT INTO ingresses (
-			id, namespace_id, name, ingress_class_name,
-			rules, tls, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+	q := `
+		INSERT INTO ingresses (` + ingressColumns + `) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
 		ON CONFLICT (namespace_id, name) DO UPDATE SET
 			ingress_class_name = EXCLUDED.ingress_class_name,
 			rules              = EXCLUDED.rules,
 			tls                = EXCLUDED.tls,
+			load_balancer      = EXCLUDED.load_balancer,
 			labels             = EXCLUDED.labels,
 			updated_at         = EXCLUDED.updated_at
-		RETURNING id, namespace_id, name, ingress_class_name,
-		          rules, tls, labels, created_at, updated_at
-	`
+		RETURNING ` + ingressColumns
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, in.IngressClassName,
-		rulesJSON, tlsJSON, labelsJSON, now,
+		rulesJSON, tlsJSON, lbJSON, labelsJSON, now,
 	)
 	ing, err := scanIngress(row)
 	if err != nil {
@@ -2047,12 +2061,13 @@ func scanIngress(row pgx.Row) (api.Ingress, error) {
 		ingressClassName sql.NullString
 		rulesJSON        []byte
 		tlsJSON          []byte
+		lbJSON           []byte
 		labelsJSON       []byte
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &i.Name,
 		&ingressClassName,
-		&rulesJSON, &tlsJSON, &labelsJSON,
+		&rulesJSON, &tlsJSON, &lbJSON, &labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
 		return api.Ingress{}, err
@@ -2080,6 +2095,11 @@ func scanIngress(row pgx.Row) (api.Ingress, error) {
 			i.Tls = &tls
 		}
 	}
+	if lb, err := unmarshalMapArray(lbJSON); err != nil {
+		return api.Ingress{}, fmt.Errorf("unmarshal ingress load_balancer: %w", err)
+	} else {
+		i.LoadBalancer = lb
+	}
 	if len(labelsJSON) > 0 {
 		var labels map[string]string
 		if err := json.Unmarshal(labelsJSON, &labels); err != nil {
@@ -2103,12 +2123,13 @@ func scanService(row pgx.Row) (api.Service, error) {
 		clusterIP    sql.NullString
 		selectorJSON []byte
 		portsJSON    []byte
+		lbJSON       []byte
 		labelsJSON   []byte
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &s.Name,
 		&svcType, &clusterIP,
-		&selectorJSON, &portsJSON, &labelsJSON,
+		&selectorJSON, &portsJSON, &lbJSON, &labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
 		return api.Service{}, err
@@ -2139,6 +2160,11 @@ func scanService(row pgx.Row) (api.Service, error) {
 		if len(ports) > 0 {
 			s.Ports = &ports
 		}
+	}
+	if lb, err := unmarshalMapArray(lbJSON); err != nil {
+		return api.Service{}, fmt.Errorf("unmarshal service load_balancer: %w", err)
+	} else {
+		s.LoadBalancer = lb
 	}
 	if len(labelsJSON) > 0 {
 		var labels map[string]string
