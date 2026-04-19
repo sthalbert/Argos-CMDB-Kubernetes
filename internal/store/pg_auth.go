@@ -180,10 +180,12 @@ func (p *PG) UpdateUser(ctx context.Context, id uuid.UUID, in api.UserPatch) (ap
 		if *in.Disabled {
 			sets = append(sets, fmt.Sprintf("disabled_at = $%d", idx))
 			args = append(args, time.Now().UTC())
+			// No further placeholders after this branch, and the false
+			// branch binds a literal NULL — no idx++ needed on either
+			// path. (The final `$%d` below uses len(args).)
 		} else {
 			sets = append(sets, "disabled_at = NULL")
 		}
-		idx++
 	}
 	args = append(args, id)
 
