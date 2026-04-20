@@ -2520,6 +2520,38 @@ components:
             type: string
             maxLength: 256
           maxProperties: 64
+        owner:
+          type: string
+          maxLength: 256
+          description: |
+            Free-form handle for the team / on-call that owns this
+            namespace. Surfaced on the detail page so incident
+            responders know who to wake up.
+        criticality:
+          type: string
+          maxLength: 32
+          description: |
+            Free-form operational tier label (`critical`, `high`,
+            `medium`, `low`). Distinct from DICT data-classification,
+            which lives on its own columns.
+        notes:
+          type: string
+          maxLength: 8192
+          description: Long-form prose.
+        runbook_url:
+          type: string
+          format: uri
+          maxLength: 1024
+          description: Link to the owning team's runbook for this namespace.
+        annotations:
+          type: object
+          description: |
+            Free-form k/v for metadata not worth its own column. The
+            collector never writes this field.
+          additionalProperties:
+            type: string
+            maxLength: 1024
+          maxProperties: 64
 
     NamespaceCreate:
       description: Payload to register a new namespace under a cluster.

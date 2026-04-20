@@ -1846,3 +1846,116 @@ func TestPGClusterCuratedMetadata(t *testing.T) {
 		t.Errorf("criticality clobbered by owner patch")
 	}
 }
+
+// Mirrors TestPGClusterCuratedMetadata for namespaces (migration 00019):
+// round-trips the curated columns, then simulates a collector UPSERT
+// (which passes only the Kubernetes-derived fields) and asserts the
+// operator-set curated columns survive unchanged. Pins the
+// collector-no-clobber invariant at the SQL level.
+func TestPGNamespaceCuratedMetadata(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	clusterName := "ns-curated-" + strconv.FormatInt(int64(uuid.New().ID()), 16)
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: clusterName})
+	if err != nil {
+		t.Fatalf("seed cluster: %v", err)
+	}
+
+	owner := "team-platform"
+	criticality := "critical"
+	notes := "handles PII; restrict access"
+	runbook := "https://runbooks.example.com/prod-ns"
+	annotations := map[string]string{"compliance": "snc", "tier": "1"}
+	nsName := "prod"
+
+	// Seed via CreateNamespace with curated metadata set up front.
+	created, err := pg.CreateNamespace(ctx, api.NamespaceCreate{
+		ClusterId:   *cluster.Id,
+		Name:        nsName,
+		Owner:       &owner,
+		Criticality: &criticality,
+		Notes:       &notes,
+		RunbookUrl:  &runbook,
+		Annotations: &annotations,
+	})
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	// Readback carries every curated field.
+	got, err := pg.GetNamespace(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get namespace: %v", err)
+	}
+	if got.Owner == nil || *got.Owner != owner {
+		t.Errorf("owner = %v, want %q", got.Owner, owner)
+	}
+	if got.Criticality == nil || *got.Criticality != criticality {
+		t.Errorf("criticality = %v, want %q", got.Criticality, criticality)
+	}
+	if got.Notes == nil || *got.Notes != notes {
+		t.Errorf("notes round-trip failed")
+	}
+	if got.RunbookUrl == nil || *got.RunbookUrl != runbook {
+		t.Errorf("runbook_url round-trip failed")
+	}
+	if got.Annotations == nil || (*got.Annotations)["compliance"] != "snc" {
+		t.Errorf("annotations round-trip failed: %v", got.Annotations)
+	}
+
+	// Simulate the collector tick: UPSERT passing only the fields the
+	// collector derives from the Kubernetes API (name, phase, labels).
+	// Curated columns must survive unchanged because they are NOT in
+	// the ON CONFLICT DO UPDATE SET clause.
+	phase := "Active"
+	colLabels := map[string]string{"kubernetes.io/metadata.name": nsName}
+	if _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+		ClusterId: *cluster.Id,
+		Name:      nsName,
+		Phase:     &phase,
+		Labels:    &colLabels,
+	}); err != nil {
+		t.Fatalf("collector-style upsert: %v", err)
+	}
+	afterCollector, err := pg.GetNamespace(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get after collector upsert: %v", err)
+	}
+	if afterCollector.Phase == nil || *afterCollector.Phase != phase {
+		t.Errorf("phase not updated by collector: %v", afterCollector.Phase)
+	}
+	if afterCollector.Owner == nil || *afterCollector.Owner != owner {
+		t.Errorf("owner clobbered by collector upsert: %v", afterCollector.Owner)
+	}
+	if afterCollector.Criticality == nil || *afterCollector.Criticality != criticality {
+		t.Errorf("criticality clobbered: %v", afterCollector.Criticality)
+	}
+	if afterCollector.Notes == nil || *afterCollector.Notes != notes {
+		t.Errorf("notes clobbered")
+	}
+	if afterCollector.RunbookUrl == nil || *afterCollector.RunbookUrl != runbook {
+		t.Errorf("runbook_url clobbered")
+	}
+	if afterCollector.Annotations == nil || (*afterCollector.Annotations)["compliance"] != "snc" {
+		t.Errorf("annotations clobbered: %v", afterCollector.Annotations)
+	}
+
+	// Editor-style patch updates only what was sent.
+	newOwner := "team-sre"
+	if _, err := pg.UpdateNamespace(ctx, *created.Id, api.NamespaceUpdate{
+		Owner: &newOwner,
+	}); err != nil {
+		t.Fatalf("owner update: %v", err)
+	}
+	afterEdit, err := pg.GetNamespace(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get after owner patch: %v", err)
+	}
+	if afterEdit.Owner == nil || *afterEdit.Owner != newOwner {
+		t.Errorf("owner update did not stick: %v", afterEdit.Owner)
+	}
+	if afterEdit.Criticality == nil || *afterEdit.Criticality != criticality {
+		t.Errorf("criticality clobbered by owner patch")
+	}
+}

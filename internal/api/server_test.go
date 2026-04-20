@@ -441,6 +441,11 @@ func (m *memStore) CreateNamespace(_ context.Context, in NamespaceCreate) (Names
 		DisplayName: in.DisplayName,
 		Phase:       in.Phase,
 		Labels:      in.Labels,
+		Owner:       in.Owner,
+		Criticality: in.Criticality,
+		Notes:       in.Notes,
+		RunbookUrl:  in.RunbookUrl,
+		Annotations: in.Annotations,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
@@ -493,6 +498,21 @@ func (m *memStore) UpdateNamespace(_ context.Context, id uuid.UUID, in Namespace
 	}
 	if in.Labels != nil {
 		n.Labels = in.Labels
+	}
+	if in.Owner != nil {
+		n.Owner = in.Owner
+	}
+	if in.Criticality != nil {
+		n.Criticality = in.Criticality
+	}
+	if in.Notes != nil {
+		n.Notes = in.Notes
+	}
+	if in.RunbookUrl != nil {
+		n.RunbookUrl = in.RunbookUrl
+	}
+	if in.Annotations != nil {
+		n.Annotations = in.Annotations
 	}
 	now := time.Now().UTC()
 	n.UpdatedAt = &now
@@ -1247,6 +1267,11 @@ func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Names
 		DisplayName: in.DisplayName,
 		Phase:       in.Phase,
 		Labels:      in.Labels,
+		Owner:       in.Owner,
+		Criticality: in.Criticality,
+		Notes:       in.Notes,
+		RunbookUrl:  in.RunbookUrl,
+		Annotations: in.Annotations,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}

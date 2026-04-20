@@ -16,6 +16,7 @@ import { Link, useParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource, useResources } from '../hooks';
 import { ClusterCuratedCard } from './cluster_curated';
+import { NamespaceCuratedCard } from './namespace_curated';
 import {
   AsyncView,
   Dash,
@@ -178,6 +179,8 @@ export function ClusterDetail() {
 
 export function NamespaceDetail() {
   const { id = '' } = useParams();
+  const [nonce, setNonce] = useState(0);
+  const reload = () => setNonce((n) => n + 1);
   const state = useResources(
     [
       () => api.getNamespace(id),
@@ -187,7 +190,7 @@ export function NamespaceDetail() {
       () => api.listIngresses({ namespace_id: id }),
       () => api.listPersistentVolumeClaims({ namespace_id: id }),
     ] as const,
-    [id],
+    [id, nonce],
   );
 
   const clusterResult = useResource(async () => {
@@ -217,6 +220,8 @@ export function NamespaceDetail() {
               <KV k="Phase" v={ns.phase} />
               <KV k="Labels" v={<Labels labels={ns.labels} />} />
             </dl>
+
+            <NamespaceCuratedCard namespace={ns} onSaved={reload} />
 
             <p className="impact-callout">
               <strong>All assets in this namespace</strong> — the "application = namespace"

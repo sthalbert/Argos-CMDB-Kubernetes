@@ -4,25 +4,25 @@ import { canEdit, useMe } from '../me';
 import { KV, Labels } from '../components';
 import { formatKV, parseKV } from '../kv';
 
-// ClusterCuratedCard renders the operator-owned fields that don't come
-// from the Kubernetes API (owner / criticality / notes / runbook /
-// annotations). Viewers and auditors see a read-only summary; editors
-// and admins get an inline Edit button that flips to a form. Saving
-// calls updateCluster with a merge-patch body and bubbles reload to
-// the parent.
-export function ClusterCuratedCard({
-  cluster,
+// NamespaceCuratedCard mirrors ClusterCuratedCard but only surfaces the
+// operator-owned fields relevant at the namespace level (owner,
+// criticality, notes, runbook, annotations). Environment / region /
+// provider live on the parent Cluster; DICT security-need columns will
+// land in a later migration (00023) and get their own card.
+
+export function NamespaceCuratedCard({
+  namespace,
   onSaved,
 }: {
-  cluster: api.Cluster;
+  namespace: api.Namespace;
   onSaved: () => void;
 }) {
   const me = useMe();
   const [editing, setEditing] = useState(false);
   if (editing && canEdit(me)) {
     return (
-      <ClusterCuratedForm
-        cluster={cluster}
+      <NamespaceCuratedForm
+        namespace={namespace}
         onCancel={() => setEditing(false)}
         onSaved={() => {
           setEditing(false);
@@ -32,11 +32,11 @@ export function ClusterCuratedCard({
     );
   }
   const empty =
-    !cluster.owner &&
-    !cluster.criticality &&
-    !cluster.notes &&
-    !cluster.runbook_url &&
-    !cluster.annotations;
+    !namespace.owner &&
+    !namespace.criticality &&
+    !namespace.notes &&
+    !namespace.runbook_url &&
+    !namespace.annotations;
   return (
     <section className="curated-card">
       <div className="curated-card-header">
@@ -55,21 +55,21 @@ export function ClusterCuratedCard({
         </p>
       ) : (
         <dl className="kv-list">
-          <KV k="Owner" v={cluster.owner} />
+          <KV k="Owner" v={namespace.owner} />
           <KV
             k="Criticality"
             v={
-              cluster.criticality ? (
-                <span className="pill">{cluster.criticality}</span>
+              namespace.criticality ? (
+                <span className="pill">{namespace.criticality}</span>
               ) : undefined
             }
           />
           <KV
             k="Runbook"
             v={
-              cluster.runbook_url ? (
-                <a href={cluster.runbook_url} target="_blank" rel="noreferrer">
-                  {cluster.runbook_url}
+              namespace.runbook_url ? (
+                <a href={namespace.runbook_url} target="_blank" rel="noreferrer">
+                  {namespace.runbook_url}
                 </a>
               ) : undefined
             }
@@ -77,49 +77,40 @@ export function ClusterCuratedCard({
           <KV
             k="Notes"
             v={
-              cluster.notes ? (
-                <pre className="curated-notes">{cluster.notes}</pre>
+              namespace.notes ? (
+                <pre className="curated-notes">{namespace.notes}</pre>
               ) : undefined
             }
           />
-          <KV k="Annotations" v={<Labels labels={cluster.annotations} />} />
+          <KV k="Annotations" v={<Labels labels={namespace.annotations} />} />
         </dl>
       )}
     </section>
   );
 }
 
-function ClusterCuratedForm({
-  cluster,
+function NamespaceCuratedForm({
+  namespace,
   onCancel,
   onSaved,
 }: {
-  cluster: api.Cluster;
+  namespace: api.Namespace;
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const [environment, setEnvironment] = useState(cluster.environment || '');
-  const [provider, setProvider] = useState(cluster.provider || '');
-  const [region, setRegion] = useState(cluster.region || '');
-  const [labelsText, setLabelsText] = useState(formatKV(cluster.labels));
-  const [owner, setOwner] = useState(cluster.owner || '');
-  const [criticality, setCriticality] = useState(cluster.criticality || '');
-  const [notes, setNotes] = useState(cluster.notes || '');
-  const [runbook, setRunbook] = useState(cluster.runbook_url || '');
-  const [annotationsText, setAnnotationsText] = useState(formatKV(cluster.annotations));
+  const [owner, setOwner] = useState(namespace.owner || '');
+  const [criticality, setCriticality] = useState(namespace.criticality || '');
+  const [notes, setNotes] = useState(namespace.notes || '');
+  const [runbook, setRunbook] = useState(namespace.runbook_url || '');
+  const [annotationsText, setAnnotationsText] = useState(formatKV(namespace.annotations));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    // Parse labels + annotations as `key=value` one per line before
-    // PATCHing, so the user doesn't see JSON-parse errors for a
-    // trailing comma.
-    let labels: Record<string, string>;
     let annotations: Record<string, string>;
     try {
-      labels = parseKV(labelsText, 'labels');
       annotations = parseKV(annotationsText, 'annotations');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -127,12 +118,7 @@ function ClusterCuratedForm({
     }
     setBusy(true);
     try {
-      if (!cluster.id) throw new Error('cluster missing id');
-      await api.updateCluster(cluster.id, {
-        environment: environment.trim(),
-        provider: provider.trim(),
-        region: region.trim(),
-        labels: labels,
+      await api.updateNamespace(namespace.id, {
         owner: owner.trim(),
         criticality: criticality.trim(),
         notes: notes,
@@ -154,48 +140,6 @@ function ClusterCuratedForm({
       </div>
       <form className="admin-form" onSubmit={onSubmit}>
         <div className="admin-form-row">
-          <div>
-            <label>Environment</label>
-            <input
-              type="text"
-              value={environment}
-              onChange={(e) => setEnvironment(e.target.value)}
-              placeholder="dev / staging / prod"
-            />
-          </div>
-          <div>
-            <label>Provider</label>
-            <input
-              type="text"
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              placeholder="gke / eks / aks / openshift / onprem"
-            />
-          </div>
-          <div>
-            <label>Region</label>
-            <input
-              type="text"
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              placeholder="eu-west-1 / paris-a"
-            />
-          </div>
-        </div>
-        <div style={{ marginTop: '0.75rem' }}>
-          <label>Labels (one key=value per line)</label>
-          <textarea
-            value={labelsText}
-            onChange={(e) => setLabelsText(e.target.value)}
-            rows={3}
-            style={{
-              width: '100%',
-              fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-            }}
-          />
-        </div>
-
-        <div className="admin-form-row" style={{ marginTop: '0.75rem' }}>
           <div>
             <label>Owner</label>
             <input
@@ -221,7 +165,7 @@ function ClusterCuratedForm({
             type="url"
             value={runbook}
             onChange={(e) => setRunbook(e.target.value)}
-            placeholder="https://runbooks.example.com/prod-cluster"
+            placeholder="https://runbooks.example.com/ns-prod"
           />
         </div>
         <div style={{ marginTop: '0.75rem' }}>
@@ -258,7 +202,3 @@ function ClusterCuratedForm({
     </section>
   );
 }
-
-// formatKV / parseKV serialize a `Record<string, string>` as one
-// `key=value` per line. Used for both `labels` and `annotations` — the
-// shapes are identical, just different JSONB columns server-side.

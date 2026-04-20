@@ -374,11 +374,38 @@ export interface Namespace {
   id: string;
   cluster_id: string;
   name: string;
+  display_name?: string | null;
   phase?: string | null;
   labels?: Record<string, string> | null;
+  // Curated metadata — operator-owned, never touched by the collector.
+  owner?: string | null;
+  criticality?: string | null;
+  notes?: string | null;
+  runbook_url?: string | null;
+  annotations?: Record<string, string> | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
+}
+
+export type NamespacePatch = Partial<Pick<
+  Namespace,
+  | 'display_name'
+  | 'phase'
+  | 'labels'
+  | 'owner'
+  | 'criticality'
+  | 'notes'
+  | 'runbook_url'
+  | 'annotations'
+>>;
+
+export function updateNamespace(id: string, patch: NamespacePatch) {
+  return request<Namespace>(`/v1/namespaces/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
 }
 
 export interface Workload {

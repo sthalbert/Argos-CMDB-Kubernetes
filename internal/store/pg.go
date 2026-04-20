@@ -664,16 +664,22 @@ func (p *PG) CreateNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	if err != nil {
 		return api.Namespace{}, err
 	}
+	annotationsJSON, err := marshalLabels(in.Annotations)
+	if err != nil {
+		return api.Namespace{}, fmt.Errorf("marshal namespace annotations: %w", err)
+	}
 
 	const q = `
 		INSERT INTO namespaces (
-			id, cluster_id, name, display_name, phase,
-			labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+			id, cluster_id, name, display_name, phase, labels,
+			owner, criticality, notes, runbook_url, annotations,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
 	`
 	_, err = p.pool.Exec(ctx, q,
-		id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
-		labelsJSON, now,
+		id, in.ClusterId, in.Name, in.DisplayName, in.Phase, labelsJSON,
+		in.Owner, in.Criticality, in.Notes, in.RunbookUrl, annotationsJSON,
+		now,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -695,6 +701,11 @@ func (p *PG) CreateNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 		DisplayName: in.DisplayName,
 		Phase:       in.Phase,
 		Labels:      in.Labels,
+		Owner:       in.Owner,
+		Criticality: in.Criticality,
+		Notes:       in.Notes,
+		RunbookUrl:  in.RunbookUrl,
+		Annotations: in.Annotations,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}, nil
@@ -703,8 +714,9 @@ func (p *PG) CreateNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 // GetNamespace fetches a namespace by id.
 func (p *PG) GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, error) {
 	const q = `
-		SELECT id, cluster_id, name, display_name, phase,
-		       labels, created_at, updated_at
+		SELECT id, cluster_id, name, display_name, phase, labels,
+		       owner, criticality, notes, runbook_url, annotations,
+		       created_at, updated_at
 		FROM namespaces
 		WHERE id = $1
 	`
@@ -729,8 +741,9 @@ func (p *PG) ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT id, cluster_id, name, display_name, phase,
-	                       labels, created_at, updated_at
+	sb.WriteString(`SELECT id, cluster_id, name, display_name, phase, labels,
+	                       owner, criticality, notes, runbook_url, annotations,
+	                       created_at, updated_at
 	                FROM namespaces`)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 2)
@@ -810,6 +823,27 @@ func (p *PG) UpdateNamespace(ctx context.Context, id uuid.UUID, in api.Namespace
 		}
 		appendSet("labels", b)
 	}
+	// Curated metadata — collector never writes these, so merge-patch
+	// omission is enough to keep operator edits safe across polls.
+	if in.Owner != nil {
+		appendSet("owner", *in.Owner)
+	}
+	if in.Criticality != nil {
+		appendSet("criticality", *in.Criticality)
+	}
+	if in.Notes != nil {
+		appendSet("notes", *in.Notes)
+	}
+	if in.RunbookUrl != nil {
+		appendSet("runbook_url", *in.RunbookUrl)
+	}
+	if in.Annotations != nil {
+		b, err := marshalLabels(in.Annotations)
+		if err != nil {
+			return api.Namespace{}, fmt.Errorf("marshal namespace annotations: %w", err)
+		}
+		appendSet("annotations", b)
+	}
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)
 
@@ -856,8 +890,9 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 			phase        = EXCLUDED.phase,
 			labels       = EXCLUDED.labels,
 			updated_at   = EXCLUDED.updated_at
-		RETURNING id, cluster_id, name, display_name, phase,
-		          labels, created_at, updated_at
+		RETURNING id, cluster_id, name, display_name, phase, labels,
+		          owner, criticality, notes, runbook_url, annotations,
+		          created_at, updated_at
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
@@ -2289,19 +2324,24 @@ func unmarshalContainers(b []byte) (*api.ContainerList, error) {
 
 func scanNamespace(row pgx.Row) (api.Namespace, error) {
 	var (
-		n           api.Namespace
-		id          uuid.UUID
-		clusterID   uuid.UUID
-		createdAt   time.Time
-		updatedAt   time.Time
-		displayName sql.NullString
-		phase       sql.NullString
-		labelsJSON  []byte
+		n               api.Namespace
+		id              uuid.UUID
+		clusterID       uuid.UUID
+		createdAt       time.Time
+		updatedAt       time.Time
+		displayName     sql.NullString
+		phase           sql.NullString
+		labelsJSON      []byte
+		owner           sql.NullString
+		criticality     sql.NullString
+		notes           sql.NullString
+		runbookURL      sql.NullString
+		annotationsJSON []byte
 	)
 	if err := row.Scan(
 		&id, &clusterID, &n.Name,
-		&displayName, &phase,
-		&labelsJSON,
+		&displayName, &phase, &labelsJSON,
+		&owner, &criticality, &notes, &runbookURL, &annotationsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
 		return api.Namespace{}, err
@@ -2312,6 +2352,10 @@ func scanNamespace(row pgx.Row) (api.Namespace, error) {
 	n.UpdatedAt = &updatedAt
 	n.DisplayName = nullableString(displayName)
 	n.Phase = nullableString(phase)
+	n.Owner = nullableString(owner)
+	n.Criticality = nullableString(criticality)
+	n.Notes = nullableString(notes)
+	n.RunbookUrl = nullableString(runbookURL)
 	if len(labelsJSON) > 0 {
 		var labels map[string]string
 		if err := json.Unmarshal(labelsJSON, &labels); err != nil {
@@ -2319,6 +2363,15 @@ func scanNamespace(row pgx.Row) (api.Namespace, error) {
 		}
 		if len(labels) > 0 {
 			n.Labels = &labels
+		}
+	}
+	if len(annotationsJSON) > 0 {
+		var annotations map[string]string
+		if err := json.Unmarshal(annotationsJSON, &annotations); err != nil {
+			return api.Namespace{}, fmt.Errorf("unmarshal namespace annotations: %w", err)
+		}
+		if len(annotations) > 0 {
+			n.Annotations = &annotations
 		}
 	}
 	return n, nil
