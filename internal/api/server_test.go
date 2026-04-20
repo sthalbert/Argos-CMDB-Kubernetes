@@ -226,7 +226,12 @@ func (m *memStore) DeleteCluster(_ context.Context, id uuid.UUID) error {
 // copyNodeMutableFromCreate mirrors every NodeMutable-derived field from a
 // NodeCreate payload onto a Node. The fake carries them as-is so tests can
 // round-trip any of the 23 fields the collector now populates.
-func copyNodeMutableFromCreate(n *Node, in NodeCreate) {
+// copyNodeCollectorFieldsFromCreate mirrors the UpsertNode DO UPDATE
+// SET clause on the PG side — every field the collector derives from
+// the Kubernetes API. Used for both fresh inserts and on-conflict
+// updates so an operator's curated edits are not overwritten on the
+// next collector tick (ADR-0008 invariant).
+func copyNodeCollectorFieldsFromCreate(n *Node, in NodeCreate) {
 	n.DisplayName = in.DisplayName
 	n.Role = in.Role
 	n.KubeletVersion = in.KubeletVersion
@@ -255,6 +260,25 @@ func copyNodeMutableFromCreate(n *Node, in NodeCreate) {
 	n.Unschedulable = in.Unschedulable
 	n.Ready = in.Ready
 	n.Labels = in.Labels
+}
+
+// copyNodeCuratedFieldsFromCreate is the second half: the
+// operator-owned columns (ADR-0008). Only applied on fresh inserts,
+// never on upsert-conflict — the collector never carries these values.
+func copyNodeCuratedFieldsFromCreate(n *Node, in NodeCreate) {
+	n.Owner = in.Owner
+	n.Criticality = in.Criticality
+	n.Notes = in.Notes
+	n.RunbookUrl = in.RunbookUrl
+	n.Annotations = in.Annotations
+	n.HardwareModel = in.HardwareModel
+}
+
+// copyNodeMutableFromCreate sets every mutable column (collector-owned
+// + curated). Used for the insert path on CreateNode and UpsertNode.
+func copyNodeMutableFromCreate(n *Node, in NodeCreate) {
+	copyNodeCollectorFieldsFromCreate(n, in)
+	copyNodeCuratedFieldsFromCreate(n, in)
 }
 
 func (m *memStore) CreateNode(_ context.Context, in NodeCreate) (Node, error) {
@@ -402,6 +426,24 @@ func (m *memStore) UpdateNode(_ context.Context, id uuid.UUID, in NodeUpdate) (N
 	}
 	if in.Labels != nil {
 		n.Labels = in.Labels
+	}
+	if in.Owner != nil {
+		n.Owner = in.Owner
+	}
+	if in.Criticality != nil {
+		n.Criticality = in.Criticality
+	}
+	if in.Notes != nil {
+		n.Notes = in.Notes
+	}
+	if in.RunbookUrl != nil {
+		n.RunbookUrl = in.RunbookUrl
+	}
+	if in.Annotations != nil {
+		n.Annotations = in.Annotations
+	}
+	if in.HardwareModel != nil {
+		n.HardwareModel = in.HardwareModel
 	}
 	now := time.Now().UTC()
 	n.UpdatedAt = &now
@@ -1336,7 +1378,11 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) {
 
 	if existingID, exists := m.nodesByNatKey[key]; exists {
 		n := m.nodesByID[existingID]
-		copyNodeMutableFromCreate(&n, in)
+		// On conflict: copy only collector-owned fields. Mirrors the
+		// DO UPDATE SET clause on the PG side so operator-set curated
+		// columns (owner / criticality / notes / runbook_url /
+		// annotations / hardware_model) survive the collector's tick.
+		copyNodeCollectorFieldsFromCreate(&n, in)
 		n.UpdatedAt = &now
 		m.nodesByID[existingID] = n
 		return n, nil

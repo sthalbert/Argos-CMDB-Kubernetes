@@ -1959,3 +1959,131 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 		t.Errorf("criticality clobbered by owner patch")
 	}
 }
+
+// Mirrors TestPGClusterCuratedMetadata for nodes (migration 00020).
+// Nodes have the most elaborate collector UPSERT (every Mercator field
+// in the DO UPDATE SET clause), so pinning the curated-field-survival
+// invariant at the SQL level matters more here than for namespaces.
+// Also round-trips `hardware_model`.
+func TestPGNodeCuratedMetadata(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	clusterName := "node-curated-" + strconv.FormatInt(int64(uuid.New().ID()), 16)
+	cluster, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: clusterName})
+	if err != nil {
+		t.Fatalf("seed cluster: %v", err)
+	}
+
+	owner := "team-platform"
+	criticality := "critical"
+	notes := "hosts ingress controllers"
+	runbook := "https://runbooks.example.com/ingress-node"
+	annotations := map[string]string{"rack": "A12", "power-feed": "left"}
+	hardware := "Dell PowerEdge R640"
+	nodeName := "worker-01.example.com"
+
+	created, err := pg.CreateNode(ctx, api.NodeCreate{
+		ClusterId:     *cluster.Id,
+		Name:          nodeName,
+		Owner:         &owner,
+		Criticality:   &criticality,
+		Notes:         &notes,
+		RunbookUrl:    &runbook,
+		Annotations:   &annotations,
+		HardwareModel: &hardware,
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	got, err := pg.GetNode(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got.Owner == nil || *got.Owner != owner {
+		t.Errorf("owner = %v, want %q", got.Owner, owner)
+	}
+	if got.Criticality == nil || *got.Criticality != criticality {
+		t.Errorf("criticality = %v, want %q", got.Criticality, criticality)
+	}
+	if got.Notes == nil || *got.Notes != notes {
+		t.Errorf("notes round-trip failed")
+	}
+	if got.RunbookUrl == nil || *got.RunbookUrl != runbook {
+		t.Errorf("runbook_url round-trip failed")
+	}
+	if got.Annotations == nil || (*got.Annotations)["rack"] != "A12" {
+		t.Errorf("annotations round-trip failed: %v", got.Annotations)
+	}
+	if got.HardwareModel == nil || *got.HardwareModel != hardware {
+		t.Errorf("hardware_model = %v, want %q", got.HardwareModel, hardware)
+	}
+
+	// Simulate a collector tick: UPSERT with the Kubernetes-derived
+	// fields populated and every curated/hardware_model field nil. The
+	// PG DO UPDATE SET clause deliberately omits the curated columns
+	// and hardware_model, so the operator-set values must survive.
+	role := "worker"
+	kubelet := "v1.30.3"
+	osImage := "Ubuntu 22.04.4 LTS"
+	labels := map[string]string{"kubernetes.io/hostname": nodeName}
+	ready := true
+	if _, err := pg.UpsertNode(ctx, api.NodeCreate{
+		ClusterId:      *cluster.Id,
+		Name:           nodeName,
+		Role:           &role,
+		KubeletVersion: &kubelet,
+		OsImage:        &osImage,
+		Labels:         &labels,
+		Ready:          &ready,
+	}); err != nil {
+		t.Fatalf("collector-style upsert: %v", err)
+	}
+	afterCollector, err := pg.GetNode(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get after collector upsert: %v", err)
+	}
+	if afterCollector.Role == nil || *afterCollector.Role != role {
+		t.Errorf("role not updated by collector: %v", afterCollector.Role)
+	}
+	if afterCollector.KubeletVersion == nil || *afterCollector.KubeletVersion != kubelet {
+		t.Errorf("kubelet_version not updated by collector: %v", afterCollector.KubeletVersion)
+	}
+	if afterCollector.Owner == nil || *afterCollector.Owner != owner {
+		t.Errorf("owner clobbered by collector upsert: %v", afterCollector.Owner)
+	}
+	if afterCollector.Criticality == nil || *afterCollector.Criticality != criticality {
+		t.Errorf("criticality clobbered")
+	}
+	if afterCollector.Notes == nil || *afterCollector.Notes != notes {
+		t.Errorf("notes clobbered")
+	}
+	if afterCollector.RunbookUrl == nil || *afterCollector.RunbookUrl != runbook {
+		t.Errorf("runbook_url clobbered")
+	}
+	if afterCollector.Annotations == nil || (*afterCollector.Annotations)["rack"] != "A12" {
+		t.Errorf("annotations clobbered: %v", afterCollector.Annotations)
+	}
+	if afterCollector.HardwareModel == nil || *afterCollector.HardwareModel != hardware {
+		t.Errorf("hardware_model clobbered by collector upsert: %v", afterCollector.HardwareModel)
+	}
+
+	// Editor-style patch updates only what was sent.
+	newHardware := "Supermicro SYS-1029P"
+	if _, err := pg.UpdateNode(ctx, *created.Id, api.NodeUpdate{
+		HardwareModel: &newHardware,
+	}); err != nil {
+		t.Fatalf("hardware_model update: %v", err)
+	}
+	afterEdit2, err := pg.GetNode(ctx, *created.Id)
+	if err != nil {
+		t.Fatalf("get after hardware_model patch: %v", err)
+	}
+	if afterEdit2.HardwareModel == nil || *afterEdit2.HardwareModel != newHardware {
+		t.Errorf("hardware_model update did not stick: %v", afterEdit2.HardwareModel)
+	}
+	if afterEdit2.Owner == nil || *afterEdit2.Owner != owner {
+		t.Errorf("owner clobbered by hardware_model patch")
+	}
+}

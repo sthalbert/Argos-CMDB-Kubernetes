@@ -17,6 +17,7 @@ import * as api from '../api';
 import { useResource, useResources } from '../hooks';
 import { ClusterCuratedCard } from './cluster_curated';
 import { NamespaceCuratedCard } from './namespace_curated';
+import { NodeCuratedCard } from './node_curated';
 import {
   AsyncView,
   Dash,
@@ -625,11 +626,13 @@ export function PodDetail() {
 
 export function NodeDetail() {
   const { id = '' } = useParams();
+  const [nonce, setNonce] = useState(0);
+  const reload = () => setNonce((n) => n + 1);
   // 1. Fetch the node record itself.
   // 2. We need pods on this node, but we only have node.name (not node_name
   //    is what pod rows carry). Fetch the node first, then filter pods by
   //    node_name. The server-side ?node_name= filter makes this cheap.
-  const node = useResource(() => api.getNode(id), [id]);
+  const node = useResource(() => api.getNode(id), [id, nonce]);
   const pods = useResource(
     async () => {
       if (node.status !== 'ready') return null;
@@ -663,6 +666,8 @@ export function NodeDetail() {
               <KV k="Instance type" v={n.instance_type && <code>{n.instance_type}</code>} />
               <KV k="Zone" v={n.zone && <code>{n.zone}</code>} />
             </dl>
+
+            <NodeCuratedCard node={n} onSaved={reload} />
 
             <SectionTitle>OS &amp; runtime</SectionTitle>
             <dl className="kv-list">

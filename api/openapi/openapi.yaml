@@ -2286,9 +2286,10 @@ components:
         Fields on a Node that clients may set and later update. Modelled on
         Mercator's logical-server entity, with Kubernetes-specific
         additions (role, taints, conditions, the full OS stack). Curated
-        fields (description, attributes, patching_frequency) are
-        deliberately absent — they land with the curated-metadata work
-        per ADR-0006.
+        operator-owned fields (`owner`, `criticality`, `notes`,
+        `runbook_url`, `annotations`, `hardware_model`) are populated by
+        editors / admins through the detail page; the collector never
+        writes them.
       type: object
       properties:
         display_name:
@@ -2420,6 +2421,44 @@ components:
             type: string
             maxLength: 256
           maxProperties: 64
+        owner:
+          type: string
+          maxLength: 256
+          description: |
+            Free-form handle for the team / on-call that owns this
+            node. Surfaced on the detail page so incident responders
+            know who to wake up.
+        criticality:
+          type: string
+          maxLength: 32
+          description: |
+            Free-form operational tier label (`critical`, `high`,
+            `medium`, `low`).
+        notes:
+          type: string
+          maxLength: 8192
+          description: Long-form prose.
+        runbook_url:
+          type: string
+          format: uri
+          maxLength: 1024
+          description: Link to the owning team's runbook for this node.
+        annotations:
+          type: object
+          description: |
+            Free-form k/v for metadata not worth its own column. The
+            collector never writes this field.
+          additionalProperties:
+            type: string
+            maxLength: 1024
+          maxProperties: 64
+        hardware_model:
+          type: string
+          maxLength: 256
+          description: |
+            Free-form bare-metal server model (e.g. "Dell PowerEdge
+            R640"). Complements the cloud-shaped `instance_type` set
+            by the collector; operator-owned.
 
     NodeCreate:
       description: Payload to register a new node under a cluster.

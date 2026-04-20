@@ -339,12 +339,18 @@ const nodeColumns = `id, cluster_id, name, display_name, role,
 	capacity_cpu, capacity_memory, capacity_pods, capacity_ephemeral_storage,
 	allocatable_cpu, allocatable_memory, allocatable_pods, allocatable_ephemeral_storage,
 	conditions, taints, unschedulable, ready,
-	labels, created_at, updated_at`
+	labels,
+	owner, criticality, notes, runbook_url, annotations, hardware_model,
+	created_at, updated_at`
 
 func nodeInsertValues(in api.NodeCreate, id uuid.UUID, now time.Time) ([]any, error) {
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
 		return nil, err
+	}
+	annotationsJSON, err := marshalLabels(in.Annotations)
+	if err != nil {
+		return nil, fmt.Errorf("marshal node annotations: %w", err)
 	}
 	conditionsJSON, err := marshalPorts(in.Conditions)
 	if err != nil {
@@ -363,7 +369,9 @@ func nodeInsertValues(in api.NodeCreate, id uuid.UUID, now time.Time) ([]any, er
 		in.CapacityCpu, in.CapacityMemory, in.CapacityPods, in.CapacityEphemeralStorage,
 		in.AllocatableCpu, in.AllocatableMemory, in.AllocatablePods, in.AllocatableEphemeralStorage,
 		conditionsJSON, taintsJSON, boolOrFalse(in.Unschedulable), boolOrFalse(in.Ready),
-		labelsJSON, now,
+		labelsJSON,
+		in.Owner, in.Criticality, in.Notes, in.RunbookUrl, annotationsJSON, in.HardwareModel,
+		now,
 	}, nil
 }
 
@@ -383,10 +391,10 @@ func (p *PG) CreateNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 		return api.Node{}, err
 	}
 
-	// 32 placeholders: 30 "value" slots + created_at + updated_at (both = $32).
+	// 38 placeholders: 36 "value" slots + created_at + updated_at (both = $38).
 	const q = `
 		INSERT INTO nodes (` + nodeColumns + `)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$32)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$38)
 	`
 	if _, err := p.pool.Exec(ctx, q, values...); err != nil {
 		var pgErr *pgconn.PgError
@@ -594,6 +602,30 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 			return api.Node{}, err
 		}
 		appendSet("labels", b)
+	}
+	// Curated metadata — collector never writes these, so merge-patch
+	// omission is enough to keep operator edits safe across polls.
+	if in.Owner != nil {
+		appendSet("owner", *in.Owner)
+	}
+	if in.Criticality != nil {
+		appendSet("criticality", *in.Criticality)
+	}
+	if in.Notes != nil {
+		appendSet("notes", *in.Notes)
+	}
+	if in.RunbookUrl != nil {
+		appendSet("runbook_url", *in.RunbookUrl)
+	}
+	if in.Annotations != nil {
+		b, err := marshalLabels(in.Annotations)
+		if err != nil {
+			return api.Node{}, fmt.Errorf("marshal node annotations: %w", err)
+		}
+		appendSet("annotations", b)
+	}
+	if in.HardwareModel != nil {
+		appendSet("hardware_model", *in.HardwareModel)
 	}
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)
@@ -2391,7 +2423,7 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 
 	const q = `
 		INSERT INTO nodes (` + nodeColumns + `)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$32)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$38)
 		ON CONFLICT (cluster_id, name) DO UPDATE SET
 			display_name                  = EXCLUDED.display_name,
 			role                          = EXCLUDED.role,
@@ -2471,6 +2503,12 @@ func scanNode(row pgx.Row) (api.Node, error) {
 		unschedulable               bool
 		ready                       bool
 		labelsJSON                  []byte
+		owner                       sql.NullString
+		criticality                 sql.NullString
+		notes                       sql.NullString
+		runbookURL                  sql.NullString
+		annotationsJSON             []byte
+		hardwareModel               sql.NullString
 	)
 	if err := row.Scan(
 		&id, &clusterID, &n.Name, &displayName, &role,
@@ -2482,6 +2520,7 @@ func scanNode(row pgx.Row) (api.Node, error) {
 		&allocatableCPU, &allocatableMemory, &allocatablePods, &allocatableEphemeral,
 		&conditionsJSON, &taintsJSON, &unschedulable, &ready,
 		&labelsJSON,
+		&owner, &criticality, &notes, &runbookURL, &annotationsJSON, &hardwareModel,
 		&createdAt, &updatedAt,
 	); err != nil {
 		return api.Node{}, err
@@ -2535,6 +2574,21 @@ func scanNode(row pgx.Row) (api.Node, error) {
 		}
 		if len(labels) > 0 {
 			n.Labels = &labels
+		}
+	}
+
+	n.Owner = nullableString(owner)
+	n.Criticality = nullableString(criticality)
+	n.Notes = nullableString(notes)
+	n.RunbookUrl = nullableString(runbookURL)
+	n.HardwareModel = nullableString(hardwareModel)
+	if len(annotationsJSON) > 0 {
+		var annotations map[string]string
+		if err := json.Unmarshal(annotationsJSON, &annotations); err != nil {
+			return api.Node{}, fmt.Errorf("unmarshal node annotations: %w", err)
+		}
+		if len(annotations) > 0 {
+			n.Annotations = &annotations
 		}
 	}
 	return n, nil

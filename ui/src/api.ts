@@ -365,9 +365,36 @@ export interface Node {
   unschedulable?: boolean | null;
   ready?: boolean | null;
   labels?: Record<string, string> | null;
+  // Curated metadata — operator-owned, never touched by the collector.
+  owner?: string | null;
+  criticality?: string | null;
+  notes?: string | null;
+  runbook_url?: string | null;
+  annotations?: Record<string, string> | null;
+  // Bare-metal complement to instance_type; set by operators.
+  hardware_model?: string | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
+}
+
+export type NodePatch = Partial<Pick<
+  Node,
+  | 'display_name'
+  | 'owner'
+  | 'criticality'
+  | 'notes'
+  | 'runbook_url'
+  | 'annotations'
+  | 'hardware_model'
+>>;
+
+export function updateNode(id: string, patch: NodePatch) {
+  return request<Node>(`/v1/nodes/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
 }
 
 export interface Namespace {
