@@ -288,38 +288,58 @@ export function NamespaceDetail() {
             {pods.items.length === 0 ? (
               <Empty message="None." />
             ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Phase</th>
-                    <th>Node</th>
-                    <th>Pod IP</th>
-                    <th>Workload</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pods.items.map((p) => (
-                    <tr key={p.id}>
-                      <td>
-                        <Link to={`/pods/${p.id}`}>
-                          <strong>{p.name}</strong>
-                        </Link>
-                      </td>
-                      <td>{p.phase || <Dash />}</td>
-                      <td>{p.node_name ? <code>{p.node_name}</code> : <Dash />}</td>
-                      <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
-                      <td>
-                        {p.workload_id ? (
-                          <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />
-                        ) : (
-                          <Dash />
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              (() => {
+                // Build a workload_id -> workload lookup once per render
+                // so each pod row can resolve its workload name without
+                // a separate network call.
+                const wlByID = new Map(workloads.items.map((w) => [w.id, w]));
+                return (
+                  <table className="entities">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Phase</th>
+                        <th>Node</th>
+                        <th>Pod IP</th>
+                        <th>Workload</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pods.items.map((p) => {
+                        const wl = p.workload_id ? wlByID.get(p.workload_id) : undefined;
+                        return (
+                          <tr key={p.id}>
+                            <td>
+                              <Link to={`/pods/${p.id}`}>
+                                <strong>{p.name}</strong>
+                              </Link>
+                            </td>
+                            <td>{p.phase || <Dash />}</td>
+                            <td>{p.node_name ? <code>{p.node_name}</code> : <Dash />}</td>
+                            <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
+                            <td>
+                              {wl ? (
+                                <Link to={`/workloads/${wl.id}`}>
+                                  <strong>{wl.name}</strong>
+                                  {wl.kind && (
+                                    <span className="muted" style={{ marginLeft: '0.4rem', fontSize: '0.8rem' }}>
+                                      {wl.kind}
+                                    </span>
+                                  )}
+                                </Link>
+                              ) : p.workload_id ? (
+                                <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />
+                              ) : (
+                                <Dash />
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                );
+              })()
             )}
 
             <SectionTitle count={services.items.length}>Services</SectionTitle>
