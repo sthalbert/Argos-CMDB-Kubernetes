@@ -303,10 +303,8 @@ func (c *Collector) Run(ctx context.Context) error {
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
 
-	if err := c.poll(ctx); err != nil {
-		for _, e := range unwrapAll(err) {
-			handlePollError(e)
-		}
+	for _, e := range c.poll(ctx) {
+		handlePollError(e)
 	}
 
 	for {
@@ -315,27 +313,17 @@ func (c *Collector) Run(ctx context.Context) error {
 			slog.Info("collector stopping", "reason", ctx.Err())
 			return ctx.Err()
 		case <-ticker.C:
-			if err := c.poll(ctx); err != nil {
-				for _, e := range unwrapAll(err) {
-					handlePollError(e)
-				}
+			for _, e := range c.poll(ctx) {
+				handlePollError(e)
 			}
 		}
 	}
 }
 
-// unwrapAll splits a (possibly joined) error into individual errors.
-func unwrapAll(err error) []error {
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		return joined.Unwrap()
-	}
-	return []error{err}
-}
-
 // poll performs one polling cycle: refresh cluster version, then ingest all
-// resources. Returns a (possibly joined) error containing every PollError
-// that occurred during the cycle. The caller decides how to handle them.
-func (c *Collector) poll(parent context.Context) error {
+// resources. Returns all PollErrors that occurred during the cycle.
+// The caller decides how to handle them.
+func (c *Collector) poll(parent context.Context) []error {
 	ctx, cancel := context.WithTimeout(parent, c.fetchTimeout)
 	defer cancel()
 
@@ -343,7 +331,7 @@ func (c *Collector) poll(parent context.Context) error {
 
 	version, err := c.source.ServerVersion(ctx)
 	if err != nil {
-		return pollErr(c.clusterName, "version", "list", err, SeverityWarn)
+		return []error{pollErr(c.clusterName, "version", "list", err, SeverityWarn)}
 	}
 	metrics.MarkPoll(c.clusterName, "version")
 
@@ -353,15 +341,15 @@ func (c *Collector) poll(parent context.Context) error {
 		if errors.Is(err, api.ErrNotFound) {
 			sev = SeverityWarn
 		}
-		return pollErr(c.clusterName, "cluster", "lookup", err, sev)
+		return []error{pollErr(c.clusterName, "cluster", "lookup", err, sev)}
 	}
 	if cluster.Id == nil {
-		return pollErr(c.clusterName, "cluster", "lookup", fmt.Errorf("stored cluster has nil id"), SeverityError)
+		return []error{pollErr(c.clusterName, "cluster", "lookup", fmt.Errorf("stored cluster has nil id"), SeverityError)}
 	}
 
 	if cluster.KubernetesVersion == nil || *cluster.KubernetesVersion != version {
 		if _, err := c.store.UpdateCluster(ctx, *cluster.Id, api.ClusterUpdate{KubernetesVersion: &version}); err != nil {
-			return pollErr(c.clusterName, "cluster", "upsert", err, SeverityError)
+			return []error{pollErr(c.clusterName, "cluster", "upsert", err, SeverityError)}
 		}
 		metrics.ObserveUpserts(c.clusterName, "cluster", 1)
 		slog.Info("collector: refreshed cluster version", "cluster_name", c.clusterName, "version", version)
@@ -406,7 +394,7 @@ func (c *Collector) poll(parent context.Context) error {
 		}
 	}
 
-	return errors.Join(errs...)
+	return errs
 }
 
 // ingestNodes lists nodes from the kube source and upserts each into the

@@ -559,7 +559,7 @@ func TestPollUpdatesVersionWhenChanged(t *testing.T) {
 	}
 	c := New(store, &fakeSource{version: "v1.29.5"}, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -585,7 +585,7 @@ func TestPollSkipsWhenVersionUnchanged(t *testing.T) {
 	}
 	c := New(store, &fakeSource{version: current}, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.updates) != 0 {
 		t.Errorf("expected no updates when version unchanged, got %d", len(store.updates))
@@ -599,7 +599,7 @@ func TestPollSkipsOnVersionError(t *testing.T) {
 	store.clusters = []api.Cluster{{Id: &id, Name: "prod"}}
 	c := New(store, &fakeSource{versionErr: errors.New("boom")}, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.updates) != 0 || len(store.upsertedNode) != 0 {
 		t.Errorf("expected no store writes on version error; updates=%d upserts=%d", len(store.updates), len(store.upsertedNode))
@@ -612,7 +612,7 @@ func TestPollSkipsOnGetClusterByNameError(t *testing.T) {
 	store.listErr = errors.New("db down")
 	c := New(store, &fakeSource{version: "v1.29.5"}, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.updates) != 0 || len(store.upsertedNode) != 0 {
 		t.Errorf("expected no store writes on lookup error")
@@ -624,7 +624,7 @@ func TestPollSkipsWhenClusterNotRegistered(t *testing.T) {
 	store := newFakeStore()
 	c := New(store, &fakeSource{version: "v1.29.5"}, "missing", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.updates) != 0 || len(store.upsertedNode) != 0 {
 		t.Errorf("expected no store writes when cluster missing")
@@ -646,7 +646,7 @@ func TestPollIngestsNodes(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -681,8 +681,8 @@ func TestPollIngestsNodesIsIdempotent(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -707,7 +707,7 @@ func TestPollContinuesOnPerNodeUpsertError(t *testing.T) {
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
 	// poll must not panic or return early on upsert error.
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	// The version update already happened before UpsertNode errors.
 	store.mu.Lock()
@@ -729,7 +729,7 @@ func TestPollSkipsNodeIngestionOnListNodesError(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.upsertedNode) != 0 {
 		t.Errorf("expected no node upserts when ListNodes errors; got %d", len(store.upsertedNode))
@@ -751,7 +751,7 @@ func TestPollIngestsNamespaces(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -790,7 +790,7 @@ func TestPollReconcilesNodesAndNamespaces(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -828,7 +828,7 @@ func TestPollSkipsReconcileWhenDisabled(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, false)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.reconcileNodesCalls) != 0 {
 		t.Errorf("node reconcile called with reconcile=false: %d calls", len(store.reconcileNodesCalls))
@@ -852,7 +852,7 @@ func TestPollDoesNotReconcileOnListError(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.reconcileNodesCalls) != 0 {
 		t.Errorf("node reconcile must not run on ListNodes error; got %d calls", len(store.reconcileNodesCalls))
@@ -887,7 +887,7 @@ func TestPollIngestsPodsWithNamespaceResolution(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -932,7 +932,7 @@ func TestPollPodsReconcilePerNamespace(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -964,7 +964,7 @@ func TestPollPodsReconcileEmptyNamespace(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1015,7 +1015,7 @@ func TestPollResolvesPodWorkloadIDs(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1072,7 +1072,7 @@ func TestPollPodsWhenWorkloadListFails(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1096,7 +1096,7 @@ func TestPollSkipsPodIngestionOnListError(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.upsertedPod) != 0 {
 		t.Errorf("expected no pod upserts on ListPods error; got %d", len(store.upsertedPod))
@@ -1118,7 +1118,7 @@ func TestPollSkipsPodIngestionWhenNamespaceListFails(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.upsertedPod) != 0 {
 		t.Errorf("expected no pod upserts when ListNamespaces fails; got %d", len(store.upsertedPod))
@@ -1152,7 +1152,7 @@ func TestPollIngestsWorkloadsWithNamespaceResolution(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1196,7 +1196,7 @@ func TestPollWorkloadsReconcileByKindName(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1225,7 +1225,7 @@ func TestPollSkipsWorkloadIngestionOnListError(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.upsertedWorkload) != 0 {
 		t.Errorf("expected no workload upserts on ListWorkloads error; got %d", len(store.upsertedWorkload))
@@ -1254,7 +1254,7 @@ func TestPollIngestsServicesWithNamespaceResolution(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1292,7 +1292,7 @@ func TestPollServicesReconcilePerNamespace(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1320,7 +1320,7 @@ func TestPollIngestsIngressesWithNamespaceResolution(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1358,7 +1358,7 @@ func TestPollIngressesReconcilePerNamespace(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1379,7 +1379,7 @@ func TestPollSkipsIngressIngestionOnListError(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.upsertedIngress) != 0 {
 		t.Errorf("expected no ingress upserts on ListIngresses error; got %d", len(store.upsertedIngress))
@@ -1401,7 +1401,7 @@ func TestPollSkipsServiceIngestionOnListError(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.upsertedService) != 0 {
 		t.Errorf("expected no service upserts on ListServices error; got %d", len(store.upsertedService))
@@ -1423,7 +1423,7 @@ func TestPollSkipsNamespaceIngestionOnListError(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	if len(store.upsertedNS) != 0 {
 		t.Errorf("expected no namespace upserts on list error; got %d", len(store.upsertedNS))
@@ -1445,7 +1445,7 @@ func TestPollIngestsPersistentVolumes(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1498,7 +1498,7 @@ func TestPollResolvesPVCBoundVolumeID(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1539,7 +1539,7 @@ func TestPollPVCsWhenPVListFails(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1584,7 +1584,7 @@ func TestPollPVsAndPVCsReconcile(t *testing.T) {
 	}
 	c := New(store, source, "prod", time.Minute, time.Second, true)
 
-	_ = c.poll(context.Background())
+	c.poll(context.Background())
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
