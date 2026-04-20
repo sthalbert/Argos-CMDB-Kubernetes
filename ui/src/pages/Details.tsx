@@ -218,6 +218,18 @@ export function NamespaceDetail() {
               {ns.name} <LayerPill layer={ns.layer} />
             </h2>
             <dl className="kv-list">
+              <KV
+                k="Cluster"
+                v={
+                  clusterResult.status === 'ready' && clusterResult.data ? (
+                    <Link to={`/clusters/${clusterResult.data.id}`}>
+                      <strong>{clusterResult.data.name}</strong>
+                    </Link>
+                  ) : (
+                    <IdLink to={`/clusters/${ns.cluster_id}`} id={ns.cluster_id} />
+                  )
+                }
+              />
               <KV k="Phase" v={ns.phase} />
               <KV k="Labels" v={<Labels labels={ns.labels} />} />
             </dl>
@@ -420,11 +432,39 @@ export function WorkloadDetail() {
   // We fetch ALL pods and filter by workload_id client-side, since
   // /v1/pods doesn't yet have a workload_id query param. Namespace_id
   // narrowing happens after we know the workload's namespace.
+  //
+  // Resolve the parent namespace so the KV row shows its name (and its
+  // cluster's name) rather than a bare UUID.
+  const workloadData = state.status === 'ready' ? state.data[0] : null;
+  const namespaceResult = useResource(
+    async () => (workloadData ? api.getNamespace(workloadData.namespace_id) : null),
+    [workloadData?.namespace_id ?? ''],
+  );
+  const clusterResult = useResource(
+    async () =>
+      namespaceResult.status === 'ready' && namespaceResult.data
+        ? api.getCluster(namespaceResult.data.cluster_id)
+        : null,
+    [namespaceResult.status === 'ready' && namespaceResult.data ? namespaceResult.data.cluster_id : ''],
+  );
 
   return (
     <>
       <div className="breadcrumb">
-        <Link to="/workloads">Workloads</Link> / <span>this workload</span>
+        <Link to="/workloads">Workloads</Link> /{' '}
+        {clusterResult.status === 'ready' && clusterResult.data && (
+          <>
+            <Link to={`/clusters/${clusterResult.data.id}`}>{clusterResult.data.name}</Link>
+            {' / '}
+          </>
+        )}
+        {namespaceResult.status === 'ready' && namespaceResult.data && (
+          <>
+            <Link to={`/namespaces/${namespaceResult.data.id}`}>{namespaceResult.data.name}</Link>
+            {' / '}
+          </>
+        )}
+        <span>this workload</span>
       </div>
       <AsyncView state={state}>
         {([workload, pods]) => {
@@ -448,7 +488,25 @@ export function WorkloadDetail() {
                 />
                 <KV
                   k="Namespace"
-                  v={<IdLink to={`/namespaces/${workload.namespace_id}`} id={workload.namespace_id} />}
+                  v={
+                    namespaceResult.status === 'ready' && namespaceResult.data ? (
+                      <Link to={`/namespaces/${namespaceResult.data.id}`}>
+                        <strong>{namespaceResult.data.name}</strong>
+                      </Link>
+                    ) : (
+                      <IdLink to={`/namespaces/${workload.namespace_id}`} id={workload.namespace_id} />
+                    )
+                  }
+                />
+                <KV
+                  k="Cluster"
+                  v={
+                    clusterResult.status === 'ready' && clusterResult.data ? (
+                      <Link to={`/clusters/${clusterResult.data.id}`}>
+                        <strong>{clusterResult.data.name}</strong>
+                      </Link>
+                    ) : undefined
+                  }
                 />
                 <KV k="Labels" v={<Labels labels={workload.labels} />} />
               </dl>
@@ -643,6 +701,11 @@ export function NodeDetail() {
   // Also pull all workloads so we can attach name/kind to each pod's
   // workload_id for the impact grouping.
   const workloads = useResource(() => api.listWorkloads(), []);
+  // Resolve parent cluster so the Identity row shows its name, not its UUID.
+  const clusterResult = useResource(
+    async () => (node.status === 'ready' ? api.getCluster(node.data.cluster_id) : null),
+    [node.status === 'ready' ? node.data.cluster_id : ''],
+  );
 
   return (
     <>
@@ -660,7 +723,18 @@ export function NodeDetail() {
             <SectionTitle>Identity</SectionTitle>
             <dl className="kv-list">
               <KV k="Name" v={<code>{n.name}</code>} />
-              <KV k="Cluster" v={<IdLink to={`/clusters/${n.cluster_id}`} id={n.cluster_id} />} />
+              <KV
+                k="Cluster"
+                v={
+                  clusterResult.status === 'ready' && clusterResult.data ? (
+                    <Link to={`/clusters/${clusterResult.data.id}`}>
+                      <strong>{clusterResult.data.name}</strong>
+                    </Link>
+                  ) : (
+                    <IdLink to={`/clusters/${n.cluster_id}`} id={n.cluster_id} />
+                  )
+                }
+              />
               <KV k="Role" v={n.role && <span className="pill">{n.role}</span>} />
               <KV k="Provider ID" v={n.provider_id && <code>{n.provider_id}</code>} />
               <KV k="Instance type" v={n.instance_type && <code>{n.instance_type}</code>} />
