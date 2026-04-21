@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sthalbert/argos/internal/api"
@@ -21,6 +22,59 @@ import (
 	"github.com/sthalbert/argos/internal/collector/apiclient"
 	"github.com/sthalbert/argos/internal/store"
 )
+
+// integrationDSN is the DSN for the dedicated integration database.
+// Set by TestMain; empty when PGX_TEST_DATABASE is unset.
+var integrationDSN string
+
+// TestMain creates a dedicated database so integration tests don't collide
+// with internal/store/pg_test.go (which shares PGX_TEST_DATABASE and
+// TRUNCATEs concurrently when go test runs packages in parallel).
+func TestMain(m *testing.M) {
+	baseDSN := os.Getenv("PGX_TEST_DATABASE")
+	if baseDSN == "" {
+		os.Exit(0) // nothing to run
+	}
+
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, baseDSN)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "integration TestMain: connect: %v\n", err)
+		os.Exit(1)
+	}
+
+	dbName := "argos_integration_test"
+
+	// Drop + recreate to guarantee a clean slate.
+	_, _ = conn.Exec(ctx, "DROP DATABASE IF EXISTS "+dbName)
+	_, err = conn.Exec(ctx, "CREATE DATABASE "+dbName)
+	_ = conn.Close(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "integration TestMain: create database: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Build the DSN for the new database.
+	// Replace the last path segment (database name) in the base DSN.
+	idx := strings.LastIndex(baseDSN, "/")
+	qIdx := strings.Index(baseDSN[idx:], "?")
+	if qIdx < 0 {
+		integrationDSN = baseDSN[:idx+1] + dbName
+	} else {
+		integrationDSN = baseDSN[:idx+1] + dbName + baseDSN[idx+qIdx:]
+	}
+
+	code := m.Run()
+
+	// Teardown: drop the dedicated database.
+	conn2, err := pgx.Connect(context.Background(), baseDSN)
+	if err == nil {
+		_, _ = conn2.Exec(context.Background(), "DROP DATABASE IF EXISTS "+dbName)
+		_ = conn2.Close(context.Background())
+	}
+
+	os.Exit(code)
+}
 
 // ---------------------------------------------------------------------------
 // Test environment
@@ -39,10 +93,10 @@ type testEnv struct {
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 
-	dsn := os.Getenv("PGX_TEST_DATABASE")
-	if dsn == "" {
+	if integrationDSN == "" {
 		t.Skip("PGX_TEST_DATABASE not set; skipping integration test")
 	}
+	dsn := integrationDSN
 
 	ctx := context.Background()
 	pg, err := store.Open(ctx, dsn)
