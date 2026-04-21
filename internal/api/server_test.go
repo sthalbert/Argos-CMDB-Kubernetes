@@ -20,13 +20,13 @@ import (
 // memStore is an in-memory api.Store implementation used to exercise the
 // HTTP handlers without a PostgreSQL dependency.
 type memStore struct {
-	mu            sync.Mutex
-	byID          map[uuid.UUID]Cluster
-	byName        map[string]uuid.UUID
-	nodesByID     map[uuid.UUID]Node
-	nodesByNatKey map[string]uuid.UUID // "<cluster_id>/<name>" -> node id
-	nsByID        map[uuid.UUID]Namespace
-	nsByNatKey    map[string]uuid.UUID // "<cluster_id>/<name>" -> namespace id
+	mu                sync.Mutex
+	byID              map[uuid.UUID]Cluster
+	byName            map[string]uuid.UUID
+	nodesByID         map[uuid.UUID]Node
+	nodesByNatKey     map[string]uuid.UUID // "<cluster_id>/<name>" -> node id
+	nsByID            map[uuid.UUID]Namespace
+	nsByNatKey        map[string]uuid.UUID // "<cluster_id>/<name>" -> namespace id
 	podsByID          map[uuid.UUID]Pod
 	podsByNatKey      map[string]uuid.UUID // "<namespace_id>/<name>" -> pod id
 	workloadsByID     map[uuid.UUID]Workload
@@ -1248,11 +1248,11 @@ func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, 
 		Type:         in.Type,
 		ClusterIp:    in.ClusterIp,
 		LoadBalancer: in.LoadBalancer,
-		Selector:    in.Selector,
-		Ports:       in.Ports,
-		Labels:      in.Labels,
-		CreatedAt:   &now,
-		UpdatedAt:   &now,
+		Selector:     in.Selector,
+		Ports:        in.Ports,
+		Labels:       in.Labels,
+		CreatedAt:    &now,
+		UpdatedAt:    &now,
 	}
 	m.servicesByID[id] = s
 	m.servicesByNatKey[key] = id

@@ -47,6 +47,24 @@ func (s *Server) GetReadyz(w http.ResponseWriter, r *http.Request) {
 
 // ListClusters returns a paged list of clusters.
 func (s *Server) ListClusters(w http.ResponseWriter, r *http.Request, params ListClustersParams) {
+	// Exact name filter: short-circuit to GetClusterByName and return a
+	// single-item list (or empty). Used by the push collector to resolve
+	// its cluster record without paginating.
+	if params.Name != nil && *params.Name != "" {
+		c, err := s.store.GetClusterByName(r.Context(), *params.Name)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeJSON(w, http.StatusOK, ClusterList{Items: []Cluster{}})
+				return
+			}
+			s.writeStoreError(w, "listClusters", err)
+			return
+		}
+		c = withClusterLayer(c)
+		writeJSON(w, http.StatusOK, ClusterList{Items: []Cluster{c}})
+		return
+	}
+
 	limit := 0
 	if params.Limit != nil {
 		limit = *params.Limit
@@ -897,6 +915,172 @@ func (s *Server) writeStoreError(w http.ResponseWriter, op string, err error) {
 		slog.Error("handler store error", "op", op, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 	}
+}
+
+// ── Reconcile handlers (ADR-0009: push collector) ────────────────────
+
+// ReconcileNodes deletes every node of the given cluster whose name is
+// not in keep_names.
+func (s *Server) ReconcileNodes(w http.ResponseWriter, r *http.Request) {
+	var body ReconcileClusterScoped
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.ClusterId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
+		return
+	}
+	n, err := s.store.DeleteNodesNotIn(r.Context(), body.ClusterId, body.KeepNames)
+	if err != nil {
+		s.writeStoreError(w, "reconcileNodes", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+}
+
+// ReconcileNamespaces deletes every namespace of the given cluster whose
+// name is not in keep_names.
+func (s *Server) ReconcileNamespaces(w http.ResponseWriter, r *http.Request) {
+	var body ReconcileClusterScoped
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.ClusterId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
+		return
+	}
+	n, err := s.store.DeleteNamespacesNotIn(r.Context(), body.ClusterId, body.KeepNames)
+	if err != nil {
+		s.writeStoreError(w, "reconcileNamespaces", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+}
+
+// ReconcilePersistentVolumes deletes every PV of the given cluster whose
+// name is not in keep_names.
+func (s *Server) ReconcilePersistentVolumes(w http.ResponseWriter, r *http.Request) {
+	var body ReconcileClusterScoped
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.ClusterId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
+		return
+	}
+	n, err := s.store.DeletePersistentVolumesNotIn(r.Context(), body.ClusterId, body.KeepNames)
+	if err != nil {
+		s.writeStoreError(w, "reconcilePersistentVolumes", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+}
+
+// ReconcilePods deletes every pod of the given namespace whose name is
+// not in keep_names.
+func (s *Server) ReconcilePods(w http.ResponseWriter, r *http.Request) {
+	var body ReconcileNamespaceScoped
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+	n, err := s.store.DeletePodsNotIn(r.Context(), body.NamespaceId, body.KeepNames)
+	if err != nil {
+		s.writeStoreError(w, "reconcilePods", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+}
+
+// ReconcileWorkloads deletes every workload of the given namespace whose
+// (kind, name) tuple is not in the parallel keep_kinds/keep_names arrays.
+func (s *Server) ReconcileWorkloads(w http.ResponseWriter, r *http.Request) {
+	var body ReconcileWorkloads
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+	if len(body.KeepKinds) != len(body.KeepNames) {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", "keep_kinds and keep_names must have equal length")
+		return
+	}
+	n, err := s.store.DeleteWorkloadsNotIn(r.Context(), body.NamespaceId, body.KeepKinds, body.KeepNames)
+	if err != nil {
+		s.writeStoreError(w, "reconcileWorkloads", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+}
+
+// ReconcileServices deletes every service of the given namespace whose
+// name is not in keep_names.
+func (s *Server) ReconcileServices(w http.ResponseWriter, r *http.Request) {
+	var body ReconcileNamespaceScoped
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+	n, err := s.store.DeleteServicesNotIn(r.Context(), body.NamespaceId, body.KeepNames)
+	if err != nil {
+		s.writeStoreError(w, "reconcileServices", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+}
+
+// ReconcileIngresses deletes every ingress of the given namespace whose
+// name is not in keep_names.
+func (s *Server) ReconcileIngresses(w http.ResponseWriter, r *http.Request) {
+	var body ReconcileNamespaceScoped
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+	n, err := s.store.DeleteIngressesNotIn(r.Context(), body.NamespaceId, body.KeepNames)
+	if err != nil {
+		s.writeStoreError(w, "reconcileIngresses", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+}
+
+// ReconcilePersistentVolumeClaims deletes every PVC of the given namespace
+// whose name is not in keep_names.
+func (s *Server) ReconcilePersistentVolumeClaims(w http.ResponseWriter, r *http.Request) {
+	var body ReconcileNamespaceScoped
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+	if body.NamespaceId == (uuid.UUID{}) {
+		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
+		return
+	}
+	n, err := s.store.DeletePersistentVolumeClaimsNotIn(r.Context(), body.NamespaceId, body.KeepNames)
+	if err != nil {
+		s.writeStoreError(w, "reconcilePersistentVolumeClaims", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
 }
 
 func decodeJSONBody(r *http.Request, dst any) error {

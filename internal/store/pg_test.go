@@ -1447,7 +1447,10 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 
 	// Spot-check a representative sample of every field family. String
 	// equality is enough since every setter is a plain assignment.
-	wantStrPairs := []struct{ name, want string; got *string }{
+	wantStrPairs := []struct {
+		name, want string
+		got        *string
+	}{
 		{"role", role, got.Role},
 		{"kubelet_version", kubeletV, got.KubeletVersion},
 		{"kube_proxy_version", kubeProxyV, got.KubeProxyVersion},
@@ -1664,8 +1667,8 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 		},
 		{
 			ID: uuid.New(), OccurredAt: base.Add(-1 * time.Minute),
-			ActorKind: "anonymous",
-			Action:    "auth.login.failure",
+			ActorKind:  "anonymous",
+			Action:     "auth.login.failure",
 			HTTPMethod: "POST", HTTPPath: "/v1/auth/login", HTTPStatus: 401,
 		},
 	}

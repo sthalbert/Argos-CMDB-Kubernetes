@@ -39,27 +39,27 @@ type memOidcState struct {
 }
 
 type memSession struct {
-	id         string
-	publicID   uuid.UUID
-	userID     uuid.UUID
-	created    time.Time
-	lastUsed   time.Time
-	expires    time.Time
-	userAgent  string
-	sourceIP   string
+	id        string
+	publicID  uuid.UUID
+	userID    uuid.UUID
+	created   time.Time
+	lastUsed  time.Time
+	expires   time.Time
+	userAgent string
+	sourceIP  string
 }
 
 type memToken struct {
-	id              uuid.UUID
-	name            string
-	prefix          string
-	hash            string
-	scopes          []string
-	createdBy       uuid.UUID
-	createdAt       time.Time
-	lastUsedAt      *time.Time
-	expiresAt       *time.Time
-	revokedAt       *time.Time
+	id         uuid.UUID
+	name       string
+	prefix     string
+	hash       string
+	scopes     []string
+	createdBy  uuid.UUID
+	createdAt  time.Time
+	lastUsedAt *time.Time
+	expiresAt  *time.Time
+	revokedAt  *time.Time
 }
 
 func newMemAuthState() memAuthState {

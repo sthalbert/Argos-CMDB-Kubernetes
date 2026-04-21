@@ -113,6 +113,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - name: name
+          in: query
+          required: false
+          description: Exact cluster name filter. When set, returns at most one item.
+          schema:
+            type: string
       responses:
         '200':
           description: Paged list of clusters.
@@ -1283,6 +1289,257 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  # ── Reconcile endpoints (ADR-0009: push collector) ─────────────────
+
+  /v1/nodes/reconcile:
+    post:
+      tags: [nodes]
+      summary: Reconcile nodes for a cluster
+      description: |
+        Deletes every node of the given cluster whose name is not in
+        `keep_names`. Used by the push collector to garbage-collect
+        resources that disappeared from the live Kubernetes listing.
+      operationId: reconcileNodes
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileClusterScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/namespaces/reconcile:
+    post:
+      tags: [namespaces]
+      summary: Reconcile namespaces for a cluster
+      description: |
+        Deletes every namespace of the given cluster whose name is not in
+        `keep_names`.
+      operationId: reconcileNamespaces
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileClusterScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/persistentvolumes/reconcile:
+    post:
+      tags: [persistentvolumes]
+      summary: Reconcile persistent volumes for a cluster
+      description: |
+        Deletes every PV of the given cluster whose name is not in
+        `keep_names`.
+      operationId: reconcilePersistentVolumes
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileClusterScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/pods/reconcile:
+    post:
+      tags: [pods]
+      summary: Reconcile pods for a namespace
+      description: |
+        Deletes every pod of the given namespace whose name is not in
+        `keep_names`.
+      operationId: reconcilePods
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/workloads/reconcile:
+    post:
+      tags: [workloads]
+      summary: Reconcile workloads for a namespace
+      description: |
+        Deletes every workload of the given namespace whose (kind, name)
+        tuple is not in the parallel `keep_kinds` / `keep_names` arrays.
+      operationId: reconcileWorkloads
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileWorkloads'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/services/reconcile:
+    post:
+      tags: [services]
+      summary: Reconcile services for a namespace
+      description: |
+        Deletes every service of the given namespace whose name is not in
+        `keep_names`.
+      operationId: reconcileServices
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/ingresses/reconcile:
+    post:
+      tags: [ingresses]
+      summary: Reconcile ingresses for a namespace
+      description: |
+        Deletes every ingress of the given namespace whose name is not in
+        `keep_names`.
+      operationId: reconcileIngresses
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/persistentvolumeclaims/reconcile:
+    post:
+      tags: [persistentvolumeclaims]
+      summary: Reconcile PVCs for a namespace
+      description: |
+        Deletes every PVC of the given namespace whose name is not in
+        `keep_names`.
+      operationId: reconcilePersistentVolumeClaims
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /v1/auth/config:
     get:
       tags: [auth]
@@ -2110,6 +2367,56 @@ components:
         - administration
         - infrastructure_logical
         - infrastructure_physical
+
+    # ── Reconcile schemas (ADR-0009: push collector) ──────────────────
+
+    ReconcileClusterScoped:
+      type: object
+      required: [cluster_id, keep_names]
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+        keep_names:
+          type: array
+          items:
+            type: string
+
+    ReconcileNamespaceScoped:
+      type: object
+      required: [namespace_id, keep_names]
+      properties:
+        namespace_id:
+          type: string
+          format: uuid
+        keep_names:
+          type: array
+          items:
+            type: string
+
+    ReconcileWorkloads:
+      type: object
+      required: [namespace_id, keep_kinds, keep_names]
+      properties:
+        namespace_id:
+          type: string
+          format: uuid
+        keep_kinds:
+          type: array
+          items:
+            type: string
+        keep_names:
+          type: array
+          items:
+            type: string
+
+    ReconcileResult:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: integer
+          format: int64
 
     Problem:
       description: RFC 7807 problem details.

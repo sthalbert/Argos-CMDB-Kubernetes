@@ -24,34 +24,34 @@ import (
 // capacity/allocatable pairs). Everything here is observed state — the
 // collector overwrites it every tick via UpsertNode.
 type NodeInfo struct {
-	Name                         string
-	Role                         string
-	KubeletVersion               string
-	KubeProxyVersion             string
-	ContainerRuntimeVersion      string
-	OsImage                      string
-	OperatingSystem              string
-	KernelVersion                string
-	Architecture                 string
-	InternalIP                   string
-	ExternalIP                   string
-	PodCIDR                      string
-	ProviderID                   string
-	InstanceType                 string
-	Zone                         string
-	CapacityCPU                  string
-	CapacityMemory               string
-	CapacityPods                 string
-	CapacityEphemeralStorage     string
-	AllocatableCPU               string
-	AllocatableMemory            string
-	AllocatablePods              string
-	AllocatableEphemeralStorage  string
-	Conditions                   []map[string]interface{}
-	Taints                       []map[string]interface{}
-	Unschedulable                bool
-	Ready                        bool
-	Labels                       map[string]string
+	Name                        string
+	Role                        string
+	KubeletVersion              string
+	KubeProxyVersion            string
+	ContainerRuntimeVersion     string
+	OsImage                     string
+	OperatingSystem             string
+	KernelVersion               string
+	Architecture                string
+	InternalIP                  string
+	ExternalIP                  string
+	PodCIDR                     string
+	ProviderID                  string
+	InstanceType                string
+	Zone                        string
+	CapacityCPU                 string
+	CapacityMemory              string
+	CapacityPods                string
+	CapacityEphemeralStorage    string
+	AllocatableCPU              string
+	AllocatableMemory           string
+	AllocatablePods             string
+	AllocatableEphemeralStorage string
+	Conditions                  []map[string]interface{}
+	Taints                      []map[string]interface{}
+	Unschedulable               bool
+	Ready                       bool
+	Labels                      map[string]string
 }
 
 // NamespaceInfo is the subset of a Kubernetes Namespace the collector consumes.
@@ -242,8 +242,9 @@ type KubeSource interface {
 	PersistentVolumeClaimLister
 }
 
-// cmdbStore is the subset of api.Store the collector consumes.
-type cmdbStore interface {
+// CmdbStore is the subset of api.Store the collector consumes. Exported so
+// the apiclient package (push-mode HTTP store) can implement it.
+type CmdbStore interface {
 	GetClusterByName(ctx context.Context, name string) (api.Cluster, error)
 	UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error)
 	UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error)
@@ -268,7 +269,7 @@ type cmdbStore interface {
 // store against a cluster record matched by name. Errors encountered during
 // a single tick are logged and the loop continues to the next tick.
 type Collector struct {
-	store        cmdbStore
+	store        CmdbStore
 	source       KubeSource
 	clusterName  string
 	interval     time.Duration
@@ -281,7 +282,7 @@ type Collector struct {
 // vanish from the Kubernetes listing are deleted from the CMDB so the stored
 // state always matches the live cluster — required for ANSSI cartography
 // fidelity.
-func New(store cmdbStore, source KubeSource, clusterName string, interval, fetchTimeout time.Duration, reconcile bool) *Collector {
+func New(store CmdbStore, source KubeSource, clusterName string, interval, fetchTimeout time.Duration, reconcile bool) *Collector {
 	return &Collector{
 		store:        store,
 		source:       source,
@@ -1029,4 +1030,3 @@ func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceI
 	metrics.MarkPoll(c.clusterName, "persistentvolumeclaims")
 	slog.Info("collector: ingested pvcs", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
 }
-

@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Deploy the push-mode collector inside an air-gapped cluster (ADR-0009).
+#
+# Prerequisites:
+#   1. The target Cluster row must already exist in argosd
+#      (`POST /v1/clusters {"name":"<ARGOS_CLUSTER_NAME>"}`).
+#   2. A PAT with `write` scope must be created in the argosd admin panel.
+#
+# Usage:
+#   1. Copy secret.example.yaml -> secret.yaml, fill in real values.
+#   2. kubectl apply -f deploy/collector/secret.yaml
+#   3. kubectl apply -k deploy/collector/
+resources:
+  - rbac.yaml
+  - deployment.yaml
