@@ -23,7 +23,7 @@ import (
 // 404 the authorize/callback endpoints and hide the "Sign in with X"
 // button in the UI.
 type OIDCConfig struct {
-	Issuer       string   // e.g. https://accounts.example.com
+	Issuer       string // e.g. https://accounts.example.com
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string   // e.g. https://argos.example.com/v1/auth/oidc/callback

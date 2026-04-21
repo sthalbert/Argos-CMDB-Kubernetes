@@ -70,14 +70,14 @@ func (p *PG) GetUserByUsername(ctx context.Context, username string) (api.UserWi
 	      WHERE LOWER(username) = LOWER($1) AND disabled_at IS NULL`
 	row := p.pool.QueryRow(ctx, q, username)
 	var (
-		out          api.UserWithSecret
-		id           uuid.UUID
-		mustChange   bool
-		createdAt    time.Time
-		updatedAt    time.Time
-		lastLoginAt  *time.Time
-		disabledAt   *time.Time
-		role         string
+		out         api.UserWithSecret
+		id          uuid.UUID
+		mustChange  bool
+		createdAt   time.Time
+		updatedAt   time.Time
+		lastLoginAt *time.Time
+		disabledAt  *time.Time
+		role        string
 	)
 	if err := row.Scan(
 		&id, &out.Username, &role, &mustChange,
@@ -253,11 +253,11 @@ func (p *PG) DeleteUser(ctx context.Context, id uuid.UUID) error {
 // middleware uses after a session resolves.
 func (p *PG) GetUserForAuth(ctx context.Context, id uuid.UUID) (auth.User, error) {
 	var (
-		u         auth.User
-		username  string
-		role      string
-		mustChg   bool
-		disabled  *time.Time
+		u        auth.User
+		username string
+		role     string
+		mustChg  bool
+		disabled *time.Time
 	)
 	err := p.pool.QueryRow(ctx,
 		`SELECT id, username, role, must_change_password, disabled_at
@@ -507,8 +507,8 @@ func (p *PG) getAPIToken(ctx context.Context, id uuid.UUID) (api.ApiToken, error
 
 func (p *PG) GetActiveTokenByPrefix(ctx context.Context, prefix string) (auth.APIToken, error) {
 	var (
-		t       auth.APIToken
-		scopes  []string
+		t      auth.APIToken
+		scopes []string
 	)
 	err := p.pool.QueryRow(ctx,
 		`SELECT id, name, hash, scopes, created_by_user_id
@@ -759,14 +759,14 @@ func (p *PG) ConsumeOidcAuthState(ctx context.Context, state string) (string, st
 
 func scanAPIToken(row pgx.Row) (api.ApiToken, error) {
 	var (
-		out         api.ApiToken
-		id          uuid.UUID
-		createdBy   uuid.UUID
-		scopes      []string
-		createdAt   time.Time
-		lastUsedAt  *time.Time
-		expiresAt   *time.Time
-		revokedAt   *time.Time
+		out        api.ApiToken
+		id         uuid.UUID
+		createdBy  uuid.UUID
+		scopes     []string
+		createdAt  time.Time
+		lastUsedAt *time.Time
+		expiresAt  *time.Time
+		revokedAt  *time.Time
 	)
 	var prefix string
 	if err := row.Scan(

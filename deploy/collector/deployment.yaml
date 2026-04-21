@@ -1,0 +1,60 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argos-collector
+  namespace: argos-system
+  labels:
+    app.kubernetes.io/name: argos
+    app.kubernetes.io/component: push-collector
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argos
+      app.kubernetes.io/component: push-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argos
+        app.kubernetes.io/component: push-collector
+    spec:
+      serviceAccountName: argos-collector
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: argos-collector
+          image: ghcr.io/sthalbert/argos-collector:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ARGOS_CLUSTER_NAME
+              value: in-cluster
+            # Empty = in-cluster ServiceAccount credentials.
+            - name: ARGOS_KUBECONFIG
+              value: ""
+            - name: ARGOS_COLLECTOR_INTERVAL
+              value: "5m"
+            - name: ARGOS_COLLECTOR_RECONCILE
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: argos-collector-credentials
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

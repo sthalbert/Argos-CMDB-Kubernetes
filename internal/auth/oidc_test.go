@@ -120,7 +120,7 @@ func TestAuthorizeURL_CarriesStatePKCENonce(t *testing.T) {
 	t.Parallel()
 	p := &OIDCProvider{
 		Config: OIDCConfig{ClientID: "cid", RedirectURL: "https://argos.example.com/cb"},
-		oauth: testOAuthConfig(),
+		oauth:  testOAuthConfig(),
 	}
 	raw := p.AuthorizeURL("state-XYZ", "challenge-ABC", "nonce-123")
 	u, err := url.Parse(raw)

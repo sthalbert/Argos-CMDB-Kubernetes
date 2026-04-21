@@ -48,9 +48,9 @@ func TestShouldAudit(t *testing.T) {
 func TestDeriveResource(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		path      string
-		wantType  string
-		wantID    string
+		path     string
+		wantType string
+		wantID   string
 	}{
 		{"/v1/clusters", "cluster", ""},
 		{"/v1/clusters/deadbeef", "cluster", "deadbeef"},

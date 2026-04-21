@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+#
+# argos-collector container image (ADR-0009).
+# Two-stage: golang builder -> distroless static runtime. No UI stage needed.
+# Binary is static (CGO_ENABLED=0) and runs as non-root UID 65532.
+
+ARG GO_VERSION=1.26
+
+FROM golang:${GO_VERSION} AS build
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+COPY . .
+
+ARG VERSION=docker
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 \
+    GOOS=${TARGETOS:-linux} \
+    GOARCH=${TARGETARCH:-amd64} \
+    go build \
+        -trimpath \
+        -ldflags "-s -w -X main.version=${VERSION}" \
+        -o /out/argos-collector \
+        ./cmd/argos-collector
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=build /out/argos-collector /argos-collector
+
+USER nonroot:nonroot
+
+ENTRYPOINT ["/argos-collector"]

@@ -76,7 +76,6 @@ func podTemplateContainers(tpl corev1.PodSpec) []map[string]interface{} {
 	return out
 }
 
-
 // netv1Backend flattens a NetworkingV1 IngressBackend into the generic map
 // shape the CMDB persists as JSONB. Returns nil when the backend isn't a
 // Service-backed one (a resource backend, for instance).
