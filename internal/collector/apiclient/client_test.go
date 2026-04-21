@@ -35,7 +35,7 @@ func TestBearerTokenInjected(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{{}}})
+		_ = json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{{}}})
 	}))
 	defer srv.Close()
 
@@ -52,7 +52,7 @@ func TestExtraHeadersInjected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotTenant = r.Header.Get("X-Tenant-Id")
 		gotRoute = r.Header.Get("X-Route-Key")
-		json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{{}}})
+		_ = json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{{}}})
 	}))
 	defer srv.Close()
 
@@ -74,7 +74,7 @@ func TestBasePathPrepended(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.RequestURI()
-		json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{{}}})
+		_ = json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{{}}})
 	}))
 	defer srv.Close()
 
@@ -97,7 +97,7 @@ func TestBasePathPrepended(t *testing.T) {
 
 func TestGetClusterByNameNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{}})
+		_ = json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{}})
 	}))
 	defer srv.Close()
 
@@ -116,9 +116,9 @@ func TestUpsertNodeMethod(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
-		json.NewDecoder(r.Body).Decode(&gotBody)
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(api.Node{Id: &nodeID, Name: "node-1"})
+		_ = json.NewEncoder(w).Encode(api.Node{Id: &nodeID, Name: "node-1"})
 	}))
 	defer srv.Close()
 
@@ -152,8 +152,8 @@ func TestReconcileNodesMethod(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
-		json.NewDecoder(r.Body).Decode(&gotBody)
-		json.NewEncoder(w).Encode(reconcileResultBody{Deleted: 3})
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_ = json.NewEncoder(w).Encode(reconcileResultBody{Deleted: 3})
 	}))
 	defer srv.Close()
 
@@ -181,8 +181,8 @@ func TestReconcileWorkloadsMethod(t *testing.T) {
 	var gotBody reconcileWorkloadsBody
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&gotBody)
-		json.NewEncoder(w).Encode(reconcileResultBody{Deleted: 1})
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_ = json.NewEncoder(w).Encode(reconcileResultBody{Deleted: 1})
 	}))
 	defer srv.Close()
 
@@ -212,10 +212,10 @@ func TestRetryOn5xx(t *testing.T) {
 		c := calls.Add(1)
 		if c < 3 {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"error":"gateway timeout"}`))
+			_, _ = w.Write([]byte(`{"error":"gateway timeout"}`))
 			return
 		}
-		json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{{}}})
+		_ = json.NewEncoder(w).Encode(api.ClusterList{Items: []api.Cluster{{}}})
 	}))
 	defer srv.Close()
 
@@ -234,7 +234,7 @@ func TestNoRetryOn401(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"invalid token"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid token"}`))
 	}))
 	defer srv.Close()
 
@@ -253,7 +253,7 @@ func TestNoRetryOn403(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"error":"forbidden"}`))
+		_, _ = w.Write([]byte(`{"error":"forbidden"}`))
 	}))
 	defer srv.Close()
 
@@ -274,7 +274,7 @@ func TestUpdateClusterMethod(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
-		json.NewEncoder(w).Encode(api.Cluster{Id: &id})
+		_ = json.NewEncoder(w).Encode(api.Cluster{Id: &id})
 	}))
 	defer srv.Close()
 

@@ -327,7 +327,7 @@ func (s *Store) doJSON(ctx context.Context, method, path string, body any, dst a
 		}
 
 		respBody, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if readErr != nil {
 			lastErr = fmt.Errorf("%s %s: read response: %w", method, path, readErr)
 			backoff(ctx, attempt)
