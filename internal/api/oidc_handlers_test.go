@@ -40,7 +40,19 @@ func oidcStub(label string) *auth.OIDCProvider {
 // newTestHandlerWithOIDC mirrors newTestHandler but threads in an OIDC provider.
 func newTestHandlerWithOIDC(t *testing.T, store Store, oidc *auth.OIDCProvider) http.Handler {
 	t.Helper()
-	return Handler(NewServer("test", store, auth.SecureNever, oidc))
+	strict := NewStrictHandlerWithOptions(
+		NewServer("test", store, auth.SecureNever, oidc),
+		[]StrictMiddlewareFunc{InjectRequestMiddleware},
+		StrictHTTPServerOptions{
+			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			},
+			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			},
+		},
+	)
+	return Handler(strict)
 }
 
 func TestGetAuthConfig_Disabled(t *testing.T) {
@@ -114,12 +126,16 @@ func TestOidcAuthorize_StoresStateAndRedirects(t *testing.T) {
 	}
 }
 
-func TestOidcCallback_DisabledReturns404(t *testing.T) {
+func TestOidcCallback_DisabledRedirectsWithError(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t, newMemStore())
 	rr := do(h, http.MethodGet, "/v1/auth/oidc/callback?code=x&state=y", "")
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status=%d body=%q", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status=%d want=302 body=%q", rr.Code, rr.Body.String())
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "oidc_error=") {
+		t.Fatalf("expected redirect with oidc_error, got Location=%q", loc)
 	}
 }
 

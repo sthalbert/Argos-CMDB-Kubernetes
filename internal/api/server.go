@@ -1,18 +1,16 @@
 package api
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
-	"io"
 	"log/slog"
-	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/argos/internal/auth"
 )
 
-// Server implements ServerInterface for the Argos REST API.
+// Server implements StrictServerInterface for the Argos REST API.
 type Server struct {
 	version      string
 	store        Store
@@ -28,56 +26,82 @@ func NewServer(version string, store Store, cookiePolicy auth.SecureCookiePolicy
 	return &Server{version: version, store: store, cookiePolicy: cookiePolicy, oidc: oidc}
 }
 
-var _ ServerInterface = (*Server)(nil)
+var _ StrictServerInterface = (*Server)(nil)
+
+// ── Problem helpers ──────────────────────────────────────────────────
+
+func problemNotFound() Problem {
+	return Problem{Type: "about:blank", Title: "Not Found", Status: 404}
+}
+
+func problemConflict(err error) Problem {
+	detail := err.Error()
+	return Problem{Type: "about:blank", Title: "Conflict", Status: 409, Detail: &detail}
+}
+
+func problemBadRequest(title, detail string) Problem {
+	p := Problem{Type: "about:blank", Title: title, Status: 400}
+	if detail != "" {
+		p.Detail = &detail
+	}
+	return p
+}
+
+func problemServiceUnavailable(detail string) Problem {
+	p := Problem{Type: "about:blank", Title: "Not Ready", Status: 503}
+	if detail != "" {
+		p.Detail = &detail
+	}
+	return p
+}
+
+// ── Health probes ────────────────────────────────────────────────────
 
 // GetHealthz reports that the process is alive.
-func (s *Server) GetHealthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, Health{Status: Ok, Version: &s.version})
+func (s *Server) GetHealthz(_ context.Context, _ GetHealthzRequestObject) (GetHealthzResponseObject, error) {
+	return GetHealthz200JSONResponse(Health{Status: Ok, Version: &s.version}), nil
 }
 
 // GetReadyz reports whether the service can accept traffic by pinging the store.
-func (s *Server) GetReadyz(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.Ping(r.Context()); err != nil {
+func (s *Server) GetReadyz(ctx context.Context, _ GetReadyzRequestObject) (GetReadyzResponseObject, error) {
+	if err := s.store.Ping(ctx); err != nil {
 		slog.Error("readyz: store ping failed", "error", err)
-		writeProblem(w, http.StatusServiceUnavailable, "Not Ready", "database not reachable")
-		return
+		return GetReadyz503ApplicationProblemPlusJSONResponse(problemServiceUnavailable("database not reachable")), nil
 	}
-	writeJSON(w, http.StatusOK, Health{Status: Ok, Version: &s.version})
+	return GetReadyz200JSONResponse(Health{Status: Ok, Version: &s.version}), nil
 }
 
+// ── Clusters ─────────────────────────────────────────────────────────
+
 // ListClusters returns a paged list of clusters.
-func (s *Server) ListClusters(w http.ResponseWriter, r *http.Request, params ListClustersParams) {
+func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject) (ListClustersResponseObject, error) {
 	// Exact name filter: short-circuit to GetClusterByName and return a
 	// single-item list (or empty). Used by the push collector to resolve
 	// its cluster record without paginating.
-	if params.Name != nil && *params.Name != "" {
-		c, err := s.store.GetClusterByName(r.Context(), *params.Name)
+	if req.Params.Name != nil && *req.Params.Name != "" {
+		c, err := s.store.GetClusterByName(ctx, *req.Params.Name)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
-				writeJSON(w, http.StatusOK, ClusterList{Items: []Cluster{}})
-				return
+				return ListClusters200JSONResponse(ClusterList{Items: []Cluster{}}), nil
 			}
-			s.writeStoreError(w, "listClusters", err)
-			return
+			return nil, err
 		}
 		c = withClusterLayer(c)
-		writeJSON(w, http.StatusOK, ClusterList{Items: []Cluster{c}})
-		return
+		return ListClusters200JSONResponse(ClusterList{Items: []Cluster{c}}), nil
 	}
 
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListClusters(r.Context(), limit, cursor)
+	items, next, err := s.store.ListClusters(ctx, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listClusters", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -87,83 +111,99 @@ func (s *Server) ListClusters(w http.ResponseWriter, r *http.Request, params Lis
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListClusters200JSONResponse(resp), nil
 }
 
 // CreateCluster registers a new cluster.
-func (s *Server) CreateCluster(w http.ResponseWriter, r *http.Request) {
-	var body ClusterCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreateCluster(ctx context.Context, req CreateClusterRequestObject) (CreateClusterResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreateCluster400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 
-	c, err := s.store.CreateCluster(r.Context(), body)
+	c, err := s.store.CreateCluster(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createCluster", err)
-		return
+		if errors.Is(err, ErrConflict) {
+			return CreateCluster409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	c = withClusterLayer(c)
 
+	loc := "/v1/clusters/"
 	if c.Id != nil {
-		w.Header().Set("Location", "/v1/clusters/"+c.Id.String())
+		loc += c.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, c)
+	return CreateCluster201JSONResponse{
+		Body:    c,
+		Headers: CreateCluster201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetCluster fetches a cluster by id.
-func (s *Server) GetCluster(w http.ResponseWriter, r *http.Request, id ClusterId) {
-	c, err := s.store.GetCluster(r.Context(), id)
+func (s *Server) GetCluster(ctx context.Context, req GetClusterRequestObject) (GetClusterResponseObject, error) {
+	c, err := s.store.GetCluster(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getCluster", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetCluster404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withClusterLayer(c))
+	return GetCluster200JSONResponse(withClusterLayer(c)), nil
 }
 
 // UpdateCluster applies merge-patch updates to a cluster.
-func (s *Server) UpdateCluster(w http.ResponseWriter, r *http.Request, id ClusterId) {
-	var body ClusterUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-	c, err := s.store.UpdateCluster(r.Context(), id, body)
+func (s *Server) UpdateCluster(ctx context.Context, req UpdateClusterRequestObject) (UpdateClusterResponseObject, error) {
+	c, err := s.store.UpdateCluster(ctx, req.Id, ClusterUpdate(*req.Body))
 	if err != nil {
-		s.writeStoreError(w, "updateCluster", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdateCluster404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return nil, err
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withClusterLayer(c))
+	return UpdateCluster200JSONResponse(withClusterLayer(c)), nil
 }
 
 // DeleteCluster removes a cluster.
-func (s *Server) DeleteCluster(w http.ResponseWriter, r *http.Request, id ClusterId) {
-	if err := s.store.DeleteCluster(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deleteCluster", err)
-		return
+func (s *Server) DeleteCluster(ctx context.Context, req DeleteClusterRequestObject) (DeleteClusterResponseObject, error) {
+	if err := s.store.DeleteCluster(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeleteCluster404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return DeleteCluster204Response{}, nil
 }
 
+// ── Nodes ────────────────────────────────────────────────────────────
+
 // ListNodes returns a paged list of nodes, optionally filtered by cluster_id.
-func (s *Server) ListNodes(w http.ResponseWriter, r *http.Request, params ListNodesParams) {
+func (s *Server) ListNodes(ctx context.Context, req ListNodesRequestObject) (ListNodesResponseObject, error) {
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListNodes(r.Context(), params.ClusterId, limit, cursor)
+	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listNodes", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -173,87 +213,106 @@ func (s *Server) ListNodes(w http.ResponseWriter, r *http.Request, params ListNo
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListNodes200JSONResponse(resp), nil
 }
 
 // CreateNode registers a new node under a cluster.
-func (s *Server) CreateNode(w http.ResponseWriter, r *http.Request) {
-	var body NodeCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (CreateNodeResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreateNode400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 	if body.ClusterId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
-		return
+		return CreateNode400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'cluster_id' is required")),
+		}, nil
 	}
 
-	n, err := s.store.CreateNode(r.Context(), body)
+	n, err := s.store.UpsertNode(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createNode", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return CreateNode404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return CreateNode409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	n = withNodeLayer(n)
 
+	loc := "/v1/nodes/"
 	if n.Id != nil {
-		w.Header().Set("Location", "/v1/nodes/"+n.Id.String())
+		loc += n.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, n)
+	return CreateNode201JSONResponse{
+		Body:    n,
+		Headers: CreateNode201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetNode fetches a node by id.
-func (s *Server) GetNode(w http.ResponseWriter, r *http.Request, id NodeId) {
-	n, err := s.store.GetNode(r.Context(), id)
+func (s *Server) GetNode(ctx context.Context, req GetNodeRequestObject) (GetNodeResponseObject, error) {
+	n, err := s.store.GetNode(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getNode", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetNode404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withNodeLayer(n))
+	return GetNode200JSONResponse(withNodeLayer(n)), nil
 }
 
 // UpdateNode applies merge-patch updates to a node.
-func (s *Server) UpdateNode(w http.ResponseWriter, r *http.Request, id NodeId) {
-	var body NodeUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-	n, err := s.store.UpdateNode(r.Context(), id, body)
+func (s *Server) UpdateNode(ctx context.Context, req UpdateNodeRequestObject) (UpdateNodeResponseObject, error) {
+	n, err := s.store.UpdateNode(ctx, req.Id, NodeUpdate(*req.Body))
 	if err != nil {
-		s.writeStoreError(w, "updateNode", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdateNode404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withNodeLayer(n))
+	return UpdateNode200JSONResponse(withNodeLayer(n)), nil
 }
 
 // DeleteNode removes a node.
-func (s *Server) DeleteNode(w http.ResponseWriter, r *http.Request, id NodeId) {
-	if err := s.store.DeleteNode(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deleteNode", err)
-		return
+func (s *Server) DeleteNode(ctx context.Context, req DeleteNodeRequestObject) (DeleteNodeResponseObject, error) {
+	if err := s.store.DeleteNode(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeleteNode404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return DeleteNode204Response{}, nil
 }
 
+// ── Namespaces ───────────────────────────────────────────────────────
+
 // ListNamespaces returns a paged list of namespaces, optionally filtered by cluster_id.
-func (s *Server) ListNamespaces(w http.ResponseWriter, r *http.Request, params ListNamespacesParams) {
+func (s *Server) ListNamespaces(ctx context.Context, req ListNamespacesRequestObject) (ListNamespacesResponseObject, error) {
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListNamespaces(r.Context(), params.ClusterId, limit, cursor)
+	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listNamespaces", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -263,93 +322,112 @@ func (s *Server) ListNamespaces(w http.ResponseWriter, r *http.Request, params L
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListNamespaces200JSONResponse(resp), nil
 }
 
 // CreateNamespace registers a new namespace under a cluster.
-func (s *Server) CreateNamespace(w http.ResponseWriter, r *http.Request) {
-	var body NamespaceCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequestObject) (CreateNamespaceResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreateNamespace400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 	if body.ClusterId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
-		return
+		return CreateNamespace400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'cluster_id' is required")),
+		}, nil
 	}
 
-	n, err := s.store.CreateNamespace(r.Context(), body)
+	n, err := s.store.UpsertNamespace(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createNamespace", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return CreateNamespace404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return CreateNamespace409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	n = withNamespaceLayer(n)
 
+	loc := "/v1/namespaces/"
 	if n.Id != nil {
-		w.Header().Set("Location", "/v1/namespaces/"+n.Id.String())
+		loc += n.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, n)
+	return CreateNamespace201JSONResponse{
+		Body:    n,
+		Headers: CreateNamespace201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetNamespace fetches a namespace by id.
-func (s *Server) GetNamespace(w http.ResponseWriter, r *http.Request, id NamespaceId) {
-	n, err := s.store.GetNamespace(r.Context(), id)
+func (s *Server) GetNamespace(ctx context.Context, req GetNamespaceRequestObject) (GetNamespaceResponseObject, error) {
+	n, err := s.store.GetNamespace(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getNamespace", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetNamespace404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withNamespaceLayer(n))
+	return GetNamespace200JSONResponse(withNamespaceLayer(n)), nil
 }
 
 // UpdateNamespace applies merge-patch updates.
-func (s *Server) UpdateNamespace(w http.ResponseWriter, r *http.Request, id NamespaceId) {
-	var body NamespaceUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-	n, err := s.store.UpdateNamespace(r.Context(), id, body)
+func (s *Server) UpdateNamespace(ctx context.Context, req UpdateNamespaceRequestObject) (UpdateNamespaceResponseObject, error) {
+	n, err := s.store.UpdateNamespace(ctx, req.Id, NamespaceUpdate(*req.Body))
 	if err != nil {
-		s.writeStoreError(w, "updateNamespace", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdateNamespace404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withNamespaceLayer(n))
+	return UpdateNamespace200JSONResponse(withNamespaceLayer(n)), nil
 }
 
 // DeleteNamespace removes a namespace.
-func (s *Server) DeleteNamespace(w http.ResponseWriter, r *http.Request, id NamespaceId) {
-	if err := s.store.DeleteNamespace(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deleteNamespace", err)
-		return
+func (s *Server) DeleteNamespace(ctx context.Context, req DeleteNamespaceRequestObject) (DeleteNamespaceResponseObject, error) {
+	if err := s.store.DeleteNamespace(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeleteNamespace404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return DeleteNamespace204Response{}, nil
 }
+
+// ── Pods ─────────────────────────────────────────────────────────────
 
 // ListPods returns a paged list of pods, optionally filtered by namespace_id,
 // node_name, and/or container image substring.
-func (s *Server) ListPods(w http.ResponseWriter, r *http.Request, params ListPodsParams) {
+func (s *Server) ListPods(ctx context.Context, req ListPodsRequestObject) (ListPodsResponseObject, error) {
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
 	filter := PodListFilter{
-		NamespaceID:    params.NamespaceId,
-		NodeName:       params.NodeName,
-		ImageSubstring: params.Image,
+		NamespaceID:    req.Params.NamespaceId,
+		NodeName:       req.Params.NodeName,
+		ImageSubstring: req.Params.Image,
 	}
 
-	items, next, err := s.store.ListPods(r.Context(), filter, limit, cursor)
+	items, next, err := s.store.ListPods(ctx, filter, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listPods", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -359,97 +437,117 @@ func (s *Server) ListPods(w http.ResponseWriter, r *http.Request, params ListPod
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListPods200JSONResponse(resp), nil
 }
 
 // CreatePod registers a new pod under a namespace.
-func (s *Server) CreatePod(w http.ResponseWriter, r *http.Request) {
-	var body PodCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreatePod(ctx context.Context, req CreatePodRequestObject) (CreatePodResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreatePod400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return CreatePod400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
 
-	p, err := s.store.CreatePod(r.Context(), body)
+	p, err := s.store.UpsertPod(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createPod", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return CreatePod404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return CreatePod409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	p = withPodLayer(p)
 
+	loc := "/v1/pods/"
 	if p.Id != nil {
-		w.Header().Set("Location", "/v1/pods/"+p.Id.String())
+		loc += p.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, p)
+	return CreatePod201JSONResponse{
+		Body:    p,
+		Headers: CreatePod201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetPod fetches a pod by id.
-func (s *Server) GetPod(w http.ResponseWriter, r *http.Request, id PodId) {
-	p, err := s.store.GetPod(r.Context(), id)
+func (s *Server) GetPod(ctx context.Context, req GetPodRequestObject) (GetPodResponseObject, error) {
+	p, err := s.store.GetPod(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getPod", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetPod404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withPodLayer(p))
+	return GetPod200JSONResponse(withPodLayer(p)), nil
 }
 
 // UpdatePod applies merge-patch updates.
-func (s *Server) UpdatePod(w http.ResponseWriter, r *http.Request, id PodId) {
-	var body PodUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-	p, err := s.store.UpdatePod(r.Context(), id, body)
+func (s *Server) UpdatePod(ctx context.Context, req UpdatePodRequestObject) (UpdatePodResponseObject, error) {
+	p, err := s.store.UpdatePod(ctx, req.Id, PodUpdate(*req.Body))
 	if err != nil {
-		s.writeStoreError(w, "updatePod", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdatePod404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withPodLayer(p))
+	return UpdatePod200JSONResponse(withPodLayer(p)), nil
 }
 
 // DeletePod removes a pod.
-func (s *Server) DeletePod(w http.ResponseWriter, r *http.Request, id PodId) {
-	if err := s.store.DeletePod(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deletePod", err)
-		return
+func (s *Server) DeletePod(ctx context.Context, req DeletePodRequestObject) (DeletePodResponseObject, error) {
+	if err := s.store.DeletePod(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeletePod404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return DeletePod204Response{}, nil
 }
+
+// ── Workloads ────────────────────────────────────────────────────────
 
 // ListWorkloads returns a paged list of workloads, optionally filtered by
 // namespace_id and/or kind.
-func (s *Server) ListWorkloads(w http.ResponseWriter, r *http.Request, params ListWorkloadsParams) {
+func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObject) (ListWorkloadsResponseObject, error) {
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
-	if params.Kind != nil && !params.Kind.Valid() {
-		writeProblem(w, http.StatusBadRequest, "Invalid filter", "query 'kind' is not a known workload kind")
-		return
+	if req.Params.Kind != nil && !req.Params.Kind.Valid() {
+		return ListWorkloads400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid filter", "query 'kind' is not a known workload kind")),
+		}, nil
 	}
 	filter := WorkloadListFilter{
-		NamespaceID:    params.NamespaceId,
-		Kind:           params.Kind,
-		ImageSubstring: params.Image,
+		NamespaceID:    req.Params.NamespaceId,
+		Kind:           req.Params.Kind,
+		ImageSubstring: req.Params.Image,
 	}
 
-	items, next, err := s.store.ListWorkloads(r.Context(), filter, limit, cursor)
+	items, next, err := s.store.ListWorkloads(ctx, filter, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listWorkloads", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -459,91 +557,111 @@ func (s *Server) ListWorkloads(w http.ResponseWriter, r *http.Request, params Li
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListWorkloads200JSONResponse(resp), nil
 }
 
 // CreateWorkload registers a new workload under a namespace.
-func (s *Server) CreateWorkload(w http.ResponseWriter, r *http.Request) {
-	var body WorkloadCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestObject) (CreateWorkloadResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreateWorkload400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return CreateWorkload400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
 	if !body.Kind.Valid() {
-		writeProblem(w, http.StatusBadRequest, "Invalid field", "field 'kind' must be one of Deployment, StatefulSet, DaemonSet")
-		return
+		return CreateWorkload400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", "field 'kind' must be one of Deployment, StatefulSet, DaemonSet")),
+		}, nil
 	}
 
-	wl, err := s.store.CreateWorkload(r.Context(), body)
+	wl, err := s.store.UpsertWorkload(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createWorkload", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return CreateWorkload404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return CreateWorkload409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	wl = withWorkloadLayer(wl)
 
+	loc := "/v1/workloads/"
 	if wl.Id != nil {
-		w.Header().Set("Location", "/v1/workloads/"+wl.Id.String())
+		loc += wl.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, wl)
+	return CreateWorkload201JSONResponse{
+		Body:    wl,
+		Headers: CreateWorkload201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetWorkload fetches a workload by id.
-func (s *Server) GetWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId) {
-	wl, err := s.store.GetWorkload(r.Context(), id)
+func (s *Server) GetWorkload(ctx context.Context, req GetWorkloadRequestObject) (GetWorkloadResponseObject, error) {
+	wl, err := s.store.GetWorkload(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getWorkload", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetWorkload404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withWorkloadLayer(wl))
+	return GetWorkload200JSONResponse(withWorkloadLayer(wl)), nil
 }
 
 // UpdateWorkload applies merge-patch updates.
-func (s *Server) UpdateWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId) {
-	var body WorkloadUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-	wl, err := s.store.UpdateWorkload(r.Context(), id, body)
+func (s *Server) UpdateWorkload(ctx context.Context, req UpdateWorkloadRequestObject) (UpdateWorkloadResponseObject, error) {
+	wl, err := s.store.UpdateWorkload(ctx, req.Id, WorkloadUpdate(*req.Body))
 	if err != nil {
-		s.writeStoreError(w, "updateWorkload", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdateWorkload404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withWorkloadLayer(wl))
+	return UpdateWorkload200JSONResponse(withWorkloadLayer(wl)), nil
 }
 
 // DeleteWorkload removes a workload.
-func (s *Server) DeleteWorkload(w http.ResponseWriter, r *http.Request, id WorkloadId) {
-	if err := s.store.DeleteWorkload(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deleteWorkload", err)
-		return
+func (s *Server) DeleteWorkload(ctx context.Context, req DeleteWorkloadRequestObject) (DeleteWorkloadResponseObject, error) {
+	if err := s.store.DeleteWorkload(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeleteWorkload404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return DeleteWorkload204Response{}, nil
 }
 
+// ── Services ─────────────────────────────────────────────────────────
+
 // ListServices returns a paged list of services, optionally filtered by namespace_id.
-func (s *Server) ListServices(w http.ResponseWriter, r *http.Request, params ListServicesParams) {
+func (s *Server) ListServices(ctx context.Context, req ListServicesRequestObject) (ListServicesResponseObject, error) {
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListServices(r.Context(), params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListServices(ctx, req.Params.NamespaceId, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listServices", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -553,95 +671,117 @@ func (s *Server) ListServices(w http.ResponseWriter, r *http.Request, params Lis
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListServices200JSONResponse(resp), nil
 }
 
 // CreateService registers a new service under a namespace.
-func (s *Server) CreateService(w http.ResponseWriter, r *http.Request) {
-	var body ServiceCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObject) (CreateServiceResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreateService400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return CreateService400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
 	if body.Type != nil && !isValidServiceType(*body.Type) {
-		writeProblem(w, http.StatusBadRequest, "Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName")
-		return
+		return CreateService400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName")),
+		}, nil
 	}
 
-	svc, err := s.store.CreateService(r.Context(), body)
+	svc, err := s.store.UpsertService(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createService", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return CreateService404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return CreateService409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	svc = withServiceLayer(svc)
 
+	loc := "/v1/services/"
 	if svc.Id != nil {
-		w.Header().Set("Location", "/v1/services/"+svc.Id.String())
+		loc += svc.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, svc)
+	return CreateService201JSONResponse{
+		Body:    svc,
+		Headers: CreateService201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetService fetches a service by id.
-func (s *Server) GetService(w http.ResponseWriter, r *http.Request, id ServiceId) {
-	svc, err := s.store.GetService(r.Context(), id)
+func (s *Server) GetService(ctx context.Context, req GetServiceRequestObject) (GetServiceResponseObject, error) {
+	svc, err := s.store.GetService(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getService", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetService404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withServiceLayer(svc))
+	return GetService200JSONResponse(withServiceLayer(svc)), nil
 }
 
 // UpdateService applies merge-patch updates.
-func (s *Server) UpdateService(w http.ResponseWriter, r *http.Request, id ServiceId) {
-	var body ServiceUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) UpdateService(ctx context.Context, req UpdateServiceRequestObject) (UpdateServiceResponseObject, error) {
+	body := ServiceUpdate(*req.Body)
 	if body.Type != nil && !isValidServiceType(*body.Type) {
-		writeProblem(w, http.StatusBadRequest, "Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName")
-		return
+		return UpdateService400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName")),
+		}, nil
 	}
-	svc, err := s.store.UpdateService(r.Context(), id, body)
+	svc, err := s.store.UpdateService(ctx, req.Id, body)
 	if err != nil {
-		s.writeStoreError(w, "updateService", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdateService404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withServiceLayer(svc))
+	return UpdateService200JSONResponse(withServiceLayer(svc)), nil
 }
 
 // DeleteService removes a service.
-func (s *Server) DeleteService(w http.ResponseWriter, r *http.Request, id ServiceId) {
-	if err := s.store.DeleteService(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deleteService", err)
-		return
+func (s *Server) DeleteService(ctx context.Context, req DeleteServiceRequestObject) (DeleteServiceResponseObject, error) {
+	if err := s.store.DeleteService(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeleteService404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return DeleteService204Response{}, nil
 }
 
+// ── Ingresses ────────────────────────────────────────────────────────
+
 // ListIngresses returns a paged list of ingresses, optionally filtered by namespace_id.
-func (s *Server) ListIngresses(w http.ResponseWriter, r *http.Request, params ListIngressesParams) {
+func (s *Server) ListIngresses(ctx context.Context, req ListIngressesRequestObject) (ListIngressesResponseObject, error) {
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListIngresses(r.Context(), params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListIngresses(ctx, req.Params.NamespaceId, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listIngresses", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -651,70 +791,88 @@ func (s *Server) ListIngresses(w http.ResponseWriter, r *http.Request, params Li
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListIngresses200JSONResponse(resp), nil
 }
 
 // CreateIngress registers a new ingress under a namespace.
-func (s *Server) CreateIngress(w http.ResponseWriter, r *http.Request) {
-	var body IngressCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreateIngress(ctx context.Context, req CreateIngressRequestObject) (CreateIngressResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreateIngress400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return CreateIngress400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
 
-	ing, err := s.store.CreateIngress(r.Context(), body)
+	ing, err := s.store.UpsertIngress(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createIngress", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return CreateIngress404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return CreateIngress409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	ing = withIngressLayer(ing)
 
+	loc := "/v1/ingresses/"
 	if ing.Id != nil {
-		w.Header().Set("Location", "/v1/ingresses/"+ing.Id.String())
+		loc += ing.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, ing)
+	return CreateIngress201JSONResponse{
+		Body:    ing,
+		Headers: CreateIngress201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetIngress fetches an ingress by id.
-func (s *Server) GetIngress(w http.ResponseWriter, r *http.Request, id IngressId) {
-	ing, err := s.store.GetIngress(r.Context(), id)
+func (s *Server) GetIngress(ctx context.Context, req GetIngressRequestObject) (GetIngressResponseObject, error) {
+	ing, err := s.store.GetIngress(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getIngress", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetIngress404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withIngressLayer(ing))
+	return GetIngress200JSONResponse(withIngressLayer(ing)), nil
 }
 
 // UpdateIngress applies merge-patch updates.
-func (s *Server) UpdateIngress(w http.ResponseWriter, r *http.Request, id IngressId) {
-	var body IngressUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-	ing, err := s.store.UpdateIngress(r.Context(), id, body)
+func (s *Server) UpdateIngress(ctx context.Context, req UpdateIngressRequestObject) (UpdateIngressResponseObject, error) {
+	ing, err := s.store.UpdateIngress(ctx, req.Id, IngressUpdate(*req.Body))
 	if err != nil {
-		s.writeStoreError(w, "updateIngress", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdateIngress404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withIngressLayer(ing))
+	return UpdateIngress200JSONResponse(withIngressLayer(ing)), nil
 }
 
 // DeleteIngress removes an ingress.
-func (s *Server) DeleteIngress(w http.ResponseWriter, r *http.Request, id IngressId) {
-	if err := s.store.DeleteIngress(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deleteIngress", err)
-		return
+func (s *Server) DeleteIngress(ctx context.Context, req DeleteIngressRequestObject) (DeleteIngressResponseObject, error) {
+	if err := s.store.DeleteIngress(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeleteIngress404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return DeleteIngress204Response{}, nil
 }
 
 func isValidServiceType(t ServiceType) bool {
@@ -725,21 +883,22 @@ func isValidServiceType(t ServiceType) bool {
 	return false
 }
 
+// ── Persistent Volumes ───────────────────────────────────────────────
+
 // ListPersistentVolumes returns a paged list of PVs.
-func (s *Server) ListPersistentVolumes(w http.ResponseWriter, r *http.Request, params ListPersistentVolumesParams) {
+func (s *Server) ListPersistentVolumes(ctx context.Context, req ListPersistentVolumesRequestObject) (ListPersistentVolumesResponseObject, error) {
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListPersistentVolumes(r.Context(), params.ClusterId, limit, cursor)
+	items, next, err := s.store.ListPersistentVolumes(ctx, req.Params.ClusterId, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listPersistentVolumes", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -749,87 +908,106 @@ func (s *Server) ListPersistentVolumes(w http.ResponseWriter, r *http.Request, p
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListPersistentVolumes200JSONResponse(resp), nil
 }
 
 // CreatePersistentVolume registers a new PV under a cluster.
-func (s *Server) CreatePersistentVolume(w http.ResponseWriter, r *http.Request) {
-	var body PersistentVolumeCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreatePersistentVolume(ctx context.Context, req CreatePersistentVolumeRequestObject) (CreatePersistentVolumeResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreatePersistentVolume400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 	if body.ClusterId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
-		return
+		return CreatePersistentVolume400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'cluster_id' is required")),
+		}, nil
 	}
 
-	pv, err := s.store.CreatePersistentVolume(r.Context(), body)
+	pv, err := s.store.UpsertPersistentVolume(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createPersistentVolume", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return CreatePersistentVolume404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return CreatePersistentVolume409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	pv = withPersistentVolumeLayer(pv)
 
+	loc := "/v1/persistentvolumes/"
 	if pv.Id != nil {
-		w.Header().Set("Location", "/v1/persistentvolumes/"+pv.Id.String())
+		loc += pv.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, pv)
+	return CreatePersistentVolume201JSONResponse{
+		Body:    pv,
+		Headers: CreatePersistentVolume201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetPersistentVolume fetches a PV by id.
-func (s *Server) GetPersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId) {
-	pv, err := s.store.GetPersistentVolume(r.Context(), id)
+func (s *Server) GetPersistentVolume(ctx context.Context, req GetPersistentVolumeRequestObject) (GetPersistentVolumeResponseObject, error) {
+	pv, err := s.store.GetPersistentVolume(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getPersistentVolume", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetPersistentVolume404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withPersistentVolumeLayer(pv))
+	return GetPersistentVolume200JSONResponse(withPersistentVolumeLayer(pv)), nil
 }
 
 // UpdatePersistentVolume applies merge-patch updates.
-func (s *Server) UpdatePersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId) {
-	var body PersistentVolumeUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-	pv, err := s.store.UpdatePersistentVolume(r.Context(), id, body)
+func (s *Server) UpdatePersistentVolume(ctx context.Context, req UpdatePersistentVolumeRequestObject) (UpdatePersistentVolumeResponseObject, error) {
+	pv, err := s.store.UpdatePersistentVolume(ctx, req.Id, PersistentVolumeUpdate(*req.Body))
 	if err != nil {
-		s.writeStoreError(w, "updatePersistentVolume", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdatePersistentVolume404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withPersistentVolumeLayer(pv))
+	return UpdatePersistentVolume200JSONResponse(withPersistentVolumeLayer(pv)), nil
 }
 
 // DeletePersistentVolume removes a PV.
-func (s *Server) DeletePersistentVolume(w http.ResponseWriter, r *http.Request, id PersistentVolumeId) {
-	if err := s.store.DeletePersistentVolume(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deletePersistentVolume", err)
-		return
+func (s *Server) DeletePersistentVolume(ctx context.Context, req DeletePersistentVolumeRequestObject) (DeletePersistentVolumeResponseObject, error) {
+	if err := s.store.DeletePersistentVolume(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeletePersistentVolume404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return DeletePersistentVolume204Response{}, nil
 }
 
+// ── Persistent Volume Claims ─────────────────────────────────────────
+
 // ListPersistentVolumeClaims returns a paged list of PVCs.
-func (s *Server) ListPersistentVolumeClaims(w http.ResponseWriter, r *http.Request, params ListPersistentVolumeClaimsParams) {
+func (s *Server) ListPersistentVolumeClaims(ctx context.Context, req ListPersistentVolumeClaimsRequestObject) (ListPersistentVolumeClaimsResponseObject, error) {
 	limit := 0
-	if params.Limit != nil {
-		limit = *params.Limit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
 	}
 	cursor := ""
-	if params.Cursor != nil {
-		cursor = *params.Cursor
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListPersistentVolumeClaims(r.Context(), params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListPersistentVolumeClaims(ctx, req.Params.NamespaceId, limit, cursor)
 	if err != nil {
-		s.writeStoreError(w, "listPersistentVolumeClaims", err)
-		return
+		return nil, err
 	}
 
 	for i := range items {
@@ -839,258 +1017,221 @@ func (s *Server) ListPersistentVolumeClaims(w http.ResponseWriter, r *http.Reque
 	if next != "" {
 		resp.NextCursor = &next
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return ListPersistentVolumeClaims200JSONResponse(resp), nil
 }
 
 // CreatePersistentVolumeClaim registers a new PVC under a namespace.
-func (s *Server) CreatePersistentVolumeClaim(w http.ResponseWriter, r *http.Request) {
-	var body PersistentVolumeClaimCreate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) CreatePersistentVolumeClaim(ctx context.Context, req CreatePersistentVolumeClaimRequestObject) (CreatePersistentVolumeClaimResponseObject, error) {
+	body := *req.Body
 	if body.Name == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'name' is required")
-		return
+		return CreatePersistentVolumeClaim400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
+		}, nil
 	}
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return CreatePersistentVolumeClaim400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
 
-	pvc, err := s.store.CreatePersistentVolumeClaim(r.Context(), body)
+	pvc, err := s.store.UpsertPersistentVolumeClaim(ctx, body)
 	if err != nil {
-		s.writeStoreError(w, "createPersistentVolumeClaim", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return CreatePersistentVolumeClaim404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return CreatePersistentVolumeClaim409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
+			}, nil
+		}
+		return nil, err
 	}
 	pvc = withPersistentVolumeClaimLayer(pvc)
 
+	loc := "/v1/persistentvolumeclaims/"
 	if pvc.Id != nil {
-		w.Header().Set("Location", "/v1/persistentvolumeclaims/"+pvc.Id.String())
+		loc += pvc.Id.String()
 	}
-	writeJSON(w, http.StatusCreated, pvc)
+	return CreatePersistentVolumeClaim201JSONResponse{
+		Body:    pvc,
+		Headers: CreatePersistentVolumeClaim201ResponseHeaders{Location: loc},
+	}, nil
 }
 
 // GetPersistentVolumeClaim fetches a PVC by id.
-func (s *Server) GetPersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId) {
-	pvc, err := s.store.GetPersistentVolumeClaim(r.Context(), id)
+func (s *Server) GetPersistentVolumeClaim(ctx context.Context, req GetPersistentVolumeClaimRequestObject) (GetPersistentVolumeClaimResponseObject, error) {
+	pvc, err := s.store.GetPersistentVolumeClaim(ctx, req.Id)
 	if err != nil {
-		s.writeStoreError(w, "getPersistentVolumeClaim", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return GetPersistentVolumeClaim404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withPersistentVolumeClaimLayer(pvc))
+	return GetPersistentVolumeClaim200JSONResponse(withPersistentVolumeClaimLayer(pvc)), nil
 }
 
 // UpdatePersistentVolumeClaim applies merge-patch updates.
-func (s *Server) UpdatePersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId) {
-	var body PersistentVolumeClaimUpdate
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-	pvc, err := s.store.UpdatePersistentVolumeClaim(r.Context(), id, body)
+func (s *Server) UpdatePersistentVolumeClaim(ctx context.Context, req UpdatePersistentVolumeClaimRequestObject) (UpdatePersistentVolumeClaimResponseObject, error) {
+	pvc, err := s.store.UpdatePersistentVolumeClaim(ctx, req.Id, PersistentVolumeClaimUpdate(*req.Body))
 	if err != nil {
-		s.writeStoreError(w, "updatePersistentVolumeClaim", err)
-		return
+		if errors.Is(err, ErrNotFound) {
+			return UpdatePersistentVolumeClaim404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, withPersistentVolumeClaimLayer(pvc))
+	return UpdatePersistentVolumeClaim200JSONResponse(withPersistentVolumeClaimLayer(pvc)), nil
 }
 
 // DeletePersistentVolumeClaim removes a PVC.
-func (s *Server) DeletePersistentVolumeClaim(w http.ResponseWriter, r *http.Request, id PersistentVolumeClaimId) {
-	if err := s.store.DeletePersistentVolumeClaim(r.Context(), id); err != nil {
-		s.writeStoreError(w, "deletePersistentVolumeClaim", err)
-		return
+func (s *Server) DeletePersistentVolumeClaim(ctx context.Context, req DeletePersistentVolumeClaimRequestObject) (DeletePersistentVolumeClaimResponseObject, error) {
+	if err := s.store.DeletePersistentVolumeClaim(ctx, req.Id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeletePersistentVolumeClaim404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) writeStoreError(w http.ResponseWriter, op string, err error) {
-	switch {
-	case errors.Is(err, ErrNotFound):
-		writeProblem(w, http.StatusNotFound, "Not Found", "")
-	case errors.Is(err, ErrConflict):
-		writeProblem(w, http.StatusConflict, "Conflict", err.Error())
-	default:
-		slog.Error("handler store error", "op", op, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
-	}
+	return DeletePersistentVolumeClaim204Response{}, nil
 }
 
 // ── Reconcile handlers (ADR-0009: push collector) ────────────────────
 
 // ReconcileNodes deletes every node of the given cluster whose name is
 // not in keep_names.
-func (s *Server) ReconcileNodes(w http.ResponseWriter, r *http.Request) {
-	var body ReconcileClusterScoped
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) ReconcileNodes(ctx context.Context, req ReconcileNodesRequestObject) (ReconcileNodesResponseObject, error) {
+	body := *req.Body
 	if body.ClusterId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
-		return
+		return ReconcileNodes400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'cluster_id' is required")),
+		}, nil
 	}
-	n, err := s.store.DeleteNodesNotIn(r.Context(), body.ClusterId, body.KeepNames)
+	n, err := s.store.DeleteNodesNotIn(ctx, body.ClusterId, body.KeepNames)
 	if err != nil {
-		s.writeStoreError(w, "reconcileNodes", err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+	return ReconcileNodes200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcileNamespaces deletes every namespace of the given cluster whose
 // name is not in keep_names.
-func (s *Server) ReconcileNamespaces(w http.ResponseWriter, r *http.Request) {
-	var body ReconcileClusterScoped
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) ReconcileNamespaces(ctx context.Context, req ReconcileNamespacesRequestObject) (ReconcileNamespacesResponseObject, error) {
+	body := *req.Body
 	if body.ClusterId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
-		return
+		return ReconcileNamespaces400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'cluster_id' is required")),
+		}, nil
 	}
-	n, err := s.store.DeleteNamespacesNotIn(r.Context(), body.ClusterId, body.KeepNames)
+	n, err := s.store.DeleteNamespacesNotIn(ctx, body.ClusterId, body.KeepNames)
 	if err != nil {
-		s.writeStoreError(w, "reconcileNamespaces", err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+	return ReconcileNamespaces200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcilePersistentVolumes deletes every PV of the given cluster whose
 // name is not in keep_names.
-func (s *Server) ReconcilePersistentVolumes(w http.ResponseWriter, r *http.Request) {
-	var body ReconcileClusterScoped
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) ReconcilePersistentVolumes(ctx context.Context, req ReconcilePersistentVolumesRequestObject) (ReconcilePersistentVolumesResponseObject, error) {
+	body := *req.Body
 	if body.ClusterId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'cluster_id' is required")
-		return
+		return ReconcilePersistentVolumes400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'cluster_id' is required")),
+		}, nil
 	}
-	n, err := s.store.DeletePersistentVolumesNotIn(r.Context(), body.ClusterId, body.KeepNames)
+	n, err := s.store.DeletePersistentVolumesNotIn(ctx, body.ClusterId, body.KeepNames)
 	if err != nil {
-		s.writeStoreError(w, "reconcilePersistentVolumes", err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+	return ReconcilePersistentVolumes200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcilePods deletes every pod of the given namespace whose name is
 // not in keep_names.
-func (s *Server) ReconcilePods(w http.ResponseWriter, r *http.Request) {
-	var body ReconcileNamespaceScoped
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) ReconcilePods(ctx context.Context, req ReconcilePodsRequestObject) (ReconcilePodsResponseObject, error) {
+	body := *req.Body
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return ReconcilePods400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
-	n, err := s.store.DeletePodsNotIn(r.Context(), body.NamespaceId, body.KeepNames)
+	n, err := s.store.DeletePodsNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
-		s.writeStoreError(w, "reconcilePods", err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+	return ReconcilePods200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcileWorkloads deletes every workload of the given namespace whose
 // (kind, name) tuple is not in the parallel keep_kinds/keep_names arrays.
-func (s *Server) ReconcileWorkloads(w http.ResponseWriter, r *http.Request) {
-	var body ReconcileWorkloads
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) ReconcileWorkloads(ctx context.Context, req ReconcileWorkloadsRequestObject) (ReconcileWorkloadsResponseObject, error) {
+	body := *req.Body
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return ReconcileWorkloads400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
 	if len(body.KeepKinds) != len(body.KeepNames) {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", "keep_kinds and keep_names must have equal length")
-		return
+		return ReconcileWorkloads400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid request body", "keep_kinds and keep_names must have equal length")),
+		}, nil
 	}
-	n, err := s.store.DeleteWorkloadsNotIn(r.Context(), body.NamespaceId, body.KeepKinds, body.KeepNames)
+	n, err := s.store.DeleteWorkloadsNotIn(ctx, body.NamespaceId, body.KeepKinds, body.KeepNames)
 	if err != nil {
-		s.writeStoreError(w, "reconcileWorkloads", err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+	return ReconcileWorkloads200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcileServices deletes every service of the given namespace whose
 // name is not in keep_names.
-func (s *Server) ReconcileServices(w http.ResponseWriter, r *http.Request) {
-	var body ReconcileNamespaceScoped
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) ReconcileServices(ctx context.Context, req ReconcileServicesRequestObject) (ReconcileServicesResponseObject, error) {
+	body := *req.Body
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return ReconcileServices400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
-	n, err := s.store.DeleteServicesNotIn(r.Context(), body.NamespaceId, body.KeepNames)
+	n, err := s.store.DeleteServicesNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
-		s.writeStoreError(w, "reconcileServices", err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+	return ReconcileServices200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcileIngresses deletes every ingress of the given namespace whose
 // name is not in keep_names.
-func (s *Server) ReconcileIngresses(w http.ResponseWriter, r *http.Request) {
-	var body ReconcileNamespaceScoped
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) ReconcileIngresses(ctx context.Context, req ReconcileIngressesRequestObject) (ReconcileIngressesResponseObject, error) {
+	body := *req.Body
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return ReconcileIngresses400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
-	n, err := s.store.DeleteIngressesNotIn(r.Context(), body.NamespaceId, body.KeepNames)
+	n, err := s.store.DeleteIngressesNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
-		s.writeStoreError(w, "reconcileIngresses", err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
+	return ReconcileIngresses200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcilePersistentVolumeClaims deletes every PVC of the given namespace
 // whose name is not in keep_names.
-func (s *Server) ReconcilePersistentVolumeClaims(w http.ResponseWriter, r *http.Request) {
-	var body ReconcileNamespaceScoped
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
+func (s *Server) ReconcilePersistentVolumeClaims(ctx context.Context, req ReconcilePersistentVolumeClaimsRequestObject) (ReconcilePersistentVolumeClaimsResponseObject, error) {
+	body := *req.Body
 	if body.NamespaceId == (uuid.UUID{}) {
-		writeProblem(w, http.StatusBadRequest, "Missing field", "field 'namespace_id' is required")
-		return
+		return ReconcilePersistentVolumeClaims400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'namespace_id' is required")),
+		}, nil
 	}
-	n, err := s.store.DeletePersistentVolumeClaimsNotIn(r.Context(), body.NamespaceId, body.KeepNames)
+	n, err := s.store.DeletePersistentVolumeClaimsNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
-		s.writeStoreError(w, "reconcilePersistentVolumeClaims", err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, ReconcileResult{Deleted: n})
-}
-
-func decodeJSONBody(r *http.Request, dst any) error {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		if errors.Is(err, io.EOF) {
-			return errors.New("request body is empty")
-		}
-		return err
-	}
-	return nil
+	return ReconcilePersistentVolumeClaims200JSONResponse(ReconcileResult{Deleted: n}), nil
 }

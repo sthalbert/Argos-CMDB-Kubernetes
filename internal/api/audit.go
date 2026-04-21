@@ -282,28 +282,5 @@ func (r *statusRecorder) Write(p []byte) (int, error) {
 	return r.ResponseWriter.Write(p)
 }
 
-// --- handler -------------------------------------------------------------
-
-// ListAuditEvents serves GET /v1/admin/audit. Any field left nil on the
-// filter struct is ignored downstream.
-func (s *Server) ListAuditEvents(w http.ResponseWriter, r *http.Request, params ListAuditEventsParams) {
-	limit, cursor := paging(params.Limit, params.Cursor)
-	filter := AuditEventFilter{
-		ActorID:      params.ActorId,
-		ResourceType: params.ResourceType,
-		ResourceID:   params.ResourceId,
-		Action:       params.Action,
-		Since:        params.Since,
-		Until:        params.Until,
-	}
-	items, next, err := s.store.ListAuditEvents(r.Context(), filter, limit, cursor)
-	if err != nil {
-		s.writeStoreError(w, "listAuditEvents", err)
-		return
-	}
-	resp := AuditEventList{Items: items}
-	if next != "" {
-		resp.NextCursor = &next
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
+// ListAuditEvents handler lives in auth_handlers.go alongside the
+// other admin endpoints to keep the strict-server pattern consistent.

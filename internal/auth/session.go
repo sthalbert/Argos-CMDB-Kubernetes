@@ -28,11 +28,12 @@ const (
 	SecureNever
 )
 
-// SetSessionCookie writes the session cookie on the response with the
-// flags required by ADR-0007: HttpOnly, SameSite=Strict, Path=/.
-// The Secure flag depends on `policy`.
-func SetSessionCookie(w http.ResponseWriter, r *http.Request, id string, expires time.Time, policy SecureCookiePolicy) {
-	http.SetCookie(w, &http.Cookie{
+// SessionCookie builds the session cookie value with the flags required
+// by ADR-0007: HttpOnly, SameSite=Strict, Path=/. The Secure flag
+// depends on `policy`. The caller is responsible for writing it to the
+// response (via http.SetCookie or a typed response header).
+func SessionCookie(id string, expires time.Time, r *http.Request, policy SecureCookiePolicy) *http.Cookie {
+	return &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    id,
 		Path:     "/",
@@ -41,14 +42,21 @@ func SetSessionCookie(w http.ResponseWriter, r *http.Request, id string, expires
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Secure:   secureFlag(r, policy),
-	})
+	}
 }
 
-// ClearSessionCookie overwrites the cookie with an empty value and
-// MaxAge=-1 so the browser drops it. Use on logout and whenever the
-// session row is gone server-side.
-func ClearSessionCookie(w http.ResponseWriter, r *http.Request, policy SecureCookiePolicy) {
-	http.SetCookie(w, &http.Cookie{
+// SetSessionCookie writes the session cookie on the response with the
+// flags required by ADR-0007: HttpOnly, SameSite=Strict, Path=/.
+// The Secure flag depends on `policy`.
+func SetSessionCookie(w http.ResponseWriter, r *http.Request, id string, expires time.Time, policy SecureCookiePolicy) {
+	http.SetCookie(w, SessionCookie(id, expires, r, policy))
+}
+
+// ClearSessionCookieValue builds a cookie that clears the session —
+// empty value, MaxAge=-1 so the browser drops it. The caller writes
+// it to the response.
+func ClearSessionCookieValue(r *http.Request, policy SecureCookiePolicy) *http.Cookie {
+	return &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
 		Path:     "/",
@@ -56,7 +64,14 @@ func ClearSessionCookie(w http.ResponseWriter, r *http.Request, policy SecureCoo
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Secure:   secureFlag(r, policy),
-	})
+	}
+}
+
+// ClearSessionCookie overwrites the cookie with an empty value and
+// MaxAge=-1 so the browser drops it. Use on logout and whenever the
+// session row is gone server-side.
+func ClearSessionCookie(w http.ResponseWriter, r *http.Request, policy SecureCookiePolicy) {
+	http.SetCookie(w, ClearSessionCookieValue(r, policy))
 }
 
 func secureFlag(r *http.Request, policy SecureCookiePolicy) bool {

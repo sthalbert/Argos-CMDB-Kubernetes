@@ -114,10 +114,22 @@ func run() error {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
-	api.HandlerWithOptions(api.NewServer(version, pg, cookiePolicy, oidcProvider), api.StdHTTPServerOptions{
+	strict := api.NewStrictHandlerWithOptions(
+		api.NewServer(version, pg, cookiePolicy, oidcProvider),
+		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
+		api.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			},
+			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			},
+		},
+	)
+	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
 		BaseRouter: mux,
 		// Order matters: the outer middleware runs first, so the audit
-		// layer sits *after* auth — it sees the resolved caller on the
+		// layer sits *after* auth ��� it sees the resolved caller on the
 		// request context and the final response status.
 		Middlewares: []api.MiddlewareFunc{
 			api.AuthMiddleware(pg, cookiePolicy),
