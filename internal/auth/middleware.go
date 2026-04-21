@@ -69,7 +69,7 @@ const (
 // Caller is what middleware attaches to the request context on
 // successful auth. Handlers read it with CallerFromContext.
 type Caller struct {
-	Kind   CallerKind
+	Kind CallerKind
 	// UserID is populated when Kind == CallerKindUser; for token
 	// callers, it's the user who minted the token.
 	UserID uuid.UUID
@@ -127,9 +127,9 @@ func CallerFromContext(ctx context.Context) *Caller {
 // middleware doesn't care about CreatedAt / UserAgent / SourceIP; only
 // UserID and expiry.
 type Session struct {
-	ID         string
-	UserID     uuid.UUID
-	ExpiresAt  time.Time
+	ID        string
+	UserID    uuid.UUID
+	ExpiresAt time.Time
 }
 
 // APIToken is the post-lookup view of a row in the `api_tokens` table
