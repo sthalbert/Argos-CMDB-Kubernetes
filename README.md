@@ -1,5 +1,6 @@
 # Argos
 
+[![CI](https://img.shields.io/github/actions/workflow/status/sthalbert/Argos/ci.yml?branch=main&label=CI)](https://github.com/sthalbert/Argos/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/sthalbert/Argos?sort=semver&label=Latest%20Release)](https://github.com/sthalbert/Argos/releases)
 [![License](https://img.shields.io/github/license/sthalbert/Argos?label=License)](LICENSE)
 [![Contributors](https://img.shields.io/github/contributors/sthalbert/Argos?label=Contributors)](https://github.com/sthalbert/Argos/graphs/contributors)
