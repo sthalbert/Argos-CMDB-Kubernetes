@@ -60,23 +60,37 @@ oidc:
   # -- Login button label.
   label: "OIDC"
 
-# -- Bundled PostgreSQL (Bitnami subchart).
-# Set enabled=false and provide externalDatabase.url to use your own PG.
+# -- Bundled PostgreSQL (official postgres:17-alpine image).
+# Set enabled=false and provide externalDatabase.url to use your own PG
+# (managed service, CNPG, or any PostgreSQL 14+ instance).
 postgresql:
+  # -- Deploy a PostgreSQL StatefulSet alongside argosd.
   enabled: true
   image:
-    # -- Pin to a stable tag. The subchart default may reference a tag
-    # that has been removed from Docker Hub (Bitnami rotates tags frequently).
-    tag: "17"
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
   auth:
+    # -- Database superuser username.
     username: argos
+    # -- Database superuser password.
     password: argos
+    # -- Database name (created on first boot via POSTGRES_DB).
     database: argos
-  primary:
-    persistence:
-      size: 5Gi
+  persistence:
+    # -- PVC size.
+    size: 5Gi
+    # -- Storage class (empty = cluster default).
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
-# -- External PostgreSQL. Only used when postgresql.enabled=false.
+# -- External PostgreSQL. Only used when cnpg.enabled=false.
 externalDatabase:
   # -- Full DSN, e.g. postgres://user:pass@host:5432/argos?sslmode=require
   url: ""

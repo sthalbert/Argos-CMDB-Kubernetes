@@ -68,8 +68,8 @@ Image reference.
 {{- end }}
 
 {{/*
-Database URL. When the bundled PostgreSQL is enabled, build the DSN from
-the subchart values. Otherwise use externalDatabase.url.
+Database URL. When bundled PostgreSQL is enabled, build the DSN from
+the chart values. Otherwise require externalDatabase.url.
 */}}
 {{- define "argos.databaseUrl" -}}
 {{- if .Values.postgresql.enabled -}}
