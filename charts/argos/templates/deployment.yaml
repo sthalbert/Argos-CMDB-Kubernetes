@@ -66,8 +66,6 @@ spec:
             {{- else }}
             - name: ARGOS_CLUSTER_NAME
               value: {{ .Values.collector.clusterName | quote }}
-            - name: ARGOS_KUBECONFIG
-              value: {{ .Values.collector.kubeconfig | quote }}
             {{- end }}
             {{- end }}
           envFrom:
@@ -93,6 +91,18 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- if .Values.collector.kubeconfigSecret }}
+          volumeMounts:
+            - name: kubeconfigs
+              mountPath: /etc/argos/kubeconfigs
+              readOnly: true
+          {{- end }}
+      {{- if .Values.collector.kubeconfigSecret }}
+      volumes:
+        - name: kubeconfigs
+          secret:
+            secretName: {{ .Values.collector.kubeconfigSecret }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -31,8 +31,6 @@ collector:
   enabled: false
   # -- Single-cluster name (ignored when clusters is non-empty).
   clusterName: "in-cluster"
-  # -- Path to kubeconfig. Empty = in-cluster ServiceAccount.
-  kubeconfig: ""
   # -- Multi-cluster list. Each entry: {name: "x", kubeconfig: "/path"}.
   # An empty kubeconfig uses the pod's in-cluster credentials.
   clusters: []
@@ -42,6 +40,10 @@ collector:
   fetchTimeout: "10s"
   # -- Delete rows that vanish from the live listing.
   reconcile: true
+  # -- Name of an existing Secret containing kubeconfig files.
+  # Each key in the Secret is mounted as a file under /etc/argos/kubeconfigs/.
+  # Reference the mounted path in kubeconfig or clusters[].kubeconfig.
+  kubeconfigSecret: ""
 
 # -- OIDC federation (optional).
 oidc:
