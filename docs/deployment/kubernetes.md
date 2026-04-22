@@ -6,7 +6,7 @@ This guide deploys argosd into a Kubernetes cluster using the reference Kustomiz
 
 - A Kubernetes cluster (kind, minikube, or a production cluster).
 - A PostgreSQL 14+ instance reachable from the cluster. The argosd pod needs `CREATE` privileges on the target database for goose migrations.
-- A container image. The image is not yet published to a registry -- see [Build the image](#build-the-image) below.
+- A container image. Pre-built images are published to `ghcr.io/sthalbert/argos` on every release. To build your own, see [Build the image](#build-the-image) below.
 - `kubectl` configured to talk to the cluster.
 
 ## Files overview

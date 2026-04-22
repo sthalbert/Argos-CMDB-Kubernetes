@@ -25,7 +25,7 @@ The Secret is intentionally out of the Kustomization so the example file can't b
 
 ## Image
 
-The [`Dockerfile`](../Dockerfile) builds a distroless static image. It's **not yet published to a registry** — a future PR wires GHCR publish into CI. Until then, for a first smoke test on a local cluster:
+The [`Dockerfile`](../Dockerfile) builds a distroless static image. Pre-built images are published to `ghcr.io/sthalbert/argos` (and `ghcr.io/sthalbert/argos-collector`) on every tagged release. To build locally for a smoke test:
 
 ```sh
 # 1. Build locally.
