@@ -64,6 +64,10 @@ oidc:
 # Set enabled=false and provide externalDatabase.url to use your own PG.
 postgresql:
   enabled: true
+  image:
+    # -- Pin to a stable tag. The subchart default may reference a tag
+    # that has been removed from Docker Hub (Bitnami rotates tags frequently).
+    tag: "17"
   auth:
     username: argos
     password: argos
