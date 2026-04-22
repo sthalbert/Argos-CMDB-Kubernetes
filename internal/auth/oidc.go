@@ -18,6 +18,16 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// Sentinel errors for OIDC flow validation.
+var (
+	errOIDCMissingConfig = errors.New("OIDC issuer set but client id or redirect URL missing")
+	errOIDCNoIDToken     = errors.New("oidc: no id_token in response")
+	errOIDCEmptySub      = errors.New("oidc: empty sub claim")
+	errOIDCNonceMismatch = errors.New("oidc: nonce mismatch")
+	// ErrOIDCDisabled is returned when OIDC is not configured (empty issuer).
+	ErrOIDCDisabled = errors.New("oidc: disabled (no issuer configured)")
+)
+
 // OIDCConfig is the env-derived configuration for an OIDC provider.
 // Zero-value Issuer means "OIDC disabled"; handlers use that signal to
 // 404 the authorize/callback endpoints and hide the "Sign in with X"
@@ -46,12 +56,12 @@ type OIDCProvider struct {
 // A network failure here is fatal for argosd: OIDC configured but
 // unreachable at start means "operator misconfigured", not "IdP has a
 // transient outage" — the operator should see a clear error.
-func NewOIDCProvider(ctx context.Context, cfg OIDCConfig) (*OIDCProvider, error) {
+func NewOIDCProvider(ctx context.Context, cfg *OIDCConfig) (*OIDCProvider, error) {
 	if cfg.Issuer == "" {
-		return nil, nil
+		return nil, ErrOIDCDisabled
 	}
 	if cfg.ClientID == "" || cfg.RedirectURL == "" {
-		return nil, errors.New("OIDC issuer set but client id or redirect URL missing")
+		return nil, errOIDCMissingConfig
 	}
 	scopes := cfg.Scopes
 	if len(scopes) == 0 {
@@ -76,10 +86,18 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCConfig) (*OIDCProvider, error)
 	verifier := prov.Verifier(&oidc.Config{ClientID: cfg.ClientID})
 
 	return &OIDCProvider{
-		Config:   cfg,
+		Config:   *cfg,
 		oauth:    oauthConf,
 		verifier: verifier,
 	}, nil
+}
+
+// NewOIDCProviderFromTestParts builds a provider from pre-constructed
+// oauth parts. Exposed only for tests in other packages (the verifier
+// is left nil — Exchange will panic if called, so use this only for
+// AuthorizeURL / config-surface tests).
+func NewOIDCProviderFromTestParts(cfg *OIDCConfig, oauthConf *oauth2.Config) *OIDCProvider {
+	return &OIDCProvider{Config: *cfg, oauth: oauthConf}
 }
 
 // AuthorizeURL returns the IdP authorize URL carrying state, PKCE
@@ -121,7 +139,7 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code, codeVerifier, expecte
 
 	rawID, ok := token.Extra("id_token").(string)
 	if !ok || rawID == "" {
-		return nil, errors.New("oidc: no id_token in response")
+		return nil, errOIDCNoIDToken
 	}
 
 	idToken, err := p.verifier.Verify(ctx, rawID)
@@ -134,21 +152,13 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code, codeVerifier, expecte
 		return nil, fmt.Errorf("oidc parse claims: %w", err)
 	}
 	if claims.Sub == "" {
-		return nil, errors.New("oidc: empty sub claim")
+		return nil, errOIDCEmptySub
 	}
 	if claims.Nonce != expectedNonce {
-		return nil, errors.New("oidc: nonce mismatch")
+		return nil, errOIDCNonceMismatch
 	}
 	claims.Issuer = idToken.Issuer // trust the verified value, not the body
 	return &claims, nil
-}
-
-// NewOIDCProviderFromTestParts builds a provider from pre-constructed
-// oauth parts. Exposed only for tests in other packages (the verifier
-// is left nil — Exchange will panic if called, so use this only for
-// AuthorizeURL / config-surface tests).
-func NewOIDCProviderFromTestParts(cfg OIDCConfig, oauthConf *oauth2.Config) *OIDCProvider {
-	return &OIDCProvider{Config: cfg, oauth: oauthConf}
 }
 
 // GenerateOIDCState returns a short, URL-safe random identifier.

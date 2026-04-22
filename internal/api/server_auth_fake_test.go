@@ -175,7 +175,7 @@ func (m *memStore) UpdateUser(_ context.Context, id uuid.UUID, in UserPatch) (Us
 			now := time.Now().UTC()
 			u.DisabledAt = &now
 			// revoke sessions
-			for sid, s := range m.authState.sessions {
+			for sid, s := range m.authState.sessions { //nolint:gocritic // acceptable copy in test code
 				if s.userID == id {
 					delete(m.authState.sessions, sid)
 				}
@@ -204,7 +204,7 @@ func (m *memStore) SetUserPassword(_ context.Context, id uuid.UUID, hash string,
 	u.UpdatedAt = &now
 	m.authState.users[id] = u
 	// clear sessions
-	for sid, s := range m.authState.sessions {
+	for sid, s := range m.authState.sessions { //nolint:gocritic // acceptable copy in test code
 		if s.userID == id {
 			delete(m.authState.sessions, sid)
 		}
@@ -233,7 +233,7 @@ func (m *memStore) DeleteUser(_ context.Context, id uuid.UUID) error {
 		return ErrNotFound
 	}
 	// Restrict-style FK: reject if the user minted any still-present tokens.
-	for _, t := range m.authState.tokens {
+	for _, t := range m.authState.tokens { //nolint:gocritic // acceptable copy in test code
 		if t.createdBy == id {
 			return fmt.Errorf("user owns api tokens: %w", ErrConflict)
 		}
@@ -241,7 +241,7 @@ func (m *memStore) DeleteUser(_ context.Context, id uuid.UUID) error {
 	delete(m.authState.users, id)
 	delete(m.authState.userHashes, id)
 	delete(m.authState.userByName, strings.ToLower(u.Username))
-	for sid, s := range m.authState.sessions {
+	for sid, s := range m.authState.sessions { //nolint:gocritic // acceptable copy in test code
 		if s.userID == id {
 			delete(m.authState.sessions, sid)
 		}
@@ -249,7 +249,7 @@ func (m *memStore) DeleteUser(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) CreateSession(_ context.Context, in SessionInsert) error {
+func (m *memStore) CreateSession(_ context.Context, in SessionInsert) error { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.authState.sessions[in.ID] = memSession{
@@ -324,7 +324,7 @@ func (m *memStore) DeleteSession(_ context.Context, id string) error {
 func (m *memStore) DeleteSessionByPublicID(_ context.Context, publicID uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for id, s := range m.authState.sessions {
+	for id, s := range m.authState.sessions { //nolint:gocritic // acceptable copy in test code
 		if s.publicID == publicID {
 			delete(m.authState.sessions, id)
 			return nil
@@ -336,7 +336,7 @@ func (m *memStore) DeleteSessionByPublicID(_ context.Context, publicID uuid.UUID
 func (m *memStore) DeleteSessionsForUser(_ context.Context, userID uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for sid, s := range m.authState.sessions {
+	for sid, s := range m.authState.sessions { //nolint:gocritic // acceptable copy in test code
 		if s.userID == userID {
 			delete(m.authState.sessions, sid)
 		}
@@ -351,7 +351,7 @@ func (m *memStore) ListSessions(_ context.Context, limit int, _ string) ([]Sessi
 		limit = 50
 	}
 	out := make([]Session, 0, len(m.authState.sessions))
-	for _, s := range m.authState.sessions {
+	for _, s := range m.authState.sessions { //nolint:gocritic // acceptable copy in test code
 		if time.Now().After(s.expires) {
 			continue
 		}
@@ -384,7 +384,7 @@ func (m *memStore) ListSessions(_ context.Context, limit int, _ string) ([]Sessi
 	return out, "", nil
 }
 
-func (m *memStore) CreateAPIToken(_ context.Context, in APITokenInsert) (ApiToken, error) {
+func (m *memStore) CreateAPIToken(_ context.Context, in APITokenInsert) (ApiToken, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, dup := m.authState.tokenByPrefix[in.Prefix]; dup {
@@ -407,7 +407,7 @@ func (m *memStore) CreateAPIToken(_ context.Context, in APITokenInsert) (ApiToke
 	return m.tokenToApi(t), nil
 }
 
-func (m *memStore) tokenToApi(t memToken) ApiToken {
+func (m *memStore) tokenToApi(t memToken) ApiToken { //nolint:gocritic // value semantics intentional for test helper
 	id := t.id
 	createdBy := t.createdBy
 	createdAt := t.createdAt
@@ -468,7 +468,7 @@ func (m *memStore) ListAPITokens(_ context.Context, limit int, _ string) ([]ApiT
 		limit = 50
 	}
 	out := make([]ApiToken, 0, len(m.authState.tokens))
-	for _, t := range m.authState.tokens {
+	for _, t := range m.authState.tokens { //nolint:gocritic // acceptable copy in test code
 		out = append(out, m.tokenToApi(t))
 	}
 	if len(out) > limit {
@@ -541,7 +541,7 @@ func (m *memStore) TouchUserIdentity(_ context.Context, _ uuid.UUID, _, _ string
 	return nil
 }
 
-func (m *memStore) CreateOidcAuthState(_ context.Context, in OidcAuthStateInsert) error {
+func (m *memStore) CreateOidcAuthState(_ context.Context, in OidcAuthStateInsert) error { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.authState.oidcAuthStates[in.State] = memOidcState{
@@ -552,7 +552,7 @@ func (m *memStore) CreateOidcAuthState(_ context.Context, in OidcAuthStateInsert
 	return nil
 }
 
-func (m *memStore) ConsumeOidcAuthState(_ context.Context, state string) (string, string, error) {
+func (m *memStore) ConsumeOidcAuthState(_ context.Context, state string) (codeVerifier, nonce string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.authState.oidcAuthStates[state]
@@ -564,7 +564,7 @@ func (m *memStore) ConsumeOidcAuthState(_ context.Context, state string) (string
 	return s.codeVerifier, s.nonce, nil
 }
 
-func (m *memStore) InsertAuditEvent(_ context.Context, in AuditEventInsert) error {
+func (m *memStore) InsertAuditEvent(_ context.Context, in AuditEventInsert) error { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ev := AuditEvent{
@@ -602,14 +602,17 @@ func (m *memStore) InsertAuditEvent(_ context.Context, in AuditEventInsert) erro
 		ev.UserAgent = &v
 	}
 	if in.Details != nil {
-		d := map[string]interface{}(in.Details)
+		d := in.Details
 		ev.Details = &d
 	}
 	m.authState.auditEvents = append(m.authState.auditEvents, ev)
 	return nil
 }
 
-func (m *memStore) ListAuditEvents(_ context.Context, filter AuditEventFilter, limit int, _ string) ([]AuditEvent, string, error) {
+//nolint:gocyclo // multi-filter test fake
+func (m *memStore) ListAuditEvents(
+	_ context.Context, filter AuditEventFilter, limit int, _ string,
+) ([]AuditEvent, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {

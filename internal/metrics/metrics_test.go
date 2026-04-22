@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,7 +25,7 @@ func TestInstrumentHandlerCountsRequestsByStatusClass(t *testing.T) {
 	h := InstrumentHandler(mux)
 
 	for _, path := range []string{"/ok", "/notfound", "/boom"} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody)
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, req)
 	}
@@ -70,7 +71,7 @@ func TestHandlerExposesRegisteredMetrics(t *testing.T) {
 	ObserveUpserts("smoke-cluster", "pods", 3)
 	ObserveError("smoke-cluster", "pods", "upsert")
 
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", http.NoBody)
 	rr := httptest.NewRecorder()
 	Handler().ServeHTTP(rr, req)
 

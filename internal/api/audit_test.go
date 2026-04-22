@@ -38,7 +38,7 @@ func TestShouldAudit(t *testing.T) {
 		{"GET", "/metrics", false},
 	}
 	for _, c := range cases {
-		r := httptest.NewRequest(c.method, c.path, nil)
+		r, _ := http.NewRequestWithContext(context.Background(), c.method, c.path, http.NoBody)
 		if got := shouldAudit(r); got != c.want {
 			t.Errorf("shouldAudit(%s %s) = %v, want %v", c.method, c.path, got, c.want)
 		}
@@ -61,7 +61,7 @@ func TestDeriveResource(t *testing.T) {
 		{"/healthz", "", ""},
 	}
 	for _, c := range cases {
-		r := httptest.NewRequest(http.MethodGet, c.path, nil)
+		r, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, c.path, http.NoBody)
 		gotType, gotID := deriveResource(r)
 		if gotType != c.wantType || gotID != c.wantID {
 			t.Errorf("deriveResource(%s) = (%q, %q), want (%q, %q)",
@@ -90,12 +90,14 @@ func TestDeriveAction(t *testing.T) {
 		{"GET", "/v1/admin/audit", 200, "admin_audit.read"},
 	}
 	for _, c := range cases {
-		r := httptest.NewRequest(c.method, c.path, nil)
+		r, _ := http.NewRequestWithContext(context.Background(), c.method, c.path, http.NoBody)
 		if got := deriveAction(r, c.status); got != c.want {
 			t.Errorf("deriveAction(%s %s %d) = %q, want %q", c.method, c.path, c.status, got, c.want)
 		}
 	}
 }
+
+const redactedValue = "[redacted]"
 
 func TestScrubSecrets(t *testing.T) {
 	t.Parallel()
@@ -105,10 +107,10 @@ func TestScrubSecrets(t *testing.T) {
 	if !ok {
 		t.Fatalf("scrubSecrets returned %T, want map", out)
 	}
-	if m["password"] != "[redacted]" {
+	if m["password"] != redactedValue {
 		t.Errorf("password not redacted: %v", m["password"])
 	}
-	if m["new_password"] != "[redacted]" {
+	if m["new_password"] != redactedValue {
 		t.Errorf("new_password not redacted: %v", m["new_password"])
 	}
 	if m["username"] != "alice" {
@@ -121,7 +123,7 @@ func TestScrubSecrets(t *testing.T) {
 
 // End-to-end: wrap a no-op handler with the middleware and confirm a
 // row lands in the fake store with the caller resolved from context.
-func TestAuditMiddlewareRecordsWriteWithCaller(t *testing.T) {
+func TestAuditMiddlewareRecordsWriteWithCaller(t *testing.T) { //nolint:gocyclo // end-to-end test asserting multiple audit-event fields
 	t.Parallel()
 	m := newMemStore()
 	userID := uuid.New()
@@ -132,7 +134,7 @@ func TestAuditMiddlewareRecordsWriteWithCaller(t *testing.T) {
 	mw := AuditMiddleware(m)(inner)
 
 	body := []byte(`{"name":"prod","password":"hunter2"}`)
-	r := httptest.NewRequest(http.MethodPost, "/v1/admin/users", bytes.NewReader(body))
+	r, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/admin/users", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	ctx := auth.WithCaller(r.Context(), &auth.Caller{
 		Kind:     auth.CallerKindUser,
@@ -170,7 +172,10 @@ func TestAuditMiddlewareRecordsWriteWithCaller(t *testing.T) {
 	if ev.Details == nil {
 		t.Fatalf("expected details with body, got nil")
 	}
-	b, _ := json.Marshal(*ev.Details)
+	b, err := json.Marshal(*ev.Details)
+	if err != nil {
+		t.Fatalf("marshal details: %v", err)
+	}
 	if bytes.Contains(b, []byte("hunter2")) {
 		t.Errorf("details contains secret: %s", b)
 	}
@@ -182,7 +187,7 @@ func TestAuditMiddlewareSkipsNonAdminReads(t *testing.T) {
 	m := newMemStore()
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	mw := AuditMiddleware(m)(inner)
-	r := httptest.NewRequest(http.MethodGet, "/v1/clusters", nil)
+	r, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/clusters", http.NoBody)
 	mw.ServeHTTP(httptest.NewRecorder(), r)
 	if len(m.authState.auditEvents) != 0 {
 		t.Errorf("expected 0 audit events, got %d", len(m.authState.auditEvents))
@@ -193,7 +198,7 @@ func TestListAuditEventsHandler(t *testing.T) {
 	t.Parallel()
 	m := newMemStore()
 	ctx := context.Background()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := m.InsertAuditEvent(ctx, AuditEventInsert{
 			ID:         uuid.New(),
 			ActorKind:  "user",

@@ -87,10 +87,9 @@ jobs:
           if-no-files-found: ignore
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
-          install-mode: goinstall
+          version: v2.11
           args: --timeout=5m
 
   docker:

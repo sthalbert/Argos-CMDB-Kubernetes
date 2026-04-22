@@ -181,6 +181,8 @@ type statusRecorder struct {
 	wroteHeader bool
 }
 
+// WriteHeader captures the status code for metrics before delegating to the
+// wrapped ResponseWriter.
 func (r *statusRecorder) WriteHeader(code int) {
 	if !r.wroteHeader {
 		r.status = code

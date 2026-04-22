@@ -6,6 +6,7 @@ package collector
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -296,7 +297,7 @@ func New(store CmdbStore, source KubeSource, clusterName string, interval, fetch
 // Run polls until ctx is cancelled. A poll happens immediately on start and
 // every interval thereafter.
 func (c *Collector) Run(ctx context.Context) error {
-	slog.Info("collector starting", "cluster_name", c.clusterName, "interval", c.interval)
+	slog.Info("collector starting", slog.String("cluster_name", c.clusterName), slog.Duration("interval", c.interval))
 
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
@@ -306,8 +307,8 @@ func (c *Collector) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("collector stopping", "reason", ctx.Err())
-			return ctx.Err()
+			slog.Info("collector stopping", slog.Any("reason", ctx.Err()))
+			return fmt.Errorf("collector stopped: %w", ctx.Err())
 		case <-ticker.C:
 			c.poll(ctx)
 		}
@@ -323,7 +324,7 @@ func (c *Collector) poll(parent context.Context) {
 	version, err := c.source.ServerVersion(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "version", "list")
-		slog.Warn("collector: fetch server version failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: fetch server version failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return
 	}
 	metrics.MarkPoll(c.clusterName, "version")
@@ -332,25 +333,25 @@ func (c *Collector) poll(parent context.Context) {
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "cluster", "lookup")
 		if errors.Is(err, api.ErrNotFound) {
-			slog.Warn("collector: cluster not registered; POST /v1/clusters first", "cluster_name", c.clusterName)
+			slog.Warn("collector: cluster not registered; POST /v1/clusters first", slog.String("cluster_name", c.clusterName))
 			return
 		}
-		slog.Error("collector: lookup cluster failed", "error", err, "cluster_name", c.clusterName)
+		slog.Error("collector: lookup cluster failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return
 	}
 	if cluster.Id == nil {
-		slog.Error("collector: stored cluster has nil id", "cluster_name", c.clusterName)
+		slog.Error("collector: stored cluster has nil id", slog.String("cluster_name", c.clusterName))
 		return
 	}
 
 	if cluster.KubernetesVersion == nil || *cluster.KubernetesVersion != version {
 		if _, err := c.store.UpdateCluster(ctx, *cluster.Id, api.ClusterUpdate{KubernetesVersion: &version}); err != nil {
 			metrics.ObserveError(c.clusterName, "cluster", "upsert")
-			slog.Error("collector: update cluster failed", "error", err, "cluster_name", c.clusterName)
+			slog.Error("collector: update cluster failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 			return
 		}
 		metrics.ObserveUpserts(c.clusterName, "cluster", 1)
-		slog.Info("collector: refreshed cluster version", "cluster_name", c.clusterName, "version", version)
+		slog.Info("collector: refreshed cluster version", slog.String("cluster_name", c.clusterName), slog.String("version", version))
 	}
 
 	c.ingestNodes(ctx, *cluster.Id)
@@ -381,14 +382,14 @@ func (c *Collector) ingestNodes(ctx context.Context, clusterID uuid.UUID) {
 	nodes, err := c.source.ListNodes(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "nodes", "list")
-		slog.Warn("collector: list nodes failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: list nodes failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return
 	}
 
 	var upserted, failed int
 	keepNames := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		n := n
+	for i := range nodes {
+		n := &nodes[i]
 		in := api.NodeCreate{
 			ClusterId:                   clusterID,
 			Name:                        n.Name,
@@ -431,7 +432,8 @@ func (c *Collector) ingestNodes(ctx context.Context, clusterID uuid.UUID) {
 		}
 		if _, err := c.store.UpsertNode(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "nodes", "upsert")
-			slog.Warn("collector: upsert node failed", "error", err, "node", n.Name, "cluster_name", c.clusterName)
+			slog.Warn("collector: upsert node failed",
+				slog.Any("error", err), slog.String("node", n.Name), slog.String("cluster_name", c.clusterName))
 			failed++
 			continue
 		}
@@ -445,13 +447,15 @@ func (c *Collector) ingestNodes(ctx context.Context, clusterID uuid.UUID) {
 		n, err := c.store.DeleteNodesNotIn(ctx, clusterID, keepNames)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "nodes", "reconcile")
-			slog.Error("collector: reconcile nodes failed", "error", err, "cluster_name", c.clusterName)
+			slog.Error("collector: reconcile nodes failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		}
 		reconciled = n
 		metrics.ObserveReconciled(c.clusterName, "nodes", n)
 	}
 	metrics.MarkPoll(c.clusterName, "nodes")
-	slog.Info("collector: ingested nodes", "upserted", upserted, "failed", failed, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	slog.Info("collector: ingested nodes",
+		slog.Int("upserted", upserted), slog.Int("failed", failed),
+		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 }
 
 // ingestNamespaces lists namespaces from the kube source and upserts each
@@ -464,7 +468,7 @@ func (c *Collector) ingestNamespaces(ctx context.Context, clusterID uuid.UUID) m
 	namespaces, err := c.source.ListNamespaces(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "namespaces", "list")
-		slog.Warn("collector: list namespaces failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: list namespaces failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return nil
 	}
 
@@ -484,7 +488,8 @@ func (c *Collector) ingestNamespaces(ctx context.Context, clusterID uuid.UUID) m
 		stored, err := c.store.UpsertNamespace(ctx, in)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "namespaces", "upsert")
-			slog.Warn("collector: upsert namespace failed", "error", err, "namespace", ns.Name, "cluster_name", c.clusterName)
+			slog.Warn("collector: upsert namespace failed",
+				slog.Any("error", err), slog.String("namespace", ns.Name), slog.String("cluster_name", c.clusterName))
 			failed++
 			continue
 		}
@@ -501,13 +506,15 @@ func (c *Collector) ingestNamespaces(ctx context.Context, clusterID uuid.UUID) m
 		n, err := c.store.DeleteNamespacesNotIn(ctx, clusterID, keepNames)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "namespaces", "reconcile")
-			slog.Error("collector: reconcile namespaces failed", "error", err, "cluster_name", c.clusterName)
+			slog.Error("collector: reconcile namespaces failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		}
 		reconciled = n
 		metrics.ObserveReconciled(c.clusterName, "namespaces", n)
 	}
 	metrics.MarkPoll(c.clusterName, "namespaces")
-	slog.Info("collector: ingested namespaces", "upserted", upserted, "failed", failed, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	slog.Info("collector: ingested namespaces",
+		slog.Int("upserted", upserted), slog.Int("failed", failed),
+		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 	return idsByName
 }
 
@@ -569,7 +576,7 @@ func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[strin
 	pods, err := c.source.ListPods(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "pods", "list")
-		slog.Warn("collector: list pods failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: list pods failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return
 	}
 
@@ -581,7 +588,7 @@ func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[strin
 		rss, err := c.source.ListReplicaSetOwners(ctx)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "replicasets", "list")
-			slog.Warn("collector: list replicasets failed", "error", err, "cluster_name", c.clusterName)
+			slog.Warn("collector: list replicasets failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		} else {
 			for _, rs := range rss {
 				nsID, ok := namespaceIDsByName[rs.Namespace]
@@ -595,34 +602,20 @@ func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[strin
 
 	var upserted, failed, skipped int
 	keepByNS := make(map[uuid.UUID][]string)
-	for _, p := range pods {
+	for i := range pods {
+		p := &pods[i]
 		nsID, ok := namespaceIDsByName[p.Namespace]
 		if !ok {
-			slog.Warn("collector: pod in unknown namespace; skipping", "pod", p.Name, "namespace", p.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: pod in unknown namespace; skipping",
+				slog.String("pod", p.Name), slog.String("namespace", p.Namespace), slog.String("cluster_name", c.clusterName))
 			skipped++
 			continue
 		}
-		in := api.PodCreate{
-			NamespaceId: nsID,
-			Name:        p.Name,
-			Phase:       ptrIfNonEmpty(p.Phase),
-			NodeName:    ptrIfNonEmpty(p.NodeName),
-			PodIp:       ptrIfNonEmpty(p.PodIP),
-		}
-		if len(p.Containers) > 0 {
-			cs := api.ContainerList(p.Containers)
-			in.Containers = &cs
-		}
-		if len(p.Labels) > 0 {
-			labels := p.Labels
-			in.Labels = &labels
-		}
-		if wid := resolveWorkloadID(nsID, p.OwnerKind, p.OwnerName, workloadIDs, rsOwners); wid != nil {
-			in.WorkloadId = wid
-		}
+		in := buildPodCreate(p, nsID, workloadIDs, rsOwners)
 		if _, err := c.store.UpsertPod(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "pods", "upsert")
-			slog.Warn("collector: upsert pod failed", "error", err, "pod", p.Name, "namespace", p.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: upsert pod failed",
+				slog.Any("error", err), slog.String("pod", p.Name), slog.String("namespace", p.Namespace), slog.String("cluster_name", c.clusterName))
 			failed++
 			continue
 		}
@@ -633,21 +626,13 @@ func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[strin
 
 	var reconciled int64
 	if c.reconcile {
-		// Reconcile every live namespace, including ones with zero pods this
-		// tick, so emptied namespaces see their stored pods removed.
-		for _, nsID := range namespaceIDsByName {
-			n, err := c.store.DeletePodsNotIn(ctx, nsID, keepByNS[nsID])
-			if err != nil {
-				metrics.ObserveError(c.clusterName, "pods", "reconcile")
-				slog.Error("collector: reconcile pods failed", "error", err, "namespace_id", nsID, "cluster_name", c.clusterName)
-				continue
-			}
-			reconciled += n
-		}
+		reconciled = c.reconcilePerNamespace(ctx, "pods", namespaceIDsByName, keepByNS, c.store.DeletePodsNotIn)
 		metrics.ObserveReconciled(c.clusterName, "pods", reconciled)
 	}
 	metrics.MarkPoll(c.clusterName, "pods")
-	slog.Info("collector: ingested pods", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	slog.Info("collector: ingested pods",
+		slog.Int("upserted", upserted), slog.Int("failed", failed), slog.Int("skipped", skipped),
+		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 }
 
 // ingestWorkloads lists Deployments, StatefulSets, and DaemonSets (folded
@@ -664,7 +649,7 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 	workloads, err := c.source.ListWorkloads(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "workloads", "list")
-		slog.Warn("collector: list workloads failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: list workloads failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return nil
 	}
 
@@ -675,7 +660,9 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 	for _, w := range workloads {
 		nsID, ok := namespaceIDsByName[w.Namespace]
 		if !ok {
-			slog.Warn("collector: workload in unknown namespace; skipping", "workload", w.Name, "kind", w.Kind, "namespace", w.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: workload in unknown namespace; skipping",
+				slog.String("workload", w.Name), slog.Any("kind", w.Kind),
+				slog.String("namespace", w.Namespace), slog.String("cluster_name", c.clusterName))
 			skipped++
 			continue
 		}
@@ -687,7 +674,7 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 			ReadyReplicas: w.ReadyReplicas,
 		}
 		if len(w.Containers) > 0 {
-			cs := api.ContainerList(w.Containers)
+			cs := w.Containers
 			in.Containers = &cs
 		}
 		if len(w.Labels) > 0 {
@@ -697,7 +684,9 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 		stored, err := c.store.UpsertWorkload(ctx, in)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "workloads", "upsert")
-			slog.Warn("collector: upsert workload failed", "error", err, "workload", w.Name, "kind", w.Kind, "namespace", w.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: upsert workload failed",
+				slog.Any("error", err), slog.String("workload", w.Name), slog.Any("kind", w.Kind),
+				slog.String("namespace", w.Namespace), slog.String("cluster_name", c.clusterName))
 			failed++
 			continue
 		}
@@ -715,28 +704,13 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 
 	var reconciled int64
 	if c.reconcile {
-		// Reconcile every live namespace, including ones with zero workloads
-		// this tick, so emptied namespaces have their stored workloads cleared.
-		for _, nsID := range namespaceIDsByName {
-			keep := keepByNS[nsID]
-			kinds := make([]string, 0, len(keep))
-			names := make([]string, 0, len(keep))
-			for _, k := range keep {
-				kinds = append(kinds, k.kind)
-				names = append(names, k.name)
-			}
-			n, err := c.store.DeleteWorkloadsNotIn(ctx, nsID, kinds, names)
-			if err != nil {
-				metrics.ObserveError(c.clusterName, "workloads", "reconcile")
-				slog.Error("collector: reconcile workloads failed", "error", err, "namespace_id", nsID, "cluster_name", c.clusterName)
-				continue
-			}
-			reconciled += n
-		}
+		reconciled = c.reconcileWorkloads(ctx, namespaceIDsByName, keepByNS)
 		metrics.ObserveReconciled(c.clusterName, "workloads", reconciled)
 	}
 	metrics.MarkPoll(c.clusterName, "workloads")
-	slog.Info("collector: ingested workloads", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	slog.Info("collector: ingested workloads",
+		slog.Int("upserted", upserted), slog.Int("failed", failed), slog.Int("skipped", skipped),
+		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 	return idsByNS
 }
 
@@ -747,48 +721,28 @@ func (c *Collector) ingestServices(ctx context.Context, namespaceIDsByName map[s
 	services, err := c.source.ListServices(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "services", "list")
-		slog.Warn("collector: list services failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: list services failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return
 	}
 
 	keepByNS := make(map[uuid.UUID][]string)
 
 	var upserted, failed, skipped int
-	for _, s := range services {
+	for i := range services {
+		s := &services[i]
 		nsID, ok := namespaceIDsByName[s.Namespace]
 		if !ok {
-			slog.Warn("collector: service in unknown namespace; skipping", "service", s.Name, "namespace", s.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: service in unknown namespace; skipping",
+				slog.String("service", s.Name), slog.String("namespace", s.Namespace), slog.String("cluster_name", c.clusterName))
 			skipped++
 			continue
 		}
-		in := api.ServiceCreate{
-			NamespaceId: nsID,
-			Name:        s.Name,
-			ClusterIp:   ptrIfNonEmpty(s.ClusterIP),
-		}
-		if s.Type != "" {
-			t := api.ServiceType(s.Type)
-			in.Type = &t
-		}
-		if len(s.Selector) > 0 {
-			sel := s.Selector
-			in.Selector = &sel
-		}
-		if len(s.Ports) > 0 {
-			ports := s.Ports
-			in.Ports = &ports
-		}
-		if len(s.LoadBalancer) > 0 {
-			lb := s.LoadBalancer
-			in.LoadBalancer = &lb
-		}
-		if len(s.Labels) > 0 {
-			labels := s.Labels
-			in.Labels = &labels
-		}
+		in := buildServiceCreate(s, nsID)
 		if _, err := c.store.UpsertService(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "services", "upsert")
-			slog.Warn("collector: upsert service failed", "error", err, "service", s.Name, "namespace", s.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: upsert service failed",
+				slog.Any("error", err), slog.String("service", s.Name),
+				slog.String("namespace", s.Namespace), slog.String("cluster_name", c.clusterName))
 			failed++
 			continue
 		}
@@ -799,19 +753,13 @@ func (c *Collector) ingestServices(ctx context.Context, namespaceIDsByName map[s
 
 	var reconciled int64
 	if c.reconcile {
-		for _, nsID := range namespaceIDsByName {
-			n, err := c.store.DeleteServicesNotIn(ctx, nsID, keepByNS[nsID])
-			if err != nil {
-				metrics.ObserveError(c.clusterName, "services", "reconcile")
-				slog.Error("collector: reconcile services failed", "error", err, "namespace_id", nsID, "cluster_name", c.clusterName)
-				continue
-			}
-			reconciled += n
-		}
+		reconciled = c.reconcilePerNamespace(ctx, "services", namespaceIDsByName, keepByNS, c.store.DeleteServicesNotIn)
 		metrics.ObserveReconciled(c.clusterName, "services", reconciled)
 	}
 	metrics.MarkPoll(c.clusterName, "services")
-	slog.Info("collector: ingested services", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	slog.Info("collector: ingested services",
+		slog.Int("upserted", upserted), slog.Int("failed", failed), slog.Int("skipped", skipped),
+		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 }
 
 // ingestIngresses lists ingresses cluster-wide, resolves each one's K8s
@@ -821,44 +769,28 @@ func (c *Collector) ingestIngresses(ctx context.Context, namespaceIDsByName map[
 	ingresses, err := c.source.ListIngresses(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "ingresses", "list")
-		slog.Warn("collector: list ingresses failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: list ingresses failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return
 	}
 
 	keepByNS := make(map[uuid.UUID][]string)
 
 	var upserted, failed, skipped int
-	for _, ing := range ingresses {
+	for i := range ingresses {
+		ing := &ingresses[i]
 		nsID, ok := namespaceIDsByName[ing.Namespace]
 		if !ok {
-			slog.Warn("collector: ingress in unknown namespace; skipping", "ingress", ing.Name, "namespace", ing.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: ingress in unknown namespace; skipping",
+				slog.String("ingress", ing.Name), slog.String("namespace", ing.Namespace), slog.String("cluster_name", c.clusterName))
 			skipped++
 			continue
 		}
-		in := api.IngressCreate{
-			NamespaceId:      nsID,
-			Name:             ing.Name,
-			IngressClassName: ptrIfNonEmpty(ing.IngressClassName),
-		}
-		if len(ing.Rules) > 0 {
-			rules := ing.Rules
-			in.Rules = &rules
-		}
-		if len(ing.TLS) > 0 {
-			tls := ing.TLS
-			in.Tls = &tls
-		}
-		if len(ing.LoadBalancer) > 0 {
-			lb := ing.LoadBalancer
-			in.LoadBalancer = &lb
-		}
-		if len(ing.Labels) > 0 {
-			labels := ing.Labels
-			in.Labels = &labels
-		}
+		in := buildIngressCreate(ing, nsID)
 		if _, err := c.store.UpsertIngress(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "ingresses", "upsert")
-			slog.Warn("collector: upsert ingress failed", "error", err, "ingress", ing.Name, "namespace", ing.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: upsert ingress failed",
+				slog.Any("error", err), slog.String("ingress", ing.Name),
+				slog.String("namespace", ing.Namespace), slog.String("cluster_name", c.clusterName))
 			failed++
 			continue
 		}
@@ -869,19 +801,13 @@ func (c *Collector) ingestIngresses(ctx context.Context, namespaceIDsByName map[
 
 	var reconciled int64
 	if c.reconcile {
-		for _, nsID := range namespaceIDsByName {
-			n, err := c.store.DeleteIngressesNotIn(ctx, nsID, keepByNS[nsID])
-			if err != nil {
-				metrics.ObserveError(c.clusterName, "ingresses", "reconcile")
-				slog.Error("collector: reconcile ingresses failed", "error", err, "namespace_id", nsID, "cluster_name", c.clusterName)
-				continue
-			}
-			reconciled += n
-		}
+		reconciled = c.reconcilePerNamespace(ctx, "ingresses", namespaceIDsByName, keepByNS, c.store.DeleteIngressesNotIn)
 		metrics.ObserveReconciled(c.clusterName, "ingresses", reconciled)
 	}
 	metrics.MarkPoll(c.clusterName, "ingresses")
-	slog.Info("collector: ingested ingresses", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	slog.Info("collector: ingested ingresses",
+		slog.Int("upserted", upserted), slog.Int("failed", failed), slog.Int("skipped", skipped),
+		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 }
 
 func ptrIfNonEmpty(s string) *string {
@@ -898,6 +824,169 @@ func ptrIfNonEmptySlice(s []string) *[]string {
 	return &s
 }
 
+// deleteFunc is a namespace-scoped reconcile callback.
+type deleteFunc func(ctx context.Context, nsID uuid.UUID, keepNames []string) (int64, error)
+
+// reconcilePerNamespace drives the reconcile-per-namespace pattern shared by
+// pods, services, ingresses and PVCs. It returns the total number of deleted
+// rows across all namespaces.
+func (c *Collector) reconcilePerNamespace(
+	ctx context.Context,
+	resource string,
+	namespaceIDsByName map[string]uuid.UUID,
+	keepByNS map[uuid.UUID][]string,
+	deleteFn deleteFunc,
+) int64 {
+	var reconciled int64
+	for _, nsID := range namespaceIDsByName {
+		n, err := deleteFn(ctx, nsID, keepByNS[nsID])
+		if err != nil {
+			metrics.ObserveError(c.clusterName, resource, "reconcile")
+			slog.Error("collector: reconcile "+resource+" failed",
+				slog.Any("error", err), slog.String("namespace_id", nsID.String()), slog.String("cluster_name", c.clusterName))
+			continue
+		}
+		reconciled += n
+	}
+	return reconciled
+}
+
+// reconcileWorkloads reconciles workloads per-namespace keyed on the (kind, name)
+// tuple so a deleted Deployment 'web' doesn't wipe the still-live StatefulSet 'web'.
+func (c *Collector) reconcileWorkloads(
+	ctx context.Context,
+	namespaceIDsByName map[string]uuid.UUID,
+	keepByNS map[uuid.UUID][]wlKey,
+) int64 {
+	var reconciled int64
+	for _, nsID := range namespaceIDsByName {
+		keep := keepByNS[nsID]
+		kinds := make([]string, 0, len(keep))
+		names := make([]string, 0, len(keep))
+		for _, k := range keep {
+			kinds = append(kinds, k.kind)
+			names = append(names, k.name)
+		}
+		n, err := c.store.DeleteWorkloadsNotIn(ctx, nsID, kinds, names)
+		if err != nil {
+			metrics.ObserveError(c.clusterName, "workloads", "reconcile")
+			slog.Error("collector: reconcile workloads failed",
+				slog.Any("error", err), slog.String("namespace_id", nsID.String()), slog.String("cluster_name", c.clusterName))
+			continue
+		}
+		reconciled += n
+	}
+	return reconciled
+}
+
+// buildPodCreate converts a PodInfo to an api.PodCreate, resolving namespace
+// and workload IDs.
+func buildPodCreate(
+	p *PodInfo,
+	nsID uuid.UUID,
+	workloadIDs map[uuid.UUID]map[wlKey]uuid.UUID,
+	rsOwners map[string]ReplicaSetOwner,
+) api.PodCreate {
+	in := api.PodCreate{
+		NamespaceId: nsID,
+		Name:        p.Name,
+		Phase:       ptrIfNonEmpty(p.Phase),
+		NodeName:    ptrIfNonEmpty(p.NodeName),
+		PodIp:       ptrIfNonEmpty(p.PodIP),
+	}
+	if len(p.Containers) > 0 {
+		cs := p.Containers
+		in.Containers = &cs
+	}
+	if len(p.Labels) > 0 {
+		labels := p.Labels
+		in.Labels = &labels
+	}
+	if wid := resolveWorkloadID(nsID, p.OwnerKind, p.OwnerName, workloadIDs, rsOwners); wid != nil {
+		in.WorkloadId = wid
+	}
+	return in
+}
+
+// buildServiceCreate converts a ServiceInfo to an api.ServiceCreate.
+func buildServiceCreate(s *ServiceInfo, nsID uuid.UUID) api.ServiceCreate {
+	in := api.ServiceCreate{
+		NamespaceId: nsID,
+		Name:        s.Name,
+		ClusterIp:   ptrIfNonEmpty(s.ClusterIP),
+	}
+	if s.Type != "" {
+		t := api.ServiceType(s.Type)
+		in.Type = &t
+	}
+	if len(s.Selector) > 0 {
+		sel := s.Selector
+		in.Selector = &sel
+	}
+	if len(s.Ports) > 0 {
+		ports := s.Ports
+		in.Ports = &ports
+	}
+	if len(s.LoadBalancer) > 0 {
+		lb := s.LoadBalancer
+		in.LoadBalancer = &lb
+	}
+	if len(s.Labels) > 0 {
+		labels := s.Labels
+		in.Labels = &labels
+	}
+	return in
+}
+
+// buildIngressCreate converts an IngressInfo to an api.IngressCreate.
+func buildIngressCreate(ing *IngressInfo, nsID uuid.UUID) api.IngressCreate {
+	in := api.IngressCreate{
+		NamespaceId:      nsID,
+		Name:             ing.Name,
+		IngressClassName: ptrIfNonEmpty(ing.IngressClassName),
+	}
+	if len(ing.Rules) > 0 {
+		rules := ing.Rules
+		in.Rules = &rules
+	}
+	if len(ing.TLS) > 0 {
+		tls := ing.TLS
+		in.Tls = &tls
+	}
+	if len(ing.LoadBalancer) > 0 {
+		lb := ing.LoadBalancer
+		in.LoadBalancer = &lb
+	}
+	if len(ing.Labels) > 0 {
+		labels := ing.Labels
+		in.Labels = &labels
+	}
+	return in
+}
+
+// buildPVCCreate converts a PVCInfo to an api.PersistentVolumeClaimCreate.
+func buildPVCCreate(pvc *PVCInfo, nsID uuid.UUID, pvIDsByName map[string]uuid.UUID) api.PersistentVolumeClaimCreate {
+	in := api.PersistentVolumeClaimCreate{
+		NamespaceId:      nsID,
+		Name:             pvc.Name,
+		Phase:            ptrIfNonEmpty(pvc.Phase),
+		StorageClassName: ptrIfNonEmpty(pvc.StorageClassName),
+		VolumeName:       ptrIfNonEmpty(pvc.VolumeName),
+		AccessModes:      ptrIfNonEmptySlice(pvc.AccessModes),
+		RequestedStorage: ptrIfNonEmpty(pvc.RequestedStorage),
+	}
+	if len(pvc.Labels) > 0 {
+		labels := pvc.Labels
+		in.Labels = &labels
+	}
+	if pvc.VolumeName != "" && pvIDsByName != nil {
+		if pvID, found := pvIDsByName[pvc.VolumeName]; found {
+			in.BoundVolumeId = &pvID
+		}
+	}
+	return in
+}
+
 // ingestPersistentVolumes lists cluster-scoped PVs and upserts each one.
 // Returns a (pv-name -> pv-id) map the PVC ingestion pass uses to resolve
 // each PVC's bound_volume_id FK, or nil on list failure (signal to skip
@@ -906,14 +995,15 @@ func (c *Collector) ingestPersistentVolumes(ctx context.Context, clusterID uuid.
 	pvs, err := c.source.ListPersistentVolumes(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "persistentvolumes", "list")
-		slog.Warn("collector: list persistent volumes failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: list persistent volumes failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return nil
 	}
 
 	var upserted, failed int
 	keepNames := make([]string, 0, len(pvs))
 	idsByName := make(map[string]uuid.UUID, len(pvs))
-	for _, pv := range pvs {
+	for i := range pvs {
+		pv := &pvs[i]
 		in := api.PersistentVolumeCreate{
 			ClusterId:         clusterID,
 			Name:              pv.Name,
@@ -934,7 +1024,8 @@ func (c *Collector) ingestPersistentVolumes(ctx context.Context, clusterID uuid.
 		stored, err := c.store.UpsertPersistentVolume(ctx, in)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "persistentvolumes", "upsert")
-			slog.Warn("collector: upsert persistent volume failed", "error", err, "pv", pv.Name, "cluster_name", c.clusterName)
+			slog.Warn("collector: upsert persistent volume failed",
+				slog.Any("error", err), slog.String("pv", pv.Name), slog.String("cluster_name", c.clusterName))
 			failed++
 			continue
 		}
@@ -951,13 +1042,15 @@ func (c *Collector) ingestPersistentVolumes(ctx context.Context, clusterID uuid.
 		n, err := c.store.DeletePersistentVolumesNotIn(ctx, clusterID, keepNames)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "persistentvolumes", "reconcile")
-			slog.Error("collector: reconcile persistent volumes failed", "error", err, "cluster_name", c.clusterName)
+			slog.Error("collector: reconcile persistent volumes failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		}
 		reconciled = n
 		metrics.ObserveReconciled(c.clusterName, "persistentvolumes", n)
 	}
 	metrics.MarkPoll(c.clusterName, "persistentvolumes")
-	slog.Info("collector: ingested persistent volumes", "upserted", upserted, "failed", failed, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	slog.Info("collector: ingested persistent volumes",
+		slog.Int("upserted", upserted), slog.Int("failed", failed),
+		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 	return idsByName
 }
 
@@ -968,44 +1061,31 @@ func (c *Collector) ingestPersistentVolumes(ctx context.Context, clusterID uuid.
 //
 // pvIDsByName may be nil (PV listing failed) — PVCs are still upserted,
 // just without bound_volume_id set.
-func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceIDsByName map[string]uuid.UUID, pvIDsByName map[string]uuid.UUID) {
+func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceIDsByName, pvIDsByName map[string]uuid.UUID) {
 	pvcs, err := c.source.ListPersistentVolumeClaims(ctx)
 	if err != nil {
 		metrics.ObserveError(c.clusterName, "persistentvolumeclaims", "list")
-		slog.Warn("collector: list pvcs failed", "error", err, "cluster_name", c.clusterName)
+		slog.Warn("collector: list pvcs failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 		return
 	}
 
 	var upserted, failed, skipped int
 	keepByNS := make(map[uuid.UUID][]string)
-	for _, pvc := range pvcs {
+	for i := range pvcs {
+		pvc := &pvcs[i]
 		nsID, ok := namespaceIDsByName[pvc.Namespace]
 		if !ok {
-			slog.Warn("collector: pvc in unknown namespace; skipping", "pvc", pvc.Name, "namespace", pvc.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: pvc in unknown namespace; skipping",
+				slog.String("pvc", pvc.Name), slog.String("namespace", pvc.Namespace), slog.String("cluster_name", c.clusterName))
 			skipped++
 			continue
 		}
-		in := api.PersistentVolumeClaimCreate{
-			NamespaceId:      nsID,
-			Name:             pvc.Name,
-			Phase:            ptrIfNonEmpty(pvc.Phase),
-			StorageClassName: ptrIfNonEmpty(pvc.StorageClassName),
-			VolumeName:       ptrIfNonEmpty(pvc.VolumeName),
-			AccessModes:      ptrIfNonEmptySlice(pvc.AccessModes),
-			RequestedStorage: ptrIfNonEmpty(pvc.RequestedStorage),
-		}
-		if len(pvc.Labels) > 0 {
-			labels := pvc.Labels
-			in.Labels = &labels
-		}
-		if pvc.VolumeName != "" && pvIDsByName != nil {
-			if pvID, found := pvIDsByName[pvc.VolumeName]; found {
-				in.BoundVolumeId = &pvID
-			}
-		}
+		in := buildPVCCreate(pvc, nsID, pvIDsByName)
 		if _, err := c.store.UpsertPersistentVolumeClaim(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "persistentvolumeclaims", "upsert")
-			slog.Warn("collector: upsert pvc failed", "error", err, "pvc", pvc.Name, "namespace", pvc.Namespace, "cluster_name", c.clusterName)
+			slog.Warn("collector: upsert pvc failed",
+				slog.Any("error", err), slog.String("pvc", pvc.Name),
+				slog.String("namespace", pvc.Namespace), slog.String("cluster_name", c.clusterName))
 			failed++
 			continue
 		}
@@ -1016,17 +1096,12 @@ func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceI
 
 	var reconciled int64
 	if c.reconcile {
-		for _, nsID := range namespaceIDsByName {
-			n, err := c.store.DeletePersistentVolumeClaimsNotIn(ctx, nsID, keepByNS[nsID])
-			if err != nil {
-				metrics.ObserveError(c.clusterName, "persistentvolumeclaims", "reconcile")
-				slog.Error("collector: reconcile pvcs failed", "error", err, "namespace_id", nsID, "cluster_name", c.clusterName)
-				continue
-			}
-			reconciled += n
-		}
+		reconciled = c.reconcilePerNamespace(
+			ctx, "persistentvolumeclaims", namespaceIDsByName, keepByNS, c.store.DeletePersistentVolumeClaimsNotIn)
 		metrics.ObserveReconciled(c.clusterName, "persistentvolumeclaims", reconciled)
 	}
 	metrics.MarkPoll(c.clusterName, "persistentvolumeclaims")
-	slog.Info("collector: ingested pvcs", "upserted", upserted, "failed", failed, "skipped", skipped, "reconciled_deleted", reconciled, "cluster_name", c.clusterName)
+	slog.Info("collector: ingested pvcs",
+		slog.Int("upserted", upserted), slog.Int("failed", failed), slog.Int("skipped", skipped),
+		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 }

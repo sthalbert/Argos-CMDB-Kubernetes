@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +23,14 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/argos/internal/api"
+)
+
+// Sentinel errors for the HTTP-backed store.
+var (
+	errNoCACerts        = errors.New("CA cert file contains no valid certificates")
+	errHTTPRequest      = errors.New("HTTP request error")
+	errMaxRetries       = errors.New("max retries exceeded")
+	errBadTransportType = errors.New("unexpected default transport type")
 )
 
 // Config carries the knobs for building an HTTP-backed store.
@@ -57,6 +66,8 @@ type Store struct {
 }
 
 // NewStore builds an HTTP-backed store from cfg.
+//
+//nolint:gocritic // hugeParam: keeping value receiver for backward compatibility with external callers.
 func NewStore(cfg Config) (*Store, error) {
 	u, err := url.Parse(cfg.ServerURL)
 	if err != nil {
@@ -64,7 +75,26 @@ func NewStore(cfg Config) (*Store, error) {
 	}
 	baseURL := strings.TrimRight(u.String(), "/")
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport, err := buildTransport(&cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Store{
+		client:       &http.Client{Transport: transport, Timeout: 30 * time.Second},
+		baseURL:      baseURL,
+		token:        cfg.Token,
+		extraHeaders: cfg.ExtraHeaders,
+	}, nil
+}
+
+// buildTransport constructs an http.Transport with the TLS settings from cfg.
+func buildTransport(cfg *Config) (*http.Transport, error) {
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errBadTransportType
+	}
+	transport := defaultTransport.Clone()
 
 	if cfg.CACert != "" {
 		pem, err := os.ReadFile(cfg.CACert)
@@ -73,7 +103,7 @@ func NewStore(cfg Config) (*Store, error) {
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("CA cert file contains no valid certificates")
+			return nil, errNoCACerts
 		}
 		if transport.TLSClientConfig == nil {
 			transport.TLSClientConfig = &tls.Config{}
@@ -92,16 +122,12 @@ func NewStore(cfg Config) (*Store, error) {
 		transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	return &Store{
-		client:       &http.Client{Transport: transport, Timeout: 30 * time.Second},
-		baseURL:      baseURL,
-		token:        cfg.Token,
-		extraHeaders: cfg.ExtraHeaders,
-	}, nil
+	return transport, nil
 }
 
 // ── collector.CmdbStore implementation ──────────────────────────────
 
+// GetClusterByName retrieves a cluster by its unique name.
 func (s *Store) GetClusterByName(ctx context.Context, name string) (api.Cluster, error) {
 	path := "/v1/clusters?name=" + url.QueryEscape(name) + "&limit=1"
 	var list api.ClusterList
@@ -114,6 +140,9 @@ func (s *Store) GetClusterByName(ctx context.Context, name string) (api.Cluster,
 	return list.Items[0], nil
 }
 
+// UpdateCluster applies a partial update to the cluster identified by id.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface.
 func (s *Store) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error) {
 	var out api.Cluster
 	if err := s.doJSON(ctx, http.MethodPatch, "/v1/clusters/"+id.String(), in, &out); err != nil {
@@ -122,6 +151,9 @@ func (s *Store) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterU
 	return out, nil
 }
 
+// UpsertNode creates or updates a node record.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface.
 func (s *Store) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error) {
 	var out api.Node
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/nodes", in, &out); err != nil {
@@ -130,10 +162,14 @@ func (s *Store) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, er
 	return out, nil
 }
 
+// DeleteNodesNotIn removes nodes not in the keepNames list for the given cluster.
 func (s *Store) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
 	return s.reconcileClusterScoped(ctx, "/v1/nodes/reconcile", clusterID, keepNames)
 }
 
+// UpsertNamespace creates or updates a namespace record.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface.
 func (s *Store) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error) {
 	var out api.Namespace
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/namespaces", in, &out); err != nil {
@@ -142,10 +178,14 @@ func (s *Store) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (ap
 	return out, nil
 }
 
+// DeleteNamespacesNotIn removes namespaces not in the keepNames list for the given cluster.
 func (s *Store) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
 	return s.reconcileClusterScoped(ctx, "/v1/namespaces/reconcile", clusterID, keepNames)
 }
 
+// UpsertPod creates or updates a pod record.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface.
 func (s *Store) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 	var out api.Pod
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/pods", in, &out); err != nil {
@@ -154,10 +194,14 @@ func (s *Store) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error
 	return out, nil
 }
 
+// DeletePodsNotIn removes pods not in the keepNames list for the given namespace.
 func (s *Store) DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
 	return s.reconcileNamespaceScoped(ctx, "/v1/pods/reconcile", namespaceID, keepNames)
 }
 
+// UpsertWorkload creates or updates a workload record.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface.
 func (s *Store) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error) {
 	var out api.Workload
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/workloads", in, &out); err != nil {
@@ -166,6 +210,7 @@ func (s *Store) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.
 	return out, nil
 }
 
+// DeleteWorkloadsNotIn removes workloads not in the keep lists for the given namespace.
 func (s *Store) DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
 	body := reconcileWorkloadsBody{
 		NamespaceID: namespaceID,
@@ -179,6 +224,9 @@ func (s *Store) DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID,
 	return result.Deleted, nil
 }
 
+// UpsertService creates or updates a service record.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface.
 func (s *Store) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
 	var out api.Service
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/services", in, &out); err != nil {
@@ -187,10 +235,12 @@ func (s *Store) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Se
 	return out, nil
 }
 
+// DeleteServicesNotIn removes services not in the keepNames list for the given namespace.
 func (s *Store) DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
 	return s.reconcileNamespaceScoped(ctx, "/v1/services/reconcile", namespaceID, keepNames)
 }
 
+// UpsertIngress creates or updates an ingress record.
 func (s *Store) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error) {
 	var out api.Ingress
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/ingresses", in, &out); err != nil {
@@ -199,10 +249,14 @@ func (s *Store) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.In
 	return out, nil
 }
 
+// DeleteIngressesNotIn removes ingresses not in the keepNames list for the given namespace.
 func (s *Store) DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
 	return s.reconcileNamespaceScoped(ctx, "/v1/ingresses/reconcile", namespaceID, keepNames)
 }
 
+// UpsertPersistentVolume creates or updates a persistent volume record.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface.
 func (s *Store) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
 	var out api.PersistentVolume
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/persistentvolumes", in, &out); err != nil {
@@ -211,10 +265,14 @@ func (s *Store) UpsertPersistentVolume(ctx context.Context, in api.PersistentVol
 	return out, nil
 }
 
+// DeletePersistentVolumesNotIn removes PVs not in the keepNames list for the given cluster.
 func (s *Store) DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
 	return s.reconcileClusterScoped(ctx, "/v1/persistentvolumes/reconcile", clusterID, keepNames)
 }
 
+// UpsertPersistentVolumeClaim creates or updates a PVC record.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface.
 func (s *Store) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
 	var out api.PersistentVolumeClaim
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/persistentvolumeclaims", in, &out); err != nil {
@@ -223,13 +281,14 @@ func (s *Store) UpsertPersistentVolumeClaim(ctx context.Context, in api.Persiste
 	return out, nil
 }
 
+// DeletePersistentVolumeClaimsNotIn removes PVCs not in the keepNames list for the given namespace.
 func (s *Store) DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
 	return s.reconcileNamespaceScoped(ctx, "/v1/persistentvolumeclaims/reconcile", namespaceID, keepNames)
 }
 
 // ── HTTP helpers ────────────────────────────────────────────────────
 
-// reconcile body types — lightweight JSON carriers matching the OpenAPI
+// reconcile body types -- lightweight JSON carriers matching the OpenAPI
 // schemas without importing the generated types (avoids a circular dep).
 
 type reconcileClusterScopedBody struct {
@@ -284,98 +343,122 @@ const (
 // doJSON sends an HTTP request with optional JSON body and decodes the
 // JSON response into dst. Retries transient 5xx errors with exponential
 // backoff; returns immediately on 401/403.
-func (s *Store) doJSON(ctx context.Context, method, path string, body any, dst any) error {
-	var bodyReader io.Reader
+func (s *Store) doJSON(ctx context.Context, method, path string, body, dst any) error {
+	var marshaledBody []byte
 	if body != nil {
 		buf, err := json.Marshal(body)
 		if err != nil {
 			return fmt.Errorf("marshal request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(buf)
+		marshaledBody = buf
 	}
 
 	fullURL := s.baseURL + path
 
 	var lastErr error
 	for attempt := range maxRetries {
-		// Reset reader for retries.
-		if body != nil {
-			buf, _ := json.Marshal(body)
-			bodyReader = bytes.NewReader(buf)
-		}
-
-		req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
+		result, err := s.doOnce(ctx, method, fullURL, marshaledBody, dst)
 		if err != nil {
-			return fmt.Errorf("build request: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+s.token)
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		for k, v := range s.extraHeaders {
-			req.Header.Set(k, v)
-		}
-
-		resp, err := s.client.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("%s %s: %w", method, path, err)
-			if ctx.Err() != nil {
+			lastErr = err
+			if result == attemptDone || ctx.Err() != nil {
 				return lastErr
 			}
 			backoff(ctx, attempt)
 			continue
 		}
-
-		respBody, readErr := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if readErr != nil {
-			lastErr = fmt.Errorf("%s %s: read response: %w", method, path, readErr)
-			backoff(ctx, attempt)
-			continue
-		}
-
-		// 2xx → success.
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			if dst != nil && len(respBody) > 0 {
-				if err := json.Unmarshal(respBody, dst); err != nil {
-					return fmt.Errorf("%s %s: decode response: %w", method, path, err)
-				}
-			}
-			return nil
-		}
-
-		// 401/403 → auth error, no retry.
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			slog.Error("apiclient: auth error (not retrying)", "method", method, "path", path,
-				"status", resp.StatusCode, "body", truncate(string(respBody), 500))
-			return fmt.Errorf("%s %s: %d %s", method, path, resp.StatusCode, truncate(string(respBody), 200))
-		}
-
-		// 404 → map to ErrNotFound for store contract compatibility.
-		if resp.StatusCode == http.StatusNotFound {
-			return api.ErrNotFound
-		}
-
-		// 409 → map to ErrConflict.
-		if resp.StatusCode == http.StatusConflict {
-			return api.ErrConflict
-		}
-
-		// 5xx → transient, retry.
-		if resp.StatusCode >= 500 {
-			lastErr = fmt.Errorf("%s %s: %d %s", method, path, resp.StatusCode, truncate(string(respBody), 200))
-			slog.Warn("apiclient: transient error, retrying",
-				"method", method, "path", path, "status", resp.StatusCode,
-				"attempt", attempt+1, "body", truncate(string(respBody), 500))
-			backoff(ctx, attempt)
-			continue
-		}
-
-		// Other 4xx → permanent error.
-		return fmt.Errorf("%s %s: %d %s", method, path, resp.StatusCode, truncate(string(respBody), 200))
+		return nil
 	}
 
-	return fmt.Errorf("max retries exceeded: %w", lastErr)
+	return fmt.Errorf("%w: %w", errMaxRetries, lastErr)
+}
+
+type attemptResult int
+
+const (
+	attemptDone  attemptResult = iota
+	attemptRetry               // transient failure, retry
+)
+
+// doOnce performs a single HTTP round-trip for doJSON.
+func (s *Store) doOnce(
+	ctx context.Context, method, fullURL string, marshaledBody []byte, dst any,
+) (attemptResult, error) {
+	var bodyReader io.Reader
+	if marshaledBody != nil {
+		bodyReader = bytes.NewReader(marshaledBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
+	if err != nil {
+		return attemptDone, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+s.token)
+	if marshaledBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range s.extraHeaders {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return attemptRetry, fmt.Errorf("%s %s: %w", method, req.URL.Path, err)
+	}
+
+	respBody, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		return attemptRetry, fmt.Errorf("%s %s: read response: %w", method, req.URL.Path, readErr)
+	}
+
+	return s.handleResponse(method, req.URL.Path, resp.StatusCode, respBody, dst)
+}
+
+// handleResponse interprets the HTTP status code and body returned by a
+// single request attempt inside doJSON.
+func (s *Store) handleResponse(
+	method, path string, statusCode int, respBody []byte, dst any,
+) (attemptResult, error) {
+	if statusCode >= 200 && statusCode < 300 {
+		return s.handleSuccess(method, path, respBody, dst)
+	}
+	return s.handleError(method, path, statusCode, respBody)
+}
+
+// handleSuccess decodes a 2xx response body into dst.
+func (s *Store) handleSuccess(method, path string, respBody []byte, dst any) (attemptResult, error) {
+	if dst != nil && len(respBody) > 0 {
+		if err := json.Unmarshal(respBody, dst); err != nil {
+			return attemptDone, fmt.Errorf("%s %s: decode response: %w", method, path, err)
+		}
+	}
+	return attemptDone, nil
+}
+
+// handleError maps non-2xx HTTP statuses to the appropriate error and retry signal.
+func (s *Store) handleError(method, path string, statusCode int, respBody []byte) (attemptResult, error) {
+	httpErr := func() error {
+		return fmt.Errorf("%s %s: %w: %d %s", method, path, errHTTPRequest, statusCode, truncate(string(respBody), 200))
+	}
+
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
+		slog.Error("apiclient: auth error (not retrying)",
+			slog.String("method", method), slog.String("path", path),
+			slog.Int("status", statusCode), slog.String("body", truncate(string(respBody), 500)))
+		return attemptDone, httpErr()
+	case statusCode == http.StatusNotFound:
+		return attemptDone, api.ErrNotFound
+	case statusCode == http.StatusConflict:
+		return attemptDone, api.ErrConflict
+	case statusCode >= 500:
+		slog.Warn("apiclient: transient error, retrying",
+			slog.String("method", method), slog.String("path", path),
+			slog.Int("status", statusCode), slog.String("body", truncate(string(respBody), 500)))
+		return attemptRetry, httpErr()
+	default:
+		return attemptDone, httpErr()
+	}
 }
 
 // backoff sleeps with exponential delay, respecting context cancellation.
@@ -394,5 +477,5 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return s[:n] + "..."
 }
