@@ -105,6 +105,33 @@ make build-noui
 
 The `/ui/` path returns 404 in this mode; the REST API works normally.
 
+## Option C -- Helm install on Kubernetes
+
+If you have a Kubernetes cluster and Helm 3 installed, this is the fastest path to a production-like setup:
+
+```bash
+# Pull the PostgreSQL dependency and install.
+helm dependency update charts/argos
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set argosd.bootstrapAdminPassword="changeme-on-first-login"
+```
+
+The chart deploys argosd and a PostgreSQL instance. Retrieve the admin password from the logs if you did not set one:
+
+```bash
+kubectl -n argos-system logs -l app.kubernetes.io/name=argos | grep "ARGOS FIRST-RUN"
+```
+
+Access the UI:
+
+```bash
+kubectl -n argos-system port-forward svc/argos 8080:8080
+open http://localhost:8080/
+```
+
+See [Deploy with Helm](deployment/helm.md) for the full values reference, external database setup, OIDC, Ingress, and ServiceMonitor configuration.
+
 ## First steps after login
 
 ### Change the admin password
@@ -170,7 +197,8 @@ curl -H "Authorization: Bearer argos_pat_..." http://localhost:8080/v1/clusters
 ## Next steps
 
 - [Configuration reference](configuration.md) -- all environment variables for argosd and argos-collector.
-- [Deploy on Kubernetes](deployment/kubernetes.md) -- production deployment with Kustomize.
+- [Deploy with Helm](deployment/helm.md) -- one-command Kubernetes install with optional bundled PostgreSQL.
+- [Deploy with Kustomize](deployment/kubernetes.md) -- production deployment with plain manifests.
 - [Push collector for air-gapped clusters](deployment/push-collector.md) -- deploy argos-collector.
 - [Authentication guide](authentication.md) -- OIDC, roles, tokens.
 - [API reference](api-reference.md) -- every endpoint with curl examples.
