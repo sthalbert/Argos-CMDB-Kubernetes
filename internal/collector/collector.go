@@ -246,6 +246,7 @@ type KubeSource interface {
 // CmdbStore is the subset of api.Store the collector consumes. Exported so
 // the apiclient package (push-mode HTTP store) can implement it.
 type CmdbStore interface {
+	CreateCluster(ctx context.Context, in api.ClusterCreate) (api.Cluster, error)
 	GetClusterByName(ctx context.Context, name string) (api.Cluster, error)
 	UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error)
 	UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error)
@@ -331,13 +332,22 @@ func (c *Collector) poll(parent context.Context) {
 
 	cluster, err := c.store.GetClusterByName(ctx, c.clusterName)
 	if err != nil {
-		metrics.ObserveError(c.clusterName, "cluster", "lookup")
 		if errors.Is(err, api.ErrNotFound) {
-			slog.Warn("collector: cluster not registered; POST /v1/clusters first", slog.String("cluster_name", c.clusterName))
+			// Auto-create the cluster on first contact.
+			cluster, err = c.store.CreateCluster(ctx, api.ClusterCreate{Name: c.clusterName})
+			if err != nil {
+				metrics.ObserveError(c.clusterName, "cluster", "create")
+				slog.Error("collector: auto-create cluster failed",
+					slog.Any("error", err), slog.String("cluster_name", c.clusterName))
+				return
+			}
+			slog.Info("collector: auto-created cluster", slog.String("cluster_name", c.clusterName))
+		} else {
+			metrics.ObserveError(c.clusterName, "cluster", "lookup")
+			slog.Error("collector: lookup cluster failed",
+				slog.Any("error", err), slog.String("cluster_name", c.clusterName))
 			return
 		}
-		slog.Error("collector: lookup cluster failed", slog.Any("error", err), slog.String("cluster_name", c.clusterName))
-		return
 	}
 	if cluster.Id == nil {
 		slog.Error("collector: stored cluster has nil id", slog.String("cluster_name", c.clusterName))

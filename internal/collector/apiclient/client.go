@@ -127,6 +127,17 @@ func buildTransport(cfg *Config) (*http.Transport, error) {
 
 // ── collector.CmdbStore implementation ──────────────────────────────
 
+// CreateCluster registers a new cluster in the CMDB.
+//
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
+func (s *Store) CreateCluster(ctx context.Context, in api.ClusterCreate) (api.Cluster, error) {
+	var out api.Cluster
+	if err := s.doJSON(ctx, http.MethodPost, "/v1/clusters", in, &out); err != nil {
+		return api.Cluster{}, fmt.Errorf("create cluster: %w", err)
+	}
+	return out, nil
+}
+
 // GetClusterByName retrieves a cluster by its unique name.
 func (s *Store) GetClusterByName(ctx context.Context, name string) (api.Cluster, error) {
 	path := "/v1/clusters?name=" + url.QueryEscape(name) + "&limit=1"

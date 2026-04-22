@@ -165,6 +165,16 @@ func newFakeStore() *fakeStore {
 	}
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
+func (s *fakeStore) CreateCluster(_ context.Context, in api.ClusterCreate) (api.Cluster, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := uuid.New()
+	c := api.Cluster{Id: &id, Name: in.Name}
+	s.clusters = append(s.clusters, c)
+	return c, nil
+}
+
 func (s *fakeStore) GetClusterByName(_ context.Context, name string) (api.Cluster, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -628,15 +638,16 @@ func TestPollSkipsOnGetClusterByNameError(t *testing.T) {
 	}
 }
 
-func TestPollSkipsWhenClusterNotRegistered(t *testing.T) {
+func TestPollAutoCreatesClusterWhenMissing(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
 	c := New(store, &fakeSource{version: "v1.29.5"}, "missing", time.Minute, time.Second, true)
 
 	c.poll(context.Background())
 
-	if len(store.updates) != 0 || len(store.upsertedNode) != 0 {
-		t.Errorf("expected no store writes when cluster missing")
+	// The cluster should have been auto-created.
+	if len(store.clusters) != 1 || store.clusters[0].Name != "missing" {
+		t.Errorf("expected cluster 'missing' to be auto-created, got %+v", store.clusters)
 	}
 }
 
