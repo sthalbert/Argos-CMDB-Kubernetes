@@ -4,8 +4,6 @@
 [![License](https://img.shields.io/github/license/sthalbert/Argos?label=License)](LICENSE)
 [![Contributors](https://img.shields.io/github/contributors/sthalbert/Argos?label=Contributors)](https://github.com/sthalbert/Argos/graphs/contributors)
 [![Stars](https://img.shields.io/github/stars/sthalbert/Argos?style=flat&label=Stars)](https://github.com/sthalbert/Argos/stargazers)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/argos&label=Artifact%20Hub)](https://artifacthub.io/packages/search?repo=argos)
-[![OW2 Project](https://img.shields.io/badge/OW2-Project-orange)](https://www.ow2.org/)
 
 A Configuration Management Database (CMDB) for Kubernetes environments, aligned with the [ANSSI SecNumCloud](https://cyber.gouv.fr/enjeux-technologiques/cloud/) (SNC) qualification framework. Argos polls one or more Kubernetes clusters, mirrors the inventory into PostgreSQL, and exposes a REST API and web UI so auditors can see the cartography and operators can annotate assets with business context.
 
