@@ -1,5 +1,10 @@
 # Argos
 
+[![Latest Release](https://img.shields.io/github/v/release/sthalbert/Argos?sort=semver&label=Latest%20Release)](https://github.com/sthalbert/Argos/releases)
+[![License](https://img.shields.io/github/license/sthalbert/Argos?label=License)](LICENSE)
+[![Contributors](https://img.shields.io/github/contributors/sthalbert/Argos?label=Contributors)](https://github.com/sthalbert/Argos/graphs/contributors)
+[![Stars](https://img.shields.io/github/stars/sthalbert/Argos?style=flat&label=Stars)](https://github.com/sthalbert/Argos/stargazers)
+
 A Configuration Management Database (CMDB) for Kubernetes environments, aligned with the [ANSSI SecNumCloud](https://cyber.gouv.fr/enjeux-technologiques/cloud/) (SNC) qualification framework. Argos polls one or more Kubernetes clusters, mirrors the inventory into PostgreSQL, and exposes a REST API and web UI so auditors can see the cartography and operators can annotate assets with business context.
 
 Replaces the Kubernetes-scoped portion of [Mercator](https://github.com/dbsystel/mercator). **Status:** alpha -- data model and HTTP contract are stable; expect additive changes until 1.0.
