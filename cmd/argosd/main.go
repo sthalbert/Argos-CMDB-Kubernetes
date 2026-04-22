@@ -27,41 +27,77 @@ import (
 // version is set at build time via -ldflags.
 var version = "dev"
 
+// Sentinel errors for configuration validation.
+var (
+	errDatabaseURLRequired     = errors.New("ARGOS_DATABASE_URL is required")
+	errLegacyTokensUnsupported = errors.New("ARGOS_API_TOKEN / ARGOS_API_TOKENS are no longer supported; " +
+		"the bootstrap admin password is printed in the startup log on first run, " +
+		"and machine tokens are issued in the admin panel — see ADR-0007")
+	errCollectorClustersEmpty = errors.New("ARGOS_COLLECTOR_CLUSTERS is empty")
+	errClusterNameRequired    = errors.New("ARGOS_COLLECTOR_CLUSTERS entry: name is required")
+	errDuplicateClusterName   = errors.New("ARGOS_COLLECTOR_CLUSTERS entry: duplicate name")
+	errNoCollectorClusters    = errors.New("ARGOS_COLLECTOR_CLUSTERS or ARGOS_CLUSTER_NAME must be set when ARGOS_COLLECTOR_ENABLED=true")
+	errInvalidCookiePolicy    = errors.New("ARGOS_SESSION_SECURE_COOKIE must be auto / always / never")
+)
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 	metrics.SetBuildInfo(version)
 
 	if err := run(); err != nil {
-		slog.Error("argosd exited with error", "error", err)
+		slog.Error("argosd exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	addr := envOr("ARGOS_ADDR", ":8080")
+// runConfig holds parsed configuration for the argosd daemon.
+type runConfig struct {
+	addr            string
+	dsn             string
+	cookiePolicy    auth.SecureCookiePolicy
+	oidcCfg         auth.OIDCConfig
+	shutdownTimeout time.Duration
+	autoMigrate     bool
+}
+
+// loadRunConfig reads and validates all configuration from the environment.
+func loadRunConfig() (runConfig, error) {
 	dsn := os.Getenv("ARGOS_DATABASE_URL")
 	if dsn == "" {
-		return errors.New("ARGOS_DATABASE_URL is required")
+		return runConfig{}, errDatabaseURLRequired
 	}
 	// Per ADR-0007: env-var token bootstrap is removed. Fail loudly so
 	// operators migrating from v0 know to read the admin password from
 	// the startup log instead.
 	if os.Getenv("ARGOS_API_TOKEN") != "" || os.Getenv("ARGOS_API_TOKENS") != "" {
-		return errors.New("ARGOS_API_TOKEN / ARGOS_API_TOKENS are no longer supported; " +
-			"the bootstrap admin password is printed in the startup log on first run, " +
-			"and machine tokens are issued in the admin panel — see ADR-0007")
+		return runConfig{}, errLegacyTokensUnsupported
 	}
 	cookiePolicy, err := parseCookiePolicy()
 	if err != nil {
-		return err
+		return runConfig{}, err
 	}
-	oidcCfg := loadOIDCConfig()
 	shutdownTimeout, err := parseDurationEnv("ARGOS_SHUTDOWN_TIMEOUT", 15*time.Second)
 	if err != nil {
-		return err
+		return runConfig{}, err
 	}
 	autoMigrate, err := parseBoolEnv("ARGOS_AUTO_MIGRATE", true)
+	if err != nil {
+		return runConfig{}, err
+	}
+
+	return runConfig{
+		addr:            envOr("ARGOS_ADDR", ":8080"),
+		dsn:             dsn,
+		cookiePolicy:    cookiePolicy,
+		oidcCfg:         loadOIDCConfig(),
+		shutdownTimeout: shutdownTimeout,
+		autoMigrate:     autoMigrate,
+	}, nil
+}
+
+func run() error {
+	cfg, err := loadRunConfig()
 	if err != nil {
 		return err
 	}
@@ -69,13 +105,13 @@ func run() error {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pg, err := store.Open(rootCtx, dsn)
+	pg, err := store.Open(rootCtx, cfg.dsn)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
 	defer pg.Close()
 
-	if autoMigrate {
+	if cfg.autoMigrate {
 		if err := pg.Migrate(rootCtx); err != nil {
 			return fmt.Errorf("migrate: %w", err)
 		}
@@ -88,15 +124,15 @@ func run() error {
 
 	// Resolve the OIDC provider (if configured). Fatal on misconfig —
 	// operator should see the error at boot, not per-request 500s.
-	oidcProvider, err := auth.NewOIDCProvider(rootCtx, oidcCfg)
-	if err != nil {
+	oidcProvider, err := auth.NewOIDCProvider(rootCtx, &cfg.oidcCfg)
+	if err != nil && !errors.Is(err, auth.ErrOIDCDisabled) {
 		return fmt.Errorf("oidc provider: %w", err)
 	}
 	if oidcProvider != nil {
 		slog.Info("oidc configured",
-			"issuer", oidcProvider.Config.Issuer,
-			"redirect_url", oidcProvider.Config.RedirectURL,
-			"label", oidcProvider.Config.Label,
+			slog.String("issuer", oidcProvider.Config.Issuer),
+			slog.String("redirect_url", oidcProvider.Config.RedirectURL),
+			slog.String("label", oidcProvider.Config.Label),
 		)
 	}
 
@@ -106,6 +142,13 @@ func run() error {
 	}
 	defer drainCollectors()
 
+	srv := buildHTTPServer(&cfg, pg, oidcProvider)
+
+	return serveAndShutdown(rootCtx, srv, cfg.shutdownTimeout)
+}
+
+// buildHTTPServer wires all HTTP routes, middleware, and the server struct.
+func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvider) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
 	// SPA served unauthenticated under /ui/; the bundle is static and the
@@ -115,7 +158,7 @@ func run() error {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
 	strict := api.NewStrictHandlerWithOptions(
-		api.NewServer(version, pg, cookiePolicy, oidcProvider),
+		api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider),
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
 		api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -129,23 +172,30 @@ func run() error {
 	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
 		BaseRouter: mux,
 		// Order matters: the outer middleware runs first, so the audit
-		// layer sits *after* auth ��� it sees the resolved caller on the
+		// layer sits *after* auth — it sees the resolved caller on the
 		// request context and the final response status.
 		Middlewares: []api.MiddlewareFunc{
-			api.AuthMiddleware(pg, cookiePolicy),
+			api.AuthMiddleware(pg, cfg.cookiePolicy),
 			api.AuditMiddleware(pg),
 		},
 	})
 
-	srv := &http.Server{
-		Addr:              addr,
+	return &http.Server{
+		Addr:              cfg.addr,
 		Handler:           metrics.InstrumentHandler(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+}
 
+// serveAndShutdown starts the HTTP server, waits for a shutdown signal, and
+// drains gracefully.
+func serveAndShutdown(rootCtx context.Context, srv *http.Server, shutdownTimeout time.Duration) error {
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("argosd listening", "addr", addr, "version", version)
+		slog.Info("argosd listening",
+			slog.String("addr", srv.Addr),
+			slog.String("version", version),
+		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -154,7 +204,9 @@ func run() error {
 
 	select {
 	case <-rootCtx.Done():
-		slog.Info("shutdown signal received, draining", "timeout", shutdownTimeout)
+		slog.Info("shutdown signal received, draining",
+			slog.String("timeout", shutdownTimeout.String()),
+		)
 	case err := <-errCh:
 		if err != nil {
 			return fmt.Errorf("http server: %w", err)
@@ -164,6 +216,7 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+	//nolint:contextcheck // detached context — parent is already cancelled by shutdown signal
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
@@ -193,15 +246,15 @@ func loadCollectorClusters() ([]collectorClusterConfig, error) {
 			return nil, fmt.Errorf("parse ARGOS_COLLECTOR_CLUSTERS: %w", err)
 		}
 		if len(parsed) == 0 {
-			return nil, errors.New("ARGOS_COLLECTOR_CLUSTERS is empty")
+			return nil, errCollectorClustersEmpty
 		}
 		seen := make(map[string]struct{}, len(parsed))
 		for i, c := range parsed {
 			if c.Name == "" {
-				return nil, fmt.Errorf("ARGOS_COLLECTOR_CLUSTERS[%d]: name is required", i)
+				return nil, fmt.Errorf("ARGOS_COLLECTOR_CLUSTERS[%d]: %w", i, errClusterNameRequired)
 			}
 			if _, dup := seen[c.Name]; dup {
-				return nil, fmt.Errorf("ARGOS_COLLECTOR_CLUSTERS[%d] %q: duplicate name", i, c.Name)
+				return nil, fmt.Errorf("ARGOS_COLLECTOR_CLUSTERS[%d] %q: %w", i, c.Name, errDuplicateClusterName)
 			}
 			seen[c.Name] = struct{}{}
 		}
@@ -215,7 +268,35 @@ func loadCollectorClusters() ([]collectorClusterConfig, error) {
 		}}, nil
 	}
 
-	return nil, errors.New("ARGOS_COLLECTOR_CLUSTERS or ARGOS_CLUSTER_NAME must be set when ARGOS_COLLECTOR_ENABLED=true")
+	return nil, errNoCollectorClusters
+}
+
+// collectorEnvConfig holds parsed environment configuration for the collector.
+type collectorEnvConfig struct {
+	interval     time.Duration
+	fetchTimeout time.Duration
+	reconcile    bool
+}
+
+// loadCollectorEnvConfig reads collector-specific env vars.
+func loadCollectorEnvConfig() (collectorEnvConfig, error) {
+	interval, err := parseDurationEnv("ARGOS_COLLECTOR_INTERVAL", 5*time.Minute)
+	if err != nil {
+		return collectorEnvConfig{}, err
+	}
+	fetchTimeout, err := parseDurationEnv("ARGOS_COLLECTOR_FETCH_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return collectorEnvConfig{}, err
+	}
+	reconcile, err := parseBoolEnv("ARGOS_COLLECTOR_RECONCILE", true)
+	if err != nil {
+		return collectorEnvConfig{}, err
+	}
+	return collectorEnvConfig{
+		interval:     interval,
+		fetchTimeout: fetchTimeout,
+		reconcile:    reconcile,
+	}, nil
 }
 
 // maybeStartCollectors spawns one Kubernetes collector goroutine per entry
@@ -236,15 +317,7 @@ func maybeStartCollectors(ctx context.Context, s api.Store) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	interval, err := parseDurationEnv("ARGOS_COLLECTOR_INTERVAL", 5*time.Minute)
-	if err != nil {
-		return nil, err
-	}
-	fetchTimeout, err := parseDurationEnv("ARGOS_COLLECTOR_FETCH_TIMEOUT", 10*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	reconcile, err := parseBoolEnv("ARGOS_COLLECTOR_RECONCILE", true)
+	envCfg, err := loadCollectorEnvConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -255,16 +328,19 @@ func maybeStartCollectors(ctx context.Context, s api.Store) (func(), error) {
 		if err != nil {
 			return nil, fmt.Errorf("init kube client for cluster %q: %w", cfg.Name, err)
 		}
-		coll := collector.New(s, source, cfg.Name, interval, fetchTimeout, reconcile)
+		coll := collector.New(s, source, cfg.Name, envCfg.interval, envCfg.fetchTimeout, envCfg.reconcile)
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
 			if err := coll.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				slog.Error("collector exited with error", "error", err, "cluster_name", name)
+				slog.Error("collector exited with error",
+					slog.String("error", err.Error()),
+					slog.String("cluster_name", name),
+				)
 			}
 		}(cfg.Name)
 	}
-	slog.Info("collectors started", "count", len(clusters))
+	slog.Info("collectors started", slog.Int("count", len(clusters)))
 
 	return wg.Wait, nil
 }
@@ -283,7 +359,7 @@ func maybeStartCollectors(ctx context.Context, s api.Store) (func(), error) {
 func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
 	n, err := s.CountActiveAdmins(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("count active admins: %w", err)
 	}
 	if n > 0 {
 		return nil
@@ -308,7 +384,7 @@ func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
 		Role:               auth.RoleAdmin,
 		MustChangePassword: true,
 	}); err != nil {
-		return err
+		return fmt.Errorf("create bootstrap admin: %w", err)
 	}
 
 	banner := strings.Repeat("=", 72)
@@ -359,7 +435,7 @@ func parseCookiePolicy() (auth.SecureCookiePolicy, error) {
 	case "never", "false", "no":
 		return auth.SecureNever, nil
 	default:
-		return 0, errors.New("ARGOS_SESSION_SECURE_COOKIE must be auto / always / never")
+		return 0, errInvalidCookiePolicy
 	}
 }
 

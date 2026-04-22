@@ -23,52 +23,86 @@ import (
 // version is set at build time via -ldflags.
 var version = "dev"
 
+// Sentinel errors for required environment variables.
+var (
+	errServerURLRequired   = errors.New("ARGOS_SERVER_URL is required")
+	errAPITokenRequired    = errors.New("ARGOS_API_TOKEN is required")
+	errClusterNameRequired = errors.New("ARGOS_CLUSTER_NAME is required")
+)
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
 	if err := run(); err != nil {
-		slog.Error("argos-collector exited with error", "error", err)
+		slog.Error("argos-collector exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	slog.Info("argos-collector starting", "version", version)
+// collectorConfig holds the validated configuration for the push-mode collector.
+type collectorConfig struct {
+	serverURL    string
+	token        string
+	clusterName  string
+	kubeconfig   string
+	interval     time.Duration
+	fetchTimeout time.Duration
+	reconcile    bool
+}
 
-	// Required env vars.
+// loadCollectorConfig reads and validates all environment variables needed
+// by the push-mode collector.
+func loadCollectorConfig() (collectorConfig, error) {
 	serverURL := os.Getenv("ARGOS_SERVER_URL")
 	if serverURL == "" {
-		return errors.New("ARGOS_SERVER_URL is required")
+		return collectorConfig{}, errServerURLRequired
 	}
 	token := os.Getenv("ARGOS_API_TOKEN")
 	if token == "" {
-		return errors.New("ARGOS_API_TOKEN is required")
+		return collectorConfig{}, errAPITokenRequired
 	}
 	clusterName := os.Getenv("ARGOS_CLUSTER_NAME")
 	if clusterName == "" {
-		return errors.New("ARGOS_CLUSTER_NAME is required")
+		return collectorConfig{}, errClusterNameRequired
 	}
 
-	// Optional env vars.
-	kubeconfig := os.Getenv("ARGOS_KUBECONFIG")
 	interval, err := parseDurationEnv("ARGOS_COLLECTOR_INTERVAL", 5*time.Minute)
 	if err != nil {
-		return err
+		return collectorConfig{}, err
 	}
 	fetchTimeout, err := parseDurationEnv("ARGOS_COLLECTOR_FETCH_TIMEOUT", 30*time.Second)
 	if err != nil {
-		return err
+		return collectorConfig{}, err
 	}
 	reconcile, err := parseBoolEnv("ARGOS_COLLECTOR_RECONCILE", true)
+	if err != nil {
+		return collectorConfig{}, err
+	}
+
+	return collectorConfig{
+		serverURL:    serverURL,
+		token:        token,
+		clusterName:  clusterName,
+		kubeconfig:   os.Getenv("ARGOS_KUBECONFIG"),
+		interval:     interval,
+		fetchTimeout: fetchTimeout,
+		reconcile:    reconcile,
+	}, nil
+}
+
+func run() error {
+	slog.Info("argos-collector starting", slog.String("version", version))
+
+	cfg, err := loadCollectorConfig()
 	if err != nil {
 		return err
 	}
 
 	// Build the HTTP-backed store.
-	store, err := apiclient.NewStore(apiclient.Config{
-		ServerURL:    serverURL,
-		Token:        token,
+	apiStore, err := apiclient.NewStore(apiclient.Config{
+		ServerURL:    cfg.serverURL,
+		Token:        cfg.token,
 		CACert:       os.Getenv("ARGOS_CA_CERT"),
 		ClientCert:   os.Getenv("ARGOS_CLIENT_CERT"),
 		ClientKey:    os.Getenv("ARGOS_CLIENT_KEY"),
@@ -79,23 +113,23 @@ func run() error {
 	}
 
 	// Build the Kubernetes source (in-cluster or kubeconfig).
-	source, err := collector.NewKubeClient(kubeconfig)
+	source, err := collector.NewKubeClient(cfg.kubeconfig)
 	if err != nil {
 		return fmt.Errorf("init kube client: %w", err)
 	}
 
 	// Wire the collector.
-	coll := collector.New(store, source, clusterName, interval, fetchTimeout, reconcile)
+	coll := collector.New(apiStore, source, cfg.clusterName, cfg.interval, cfg.fetchTimeout, cfg.reconcile)
 
 	// Signal handling: SIGINT/SIGTERM → context cancel → collector stops.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	slog.Info("argos-collector running",
-		"cluster_name", clusterName,
-		"server_url", serverURL,
-		"interval", interval,
-		"reconcile", reconcile,
+		slog.String("cluster_name", cfg.clusterName),
+		slog.String("server_url", cfg.serverURL),
+		slog.String("interval", cfg.interval.String()),
+		slog.Bool("reconcile", cfg.reconcile),
 	)
 
 	if err := coll.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {

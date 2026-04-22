@@ -223,7 +223,9 @@ type Store interface {
 	GetPersistentVolume(ctx context.Context, id uuid.UUID) (PersistentVolume, error)
 
 	// ListPersistentVolumes returns up to limit PVs, optionally filtered by cluster.
-	ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) (items []PersistentVolume, nextCursor string, err error)
+	ListPersistentVolumes(
+		ctx context.Context, clusterID *uuid.UUID, limit int, cursor string,
+	) (items []PersistentVolume, nextCursor string, err error)
 
 	// UpdatePersistentVolume applies merge-patch.
 	UpdatePersistentVolume(ctx context.Context, id uuid.UUID, in PersistentVolumeUpdate) (PersistentVolume, error)
@@ -247,7 +249,9 @@ type Store interface {
 	GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (PersistentVolumeClaim, error)
 
 	// ListPersistentVolumeClaims returns up to limit PVCs, optionally filtered by namespace.
-	ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []PersistentVolumeClaim, nextCursor string, err error)
+	ListPersistentVolumeClaims(
+		ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string,
+	) (items []PersistentVolumeClaim, nextCursor string, err error)
 
 	// UpdatePersistentVolumeClaim applies merge-patch.
 	UpdatePersistentVolumeClaim(ctx context.Context, id uuid.UUID, in PersistentVolumeClaimUpdate) (PersistentVolumeClaim, error)
@@ -441,9 +445,9 @@ type SessionInsert struct {
 }
 
 // APITokenInsert carries the persistable fields for a new minted token.
-// The plaintext itself is never persisted — only `Prefix` (cleartext)
+// The plaintext itself is never persisted �� only `Prefix` (cleartext)
 // and `Hash` (argon2id).
-type APITokenInsert struct {
+type APITokenInsert struct { //nolint:revive // stutter is acceptable here for clarity alongside the APIToken generated type
 	ID              uuid.UUID
 	Name            string
 	Prefix          string

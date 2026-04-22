@@ -39,7 +39,7 @@ var ValidRoles = map[string]struct{}{
 	RoleViewer:  {},
 }
 
-// scopesForRole returns the fixed scope set granted to a role. Admin
+// ScopesForRole returns the fixed scope set granted to a role. Admin
 // always carries the admin scope too; it implicitly satisfies any
 // scoped endpoint by the "admin implies all" convention the OpenAPI
 // enforcer uses.
@@ -61,6 +61,7 @@ func ScopesForRole(role string) []string {
 // callers. Handlers can gate flows like "change password" on kind=User.
 type CallerKind string
 
+// CallerKind constants distinguish human from machine callers.
 const (
 	CallerKindUser  CallerKind = "user"
 	CallerKindToken CallerKind = "token"
@@ -96,7 +97,7 @@ type Caller struct {
 }
 
 // HasScope reports whether the caller carries want. Admin implies all.
-func (c Caller) HasScope(want string) bool {
+func (c *Caller) HasScope(want string) bool {
 	for _, s := range c.Scopes {
 		if s == ScopeAdmin || s == want {
 			return true
@@ -259,7 +260,7 @@ func resolve(r *http.Request, store Store, policy SecureCookiePolicy, w http.Res
 func tryCookie(r *http.Request, store Store, policy SecureCookiePolicy, w http.ResponseWriter) (*Caller, error) {
 	ck, err := r.Cookie(SessionCookieName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read session cookie: %w", err)
 	}
 	if ck.Value == "" {
 		return nil, http.ErrNoCookie
@@ -270,13 +271,13 @@ func tryCookie(r *http.Request, store Store, policy SecureCookiePolicy, w http.R
 		// Revoked / expired / unknown session → clear the cookie so the
 		// browser stops sending it every request.
 		ClearSessionCookie(w, r, policy)
-		return nil, err
+		return nil, fmt.Errorf("get active session: %w", err)
 	}
 
 	user, err := store.GetUserForAuth(r.Context(), sess.UserID)
 	if err != nil {
 		ClearSessionCookie(w, r, policy)
-		return nil, err
+		return nil, fmt.Errorf("get user for auth: %w", err)
 	}
 	if user.Disabled {
 		ClearSessionCookie(w, r, policy)
@@ -319,7 +320,7 @@ func tryBearer(r *http.Request, store Store) (*Caller, error) {
 
 	tok, err := store.GetActiveTokenByPrefix(r.Context(), tokPrefix)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get active token by prefix: %w", err)
 	}
 	if err := VerifyPassword(presented, tok.Hash); err != nil {
 		return nil, ErrUnauthorized
@@ -354,6 +355,7 @@ func isPasswordChangeAllowed(path string) bool {
 func writeProblemJSON(w http.ResponseWriter, status int, title, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
+	//nolint:errchkjson // best-effort write; struct literal is always serialisable.
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"type":   "about:blank",
 		"title":  title,

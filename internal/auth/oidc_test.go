@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func testOAuthConfig() *oauth2.Config {
 func TestGeneratePKCE_ChallengeIsSha256OfVerifier(t *testing.T) {
 	t.Parallel()
 	// Run multiple times so any randomness edge-case is exercised.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		verifier, challenge, err := GeneratePKCE()
 		if err != nil {
 			t.Fatalf("GeneratePKCE: %v", err)
@@ -57,7 +58,7 @@ func TestGeneratePKCE_ChallengeIsSha256OfVerifier(t *testing.T) {
 func TestGenerateOIDCState_Uniqueness(t *testing.T) {
 	t.Parallel()
 	seen := make(map[string]struct{}, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		s, err := GenerateOIDCState()
 		if err != nil {
 			t.Fatalf("GenerateOIDCState: %v", err)
@@ -75,7 +76,7 @@ func TestGenerateOIDCState_Uniqueness(t *testing.T) {
 func TestGenerateNonce_Uniqueness(t *testing.T) {
 	t.Parallel()
 	seen := make(map[string]struct{}, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		n, err := GenerateNonce()
 		if err != nil {
 			t.Fatalf("GenerateNonce: %v", err)
@@ -89,9 +90,9 @@ func TestGenerateNonce_Uniqueness(t *testing.T) {
 
 func TestNewOIDCProvider_DisabledWhenIssuerEmpty(t *testing.T) {
 	t.Parallel()
-	p, err := NewOIDCProvider(context.Background(), OIDCConfig{})
-	if err != nil {
-		t.Fatalf("expected nil err when issuer empty, got %v", err)
+	p, err := NewOIDCProvider(context.Background(), &OIDCConfig{})
+	if !errors.Is(err, ErrOIDCDisabled) {
+		t.Fatalf("expected ErrOIDCDisabled when issuer empty, got %v", err)
 	}
 	if p != nil {
 		t.Fatalf("expected nil provider when issuer empty, got %+v", p)
@@ -101,7 +102,7 @@ func TestNewOIDCProvider_DisabledWhenIssuerEmpty(t *testing.T) {
 func TestNewOIDCProvider_RejectsIncompleteConfig(t *testing.T) {
 	t.Parallel()
 	// Issuer set but client id missing → should error before any network.
-	_, err := NewOIDCProvider(context.Background(), OIDCConfig{
+	_, err := NewOIDCProvider(context.Background(), &OIDCConfig{
 		Issuer:      "https://example.invalid",
 		RedirectURL: "https://argos.example.com/cb",
 	})

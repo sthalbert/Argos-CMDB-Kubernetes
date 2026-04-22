@@ -1,0 +1,131 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - err113
+    - errcheck
+    - errchkjson
+    - errname
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - govet
+    - ineffassign
+    - intrange
+    - maintidx
+    - misspell
+    - nakedret
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - prealloc
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - wrapcheck
+    - funcorder
+
+  settings:
+    errchkjson:
+      check-error-free-encoding: true
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        - (*net/http.Server).Shutdown(context.Context)
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+        - (io.Closer).Close
+        - (net.Conn).Close
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+        - experimental
+    gocyclo:
+      min-complexity: 10
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-no-explanation:
+        - errcheck
+        - misspell
+      allow-unused: false
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - checkPrivateReceivers
+          severity: warning
+          disabled: false
+        - name: package-comments
+          severity: warning
+          disabled: true
+    sloglint:
+      attr-only: true
+    spancheck:
+      checks:
+        - end
+    wrapcheck:
+      ignore-package-globs:
+        - google.golang.org/grpc/status
+        - google.golang.org/grpc/internal/status
+    funcorder:
+      constructor: true
+      struct-method: true
+
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - err113
+          - maintidx
+        path: (.+)_test.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - golines
+  settings:
+    golines:
+      max-len: 150
+      reformat-tags: false
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
+        - blank
+        - dot
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
