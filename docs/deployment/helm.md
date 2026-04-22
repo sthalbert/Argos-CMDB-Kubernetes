@@ -1,0 +1,241 @@
+# Deploy Argos with Helm
+
+This guide deploys argosd on Kubernetes using the Helm chart in `charts/argos/`. The chart bundles an optional PostgreSQL instance (Bitnami subchart) so you can get a fully working Argos with a single `helm install`.
+
+> **Prefer Kustomize?** See [Deploy on Kubernetes](kubernetes.md) for the plain-manifest approach.
+
+## Prerequisites
+
+- A Kubernetes cluster (kind, minikube, OrbStack, or a production cluster).
+- [Helm 3](https://helm.sh/docs/intro/install/) installed locally.
+- `kubectl` configured to talk to the cluster.
+- A container image reachable from the cluster. See [Build the image](#build-the-image) below.
+
+## Build the image
+
+The image is not yet published to a public registry. Build it locally and load it into your cluster:
+
+```bash
+make docker-build    # tags argos:dev
+
+# Load into local clusters:
+kind load docker-image argos:dev --name <cluster>
+# or: minikube image load argos:dev
+# or: docker push <your-registry>/argos:dev
+```
+
+## Install with bundled PostgreSQL
+
+The simplest path -- the chart deploys PostgreSQL alongside argosd:
+
+```bash
+# Pull the Bitnami PostgreSQL dependency.
+helm dependency update charts/argos
+
+# Install into a new namespace.
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set image.repository=argos \
+  --set image.tag=dev \
+  --set image.pullPolicy=Never
+```
+
+argosd starts, runs migrations, and bootstraps an admin user. Retrieve the password from the logs:
+
+```bash
+kubectl -n argos-system logs -l app.kubernetes.io/name=argos | grep "ARGOS FIRST-RUN"
+```
+
+To set a predictable password instead:
+
+```bash
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set argosd.bootstrapAdminPassword="my-strong-passphrase"
+```
+
+## Install with external PostgreSQL
+
+If you already have a PostgreSQL instance (managed service, CloudNativePG, etc.), disable the bundled one:
+
+```bash
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set postgresql.enabled=false \
+  --set externalDatabase.url="postgres://argos:secret@pg.prod.svc:5432/argos?sslmode=require"
+```
+
+The chart validates that `externalDatabase.url` is set when `postgresql.enabled=false` -- it refuses to render otherwise.
+
+## Use an existing Secret
+
+If you manage secrets externally (Vault, External Secrets Operator, SealedSecrets), point the chart at your Secret instead of generating one:
+
+```bash
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set existingSecret=my-argos-credentials \
+  --set postgresql.enabled=false
+```
+
+Your Secret must contain at least `ARGOS_DATABASE_URL`. It can also include `ARGOS_BOOTSTRAP_ADMIN_PASSWORD`, `ARGOS_OIDC_*` variables, or any other `ARGOS_*` key.
+
+## Enable the collector
+
+To have argosd catalogue the cluster it runs on:
+
+```bash
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set collector.enabled=true \
+  --set collector.clusterName=my-cluster
+```
+
+The chart creates a ClusterRole granting read-only `list` on the Kubernetes resources the collector ingests. The ServiceAccount is bound automatically.
+
+Remember to register the cluster in argosd first:
+
+```bash
+kubectl -n argos-system port-forward svc/argos 8080:8080 &
+curl -X POST http://localhost:8080/v1/clusters \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"my-cluster"}'
+```
+
+## Enable OIDC
+
+```bash
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set oidc.enabled=true \
+  --set oidc.issuer="https://accounts.example.com" \
+  --set oidc.clientId="argos" \
+  --set oidc.clientSecret="s3cret" \
+  --set oidc.redirectUrl="https://argos.example.com/v1/auth/oidc/callback"
+```
+
+See [Authentication](../authentication.md) for details on OIDC setup and shadow user behavior.
+
+## Expose with Ingress
+
+```bash
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set ingress.enabled=true \
+  --set ingress.className=nginx \
+  --set 'ingress.hosts[0].host=argos.example.com' \
+  --set 'ingress.hosts[0].paths[0].path=/' \
+  --set 'ingress.hosts[0].paths[0].pathType=Prefix' \
+  --set 'ingress.tls[0].secretName=argos-tls' \
+  --set 'ingress.tls[0].hosts[0]=argos.example.com'
+```
+
+## Enable ServiceMonitor
+
+For Prometheus Operator environments:
+
+```bash
+helm install argos charts/argos \
+  -n argos-system --create-namespace \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.interval=30s
+```
+
+See [Monitoring](../monitoring.md) for the full metrics reference and alert examples.
+
+## Values reference
+
+The table below lists the most common values. See [`charts/argos/values.yaml`](../../charts/argos/values.yaml) for the complete file with inline comments.
+
+### Core
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `replicaCount` | `1` | Must be 1 (single-writer constraint). |
+| `image.repository` | `ghcr.io/sthalbert/argos` | Container image repository. |
+| `image.tag` | `""` (appVersion) | Image tag override. |
+| `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
+
+### argosd
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `argosd.addr` | `":8080"` | HTTP listen address. |
+| `argosd.autoMigrate` | `true` | Run DB migrations on startup. |
+| `argosd.shutdownTimeout` | `"15s"` | Graceful shutdown budget. |
+| `argosd.bootstrapAdminPassword` | `""` | Admin password (empty = random). |
+| `argosd.sessionSecureCookie` | `"auto"` | Cookie Secure flag: auto/always/never. |
+
+### Collector
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `collector.enabled` | `false` | Enable the pull-mode collector. |
+| `collector.clusterName` | `"in-cluster"` | Single-cluster name. |
+| `collector.kubeconfig` | `""` | Kubeconfig path (empty = in-cluster). |
+| `collector.clusters` | `[]` | Multi-cluster list (overrides clusterName). |
+| `collector.interval` | `"5m"` | Poll interval. |
+| `collector.fetchTimeout` | `"10s"` | Per-poll K8s API timeout. |
+| `collector.reconcile` | `true` | Delete stale rows. |
+
+### OIDC
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `oidc.enabled` | `false` | Enable OIDC sign-in. |
+| `oidc.issuer` | `""` | OIDC issuer URL. |
+| `oidc.clientId` | `""` | OAuth2 client ID. |
+| `oidc.clientSecret` | `""` | OAuth2 client secret. |
+| `oidc.redirectUrl` | `""` | Authorization callback URL. |
+| `oidc.scopes` | `"openid,email,profile"` | OAuth2 scopes. |
+| `oidc.label` | `"OIDC"` | Login button text. |
+
+### Database
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `postgresql.enabled` | `true` | Deploy bundled PostgreSQL. |
+| `postgresql.auth.username` | `argos` | PG username. |
+| `postgresql.auth.password` | `argos` | PG password. |
+| `postgresql.auth.database` | `argos` | PG database name. |
+| `postgresql.primary.persistence.size` | `5Gi` | PVC size. |
+| `externalDatabase.url` | `""` | External PG DSN (when bundled PG disabled). |
+| `existingSecret` | `""` | Use an existing Secret for credentials. |
+
+### Networking
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `service.type` | `ClusterIP` | Service type. |
+| `service.port` | `8080` | Service port. |
+| `ingress.enabled` | `false` | Create an Ingress resource. |
+| `metrics.serviceMonitor.enabled` | `false` | Create a ServiceMonitor. |
+
+### Security
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `rbac.create` | `true` | Create ClusterRole and binding. |
+| `serviceAccount.create` | `true` | Create a ServiceAccount. |
+| `podSecurityContext.runAsUser` | `65532` | Non-root UID (distroless). |
+
+## Upgrade
+
+```bash
+helm upgrade argos charts/argos -n argos-system
+```
+
+The Deployment includes a `checksum/secret` annotation, so any change to Secret values triggers a rolling restart automatically.
+
+## Uninstall
+
+```bash
+helm uninstall argos -n argos-system
+kubectl delete namespace argos-system
+```
+
+If you used the bundled PostgreSQL, the PVC persists by default. Delete it manually if you want a clean slate:
+
+```bash
+kubectl -n argos-system delete pvc data-argos-postgresql-0
+```

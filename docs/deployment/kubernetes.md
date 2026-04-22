@@ -2,6 +2,8 @@
 
 This guide deploys argosd into a Kubernetes cluster using the reference Kustomize manifests in `deploy/`. argosd catalogues the cluster it runs on (and optionally remote clusters) via its ServiceAccount.
 
+> **Prefer Helm?** See [Deploy with Helm](helm.md) for a one-command install with optional bundled PostgreSQL.
+
 ## Prerequisites
 
 - A Kubernetes cluster (kind, minikube, or a production cluster).
