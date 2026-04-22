@@ -209,7 +209,7 @@ func (e *testEnv) doReq(t *testing.T, method, path, body string) *http.Response 
 	if body != "" {
 		bodyReader = strings.NewReader(body)
 	}
-	req, err := http.NewRequest(method, e.srv.URL+path, bodyReader)
+	req, err := http.NewRequestWithContext(context.Background(), method, e.srv.URL+path, bodyReader)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
@@ -251,7 +251,7 @@ func (e *testEnv) doJSON(t *testing.T, method, path, body string, dst any) int {
 // doReqNoAuth sends an unauthenticated HTTP request.
 func (e *testEnv) doReqNoAuth(t *testing.T, method, path string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest(method, e.srv.URL+path, nil)
+	req, err := http.NewRequestWithContext(context.Background(), method, e.srv.URL+path, http.NoBody)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
@@ -307,77 +307,92 @@ func TestHealthProbes(t *testing.T) {
 // TestAuthFlow
 // ---------------------------------------------------------------------------
 
+// loginAndGetCookie logs in with the given credentials and returns the session
+// cookie along with a no-redirect HTTP client.
+func loginAndGetCookie(t *testing.T, env *testEnv) (*http.Cookie, *http.Client) {
+	t.Helper()
+	loginBody := fmt.Sprintf(`{"username":%q,"password":%q}`, env.adminUser, env.adminPass)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, env.srv.URL+"/v1/auth/login", strings.NewReader(loginBody))
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("login request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 from login, got %d", resp.StatusCode)
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == auth.SessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("no session cookie in login response")
+	}
+	return sessionCookie, client
+}
+
+// verifyMeEndpoint calls /v1/auth/me with the session cookie and checks the
+// returned username matches the admin user.
+func verifyMeEndpoint(t *testing.T, env *testEnv, cookie *http.Cookie, client *http.Client) {
+	t.Helper()
+	meReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, env.srv.URL+"/v1/auth/me", http.NoBody)
+	meReq.AddCookie(cookie)
+	meResp, err := client.Do(meReq)
+	if err != nil {
+		t.Fatalf("me request: %v", err)
+	}
+	defer func() { _ = meResp.Body.Close() }()
+	if meResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /me, got %d", meResp.StatusCode)
+	}
+	var me api.Me
+	if err := json.NewDecoder(meResp.Body).Decode(&me); err != nil {
+		t.Fatalf("decode /me: %v", err)
+	}
+	if me.Username == nil || *me.Username != env.adminUser {
+		t.Errorf("expected username %q, got %v", env.adminUser, me.Username)
+	}
+}
+
+// logoutAndVerify logs out using the session cookie and verifies the cookie is
+// cleared in the response.
+func logoutAndVerify(t *testing.T, env *testEnv, cookie *http.Cookie, client *http.Client) {
+	t.Helper()
+	logoutReq, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, env.srv.URL+"/v1/auth/logout", http.NoBody)
+	logoutReq.AddCookie(cookie)
+	logoutResp, err := client.Do(logoutReq)
+	if err != nil {
+		t.Fatalf("logout request: %v", err)
+	}
+	_ = logoutResp.Body.Close()
+	if logoutResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 from logout, got %d", logoutResp.StatusCode)
+	}
+
+	found := false
+	for _, c := range logoutResp.Cookies() {
+		if c.Name == auth.SessionCookieName && c.MaxAge < 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected session cookie to be cleared on logout")
+	}
+}
+
 func TestAuthFlow(t *testing.T) {
 	env := newTestEnv(t)
 
 	t.Run("login with admin creds and use session cookie", func(t *testing.T) {
-		// Login.
-		loginBody := fmt.Sprintf(`{"username":%q,"password":%q}`, env.adminUser, env.adminPass)
-		req, _ := http.NewRequest(http.MethodPost, env.srv.URL+"/v1/auth/login", strings.NewReader(loginBody))
-		req.Header.Set("Content-Type", "application/json")
-		client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("login request: %v", err)
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusNoContent {
-			t.Fatalf("expected 204 from login, got %d", resp.StatusCode)
-		}
-
-		// Extract session cookie.
-		var sessionCookie *http.Cookie
-		for _, c := range resp.Cookies() {
-			if c.Name == auth.SessionCookieName {
-				sessionCookie = c
-				break
-			}
-		}
-		if sessionCookie == nil {
-			t.Fatal("no session cookie in login response")
-		}
-
-		// GET /v1/auth/me with the cookie.
-		meReq, _ := http.NewRequest(http.MethodGet, env.srv.URL+"/v1/auth/me", nil)
-		meReq.AddCookie(sessionCookie)
-		meResp, err := client.Do(meReq)
-		if err != nil {
-			t.Fatalf("me request: %v", err)
-		}
-		defer func() { _ = meResp.Body.Close() }()
-		if meResp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200 from /me, got %d", meResp.StatusCode)
-		}
-		var me api.Me
-		if err := json.NewDecoder(meResp.Body).Decode(&me); err != nil {
-			t.Fatalf("decode /me: %v", err)
-		}
-		if me.Username == nil || *me.Username != env.adminUser {
-			t.Errorf("expected username %q, got %v", env.adminUser, me.Username)
-		}
-
-		// Logout.
-		logoutReq, _ := http.NewRequest(http.MethodPost, env.srv.URL+"/v1/auth/logout", nil)
-		logoutReq.AddCookie(sessionCookie)
-		logoutResp, err := client.Do(logoutReq)
-		if err != nil {
-			t.Fatalf("logout request: %v", err)
-		}
-		_ = logoutResp.Body.Close()
-		if logoutResp.StatusCode != http.StatusNoContent {
-			t.Fatalf("expected 204 from logout, got %d", logoutResp.StatusCode)
-		}
-
-		// Verify cookie cleared (Set-Cookie with empty value or MaxAge=-1).
-		found := false
-		for _, c := range logoutResp.Cookies() {
-			if c.Name == auth.SessionCookieName && c.MaxAge < 0 {
-				found = true
-			}
-		}
-		if !found {
-			t.Error("expected session cookie to be cleared on logout")
-		}
+		cookie, client := loginAndGetCookie(t, env)
+		verifyMeEndpoint(t, env, cookie, client)
+		logoutAndVerify(t, env, cookie, client)
 	})
 
 	t.Run("PAT token gets clusters 200", func(t *testing.T) {
@@ -401,12 +416,11 @@ func TestAuthFlow(t *testing.T) {
 // TestClusterCRUD
 // ---------------------------------------------------------------------------
 
-func TestClusterCRUD(t *testing.T) {
-	env := newTestEnv(t)
-
-	// CREATE
+// createClusterViaAPI creates a cluster using the raw HTTP endpoint and
+// validates the response including Location header and returned fields.
+func createClusterViaAPI(t *testing.T, env *testEnv, body string) api.Cluster {
+	t.Helper()
 	var created api.Cluster
-	body := `{"name":"test-cluster","environment":"staging"}`
 	resp := env.doReq(t, http.MethodPost, "/v1/clusters", body)
 	if resp.StatusCode != http.StatusCreated {
 		raw, _ := io.ReadAll(resp.Body)
@@ -425,10 +439,35 @@ func TestClusterCRUD(t *testing.T) {
 	if created.Id == nil {
 		t.Fatal("created cluster has nil id")
 	}
+	return created
+}
+
+// patchClusterViaAPI patches a cluster and returns the decoded response.
+func patchClusterViaAPI(t *testing.T, env *testEnv, clusterID, body string) api.Cluster {
+	t.Helper()
+	var patched api.Cluster
+	patchResp := env.doReq(t, http.MethodPatch, "/v1/clusters/"+clusterID, body)
+	if patchResp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(patchResp.Body)
+		_ = patchResp.Body.Close()
+		t.Fatalf("patch: expected 200, got %d: %s", patchResp.StatusCode, raw)
+	}
+	if err := json.NewDecoder(patchResp.Body).Decode(&patched); err != nil {
+		_ = patchResp.Body.Close()
+		t.Fatalf("decode patched: %v", err)
+	}
+	_ = patchResp.Body.Close()
+	return patched
+}
+
+func TestClusterCRUD(t *testing.T) {
+	env := newTestEnv(t)
+
+	// CREATE
+	created := createClusterViaAPI(t, env, `{"name":"test-cluster","environment":"staging"}`)
 	if created.Name != "test-cluster" {
 		t.Errorf("expected name test-cluster, got %q", created.Name)
 	}
-
 	clusterID := created.Id.String()
 
 	// GET by id
@@ -452,18 +491,7 @@ func TestClusterCRUD(t *testing.T) {
 	}
 
 	// PATCH
-	var patched api.Cluster
-	patchResp := env.doReq(t, http.MethodPatch, "/v1/clusters/"+clusterID, `{"kubernetes_version":"v1.29.1"}`)
-	if patchResp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(patchResp.Body)
-		_ = patchResp.Body.Close()
-		t.Fatalf("patch: expected 200, got %d: %s", patchResp.StatusCode, raw)
-	}
-	if err := json.NewDecoder(patchResp.Body).Decode(&patched); err != nil {
-		_ = patchResp.Body.Close()
-		t.Fatalf("decode patched: %v", err)
-	}
-	_ = patchResp.Body.Close()
+	patched := patchClusterViaAPI(t, env, clusterID, `{"kubernetes_version":"v1.29.1"}`)
 	if patched.KubernetesVersion == nil || *patched.KubernetesVersion != "v1.29.1" {
 		t.Errorf("patch: expected kubernetes_version v1.29.1, got %v", patched.KubernetesVersion)
 	}
@@ -487,12 +515,15 @@ func TestClusterCRUD(t *testing.T) {
 // TestFullResourceHierarchy
 // ---------------------------------------------------------------------------
 
-func TestFullResourceHierarchy(t *testing.T) {
-	env := newTestEnv(t)
-	ctx := context.Background()
-	_ = ctx
+// hierarchyResources holds the IDs created during the hierarchy test setup.
+type hierarchyResources struct {
+	clusterID string
+	nsIDs     map[string]string
+}
 
-	// Create cluster.
+// createHierarchyCluster creates the cluster and all resources for the hierarchy test.
+func createHierarchyCluster(t *testing.T, env *testEnv) hierarchyResources {
+	t.Helper()
 	var cluster api.Cluster
 	status := env.doJSON(t, http.MethodPost, "/v1/clusters", `{"name":"hierarchy-cluster","environment":"test"}`, &cluster)
 	if status != http.StatusCreated {
@@ -500,20 +531,11 @@ func TestFullResourceHierarchy(t *testing.T) {
 	}
 	clusterID := cluster.Id.String()
 
-	// Create 2 nodes.
-	for _, name := range []string{"node-1", "node-2"} {
-		body := fmt.Sprintf(`{"cluster_id":"%s","name":"%s"}`, clusterID, name)
-		var node api.Node
-		s := env.doJSON(t, http.MethodPost, "/v1/nodes", body, &node)
-		if s != http.StatusCreated {
-			t.Fatalf("create node %s: %d", name, s)
-		}
-	}
+	createClusterScopedResources(t, env, "/v1/nodes", clusterID, []string{"node-1", "node-2"})
 
-	// Create 2 namespaces.
 	nsIDs := make(map[string]string)
 	for _, name := range []string{"ns-alpha", "ns-beta"} {
-		body := fmt.Sprintf(`{"cluster_id":"%s","name":"%s"}`, clusterID, name)
+		body := fmt.Sprintf(`{"cluster_id":%q,"name":%q}`, clusterID, name)
 		var ns api.Namespace
 		s := env.doJSON(t, http.MethodPost, "/v1/namespaces", body, &ns)
 		if s != http.StatusCreated {
@@ -522,136 +544,134 @@ func TestFullResourceHierarchy(t *testing.T) {
 		nsIDs[name] = ns.Id.String()
 	}
 
-	// Create workloads in ns-alpha.
-	wlIDs := make(map[string]string)
-	for _, name := range []string{"deploy-web", "deploy-api"} {
-		body := fmt.Sprintf(`{"namespace_id":"%s","kind":"Deployment","name":"%s","replicas":2}`, nsIDs["ns-alpha"], name)
+	wlIDs := createWorkloads(t, env, nsIDs["ns-alpha"], []string{"deploy-web", "deploy-api"})
+	createPodsForWorkload(t, env, nsIDs["ns-alpha"], wlIDs["deploy-web"], []string{"pod-web-1", "pod-web-2"})
+	createSingleResource(t, env, "/v1/services",
+		fmt.Sprintf(`{"namespace_id":%q,"name":"svc-web","type":"ClusterIP","cluster_ip":"10.0.0.1"}`, nsIDs["ns-alpha"]))
+	createSingleResource(t, env, "/v1/ingresses",
+		fmt.Sprintf(`{"namespace_id":%q,"name":"ing-web","ingress_class_name":"nginx"}`, nsIDs["ns-alpha"]))
+	createPVAndPVC(t, env, clusterID, nsIDs["ns-alpha"])
+
+	return hierarchyResources{clusterID: clusterID, nsIDs: nsIDs}
+}
+
+// createClusterScopedResources creates named resources under a cluster endpoint.
+func createClusterScopedResources(t *testing.T, env *testEnv, endpoint, clusterID string, names []string) {
+	t.Helper()
+	for _, name := range names {
+		body := fmt.Sprintf(`{"cluster_id":%q,"name":%q}`, clusterID, name)
+		resp := env.doReq(t, http.MethodPost, endpoint, body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("create %s on %s: expected 201, got %d", name, endpoint, resp.StatusCode)
+		}
+	}
+}
+
+// createWorkloads creates Deployment workloads and returns a name->id map.
+func createWorkloads(t *testing.T, env *testEnv, nsID string, names []string) map[string]string {
+	t.Helper()
+	ids := make(map[string]string, len(names))
+	for _, name := range names {
+		body := fmt.Sprintf(`{"namespace_id":%q,"kind":"Deployment","name":%q,"replicas":2}`, nsID, name)
 		var wl api.Workload
 		s := env.doJSON(t, http.MethodPost, "/v1/workloads", body, &wl)
 		if s != http.StatusCreated {
 			t.Fatalf("create workload %s: %d", name, s)
 		}
-		wlIDs[name] = wl.Id.String()
+		ids[name] = wl.Id.String()
 	}
+	return ids
+}
 
-	// Create pods with workload_id FK.
-	for _, name := range []string{"pod-web-1", "pod-web-2"} {
-		body := fmt.Sprintf(`{"namespace_id":"%s","name":"%s","workload_id":"%s"}`,
-			nsIDs["ns-alpha"], name, wlIDs["deploy-web"])
+// createPodsForWorkload creates pods linked to a workload.
+func createPodsForWorkload(t *testing.T, env *testEnv, nsID, workloadID string, names []string) {
+	t.Helper()
+	for _, name := range names {
+		body := fmt.Sprintf(`{"namespace_id":%q,"name":%q,"workload_id":%q}`, nsID, name, workloadID)
 		var pod api.Pod
 		s := env.doJSON(t, http.MethodPost, "/v1/pods", body, &pod)
 		if s != http.StatusCreated {
 			t.Fatalf("create pod %s: %d", name, s)
 		}
 	}
+}
 
-	// Create a service.
-	{
-		body := fmt.Sprintf(`{"namespace_id":"%s","name":"svc-web","type":"ClusterIP","cluster_ip":"10.0.0.1"}`, nsIDs["ns-alpha"])
-		var svc api.Service
-		s := env.doJSON(t, http.MethodPost, "/v1/services", body, &svc)
-		if s != http.StatusCreated {
-			t.Fatalf("create service: %d", s)
+// createSingleResource POSTs a single resource and fails on non-201.
+func createSingleResource(t *testing.T, env *testEnv, endpoint, body string) {
+	t.Helper()
+	resp := env.doReq(t, http.MethodPost, endpoint, body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create on %s: expected 201, got %d", endpoint, resp.StatusCode)
+	}
+}
+
+// createPVAndPVC creates a PV and a PVC bound to it.
+func createPVAndPVC(t *testing.T, env *testEnv, clusterID, nsID string) {
+	t.Helper()
+	body := fmt.Sprintf(`{"cluster_id":%q,"name":"pv-data","capacity":"10Gi","phase":"Bound"}`, clusterID)
+	var pv api.PersistentVolume
+	s := env.doJSON(t, http.MethodPost, "/v1/persistentvolumes", body, &pv)
+	if s != http.StatusCreated {
+		t.Fatalf("create PV: %d", s)
+	}
+	pvID := pv.Id.String()
+
+	pvcBody := fmt.Sprintf(`{"namespace_id":%q,"name":"pvc-data","bound_volume_id":%q,"phase":"Bound"}`, nsID, pvID)
+	var pvc api.PersistentVolumeClaim
+	s = env.doJSON(t, http.MethodPost, "/v1/persistentvolumeclaims", pvcBody, &pvc)
+	if s != http.StatusCreated {
+		t.Fatalf("create PVC: %d", s)
+	}
+	if pvc.BoundVolumeId == nil || pvc.BoundVolumeId.String() != pvID {
+		t.Errorf("PVC bound_volume_id mismatch: expected %s, got %v", pvID, pvc.BoundVolumeId)
+	}
+}
+
+// verifyResourceCounts checks that listing each resource type returns the
+// expected number of items.
+func verifyResourceCounts(t *testing.T, env *testEnv, clusterID, nsID string) {
+	t.Helper()
+	cases := []struct {
+		label   string
+		path    string
+		wantLen int
+	}{
+		{"nodes", "/v1/nodes?cluster_id=" + clusterID, 2},
+		{"namespaces", "/v1/namespaces?cluster_id=" + clusterID, 2},
+		{"workloads", "/v1/workloads?namespace_id=" + nsID, 2},
+		{"pods", "/v1/pods?namespace_id=" + nsID, 2},
+		{"services", "/v1/services?namespace_id=" + nsID, 1},
+		{"ingresses", "/v1/ingresses?namespace_id=" + nsID, 1},
+		{"PVs", "/v1/persistentvolumes?cluster_id=" + clusterID, 1},
+		{"PVCs", "/v1/persistentvolumeclaims?namespace_id=" + nsID, 1},
+	}
+	for _, tc := range cases {
+		var raw json.RawMessage
+		env.doJSON(t, http.MethodGet, tc.path, "", &raw)
+		var items struct {
+			Items []json.RawMessage `json:"items"`
+		}
+		if err := json.Unmarshal(raw, &items); err != nil {
+			t.Fatalf("decode %s list: %v", tc.label, err)
+		}
+		if len(items.Items) != tc.wantLen {
+			t.Errorf("expected %d %s, got %d", tc.wantLen, tc.label, len(items.Items))
 		}
 	}
+}
 
-	// Create an ingress.
-	{
-		body := fmt.Sprintf(`{"namespace_id":"%s","name":"ing-web","ingress_class_name":"nginx"}`, nsIDs["ns-alpha"])
-		var ing api.Ingress
-		s := env.doJSON(t, http.MethodPost, "/v1/ingresses", body, &ing)
-		if s != http.StatusCreated {
-			t.Fatalf("create ingress: %d", s)
-		}
-	}
-
-	// Create PV + PVC with bound_volume_id linkage.
-	var pvID string
-	{
-		body := fmt.Sprintf(`{"cluster_id":"%s","name":"pv-data","capacity":"10Gi","phase":"Bound"}`, clusterID)
-		var pv api.PersistentVolume
-		s := env.doJSON(t, http.MethodPost, "/v1/persistentvolumes", body, &pv)
-		if s != http.StatusCreated {
-			t.Fatalf("create PV: %d", s)
-		}
-		pvID = pv.Id.String()
-	}
-	{
-		body := fmt.Sprintf(`{"namespace_id":"%s","name":"pvc-data","bound_volume_id":"%s","phase":"Bound"}`, nsIDs["ns-alpha"], pvID)
-		var pvc api.PersistentVolumeClaim
-		s := env.doJSON(t, http.MethodPost, "/v1/persistentvolumeclaims", body, &pvc)
-		if s != http.StatusCreated {
-			t.Fatalf("create PVC: %d", s)
-		}
-		if pvc.BoundVolumeId == nil || pvc.BoundVolumeId.String() != pvID {
-			t.Errorf("PVC bound_volume_id mismatch: expected %s, got %v", pvID, pvc.BoundVolumeId)
-		}
-	}
-
-	// List each resource type and verify counts.
-	var nodeList api.NodeList
-	env.doJSON(t, http.MethodGet, "/v1/nodes?cluster_id="+clusterID, "", &nodeList)
-	if len(nodeList.Items) != 2 {
-		t.Errorf("expected 2 nodes, got %d", len(nodeList.Items))
-	}
-
-	var nsList api.NamespaceList
-	env.doJSON(t, http.MethodGet, "/v1/namespaces?cluster_id="+clusterID, "", &nsList)
-	if len(nsList.Items) != 2 {
-		t.Errorf("expected 2 namespaces, got %d", len(nsList.Items))
-	}
-
-	var wlList api.WorkloadList
-	env.doJSON(t, http.MethodGet, "/v1/workloads?namespace_id="+nsIDs["ns-alpha"], "", &wlList)
-	if len(wlList.Items) != 2 {
-		t.Errorf("expected 2 workloads, got %d", len(wlList.Items))
-	}
-
-	var podList api.PodList
-	env.doJSON(t, http.MethodGet, "/v1/pods?namespace_id="+nsIDs["ns-alpha"], "", &podList)
-	if len(podList.Items) != 2 {
-		t.Errorf("expected 2 pods, got %d", len(podList.Items))
-	}
-
-	var svcList api.ServiceList
-	env.doJSON(t, http.MethodGet, "/v1/services?namespace_id="+nsIDs["ns-alpha"], "", &svcList)
-	if len(svcList.Items) != 1 {
-		t.Errorf("expected 1 service, got %d", len(svcList.Items))
-	}
-
-	var ingList api.IngressList
-	env.doJSON(t, http.MethodGet, "/v1/ingresses?namespace_id="+nsIDs["ns-alpha"], "", &ingList)
-	if len(ingList.Items) != 1 {
-		t.Errorf("expected 1 ingress, got %d", len(ingList.Items))
-	}
-
-	var pvList api.PersistentVolumeList
-	env.doJSON(t, http.MethodGet, "/v1/persistentvolumes?cluster_id="+clusterID, "", &pvList)
-	if len(pvList.Items) != 1 {
-		t.Errorf("expected 1 PV, got %d", len(pvList.Items))
-	}
-
-	var pvcList api.PersistentVolumeClaimList
-	env.doJSON(t, http.MethodGet, "/v1/persistentvolumeclaims?namespace_id="+nsIDs["ns-alpha"], "", &pvcList)
-	if len(pvcList.Items) != 1 {
-		t.Errorf("expected 1 PVC, got %d", len(pvcList.Items))
-	}
-
-	// Delete cluster -> verify cascade.
-	delResp := env.doReq(t, http.MethodDelete, "/v1/clusters/"+clusterID, "")
-	_ = delResp.Body.Close()
-	if delResp.StatusCode != http.StatusNoContent {
-		t.Fatalf("delete cluster: expected 204, got %d", delResp.StatusCode)
-	}
-
-	// After cascade, nodes should be gone.
+// verifyCascadeEmpty checks that nodes and namespaces are empty after a cluster
+// cascade delete.
+func verifyCascadeEmpty(t *testing.T, env *testEnv, clusterID string) {
+	t.Helper()
 	var emptyNodes api.NodeList
 	env.doJSON(t, http.MethodGet, "/v1/nodes?cluster_id="+clusterID, "", &emptyNodes)
 	if len(emptyNodes.Items) != 0 {
 		t.Errorf("expected 0 nodes after cascade delete, got %d", len(emptyNodes.Items))
 	}
 
-	// Namespaces should be gone.
 	var emptyNS api.NamespaceList
 	env.doJSON(t, http.MethodGet, "/v1/namespaces?cluster_id="+clusterID, "", &emptyNS)
 	if len(emptyNS.Items) != 0 {
@@ -659,9 +679,58 @@ func TestFullResourceHierarchy(t *testing.T) {
 	}
 }
 
+func TestFullResourceHierarchy(t *testing.T) {
+	env := newTestEnv(t)
+
+	hr := createHierarchyCluster(t, env)
+	verifyResourceCounts(t, env, hr.clusterID, hr.nsIDs["ns-alpha"])
+
+	// Delete cluster -> verify cascade.
+	delResp := env.doReq(t, http.MethodDelete, "/v1/clusters/"+hr.clusterID, "")
+	_ = delResp.Body.Close()
+	if delResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete cluster: expected 204, got %d", delResp.StatusCode)
+	}
+
+	verifyCascadeEmpty(t, env, hr.clusterID)
+}
+
 // ---------------------------------------------------------------------------
 // TestReconcileEndpoints
 // ---------------------------------------------------------------------------
+
+// createNamespaceForReconcile creates a namespace scoped to the given cluster
+// and returns its ID.
+func createNamespaceForReconcile(t *testing.T, env *testEnv, clusterID, nsName string) string {
+	t.Helper()
+	var ns api.Namespace
+	env.doJSON(t, http.MethodPost, "/v1/namespaces",
+		fmt.Sprintf(`{"cluster_id":%q,"name":%q}`, clusterID, nsName), &ns)
+	return ns.Id.String()
+}
+
+// seedAndReconcile creates resources, then calls the reconcile endpoint and
+// verifies the expected number of deletions.
+func seedAndReconcile(
+	t *testing.T, env *testEnv, createEndpoint string, createBodies []string,
+	reconcileEndpoint, reconcileBody string, wantDeleted int64,
+) {
+	t.Helper()
+	for _, body := range createBodies {
+		resp := env.doReq(t, http.MethodPost, createEndpoint, body)
+		_ = resp.Body.Close()
+	}
+	var result struct {
+		Deleted int64 `json:"deleted"`
+	}
+	s := env.doJSON(t, http.MethodPost, reconcileEndpoint, reconcileBody, &result)
+	if s != http.StatusOK {
+		t.Fatalf("reconcile %s: expected 200, got %d", reconcileEndpoint, s)
+	}
+	if result.Deleted != wantDeleted {
+		t.Errorf("expected %d deleted, got %d", wantDeleted, result.Deleted)
+	}
+}
 
 func TestReconcileEndpoints(t *testing.T) {
 	env := newTestEnv(t)
@@ -673,19 +742,13 @@ func TestReconcileEndpoints(t *testing.T) {
 
 	// --- Nodes ---
 	t.Run("reconcile nodes", func(t *testing.T) {
+		bodies := make([]string, 0, 3)
 		for _, name := range []string{"node-a", "node-b", "node-c"} {
-			body := fmt.Sprintf(`{"cluster_id":"%s","name":"%s"}`, clusterID, name)
-			resp := env.doReq(t, http.MethodPost, "/v1/nodes", body); _ = resp.Body.Close()
+			bodies = append(bodies, fmt.Sprintf(`{"cluster_id":%q,"name":%q}`, clusterID, name))
 		}
-		reconcileBody := fmt.Sprintf(`{"cluster_id":"%s","keep_names":["node-a"]}`, clusterID)
-		var result struct{ Deleted int64 `json:"deleted"` }
-		s := env.doJSON(t, http.MethodPost, "/v1/nodes/reconcile", reconcileBody, &result)
-		if s != http.StatusOK {
-			t.Fatalf("reconcile nodes: expected 200, got %d", s)
-		}
-		if result.Deleted != 2 {
-			t.Errorf("expected 2 deleted, got %d", result.Deleted)
-		}
+		reconcileBody := fmt.Sprintf(`{"cluster_id":%q,"keep_names":["node-a"]}`, clusterID)
+		seedAndReconcile(t, env, "/v1/nodes", bodies, "/v1/nodes/reconcile", reconcileBody, 2)
+
 		var nodes api.NodeList
 		env.doJSON(t, http.MethodGet, "/v1/nodes?cluster_id="+clusterID, "", &nodes)
 		if len(nodes.Items) != 1 {
@@ -698,112 +761,57 @@ func TestReconcileEndpoints(t *testing.T) {
 
 	// --- Namespaces ---
 	t.Run("reconcile namespaces", func(t *testing.T) {
+		bodies := make([]string, 0, 3)
 		for _, name := range []string{"ns-1", "ns-2", "ns-3"} {
-			body := fmt.Sprintf(`{"cluster_id":"%s","name":"%s"}`, clusterID, name)
-			resp := env.doReq(t, http.MethodPost, "/v1/namespaces", body); _ = resp.Body.Close()
+			bodies = append(bodies, fmt.Sprintf(`{"cluster_id":%q,"name":%q}`, clusterID, name))
 		}
-		reconcileBody := fmt.Sprintf(`{"cluster_id":"%s","keep_names":["ns-1"]}`, clusterID)
-		var result struct{ Deleted int64 `json:"deleted"` }
-		s := env.doJSON(t, http.MethodPost, "/v1/namespaces/reconcile", reconcileBody, &result)
-		if s != http.StatusOK {
-			t.Fatalf("reconcile namespaces: expected 200, got %d", s)
-		}
-		if result.Deleted != 2 {
-			t.Errorf("expected 2 deleted, got %d", result.Deleted)
-		}
+		reconcileBody := fmt.Sprintf(`{"cluster_id":%q,"keep_names":["ns-1"]}`, clusterID)
+		seedAndReconcile(t, env, "/v1/namespaces", bodies, "/v1/namespaces/reconcile", reconcileBody, 2)
 	})
 
 	// --- Pods (namespace-scoped) ---
 	t.Run("reconcile pods", func(t *testing.T) {
-		// Create a namespace for pods.
-		var ns api.Namespace
-		env.doJSON(t, http.MethodPost, "/v1/namespaces",
-			fmt.Sprintf(`{"cluster_id":"%s","name":"ns-pods"}`, clusterID), &ns)
-		nsID := ns.Id.String()
-
+		nsID := createNamespaceForReconcile(t, env, clusterID, "ns-pods")
+		bodies := make([]string, 0, 3)
 		for _, name := range []string{"pod-x", "pod-y", "pod-z"} {
-			body := fmt.Sprintf(`{"namespace_id":"%s","name":"%s"}`, nsID, name)
-			resp := env.doReq(t, http.MethodPost, "/v1/pods", body); _ = resp.Body.Close()
+			bodies = append(bodies, fmt.Sprintf(`{"namespace_id":%q,"name":%q}`, nsID, name))
 		}
-		reconcileBody := fmt.Sprintf(`{"namespace_id":"%s","keep_names":["pod-x"]}`, nsID)
-		var result struct{ Deleted int64 `json:"deleted"` }
-		s := env.doJSON(t, http.MethodPost, "/v1/pods/reconcile", reconcileBody, &result)
-		if s != http.StatusOK {
-			t.Fatalf("reconcile pods: expected 200, got %d", s)
-		}
-		if result.Deleted != 2 {
-			t.Errorf("expected 2 deleted, got %d", result.Deleted)
-		}
+		reconcileBody := fmt.Sprintf(`{"namespace_id":%q,"keep_names":["pod-x"]}`, nsID)
+		seedAndReconcile(t, env, "/v1/pods", bodies, "/v1/pods/reconcile", reconcileBody, 2)
 	})
 
 	// --- Workloads (with keep_kinds+keep_names) ---
 	t.Run("reconcile workloads", func(t *testing.T) {
-		var ns api.Namespace
-		env.doJSON(t, http.MethodPost, "/v1/namespaces",
-			fmt.Sprintf(`{"cluster_id":"%s","name":"ns-wl-reconcile"}`, clusterID), &ns)
-		nsID := ns.Id.String()
-
-		for _, wl := range []struct{ kind, name string }{
-			{"Deployment", "web"},
-			{"Deployment", "api"},
-			{"StatefulSet", "db"},
-		} {
-			body := fmt.Sprintf(`{"namespace_id":"%s","kind":"%s","name":"%s"}`, nsID, wl.kind, wl.name)
-			resp := env.doReq(t, http.MethodPost, "/v1/workloads", body); _ = resp.Body.Close()
+		nsID := createNamespaceForReconcile(t, env, clusterID, "ns-wl-reconcile")
+		bodies := []string{
+			fmt.Sprintf(`{"namespace_id":%q,"kind":"Deployment","name":"web"}`, nsID),
+			fmt.Sprintf(`{"namespace_id":%q,"kind":"Deployment","name":"api"}`, nsID),
+			fmt.Sprintf(`{"namespace_id":%q,"kind":"StatefulSet","name":"db"}`, nsID),
 		}
-		reconcileBody := fmt.Sprintf(`{"namespace_id":"%s","keep_kinds":["Deployment"],"keep_names":["web"]}`, nsID)
-		var result struct{ Deleted int64 `json:"deleted"` }
-		s := env.doJSON(t, http.MethodPost, "/v1/workloads/reconcile", reconcileBody, &result)
-		if s != http.StatusOK {
-			t.Fatalf("reconcile workloads: expected 200, got %d", s)
-		}
-		if result.Deleted != 2 {
-			t.Errorf("expected 2 deleted, got %d", result.Deleted)
-		}
+		reconcileBody := fmt.Sprintf(`{"namespace_id":%q,"keep_kinds":["Deployment"],"keep_names":["web"]}`, nsID)
+		seedAndReconcile(t, env, "/v1/workloads", bodies, "/v1/workloads/reconcile", reconcileBody, 2)
 	})
 
 	// --- Services ---
 	t.Run("reconcile services", func(t *testing.T) {
-		var ns api.Namespace
-		env.doJSON(t, http.MethodPost, "/v1/namespaces",
-			fmt.Sprintf(`{"cluster_id":"%s","name":"ns-svc-reconcile"}`, clusterID), &ns)
-		nsID := ns.Id.String()
-
+		nsID := createNamespaceForReconcile(t, env, clusterID, "ns-svc-reconcile")
+		bodies := make([]string, 0, 2)
 		for _, name := range []string{"svc-a", "svc-b"} {
-			body := fmt.Sprintf(`{"namespace_id":"%s","name":"%s"}`, nsID, name)
-			resp := env.doReq(t, http.MethodPost, "/v1/services", body); _ = resp.Body.Close()
+			bodies = append(bodies, fmt.Sprintf(`{"namespace_id":%q,"name":%q}`, nsID, name))
 		}
-		reconcileBody := fmt.Sprintf(`{"namespace_id":"%s","keep_names":["svc-a"]}`, nsID)
-		var result struct{ Deleted int64 `json:"deleted"` }
-		s := env.doJSON(t, http.MethodPost, "/v1/services/reconcile", reconcileBody, &result)
-		if s != http.StatusOK {
-			t.Fatalf("reconcile services: expected 200, got %d", s)
-		}
-		if result.Deleted != 1 {
-			t.Errorf("expected 1 deleted, got %d", result.Deleted)
-		}
+		reconcileBody := fmt.Sprintf(`{"namespace_id":%q,"keep_names":["svc-a"]}`, nsID)
+		seedAndReconcile(t, env, "/v1/services", bodies, "/v1/services/reconcile", reconcileBody, 1)
 	})
 
 	// --- PVCs ---
 	t.Run("reconcile pvcs", func(t *testing.T) {
-		var ns api.Namespace
-		env.doJSON(t, http.MethodPost, "/v1/namespaces",
-			fmt.Sprintf(`{"cluster_id":"%s","name":"ns-pvc-reconcile"}`, clusterID), &ns)
-		nsID := ns.Id.String()
-
+		nsID := createNamespaceForReconcile(t, env, clusterID, "ns-pvc-reconcile")
+		bodies := make([]string, 0, 2)
 		for _, name := range []string{"pvc-1", "pvc-2"} {
-			body := fmt.Sprintf(`{"namespace_id":"%s","name":"%s"}`, nsID, name)
-			resp := env.doReq(t, http.MethodPost, "/v1/persistentvolumeclaims", body); _ = resp.Body.Close()
+			bodies = append(bodies, fmt.Sprintf(`{"namespace_id":%q,"name":%q}`, nsID, name))
 		}
-		reconcileBody := fmt.Sprintf(`{"namespace_id":"%s","keep_names":["pvc-1"]}`, nsID)
-		var result struct{ Deleted int64 `json:"deleted"` }
-		s := env.doJSON(t, http.MethodPost, "/v1/persistentvolumeclaims/reconcile", reconcileBody, &result)
-		if s != http.StatusOK {
-			t.Fatalf("reconcile pvcs: expected 200, got %d", s)
-		}
-		if result.Deleted != 1 {
-			t.Errorf("expected 1 deleted, got %d", result.Deleted)
-		}
+		reconcileBody := fmt.Sprintf(`{"namespace_id":%q,"keep_names":["pvc-1"]}`, nsID)
+		seedAndReconcile(t, env, "/v1/persistentvolumeclaims", bodies, "/v1/persistentvolumeclaims/reconcile", reconcileBody, 1)
 	})
 }
 
@@ -828,32 +836,130 @@ type fakeKubeSource struct {
 func (f *fakeKubeSource) ServerVersion(_ context.Context) (string, error) {
 	return f.version, nil
 }
+
 func (f *fakeKubeSource) ListNodes(_ context.Context) ([]collector.NodeInfo, error) {
 	return f.nodes, nil
 }
+
 func (f *fakeKubeSource) ListNamespaces(_ context.Context) ([]collector.NamespaceInfo, error) {
 	return f.namespaces, nil
 }
+
 func (f *fakeKubeSource) ListPods(_ context.Context) ([]collector.PodInfo, error) {
 	return f.pods, nil
 }
+
 func (f *fakeKubeSource) ListWorkloads(_ context.Context) ([]collector.WorkloadInfo, error) {
 	return f.workloads, nil
 }
+
 func (f *fakeKubeSource) ListServices(_ context.Context) ([]collector.ServiceInfo, error) {
 	return f.services, nil
 }
+
 func (f *fakeKubeSource) ListIngresses(_ context.Context) ([]collector.IngressInfo, error) {
 	return f.ingresses, nil
 }
+
 func (f *fakeKubeSource) ListReplicaSetOwners(_ context.Context) ([]collector.ReplicaSetOwner, error) {
 	return f.rsOwners, nil
 }
+
 func (f *fakeKubeSource) ListPersistentVolumes(_ context.Context) ([]collector.PVInfo, error) {
 	return f.pvs, nil
 }
+
 func (f *fakeKubeSource) ListPersistentVolumeClaims(_ context.Context) ([]collector.PVCInfo, error) {
 	return f.pvcs, nil
+}
+
+// runCollectorOnce creates a collector and runs one poll cycle, then cancels.
+func runCollectorOnce(
+	t *testing.T, cStore collector.CmdbStore, source collector.KubeSource,
+	clusterName string, reconcile bool,
+) {
+	t.Helper()
+	coll := collector.New(cStore, source, clusterName, 1*time.Hour, 30*time.Second, reconcile)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go coll.Run(ctx) //nolint:errcheck // fire-and-forget; context cancellation stops the collector
+	time.Sleep(3 * time.Second)
+	cancel()
+}
+
+// verifyFirstPollResults checks that the first collector poll populated all
+// expected resources.
+func verifyFirstPollResults(t *testing.T, env *testEnv, clusterID string) {
+	t.Helper()
+
+	var updated api.Cluster
+	env.doJSON(t, http.MethodGet, "/v1/clusters/"+clusterID, "", &updated)
+	if updated.KubernetesVersion == nil || *updated.KubernetesVersion != "v1.30.0" {
+		t.Errorf("expected kubernetes_version v1.30.0, got %v", updated.KubernetesVersion)
+	}
+
+	var nodes api.NodeList
+	env.doJSON(t, http.MethodGet, "/v1/nodes?cluster_id="+clusterID, "", &nodes)
+	if len(nodes.Items) != 2 {
+		t.Errorf("expected 2 nodes, got %d", len(nodes.Items))
+	}
+
+	var nsList api.NamespaceList
+	env.doJSON(t, http.MethodGet, "/v1/namespaces?cluster_id="+clusterID, "", &nsList)
+	if len(nsList.Items) != 2 {
+		t.Errorf("expected 2 namespaces, got %d", len(nsList.Items))
+	}
+
+	assertNameExists(t, env, "/v1/workloads", "push-deploy-web", "workload")
+	assertNameExists(t, env, "/v1/pods", "push-pod-1", "pod")
+	assertNameExists(t, env, "/v1/services", "push-svc", "service")
+
+	var pvList api.PersistentVolumeList
+	env.doJSON(t, http.MethodGet, "/v1/persistentvolumes?cluster_id="+clusterID, "", &pvList)
+	if len(pvList.Items) != 1 {
+		t.Errorf("expected 1 PV, got %d", len(pvList.Items))
+	}
+
+	verifyPVCBound(t, env)
+}
+
+// assertNameExists fetches a list endpoint and checks that at least one item
+// has the given name.
+func assertNameExists(t *testing.T, env *testEnv, endpoint, wantName, label string) {
+	t.Helper()
+	var raw json.RawMessage
+	env.doJSON(t, http.MethodGet, endpoint, "", &raw)
+	var items struct {
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &items); err != nil {
+		t.Fatalf("decode %s list: %v", label, err)
+	}
+	for _, item := range items.Items {
+		if item.Name == wantName {
+			return
+		}
+	}
+	t.Errorf("expected %s %q to exist", label, wantName)
+}
+
+// verifyPVCBound checks that the push-pvc-1 PVC exists and has a non-nil
+// bound_volume_id.
+func verifyPVCBound(t *testing.T, env *testEnv) {
+	t.Helper()
+	var pvcList api.PersistentVolumeClaimList
+	env.doJSON(t, http.MethodGet, "/v1/persistentvolumeclaims", "", &pvcList)
+	for _, pvc := range pvcList.Items {
+		if pvc.Name == "push-pvc-1" {
+			if pvc.BoundVolumeId == nil {
+				t.Error("expected PVC push-pvc-1 to have bound_volume_id set")
+			}
+			return
+		}
+	}
+	t.Error("expected PVC push-pvc-1 to exist")
 }
 
 func TestPushCollectorEndToEnd(t *testing.T) {
@@ -889,8 +995,10 @@ func TestPushCollectorEndToEnd(t *testing.T) {
 			{Name: "push-deploy-web", Namespace: "push-ns-default", Kind: api.Deployment, Replicas: ptr(2)},
 		},
 		pods: []collector.PodInfo{
-			{Name: "push-pod-1", Namespace: "push-ns-default", Phase: "Running", NodeName: "push-node-1",
-				OwnerKind: "Deployment", OwnerName: "push-deploy-web"},
+			{
+				Name: "push-pod-1", Namespace: "push-ns-default", Phase: "Running", NodeName: "push-node-1",
+				OwnerKind: "Deployment", OwnerName: "push-deploy-web",
+			},
 		},
 		services: []collector.ServiceInfo{
 			{Name: "push-svc", Namespace: "push-ns-default", Type: "ClusterIP", ClusterIP: "10.0.0.100"},
@@ -906,97 +1014,8 @@ func TestPushCollectorEndToEnd(t *testing.T) {
 		},
 	}
 
-	// Create and run the collector. It polls immediately on Run(), then waits
-	// for the ticker. We cancel the context after the first poll completes.
-	coll := collector.New(apiStore, source, "push-test", 1*time.Hour, 30*time.Second, true)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	go coll.Run(ctx) //nolint:errcheck
-	time.Sleep(3 * time.Second)
-	cancel()
-
-	// Verify cluster version was updated.
-	var updated api.Cluster
-	env.doJSON(t, http.MethodGet, "/v1/clusters/"+cluster.Id.String(), "", &updated)
-	if updated.KubernetesVersion == nil || *updated.KubernetesVersion != "v1.30.0" {
-		t.Errorf("expected kubernetes_version v1.30.0, got %v", updated.KubernetesVersion)
-	}
-
-	// Verify nodes.
-	var nodes api.NodeList
-	env.doJSON(t, http.MethodGet, "/v1/nodes?cluster_id="+cluster.Id.String(), "", &nodes)
-	if len(nodes.Items) != 2 {
-		t.Errorf("expected 2 nodes, got %d", len(nodes.Items))
-	}
-
-	// Verify namespaces.
-	var nsList api.NamespaceList
-	env.doJSON(t, http.MethodGet, "/v1/namespaces?cluster_id="+cluster.Id.String(), "", &nsList)
-	if len(nsList.Items) != 2 {
-		t.Errorf("expected 2 namespaces, got %d", len(nsList.Items))
-	}
-
-	// Verify workloads.
-	var wlList api.WorkloadList
-	env.doJSON(t, http.MethodGet, "/v1/workloads", "", &wlList)
-	found := false
-	for _, w := range wlList.Items {
-		if w.Name == "push-deploy-web" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected workload push-deploy-web to exist")
-	}
-
-	// Verify pods.
-	var podList api.PodList
-	env.doJSON(t, http.MethodGet, "/v1/pods", "", &podList)
-	found = false
-	for _, p := range podList.Items {
-		if p.Name == "push-pod-1" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected pod push-pod-1 to exist")
-	}
-
-	// Verify services.
-	var svcList api.ServiceList
-	env.doJSON(t, http.MethodGet, "/v1/services", "", &svcList)
-	found = false
-	for _, svc := range svcList.Items {
-		if svc.Name == "push-svc" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected service push-svc to exist")
-	}
-
-	// Verify PVs.
-	var pvList api.PersistentVolumeList
-	env.doJSON(t, http.MethodGet, "/v1/persistentvolumes?cluster_id="+cluster.Id.String(), "", &pvList)
-	if len(pvList.Items) != 1 {
-		t.Errorf("expected 1 PV, got %d", len(pvList.Items))
-	}
-
-	// Verify PVCs.
-	var pvcList api.PersistentVolumeClaimList
-	env.doJSON(t, http.MethodGet, "/v1/persistentvolumeclaims", "", &pvcList)
-	found = false
-	for _, pvc := range pvcList.Items {
-		if pvc.Name == "push-pvc-1" {
-			found = true
-			if pvc.BoundVolumeId == nil {
-				t.Error("expected PVC push-pvc-1 to have bound_volume_id set")
-			}
-		}
-	}
-	if !found {
-		t.Error("expected PVC push-pvc-1 to exist")
-	}
+	runCollectorOnce(t, apiStore, source, "push-test", true)
+	verifyFirstPollResults(t, env, cluster.Id.String())
 
 	// --- Second poll with fewer resources: remove a node, verify reconciliation. ---
 	source.nodes = []collector.NodeInfo{
@@ -1004,12 +1023,7 @@ func TestPushCollectorEndToEnd(t *testing.T) {
 		// push-node-2 removed
 	}
 
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel2()
-	coll2 := collector.New(apiStore, source, "push-test", 1*time.Hour, 30*time.Second, true)
-	go coll2.Run(ctx2) //nolint:errcheck
-	time.Sleep(3 * time.Second)
-	cancel2()
+	runCollectorOnce(t, apiStore, source, "push-test", true)
 
 	// Verify node was reconciled away.
 	var nodesAfter api.NodeList
@@ -1035,10 +1049,12 @@ func TestAuditLog(t *testing.T) {
 	clusterID := cluster.Id.String()
 
 	// Update it.
-	resp := env.doReq(t, http.MethodPatch, "/v1/clusters/"+clusterID, `{"kubernetes_version":"v1.28.0"}`); _ = resp.Body.Close()
+	resp := env.doReq(t, http.MethodPatch, "/v1/clusters/"+clusterID, `{"kubernetes_version":"v1.28.0"}`)
+	_ = resp.Body.Close()
 
 	// Delete it.
-	resp = env.doReq(t, http.MethodDelete, "/v1/clusters/"+clusterID, ""); _ = resp.Body.Close()
+	resp = env.doReq(t, http.MethodDelete, "/v1/clusters/"+clusterID, "")
+	_ = resp.Body.Close()
 
 	// Fetch audit events.
 	var auditList api.AuditEventList
@@ -1093,7 +1109,8 @@ func TestErrorPaths(t *testing.T) {
 	})
 
 	t.Run("POST cluster with duplicate name returns 409", func(t *testing.T) {
-		resp := env.doReq(t, http.MethodPost, "/v1/clusters", `{"name":"dup-cluster"}`); _ = resp.Body.Close()
+		resp := env.doReq(t, http.MethodPost, "/v1/clusters", `{"name":"dup-cluster"}`)
+		_ = resp.Body.Close()
 		var problem api.Problem
 		s := env.doJSON(t, http.MethodPost, "/v1/clusters", `{"name":"dup-cluster"}`, &problem)
 		if s != http.StatusConflict {

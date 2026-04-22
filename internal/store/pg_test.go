@@ -14,6 +14,15 @@ import (
 	"github.com/sthalbert/argos/internal/auth"
 )
 
+// Test-scoped string constants to satisfy goconst.
+const (
+	testPhaseActive    = "Active"
+	testKubeletVersion = "v1.30.3"
+	testOwner          = "team-platform"
+	testCriticality    = "critical"
+	testAnnotationSNC  = "snc"
+)
+
 // newTestPG returns a PG connected to PGX_TEST_DATABASE, or calls t.Skip
 // when the env var is unset. Every test runs against a freshly migrated
 // schema and is cleaned up with TRUNCATE on t.Cleanup.
@@ -46,6 +55,7 @@ func newTestPG(t *testing.T) *PG {
 	return pg
 }
 
+//nolint:gocyclo // integration test exercises multiple CRUD branches
 func TestPGClusterCRUD(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -99,6 +109,7 @@ func TestPGClusterCRUD(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple CRUD branches
 func TestPGNodeCRUD(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -175,6 +186,7 @@ func TestPGNodeCRUD(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple upsert paths
 func TestPGUpsertNode(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -226,6 +238,7 @@ func TestPGUpsertNode(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple CRUD branches
 func TestPGNamespaceCRUD(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -235,7 +248,7 @@ func TestPGNamespaceCRUD(t *testing.T) {
 		t.Fatalf("create cluster: %v", err)
 	}
 
-	phase := "Active"
+	phase := testPhaseActive
 	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "kube-system",
@@ -287,7 +300,7 @@ func TestPGUpsertNamespace(t *testing.T) {
 		t.Fatalf("create cluster: %v", err)
 	}
 
-	phaseA := "Active"
+	phaseA := testPhaseActive
 	first, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "default",
@@ -320,6 +333,7 @@ func TestPGUpsertNamespace(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple reconcile paths
 func TestPGDeleteNodesNotIn(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -405,6 +419,7 @@ func TestPGDeleteNamespacesNotIn(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple CRUD branches
 func TestPGPodCRUD(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -461,6 +476,7 @@ func TestPGPodCRUD(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple upsert/reconcile paths
 func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -513,6 +529,7 @@ func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple CRUD branches
 func TestPGWorkloadCRUD(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -544,12 +561,18 @@ func TestPGWorkloadCRUD(t *testing.T) {
 	if _, err := pg.CreateWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.StatefulSet, Name: "web"}); err != nil {
 		t.Errorf("(sts, web) should coexist with (deployment, web): %v", err)
 	}
-	// Same (namespace, kind, name) → ErrConflict.
-	if _, err := pg.CreateWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"}); !errors.Is(err, api.ErrConflict) {
+	// Same (namespace, kind, name) -> ErrConflict.
+	_, err = pg.CreateWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web",
+	})
+	if !errors.Is(err, api.ErrConflict) {
 		t.Errorf("duplicate should be ErrConflict, got %v", err)
 	}
-	// Unknown namespace → ErrNotFound.
-	if _, err := pg.CreateWorkload(ctx, api.WorkloadCreate{NamespaceId: uuid.New(), Kind: api.Deployment, Name: "x"}); !errors.Is(err, api.ErrNotFound) {
+	// Unknown namespace -> ErrNotFound.
+	_, err = pg.CreateWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: uuid.New(), Kind: api.Deployment, Name: "x",
+	})
+	if !errors.Is(err, api.ErrNotFound) {
 		t.Errorf("unknown namespace should be ErrNotFound, got %v", err)
 	}
 
@@ -581,6 +604,7 @@ func TestPGWorkloadCRUD(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple upsert/reconcile paths
 func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -647,6 +671,7 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple CRUD branches
 func TestPGServiceCRUD(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -700,6 +725,7 @@ func TestPGServiceCRUD(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple upsert/reconcile paths
 func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -753,6 +779,8 @@ func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
 // column survives an upsert + read cycle on both Pod and Workload. Each entity
 // type writes its own subset of fields into the generic map: Pod has
 // image_id from containerStatuses; Workload template doesn't.
+//
+//nolint:gocyclo // integration test exercises container JSONB round-trip paths
 func TestPGPodAndWorkloadContainersRoundTrip(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -821,6 +849,8 @@ func TestPGPodAndWorkloadContainersRoundTrip(t *testing.T) {
 //   - Unknown workload_id surfaces as ErrNotFound
 //   - Deleting the parent Workload sets child pods' workload_id to NULL
 //     (ON DELETE SET NULL) rather than cascading the pod away
+//
+//nolint:gocyclo // integration test exercises FK constraint paths
 func TestPGPodWorkloadFK(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -941,11 +971,12 @@ func TestPGGetClusterByName(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises pagination edge cases
 func TestPGListPagination(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		name := "page-" + strconv.Itoa(i)
 		if _, err := pg.CreateCluster(ctx, api.ClusterCreate{Name: name}); err != nil {
 			t.Fatalf("create %s: %v", name, err)
@@ -996,6 +1027,8 @@ func TestPGListPagination(t *testing.T) {
 
 // Exercises migrations 00010 + 00011: PV + PVC round-trip with FK, and
 // ON DELETE SET NULL on bound_volume_id when the parent PV is removed.
+//
+//nolint:gocyclo // integration test exercises PV/PVC CRUD and FK constraints
 func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1117,6 +1150,8 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 // JSONB ILIKE over jsonb_array_elements('containers') is the load-bearing
 // bit — we seed containers with a mix of matching / non-matching images
 // and confirm the case-insensitive substring predicate picks only the hits.
+//
+//nolint:gocyclo // integration test exercises multiple filter combinations
 func TestPGListFiltersForImageAndNode(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1133,7 +1168,10 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	node1 := "worker-01"
 	node2 := "worker-02"
 	nginxContainers := api.ContainerList{{"name": "web", "image": "NGINX:1.27-alpine", "init": false}}
-	log4jContainers := api.ContainerList{{"name": "app", "image": "registry.example.com/shop/api:1.4.2", "init": false}, {"name": "logger", "image": "log4j:2.15.0", "init": true}}
+	log4jContainers := api.ContainerList{
+		{"name": "app", "image": "registry.example.com/shop/api:1.4.2", "init": false},
+		{"name": "logger", "image": "log4j:2.15.0", "init": true},
+	}
 	otherContainers := api.ContainerList{{"name": "misc", "image": "busybox:1.36", "init": false}}
 
 	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-1", NodeName: &node1, Containers: &nginxContainers}); err != nil {
@@ -1196,10 +1234,14 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}
 
 	// Same image filter works for workloads.
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "api", Containers: &log4jContainers}); err != nil {
+	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "api", Containers: &log4jContainers,
+	}); err != nil {
 		t.Fatalf("workload api: %v", err)
 	}
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Containers: &nginxContainers}); err != nil {
+	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Containers: &nginxContainers,
+	}); err != nil {
 		t.Fatalf("workload web: %v", err)
 	}
 	wls, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &log4jSub}, 10, "")
@@ -1217,6 +1259,8 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 // machine-token minting + prefix lookup + argon2id verify + revocation.
 // The bits the middleware hits live behind auth.Store — covered here
 // too via the PG impl so CI catches regressions.
+//
+//nolint:gocyclo // integration test exercises auth CRUD + token + session lifecycle
 func TestPGAuthSubstrate(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1314,7 +1358,7 @@ func TestPGAuthSubstrate(t *testing.T) {
 		t.Fatalf("mint token: %v", err)
 	}
 	tok, err := pg.CreateAPIToken(ctx, api.APITokenInsert{
-		ID:              uuidMustParse(t, (*u.Id).String()),
+		ID:              uuidMustParse(t),
 		Name:            "ci",
 		Prefix:          minted.Prefix,
 		Hash:            minted.Hash,
@@ -1350,10 +1394,8 @@ func TestPGAuthSubstrate(t *testing.T) {
 	}
 }
 
-func uuidMustParse(t *testing.T, s string) uuid.UUID {
+func uuidMustParse(t *testing.T) uuid.UUID {
 	t.Helper()
-	// In this test we want a brand-new UUID — the argument is only
-	// used to satisfy the signature; return uuid.New().
 	return uuid.New()
 }
 
@@ -1361,6 +1403,8 @@ func uuidMustParse(t *testing.T, s string) uuid.UUID {
 // a node with a full Mercator-aligned payload (role / cloud identity /
 // OS stack / capacity+allocatable pairs / conditions / taints) and
 // confirms every field round-trips through scanNode.
+//
+//nolint:gocyclo // integration test exercises enriched node fields round-trip
 func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1371,8 +1415,8 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 	}
 
 	role := "worker"
-	kubeletV := "v1.30.3"
-	kubeProxyV := "v1.30.3"
+	kubeletV := testKubeletVersion
+	kubeProxyV := testKubeletVersion
 	runtimeV := "containerd://1.7.13"
 	osImage := "Bottlerocket OS 1.20.0"
 	operatingSys := "linux"
@@ -1530,6 +1574,8 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 // Exercises the OIDC-specific store methods: the (issuer, subject) → user
 // shadow mapping, atomic create-with-identity, and the one-shot auth
 // state consume + sweep.
+//
+//nolint:gocyclo // integration test exercises OIDC shadow user + auth state lifecycle
 func TestPGOIDCShadowUsersAndAuthState(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1644,6 +1690,8 @@ func TestPGOIDCShadowUsersAndAuthState(t *testing.T) {
 // Exercises InsertAuditEvent + ListAuditEvents with filter + cursor
 // round-tripping. Validates the order-by-occurred_at-DESC contract and
 // that JSONB details survive the round trip.
+//
+//nolint:gocyclo // integration test exercises audit event insert + filtered listing
 func TestPGAuditEventsRoundTrip(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1756,16 +1804,18 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 // that a collector-style KubernetesVersion-only patch leaves those
 // columns alone (the "collector must not clobber curated fields"
 // invariant from ADR-0006).
+//
+//nolint:gocyclo,gocognit // integration test exercises curated metadata round-trip
 func TestPGClusterCuratedMetadata(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 
 	name := "curated-" + strconv.FormatInt(int64(uuid.New().ID()), 16)
-	owner := "team-platform"
-	criticality := "critical"
+	owner := testOwner
+	criticality := testCriticality
 	notes := "prod cluster, page on any outage"
 	runbook := "https://runbooks.example.com/prod"
-	annotations := map[string]string{"compliance": "snc", "dc": "paris-a"}
+	annotations := map[string]string{"compliance": testAnnotationSNC, "dc": "paris-a"}
 
 	created, err := pg.CreateCluster(ctx, api.ClusterCreate{
 		Name:        name,
@@ -1796,7 +1846,7 @@ func TestPGClusterCuratedMetadata(t *testing.T) {
 	if got.RunbookUrl == nil || *got.RunbookUrl != runbook {
 		t.Errorf("runbook_url round-trip failed")
 	}
-	if got.Annotations == nil || (*got.Annotations)["compliance"] != "snc" {
+	if got.Annotations == nil || (*got.Annotations)["compliance"] != testAnnotationSNC {
 		t.Errorf("annotations round-trip failed: %v", got.Annotations)
 	}
 
@@ -1855,6 +1905,8 @@ func TestPGClusterCuratedMetadata(t *testing.T) {
 // (which passes only the Kubernetes-derived fields) and asserts the
 // operator-set curated columns survive unchanged. Pins the
 // collector-no-clobber invariant at the SQL level.
+//
+//nolint:gocyclo,gocognit // integration test exercises curated metadata round-trip
 func TestPGNamespaceCuratedMetadata(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1865,11 +1917,11 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 		t.Fatalf("seed cluster: %v", err)
 	}
 
-	owner := "team-platform"
-	criticality := "critical"
+	owner := testOwner
+	criticality := testCriticality
 	notes := "handles PII; restrict access"
 	runbook := "https://runbooks.example.com/prod-ns"
-	annotations := map[string]string{"compliance": "snc", "tier": "1"}
+	annotations := map[string]string{"compliance": testAnnotationSNC, "tier": "1"}
 	nsName := "prod"
 
 	// Seed via CreateNamespace with curated metadata set up front.
@@ -1903,7 +1955,7 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 	if got.RunbookUrl == nil || *got.RunbookUrl != runbook {
 		t.Errorf("runbook_url round-trip failed")
 	}
-	if got.Annotations == nil || (*got.Annotations)["compliance"] != "snc" {
+	if got.Annotations == nil || (*got.Annotations)["compliance"] != testAnnotationSNC {
 		t.Errorf("annotations round-trip failed: %v", got.Annotations)
 	}
 
@@ -1911,7 +1963,7 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 	// collector derives from the Kubernetes API (name, phase, labels).
 	// Curated columns must survive unchanged because they are NOT in
 	// the ON CONFLICT DO UPDATE SET clause.
-	phase := "Active"
+	phase := testPhaseActive
 	colLabels := map[string]string{"kubernetes.io/metadata.name": nsName}
 	if _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
@@ -1940,7 +1992,7 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 	if afterCollector.RunbookUrl == nil || *afterCollector.RunbookUrl != runbook {
 		t.Errorf("runbook_url clobbered")
 	}
-	if afterCollector.Annotations == nil || (*afterCollector.Annotations)["compliance"] != "snc" {
+	if afterCollector.Annotations == nil || (*afterCollector.Annotations)["compliance"] != testAnnotationSNC {
 		t.Errorf("annotations clobbered: %v", afterCollector.Annotations)
 	}
 
@@ -1968,6 +2020,8 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 // in the DO UPDATE SET clause), so pinning the curated-field-survival
 // invariant at the SQL level matters more here than for namespaces.
 // Also round-trips `hardware_model`.
+//
+//nolint:gocyclo,gocognit // integration test exercises curated metadata round-trip
 func TestPGNodeCuratedMetadata(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1978,8 +2032,8 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 		t.Fatalf("seed cluster: %v", err)
 	}
 
-	owner := "team-platform"
-	criticality := "critical"
+	owner := testOwner
+	criticality := testCriticality
 	notes := "hosts ingress controllers"
 	runbook := "https://runbooks.example.com/ingress-node"
 	annotations := map[string]string{"rack": "A12", "power-feed": "left"}
@@ -2028,7 +2082,7 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 	// PG DO UPDATE SET clause deliberately omits the curated columns
 	// and hardware_model, so the operator-set values must survive.
 	role := "worker"
-	kubelet := "v1.30.3"
+	kubelet := testKubeletVersion
 	osImage := "Ubuntu 22.04.4 LTS"
 	labels := map[string]string{"kubernetes.io/hostname": nodeName}
 	ready := true

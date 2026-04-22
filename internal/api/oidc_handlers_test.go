@@ -14,15 +14,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sthalbert/argos/internal/auth"
 	"golang.org/x/oauth2"
+
+	"github.com/sthalbert/argos/internal/auth"
 )
 
 // oidcStub builds an OIDCProvider with a stub oauth2 endpoint for
 // URL-assembly tests. Never reaches the network because the authorize
 // URL is only read from the redirect — not followed.
 func oidcStub(label string) *auth.OIDCProvider {
-	return auth.NewOIDCProviderFromTestParts(auth.OIDCConfig{
+	return auth.NewOIDCProviderFromTestParts(&auth.OIDCConfig{
 		ClientID:    "cid",
 		RedirectURL: "https://argos.example.com/v1/auth/oidc/callback",
 		Label:       label,

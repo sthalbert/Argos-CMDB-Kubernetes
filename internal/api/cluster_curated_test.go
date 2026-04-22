@@ -73,7 +73,7 @@ func TestClusterCuratedRoundTrip(t *testing.T) {
 // expect to see in production and asserts which curated fields the
 // patch should and should not touch. Table-driven so new patch shapes
 // (e.g. new collector fields) are a one-line addition.
-func TestClusterPatchPreservesCuratedFields(t *testing.T) {
+func TestClusterPatchPreservesCuratedFields(t *testing.T) { //nolint:gocyclo // table-driven test verifying many patch combinations
 	t.Parallel()
 
 	type want struct {
@@ -219,7 +219,7 @@ type expectedCurated struct {
 // translates that to SQL NULL on the way down but JSON round-trip
 // may keep it as an empty-string pointer on the way up — either is
 // acceptable here).
-func assertCuratedFields(t *testing.T, c Cluster, w expectedCurated) {
+func assertCuratedFields(t *testing.T, c Cluster, w expectedCurated) { //nolint:gocritic // test helper, copy is fine
 	t.Helper()
 	if got := strVal(c.Owner); got != w.owner {
 		t.Errorf("owner = %q, want %q", got, w.owner)

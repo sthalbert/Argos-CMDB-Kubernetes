@@ -61,6 +61,7 @@ type logout204WithCookie struct {
 	cookie *http.Cookie
 }
 
+// VisitLogoutResponse clears the session cookie alongside the 204.
 func (r logout204WithCookie) VisitLogoutResponse(w http.ResponseWriter) error {
 	http.SetCookie(w, r.cookie)
 	w.WriteHeader(204)
@@ -72,6 +73,7 @@ type changePassword204WithCookie struct {
 	cookie *http.Cookie
 }
 
+// VisitChangePasswordResponse clears the session cookie alongside the 204.
 func (r changePassword204WithCookie) VisitChangePasswordResponse(w http.ResponseWriter) error {
 	http.SetCookie(w, r.cookie)
 	w.WriteHeader(204)
@@ -84,6 +86,7 @@ type oidcCallback302WithCookie struct {
 	cookie   *http.Cookie
 }
 
+// VisitOidcCallbackResponse sets a session cookie alongside the 302 redirect.
 func (r oidcCallback302WithCookie) VisitOidcCallbackResponse(w http.ResponseWriter) error {
 	http.SetCookie(w, r.cookie)
 	w.Header().Set("Location", r.location)
@@ -97,6 +100,7 @@ type oidcCallbackErrorRedirect struct {
 	code string
 }
 
+// VisitOidcCallbackResponse redirects to the login page with an error code.
 func (r oidcCallbackErrorRedirect) VisitOidcCallbackResponse(w http.ResponseWriter) error {
 	w.Header().Set("Location", "/ui/login?oidc_error="+url.QueryEscape(r.code))
 	w.WriteHeader(302)
@@ -188,25 +192,25 @@ func (s *Server) OidcCallback(ctx context.Context, request OidcCallbackRequestOb
 
 	verifier, nonce, err := s.store.ConsumeOidcAuthState(ctx, request.Params.State)
 	if err != nil {
-		return oidcCallbackErrorRedirect{code: "state_expired_or_unknown"}, nil
+		return oidcCallbackErrorRedirect{code: "state_expired_or_unknown"}, nil //nolint:nilerr // redirect conveys the error to the user
 	}
 
 	claims, err := s.oidc.Exchange(ctx, request.Params.Code, verifier, nonce)
 	if err != nil {
-		slog.Warn("oidc: exchange or id-token verify failed", "error", err)
+		slog.Warn("oidc: exchange or id-token verify failed", slog.Any("error", err))
 		return oidcCallbackErrorRedirect{code: "exchange_failed"}, nil
 	}
 
 	user, err := s.findOrCreateOidcUser(ctx, claims)
 	if err != nil {
-		slog.Error("oidc: shadow-user resolution failed", "error", err)
+		slog.Error("oidc: shadow-user resolution failed", slog.Any("error", err))
 		return oidcCallbackErrorRedirect{code: "user_lookup_failed"}, nil
 	}
 
 	// Mint session — same shape as the local-login path.
 	sid, err := auth.RandomSecret(32)
 	if err != nil {
-		return oidcCallbackErrorRedirect{code: "session_mint_failed"}, nil
+		return oidcCallbackErrorRedirect{code: "session_mint_failed"}, nil //nolint:nilerr // redirect conveys the error to the user
 	}
 	now := time.Now().UTC()
 	expires := now.Add(auth.SessionDuration)
@@ -218,7 +222,7 @@ func (s *Server) OidcCallback(ctx context.Context, request OidcCallbackRequestOb
 		UserAgent: r.UserAgent(),
 		SourceIP:  clientIP(r),
 	}); err != nil {
-		return oidcCallbackErrorRedirect{code: "session_create_failed"}, nil
+		return oidcCallbackErrorRedirect{code: "session_create_failed"}, nil //nolint:nilerr // redirect conveys the error to the user
 	}
 	_ = s.store.TouchUserLogin(ctx, *user.Id, now)
 	_ = s.store.TouchUserIdentity(ctx, *user.Id, claims.Issuer, claims.Sub, now)
@@ -238,7 +242,7 @@ func (s *Server) findOrCreateOidcUser(ctx context.Context, claims *auth.OIDCClai
 		return u, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
-		return User{}, err
+		return User{}, fmt.Errorf("oidc user lookup: %w", err)
 	}
 
 	// First login → create. Username: prefer preferred_username, then
@@ -247,7 +251,7 @@ func (s *Server) findOrCreateOidcUser(ctx context.Context, claims *auth.OIDCClai
 	// uniqueness is enforced at the DB.
 	base := deriveUsername(claims)
 	username := base
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		// Shadow users never use the password path; fill the hash slot
 		// with a deliberately unusable sentinel so VerifyPassword always
 		// fails if someone tries the local-login flow with this name.
@@ -273,7 +277,7 @@ func (s *Server) findOrCreateOidcUser(ctx context.Context, claims *auth.OIDCClai
 		//   - username taken → retry with a suffix
 		//   - identity taken (race with a parallel first-login) → re-read
 		if !errors.Is(err, ErrConflict) {
-			return User{}, err
+			return User{}, fmt.Errorf("oidc create user: %w", err)
 		}
 		// Was it the identity? Re-reading resolves the race.
 		if u, rerr := s.store.GetUserByIdentity(ctx, claims.Issuer, claims.Sub); rerr == nil {
@@ -282,12 +286,16 @@ func (s *Server) findOrCreateOidcUser(ctx context.Context, claims *auth.OIDCClai
 		// Must've been the username — suffix and retry.
 		suffix, sErr := auth.RandomSecret(3)
 		if sErr != nil {
-			return User{}, sErr
+			return User{}, fmt.Errorf("oidc random suffix: %w", sErr)
 		}
 		username = base + "-" + suffix
 	}
-	return User{}, fmt.Errorf("could not pick a free username after retries")
+	return User{}, errUsernameRetryExhausted
 }
+
+// errUsernameRetryExhausted is returned when the OIDC shadow-user
+// creation loop exhausts all retry attempts for a collision-free username.
+var errUsernameRetryExhausted = errors.New("could not pick a free username after retries")
 
 // deriveUsername picks a friendly local username from the OIDC claims.
 // Output is lowercased and stripped down to characters the `users.username`
@@ -320,7 +328,7 @@ func shortSub(sub string) string {
 func sanitiseUsername(in string) string {
 	in = strings.TrimSpace(strings.ToLower(in))
 	out := make([]byte, 0, len(in))
-	for i := 0; i < len(in); i++ {
+	for i := range len(in) {
 		c := in[i]
 		switch {
 		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
@@ -360,12 +368,12 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		// Still run an argon2 verify against a dummy hash so timing
 		// doesn't leak whether the username exists.
 		_ = auth.VerifyPassword(body.Password, dummyHash)
-		return Login401ApplicationProblemPlusJSONResponse{
+		return Login401ApplicationProblemPlusJSONResponse{ //nolint:nilerr // 401 response conveys the error
 			problemUnauthorized("invalid credentials"),
 		}, nil
 	}
 	if err := auth.VerifyPassword(body.Password, user.PasswordHash); err != nil {
-		return Login401ApplicationProblemPlusJSONResponse{
+		return Login401ApplicationProblemPlusJSONResponse{ //nolint:nilerr // 401 response conveys the error
 			problemUnauthorized("invalid credentials"),
 		}, nil
 	}
@@ -468,7 +476,7 @@ func (s *Server) ChangePassword(ctx context.Context, request ChangePasswordReque
 		return nil, fmt.Errorf("change-password lookup: %w", err)
 	}
 	if err := auth.VerifyPassword(body.CurrentPassword, withSecret.PasswordHash); err != nil {
-		return ChangePassword401ApplicationProblemPlusJSONResponse{
+		return ChangePassword401ApplicationProblemPlusJSONResponse{ //nolint:nilerr // 401 response conveys the error
 			problemUnauthorized("current password does not match"),
 		}, nil
 	}
@@ -490,6 +498,7 @@ func (s *Server) ChangePassword(ctx context.Context, request ChangePasswordReque
 
 // ── /v1/admin/users ─────────────────────────────────────────────────
 
+// ListUsers returns a paged list of all users (admin view).
 func (s *Server) ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error) {
 	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
 	items, next, err := s.store.ListUsers(ctx, limit, cursor)
@@ -503,6 +512,7 @@ func (s *Server) ListUsers(ctx context.Context, request ListUsersRequestObject) 
 	return ListUsers200JSONResponse(resp), nil
 }
 
+// CreateUser creates a new local user with a hashed password.
 func (s *Server) CreateUser(ctx context.Context, request CreateUserRequestObject) (CreateUserResponseObject, error) {
 	body := request.Body
 	if body.Username == "" {
@@ -546,6 +556,7 @@ func (s *Server) CreateUser(ctx context.Context, request CreateUserRequestObject
 	return CreateUser201JSONResponse(created), nil
 }
 
+// GetUser fetches a single user by id.
 func (s *Server) GetUser(ctx context.Context, request GetUserRequestObject) (GetUserResponseObject, error) {
 	u, err := s.store.GetUser(ctx, request.Id)
 	if err != nil {
@@ -559,6 +570,7 @@ func (s *Server) GetUser(ctx context.Context, request GetUserRequestObject) (Get
 	return GetUser200JSONResponse(u), nil
 }
 
+// UpdateUser applies a merge-patch to an existing user.
 func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error) {
 	body := request.Body
 
@@ -609,6 +621,7 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 	return UpdateUser200JSONResponse(u), nil
 }
 
+// DeleteUser removes a user, guarding against self-deletion.
 func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject) (DeleteUserResponseObject, error) {
 	// Guard against an admin deleting themselves mid-session —
 	// re-admitting the break-glass admin path gets awkward. Requires
@@ -636,6 +649,7 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 
 // ── /v1/admin/tokens ─────────────────────────────────────────────────
 
+// ListApiTokens returns a paged list of API tokens (admin view).
 func (s *Server) ListApiTokens(ctx context.Context, request ListApiTokensRequestObject) (ListApiTokensResponseObject, error) {
 	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
 	items, next, err := s.store.ListAPITokens(ctx, limit, cursor)
@@ -649,6 +663,7 @@ func (s *Server) ListApiTokens(ctx context.Context, request ListApiTokensRequest
 	return ListApiTokens200JSONResponse(resp), nil
 }
 
+// CreateApiToken mints a new bearer token, returning the plaintext once.
 func (s *Server) CreateApiToken(ctx context.Context, request CreateApiTokenRequestObject) (CreateApiTokenResponseObject, error) {
 	caller := auth.CallerFromContext(ctx)
 	if caller == nil {
@@ -717,6 +732,7 @@ func (s *Server) CreateApiToken(ctx context.Context, request CreateApiTokenReque
 	return CreateApiToken201JSONResponse(resp), nil
 }
 
+// RevokeApiToken marks a token as revoked so it can no longer authenticate.
 func (s *Server) RevokeApiToken(ctx context.Context, request RevokeApiTokenRequestObject) (RevokeApiTokenResponseObject, error) {
 	if err := s.store.RevokeAPIToken(ctx, request.Id, time.Now().UTC()); err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -731,6 +747,7 @@ func (s *Server) RevokeApiToken(ctx context.Context, request RevokeApiTokenReque
 
 // ── /v1/admin/sessions ───────────────────────────────────────────────
 
+// ListSessions returns a paged list of active sessions (admin view).
 func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error) {
 	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
 	items, next, err := s.store.ListSessions(ctx, limit, cursor)
@@ -744,6 +761,7 @@ func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestOb
 	return ListSessions200JSONResponse(resp), nil
 }
 
+// RevokeSession terminates a session by its public id.
 func (s *Server) RevokeSession(ctx context.Context, request RevokeSessionRequestObject) (RevokeSessionResponseObject, error) {
 	// Path parameter is OpenAPI-typed as `string, maxLength: 64` for
 	// backwards-compat; parse as UUID here (that's the public_id form
@@ -751,7 +769,7 @@ func (s *Server) RevokeSession(ctx context.Context, request RevokeSessionRequest
 	// is a 400 — don't dignify cookie-value guesses with 404.
 	publicID, err := uuid.Parse(request.Id)
 	if err != nil {
-		return RevokeSession404ApplicationProblemPlusJSONResponse{
+		return RevokeSession404ApplicationProblemPlusJSONResponse{ //nolint:nilerr // 404 response conveys the error
 			NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 		}, nil
 	}
@@ -768,6 +786,7 @@ func (s *Server) RevokeSession(ctx context.Context, request RevokeSessionRequest
 
 // ── /v1/admin/audit ──────────────────────────────────────────────────
 
+// ListAuditEvents returns a filtered, paged list of audit events.
 func (s *Server) ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error) {
 	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
 	filter := AuditEventFilter{
@@ -808,7 +827,7 @@ func mustHashDummy() string {
 	return h
 }
 
-func paging(limit *Limit, cursor *Cursor) (int, string) {
+func paging(limit *Limit, cursor *Cursor) (limitVal int, cursorVal string) {
 	var l int
 	var c string
 	if limit != nil {

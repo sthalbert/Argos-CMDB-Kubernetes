@@ -19,6 +19,9 @@ const auditEventColumns = `id, occurred_at, actor_id, actor_kind, actor_username
 	action, resource_type, resource_id, http_method, http_path, http_status,
 	source_ip, user_agent, details`
 
+// InsertAuditEvent appends an audit event to the append-only audit_events table.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) InsertAuditEvent(ctx context.Context, in api.AuditEventInsert) error {
 	var detailsArg any
 	if in.Details != nil {
@@ -47,6 +50,10 @@ func (p *PG) InsertAuditEvent(ctx context.Context, in api.AuditEventInsert) erro
 	return nil
 }
 
+// ListAuditEvents returns a cursor-paginated, newest-first list of audit events
+// with optional filters on actor, resource, action, and time range.
+//
+//nolint:gocyclo // cursor-paginated query builder with multiple optional filters
 func (p *PG) ListAuditEvents(ctx context.Context, filter api.AuditEventFilter, limit int, cursor string) ([]api.AuditEvent, string, error) {
 	if limit <= 0 {
 		limit = 50

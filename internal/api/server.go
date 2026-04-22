@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -55,6 +56,12 @@ func problemServiceUnavailable(detail string) Problem {
 	return p
 }
 
+// storeErr wraps a store-layer error with a handler context string so
+// the wrapcheck linter is satisfied and stack context is preserved.
+func storeErr(op string, err error) error {
+	return fmt.Errorf("%s: %w", op, err)
+}
+
 // ── Health probes ────────────────────────────────────────────────────
 
 // GetHealthz reports that the process is alive.
@@ -65,7 +72,7 @@ func (s *Server) GetHealthz(_ context.Context, _ GetHealthzRequestObject) (GetHe
 // GetReadyz reports whether the service can accept traffic by pinging the store.
 func (s *Server) GetReadyz(ctx context.Context, _ GetReadyzRequestObject) (GetReadyzResponseObject, error) {
 	if err := s.store.Ping(ctx); err != nil {
-		slog.Error("readyz: store ping failed", "error", err)
+		slog.Error("readyz: store ping failed", slog.Any("error", err))
 		return GetReadyz503ApplicationProblemPlusJSONResponse(problemServiceUnavailable("database not reachable")), nil
 	}
 	return GetReadyz200JSONResponse(Health{Status: Ok, Version: &s.version}), nil
@@ -84,7 +91,7 @@ func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject
 			if errors.Is(err, ErrNotFound) {
 				return ListClusters200JSONResponse(ClusterList{Items: []Cluster{}}), nil
 			}
-			return nil, err
+			return nil, fmt.Errorf("getClusterByName: %w", err)
 		}
 		c = withClusterLayer(c)
 		return ListClusters200JSONResponse(ClusterList{Items: []Cluster{c}}), nil
@@ -101,7 +108,7 @@ func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject
 
 	items, next, err := s.store.ListClusters(ctx, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listClusters: %w", err)
 	}
 
 	for i := range items {
@@ -130,7 +137,7 @@ func (s *Server) CreateCluster(ctx context.Context, req CreateClusterRequestObje
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("createCluster: %w", err)
 	}
 	c = withClusterLayer(c)
 
@@ -153,24 +160,21 @@ func (s *Server) GetCluster(ctx context.Context, req GetClusterRequestObject) (G
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("getCluster: %w", err)
 	}
 	return GetCluster200JSONResponse(withClusterLayer(c)), nil
 }
 
 // UpdateCluster applies merge-patch updates to a cluster.
 func (s *Server) UpdateCluster(ctx context.Context, req UpdateClusterRequestObject) (UpdateClusterResponseObject, error) {
-	c, err := s.store.UpdateCluster(ctx, req.Id, ClusterUpdate(*req.Body))
+	c, err := s.store.UpdateCluster(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdateCluster404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		if errors.Is(err, ErrConflict) {
-			return nil, err
-		}
-		return nil, err
+		return nil, fmt.Errorf("updateCluster: %w", err)
 	}
 	return UpdateCluster200JSONResponse(withClusterLayer(c)), nil
 }
@@ -183,7 +187,7 @@ func (s *Server) DeleteCluster(ctx context.Context, req DeleteClusterRequestObje
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("deleteCluster: %w", err)
 	}
 	return DeleteCluster204Response{}, nil
 }
@@ -203,7 +207,7 @@ func (s *Server) ListNodes(ctx context.Context, req ListNodesRequestObject) (Lis
 
 	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, storeErr("listNodes", err)
 	}
 
 	for i := range items {
@@ -242,7 +246,7 @@ func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (C
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	n = withNodeLayer(n)
 
@@ -265,21 +269,21 @@ func (s *Server) GetNode(ctx context.Context, req GetNodeRequestObject) (GetNode
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return GetNode200JSONResponse(withNodeLayer(n)), nil
 }
 
 // UpdateNode applies merge-patch updates to a node.
 func (s *Server) UpdateNode(ctx context.Context, req UpdateNodeRequestObject) (UpdateNodeResponseObject, error) {
-	n, err := s.store.UpdateNode(ctx, req.Id, NodeUpdate(*req.Body))
+	n, err := s.store.UpdateNode(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdateNode404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return UpdateNode200JSONResponse(withNodeLayer(n)), nil
 }
@@ -292,7 +296,7 @@ func (s *Server) DeleteNode(ctx context.Context, req DeleteNodeRequestObject) (D
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeleteNode204Response{}, nil
 }
@@ -312,7 +316,7 @@ func (s *Server) ListNamespaces(ctx context.Context, req ListNamespacesRequestOb
 
 	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 
 	for i := range items {
@@ -351,7 +355,7 @@ func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequest
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	n = withNamespaceLayer(n)
 
@@ -374,21 +378,21 @@ func (s *Server) GetNamespace(ctx context.Context, req GetNamespaceRequestObject
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return GetNamespace200JSONResponse(withNamespaceLayer(n)), nil
 }
 
 // UpdateNamespace applies merge-patch updates.
 func (s *Server) UpdateNamespace(ctx context.Context, req UpdateNamespaceRequestObject) (UpdateNamespaceResponseObject, error) {
-	n, err := s.store.UpdateNamespace(ctx, req.Id, NamespaceUpdate(*req.Body))
+	n, err := s.store.UpdateNamespace(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdateNamespace404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return UpdateNamespace200JSONResponse(withNamespaceLayer(n)), nil
 }
@@ -401,7 +405,7 @@ func (s *Server) DeleteNamespace(ctx context.Context, req DeleteNamespaceRequest
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeleteNamespace204Response{}, nil
 }
@@ -427,7 +431,7 @@ func (s *Server) ListPods(ctx context.Context, req ListPodsRequestObject) (ListP
 
 	items, next, err := s.store.ListPods(ctx, filter, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 
 	for i := range items {
@@ -466,7 +470,7 @@ func (s *Server) CreatePod(ctx context.Context, req CreatePodRequestObject) (Cre
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	p = withPodLayer(p)
 
@@ -489,21 +493,21 @@ func (s *Server) GetPod(ctx context.Context, req GetPodRequestObject) (GetPodRes
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return GetPod200JSONResponse(withPodLayer(p)), nil
 }
 
 // UpdatePod applies merge-patch updates.
 func (s *Server) UpdatePod(ctx context.Context, req UpdatePodRequestObject) (UpdatePodResponseObject, error) {
-	p, err := s.store.UpdatePod(ctx, req.Id, PodUpdate(*req.Body))
+	p, err := s.store.UpdatePod(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdatePod404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return UpdatePod200JSONResponse(withPodLayer(p)), nil
 }
@@ -516,7 +520,7 @@ func (s *Server) DeletePod(ctx context.Context, req DeletePodRequestObject) (Del
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeletePod204Response{}, nil
 }
@@ -547,7 +551,7 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 
 	items, next, err := s.store.ListWorkloads(ctx, filter, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 
 	for i := range items {
@@ -575,7 +579,9 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 	}
 	if !body.Kind.Valid() {
 		return CreateWorkload400ApplicationProblemPlusJSONResponse{
-			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", "field 'kind' must be one of Deployment, StatefulSet, DaemonSet")),
+			BadRequestApplicationProblemPlusJSONResponse(
+				problemBadRequest("Invalid field", "field 'kind' must be one of Deployment, StatefulSet, DaemonSet"),
+			),
 		}, nil
 	}
 
@@ -591,7 +597,7 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	wl = withWorkloadLayer(wl)
 
@@ -614,21 +620,21 @@ func (s *Server) GetWorkload(ctx context.Context, req GetWorkloadRequestObject) 
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return GetWorkload200JSONResponse(withWorkloadLayer(wl)), nil
 }
 
 // UpdateWorkload applies merge-patch updates.
 func (s *Server) UpdateWorkload(ctx context.Context, req UpdateWorkloadRequestObject) (UpdateWorkloadResponseObject, error) {
-	wl, err := s.store.UpdateWorkload(ctx, req.Id, WorkloadUpdate(*req.Body))
+	wl, err := s.store.UpdateWorkload(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdateWorkload404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return UpdateWorkload200JSONResponse(withWorkloadLayer(wl)), nil
 }
@@ -641,7 +647,7 @@ func (s *Server) DeleteWorkload(ctx context.Context, req DeleteWorkloadRequestOb
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeleteWorkload204Response{}, nil
 }
@@ -661,7 +667,7 @@ func (s *Server) ListServices(ctx context.Context, req ListServicesRequestObject
 
 	items, next, err := s.store.ListServices(ctx, req.Params.NamespaceId, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 
 	for i := range items {
@@ -689,7 +695,9 @@ func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObje
 	}
 	if body.Type != nil && !isValidServiceType(*body.Type) {
 		return CreateService400ApplicationProblemPlusJSONResponse{
-			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName")),
+			BadRequestApplicationProblemPlusJSONResponse(
+				problemBadRequest("Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName"),
+			),
 		}, nil
 	}
 
@@ -705,7 +713,7 @@ func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObje
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	svc = withServiceLayer(svc)
 
@@ -728,17 +736,19 @@ func (s *Server) GetService(ctx context.Context, req GetServiceRequestObject) (G
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return GetService200JSONResponse(withServiceLayer(svc)), nil
 }
 
 // UpdateService applies merge-patch updates.
 func (s *Server) UpdateService(ctx context.Context, req UpdateServiceRequestObject) (UpdateServiceResponseObject, error) {
-	body := ServiceUpdate(*req.Body)
+	body := *req.Body
 	if body.Type != nil && !isValidServiceType(*body.Type) {
 		return UpdateService400ApplicationProblemPlusJSONResponse{
-			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName")),
+			BadRequestApplicationProblemPlusJSONResponse(
+				problemBadRequest("Invalid field", "field 'type' must be one of ClusterIP, NodePort, LoadBalancer, ExternalName"),
+			),
 		}, nil
 	}
 	svc, err := s.store.UpdateService(ctx, req.Id, body)
@@ -748,7 +758,7 @@ func (s *Server) UpdateService(ctx context.Context, req UpdateServiceRequestObje
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return UpdateService200JSONResponse(withServiceLayer(svc)), nil
 }
@@ -761,7 +771,7 @@ func (s *Server) DeleteService(ctx context.Context, req DeleteServiceRequestObje
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeleteService204Response{}, nil
 }
@@ -781,7 +791,7 @@ func (s *Server) ListIngresses(ctx context.Context, req ListIngressesRequestObje
 
 	items, next, err := s.store.ListIngresses(ctx, req.Params.NamespaceId, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 
 	for i := range items {
@@ -820,7 +830,7 @@ func (s *Server) CreateIngress(ctx context.Context, req CreateIngressRequestObje
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	ing = withIngressLayer(ing)
 
@@ -843,21 +853,21 @@ func (s *Server) GetIngress(ctx context.Context, req GetIngressRequestObject) (G
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return GetIngress200JSONResponse(withIngressLayer(ing)), nil
 }
 
 // UpdateIngress applies merge-patch updates.
 func (s *Server) UpdateIngress(ctx context.Context, req UpdateIngressRequestObject) (UpdateIngressResponseObject, error) {
-	ing, err := s.store.UpdateIngress(ctx, req.Id, IngressUpdate(*req.Body))
+	ing, err := s.store.UpdateIngress(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdateIngress404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return UpdateIngress200JSONResponse(withIngressLayer(ing)), nil
 }
@@ -870,7 +880,7 @@ func (s *Server) DeleteIngress(ctx context.Context, req DeleteIngressRequestObje
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeleteIngress204Response{}, nil
 }
@@ -898,7 +908,7 @@ func (s *Server) ListPersistentVolumes(ctx context.Context, req ListPersistentVo
 
 	items, next, err := s.store.ListPersistentVolumes(ctx, req.Params.ClusterId, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 
 	for i := range items {
@@ -937,7 +947,7 @@ func (s *Server) CreatePersistentVolume(ctx context.Context, req CreatePersisten
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	pv = withPersistentVolumeLayer(pv)
 
@@ -960,21 +970,21 @@ func (s *Server) GetPersistentVolume(ctx context.Context, req GetPersistentVolum
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return GetPersistentVolume200JSONResponse(withPersistentVolumeLayer(pv)), nil
 }
 
 // UpdatePersistentVolume applies merge-patch updates.
 func (s *Server) UpdatePersistentVolume(ctx context.Context, req UpdatePersistentVolumeRequestObject) (UpdatePersistentVolumeResponseObject, error) {
-	pv, err := s.store.UpdatePersistentVolume(ctx, req.Id, PersistentVolumeUpdate(*req.Body))
+	pv, err := s.store.UpdatePersistentVolume(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdatePersistentVolume404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return UpdatePersistentVolume200JSONResponse(withPersistentVolumeLayer(pv)), nil
 }
@@ -987,7 +997,7 @@ func (s *Server) DeletePersistentVolume(ctx context.Context, req DeletePersisten
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeletePersistentVolume204Response{}, nil
 }
@@ -995,7 +1005,9 @@ func (s *Server) DeletePersistentVolume(ctx context.Context, req DeletePersisten
 // ── Persistent Volume Claims ─────────────────────────────────────────
 
 // ListPersistentVolumeClaims returns a paged list of PVCs.
-func (s *Server) ListPersistentVolumeClaims(ctx context.Context, req ListPersistentVolumeClaimsRequestObject) (ListPersistentVolumeClaimsResponseObject, error) {
+func (s *Server) ListPersistentVolumeClaims(
+	ctx context.Context, req ListPersistentVolumeClaimsRequestObject,
+) (ListPersistentVolumeClaimsResponseObject, error) {
 	limit := 0
 	if req.Params.Limit != nil {
 		limit = *req.Params.Limit
@@ -1007,7 +1019,7 @@ func (s *Server) ListPersistentVolumeClaims(ctx context.Context, req ListPersist
 
 	items, next, err := s.store.ListPersistentVolumeClaims(ctx, req.Params.NamespaceId, limit, cursor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 
 	for i := range items {
@@ -1021,7 +1033,9 @@ func (s *Server) ListPersistentVolumeClaims(ctx context.Context, req ListPersist
 }
 
 // CreatePersistentVolumeClaim registers a new PVC under a namespace.
-func (s *Server) CreatePersistentVolumeClaim(ctx context.Context, req CreatePersistentVolumeClaimRequestObject) (CreatePersistentVolumeClaimResponseObject, error) {
+func (s *Server) CreatePersistentVolumeClaim(
+	ctx context.Context, req CreatePersistentVolumeClaimRequestObject,
+) (CreatePersistentVolumeClaimResponseObject, error) {
 	body := *req.Body
 	if body.Name == "" {
 		return CreatePersistentVolumeClaim400ApplicationProblemPlusJSONResponse{
@@ -1046,7 +1060,7 @@ func (s *Server) CreatePersistentVolumeClaim(ctx context.Context, req CreatePers
 				ConflictApplicationProblemPlusJSONResponse(problemConflict(err)),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	pvc = withPersistentVolumeClaimLayer(pvc)
 
@@ -1061,7 +1075,9 @@ func (s *Server) CreatePersistentVolumeClaim(ctx context.Context, req CreatePers
 }
 
 // GetPersistentVolumeClaim fetches a PVC by id.
-func (s *Server) GetPersistentVolumeClaim(ctx context.Context, req GetPersistentVolumeClaimRequestObject) (GetPersistentVolumeClaimResponseObject, error) {
+func (s *Server) GetPersistentVolumeClaim(
+	ctx context.Context, req GetPersistentVolumeClaimRequestObject,
+) (GetPersistentVolumeClaimResponseObject, error) {
 	pvc, err := s.store.GetPersistentVolumeClaim(ctx, req.Id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -1069,34 +1085,38 @@ func (s *Server) GetPersistentVolumeClaim(ctx context.Context, req GetPersistent
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return GetPersistentVolumeClaim200JSONResponse(withPersistentVolumeClaimLayer(pvc)), nil
 }
 
 // UpdatePersistentVolumeClaim applies merge-patch updates.
-func (s *Server) UpdatePersistentVolumeClaim(ctx context.Context, req UpdatePersistentVolumeClaimRequestObject) (UpdatePersistentVolumeClaimResponseObject, error) {
-	pvc, err := s.store.UpdatePersistentVolumeClaim(ctx, req.Id, PersistentVolumeClaimUpdate(*req.Body))
+func (s *Server) UpdatePersistentVolumeClaim(
+	ctx context.Context, req UpdatePersistentVolumeClaimRequestObject,
+) (UpdatePersistentVolumeClaimResponseObject, error) {
+	pvc, err := s.store.UpdatePersistentVolumeClaim(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdatePersistentVolumeClaim404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return UpdatePersistentVolumeClaim200JSONResponse(withPersistentVolumeClaimLayer(pvc)), nil
 }
 
 // DeletePersistentVolumeClaim removes a PVC.
-func (s *Server) DeletePersistentVolumeClaim(ctx context.Context, req DeletePersistentVolumeClaimRequestObject) (DeletePersistentVolumeClaimResponseObject, error) {
+func (s *Server) DeletePersistentVolumeClaim(
+	ctx context.Context, req DeletePersistentVolumeClaimRequestObject,
+) (DeletePersistentVolumeClaimResponseObject, error) {
 	if err := s.store.DeletePersistentVolumeClaim(ctx, req.Id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return DeletePersistentVolumeClaim404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
 			}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeletePersistentVolumeClaim204Response{}, nil
 }
@@ -1114,7 +1134,7 @@ func (s *Server) ReconcileNodes(ctx context.Context, req ReconcileNodesRequestOb
 	}
 	n, err := s.store.DeleteNodesNotIn(ctx, body.ClusterId, body.KeepNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcileNodes200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1130,14 +1150,16 @@ func (s *Server) ReconcileNamespaces(ctx context.Context, req ReconcileNamespace
 	}
 	n, err := s.store.DeleteNamespacesNotIn(ctx, body.ClusterId, body.KeepNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcileNamespaces200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcilePersistentVolumes deletes every PV of the given cluster whose
 // name is not in keep_names.
-func (s *Server) ReconcilePersistentVolumes(ctx context.Context, req ReconcilePersistentVolumesRequestObject) (ReconcilePersistentVolumesResponseObject, error) {
+func (s *Server) ReconcilePersistentVolumes(
+	ctx context.Context, req ReconcilePersistentVolumesRequestObject,
+) (ReconcilePersistentVolumesResponseObject, error) {
 	body := *req.Body
 	if body.ClusterId == (uuid.UUID{}) {
 		return ReconcilePersistentVolumes400ApplicationProblemPlusJSONResponse{
@@ -1146,7 +1168,7 @@ func (s *Server) ReconcilePersistentVolumes(ctx context.Context, req ReconcilePe
 	}
 	n, err := s.store.DeletePersistentVolumesNotIn(ctx, body.ClusterId, body.KeepNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcilePersistentVolumes200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1162,7 +1184,7 @@ func (s *Server) ReconcilePods(ctx context.Context, req ReconcilePodsRequestObje
 	}
 	n, err := s.store.DeletePodsNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcilePods200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1178,12 +1200,14 @@ func (s *Server) ReconcileWorkloads(ctx context.Context, req ReconcileWorkloadsR
 	}
 	if len(body.KeepKinds) != len(body.KeepNames) {
 		return ReconcileWorkloads400ApplicationProblemPlusJSONResponse{
-			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid request body", "keep_kinds and keep_names must have equal length")),
+			BadRequestApplicationProblemPlusJSONResponse(
+				problemBadRequest("Invalid request body", "keep_kinds and keep_names must have equal length"),
+			),
 		}, nil
 	}
 	n, err := s.store.DeleteWorkloadsNotIn(ctx, body.NamespaceId, body.KeepKinds, body.KeepNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcileWorkloads200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1199,7 +1223,7 @@ func (s *Server) ReconcileServices(ctx context.Context, req ReconcileServicesReq
 	}
 	n, err := s.store.DeleteServicesNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcileServices200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1215,14 +1239,16 @@ func (s *Server) ReconcileIngresses(ctx context.Context, req ReconcileIngressesR
 	}
 	n, err := s.store.DeleteIngressesNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcileIngresses200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
 // ReconcilePersistentVolumeClaims deletes every PVC of the given namespace
 // whose name is not in keep_names.
-func (s *Server) ReconcilePersistentVolumeClaims(ctx context.Context, req ReconcilePersistentVolumeClaimsRequestObject) (ReconcilePersistentVolumeClaimsResponseObject, error) {
+func (s *Server) ReconcilePersistentVolumeClaims(
+	ctx context.Context, req ReconcilePersistentVolumeClaimsRequestObject,
+) (ReconcilePersistentVolumeClaimsResponseObject, error) {
 	body := *req.Body
 	if body.NamespaceId == (uuid.UUID{}) {
 		return ReconcilePersistentVolumeClaims400ApplicationProblemPlusJSONResponse{
@@ -1231,7 +1257,7 @@ func (s *Server) ReconcilePersistentVolumeClaims(ctx context.Context, req Reconc
 	}
 	n, err := s.store.DeletePersistentVolumeClaimsNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcilePersistentVolumeClaims200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
