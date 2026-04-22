@@ -23,19 +23,26 @@ Replaces the Kubernetes-scoped portion of [Mercator](https://github.com/dbsystel
 
 ## Quick start
 
+### With Helm (recommended for Kubernetes)
+
 ```bash
-# 1. Start PostgreSQL
+helm dependency update charts/argos
+helm install argos charts/argos -n argos-system --create-namespace
+kubectl -n argos-system logs -l app.kubernetes.io/name=argos | grep "ARGOS FIRST-RUN"
+```
+
+### From source (local development)
+
+```bash
 docker run -d --rm --name argos-pg \
   -e POSTGRES_PASSWORD=argos -e POSTGRES_DB=argos \
   -p 5432:5432 postgres:16-alpine
 
-# 2. Build and run argosd
 make ui-build && make build
 ARGOS_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
   ARGOS_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login" \
   ./bin/argosd
-
-# 3. Open http://localhost:8080/ and sign in as admin
+# Open http://localhost:8080/ and sign in as admin
 ```
 
 See [Getting Started](docs/getting-started.md) for the full walkthrough including cluster registration, collector setup, and demo data seeding.
@@ -46,7 +53,8 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 |----------|-------------|
 | [Getting Started](docs/getting-started.md) | From zero to a working installation. |
 | [Configuration](docs/configuration.md) | All environment variables for argosd and argos-collector. |
-| [Deploy on Kubernetes](docs/deployment/kubernetes.md) | Production deployment with Kustomize. |
+| [Deploy with Helm](docs/deployment/helm.md) | One-command Kubernetes install with optional bundled PostgreSQL. |
+| [Deploy with Kustomize](docs/deployment/kubernetes.md) | Production deployment with plain manifests. |
 | [Push Collector](docs/deployment/push-collector.md) | Deploy argos-collector in air-gapped clusters. |
 | [Docker (local dev)](docs/deployment/docker.md) | Run locally with Docker. |
 | [Authentication](docs/authentication.md) | Local users, OIDC, tokens, roles, sessions. |
