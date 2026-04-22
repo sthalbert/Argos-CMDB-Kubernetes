@@ -22,6 +22,9 @@ import (
 	"github.com/sthalbert/argos/migrations"
 )
 
+// errCursorFormatInvalid is returned when a pagination cursor cannot be decoded.
+var errCursorFormatInvalid = errors.New("cursor format invalid")
+
 // PG is a PostgreSQL-backed implementation of api.Store.
 type PG struct {
 	pool *pgxpool.Pool
@@ -47,7 +50,10 @@ func (p *PG) Close() {
 
 // Ping checks the database is reachable.
 func (p *PG) Ping(ctx context.Context) error {
-	return p.pool.Ping(ctx)
+	if err := p.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("ping: %w", err)
+	}
+	return nil
 }
 
 // Migrate applies every pending migration embedded in the migrations package.
@@ -68,6 +74,8 @@ func (p *PG) Migrate(ctx context.Context) error {
 }
 
 // CreateCluster inserts a new cluster and returns the stored representation.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreateCluster(ctx context.Context, in api.ClusterCreate) (api.Cluster, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -169,6 +177,8 @@ func (p *PG) GetClusterByName(ctx context.Context, name string) (api.Cluster, er
 
 // ListClusters returns up to limit clusters in (created_at DESC, id DESC) order,
 // starting after the opaque cursor if non-empty.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListClusters(ctx context.Context, limit int, cursor string) ([]api.Cluster, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -239,6 +249,8 @@ func (p *PG) ListClusters(ctx context.Context, limit int, cursor string) ([]api.
 
 // UpdateCluster applies merge-patch semantics: only fields that are non-nil
 // on ClusterUpdate are written. updated_at is always refreshed.
+//
+//nolint:gocyclo,gocritic // merge-patch nil checks are inherently repetitive; hugeParam: Store interface requires value param
 func (p *PG) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error) {
 	sets := make([]string, 0, 8)
 	args := make([]any, 0, 10)
@@ -343,7 +355,7 @@ const nodeColumns = `id, cluster_id, name, display_name, role,
 	owner, criticality, notes, runbook_url, annotations, hardware_model,
 	created_at, updated_at`
 
-func nodeInsertValues(in api.NodeCreate, id uuid.UUID, now time.Time) ([]any, error) {
+func nodeInsertValues(in *api.NodeCreate, id uuid.UUID, now time.Time) ([]any, error) {
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
 		return nil, err
@@ -382,11 +394,14 @@ func boolOrFalse(b *bool) bool {
 	return *b
 }
 
+// CreateNode inserts a new node into the given cluster.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreateNode(ctx context.Context, in api.NodeCreate) (api.Node, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
-	values, err := nodeInsertValues(in, id, now)
+	values, err := nodeInsertValues(&in, id, now)
 	if err != nil {
 		return api.Node{}, err
 	}
@@ -428,6 +443,8 @@ func (p *PG) GetNode(ctx context.Context, id uuid.UUID) (api.Node, error) {
 
 // ListNodes returns up to limit nodes sorted (created_at DESC, id DESC),
 // optionally filtered by cluster id.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Node, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -497,6 +514,8 @@ func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cur
 // UpdateNode applies merge-patch semantics on mutable fields only. Each
 // non-nil pointer on NodeUpdate translates to a single column set; omitted
 // fields keep their existing value.
+//
+//nolint:gocyclo,gocognit,gocritic // merge-patch nil checks are inherently repetitive; hugeParam: Store interface requires value param
 func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (api.Node, error) {
 	sets := make([]string, 0, 24)
 	args := make([]any, 0, 26)
@@ -688,6 +707,8 @@ func (p *PG) DeleteNode(ctx context.Context, id uuid.UUID) error {
 }
 
 // CreateNamespace inserts a new namespace.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreateNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -764,6 +785,8 @@ func (p *PG) GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, err
 }
 
 // ListNamespaces returns up to limit namespaces sorted (created_at DESC, id DESC).
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Namespace, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -832,6 +855,8 @@ func (p *PG) ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int
 }
 
 // UpdateNamespace applies merge-patch semantics on mutable fields.
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdateNamespace(ctx context.Context, id uuid.UUID, in api.NamespaceUpdate) (api.Namespace, error) {
 	sets := make([]string, 0, 4)
 	args := make([]any, 0, 6)
@@ -903,6 +928,8 @@ func (p *PG) DeleteNamespace(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpsertNamespace inserts-or-updates a namespace keyed by (cluster_id, name).
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -942,6 +969,8 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 }
 
 // CreatePod inserts a new pod.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreatePod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1030,6 +1059,8 @@ func (p *PG) GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error) {
 }
 
 // ListPods returns up to limit pods, optionally filtered by namespace.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -1112,6 +1143,8 @@ func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, 
 }
 
 // UpdatePod applies merge-patch semantics on mutable fields.
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdatePod(ctx context.Context, id uuid.UUID, in api.PodUpdate) (api.Pod, error) {
 	sets := make([]string, 0, 5)
 	args := make([]any, 0, 7)
@@ -1178,6 +1211,8 @@ func (p *PG) DeletePod(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpsertPod inserts-or-updates a pod keyed by (namespace_id, name).
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1237,6 +1272,8 @@ func (p *PG) DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNam
 }
 
 // CreateWorkload inserts a new workload.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreateWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1269,7 +1306,10 @@ func (p *PG) CreateWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
 			case "23505":
-				return api.Workload{}, fmt.Errorf("workload %s/%q in namespace %s already exists: %w", in.Kind, in.Name, in.NamespaceId, api.ErrConflict)
+				return api.Workload{}, fmt.Errorf(
+					"workload %s/%q in namespace %s already exists: %w",
+					in.Kind, in.Name, in.NamespaceId, api.ErrConflict,
+				)
 			case "23503":
 				return api.Workload{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 			}
@@ -1313,6 +1353,8 @@ func (p *PG) GetWorkload(ctx context.Context, id uuid.UUID) (api.Workload, error
 
 // ListWorkloads returns up to limit workloads, optionally filtered by
 // namespace, kind, and/or container image substring.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -1391,6 +1433,8 @@ func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, l
 }
 
 // UpdateWorkload applies merge-patch semantics on mutable fields.
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdateWorkload(ctx context.Context, id uuid.UUID, in api.WorkloadUpdate) (api.Workload, error) {
 	sets := make([]string, 0, 4)
 	args := make([]any, 0, 6)
@@ -1455,6 +1499,8 @@ func (p *PG) DeleteWorkload(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpsertWorkload inserts-or-updates a workload keyed by (namespace_id, kind, name).
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1524,7 +1570,7 @@ func (p *PG) DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, ke
 	return tag.RowsAffected(), nil
 }
 
-func marshalSpec(spec *map[string]interface{}) ([]byte, error) {
+func marshalSpec(spec *map[string]interface{}) ([]byte, error) { //nolint:gocritic // ptrToRefParam: callers pass *map from generated API types
 	if spec == nil {
 		return []byte("{}"), nil
 	}
@@ -1535,6 +1581,7 @@ func marshalSpec(spec *map[string]interface{}) ([]byte, error) {
 	return b, nil
 }
 
+//nolint:gocyclo // JSONB unmarshal branches add inherent cyclomatic complexity
 func scanWorkload(row pgx.Row) (api.Workload, error) {
 	var (
 		w              api.Workload
@@ -1555,7 +1602,7 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 		&containersJSON, &labelsJSON, &specJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.Workload{}, err
+		return api.Workload{}, fmt.Errorf("scan workload: %w", err)
 	}
 	w.Id = &id
 	w.NamespaceId = namespaceID
@@ -1601,6 +1648,9 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 const serviceColumns = `id, namespace_id, name, type, cluster_ip,
 	selector, ports, load_balancer, labels, created_at, updated_at`
 
+// CreateService inserts a new service into the given namespace.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreateService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1676,6 +1726,8 @@ func (p *PG) GetService(ctx context.Context, id uuid.UUID) (api.Service, error) 
 }
 
 // ListServices returns up to limit services, optionally filtered by namespace.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Service, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -1743,6 +1795,8 @@ func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int
 }
 
 // UpdateService applies merge-patch semantics on mutable fields.
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdateService(ctx context.Context, id uuid.UUID, in api.ServiceUpdate) (api.Service, error) {
 	sets := make([]string, 0, 5)
 	args := make([]any, 0, 7)
@@ -1814,6 +1868,8 @@ func (p *PG) DeleteService(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpsertService inserts-or-updates a service keyed by (namespace_id, name).
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1899,6 +1955,7 @@ func marshalPorts(ports *[]map[string]interface{}) ([]byte, error) {
 const ingressColumns = `id, namespace_id, name, ingress_class_name,
 	rules, tls, load_balancer, labels, created_at, updated_at`
 
+// CreateIngress inserts a new ingress into the given namespace.
 func (p *PG) CreateIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1967,6 +2024,8 @@ func (p *PG) GetIngress(ctx context.Context, id uuid.UUID) (api.Ingress, error) 
 }
 
 // ListIngresses returns up to limit ingresses, optionally filtered by namespace.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Ingress, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -2034,6 +2093,8 @@ func (p *PG) ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit in
 }
 
 // UpdateIngress applies merge-patch semantics on mutable fields.
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdateIngress(ctx context.Context, id uuid.UUID, in api.IngressUpdate) (api.Ingress, error) {
 	sets := make([]string, 0, 4)
 	args := make([]any, 0, 6)
@@ -2162,6 +2223,7 @@ func (p *PG) DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, ke
 	return tag.RowsAffected(), nil
 }
 
+//nolint:gocyclo // JSONB unmarshal branches add inherent cyclomatic complexity
 func scanIngress(row pgx.Row) (api.Ingress, error) {
 	var (
 		i                api.Ingress
@@ -2181,7 +2243,7 @@ func scanIngress(row pgx.Row) (api.Ingress, error) {
 		&rulesJSON, &tlsJSON, &lbJSON, &labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, fmt.Errorf("scan ingress: %w", err)
 	}
 	i.Id = &id
 	i.NamespaceId = namespaceID
@@ -2223,6 +2285,7 @@ func scanIngress(row pgx.Row) (api.Ingress, error) {
 	return i, nil
 }
 
+//nolint:gocyclo // JSONB unmarshal branches add inherent cyclomatic complexity
 func scanService(row pgx.Row) (api.Service, error) {
 	var (
 		s            api.Service
@@ -2243,7 +2306,7 @@ func scanService(row pgx.Row) (api.Service, error) {
 		&selectorJSON, &portsJSON, &lbJSON, &labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.Service{}, err
+		return api.Service{}, fmt.Errorf("scan service: %w", err)
 	}
 	s.Id = &id
 	s.NamespaceId = namespaceID
@@ -2309,7 +2372,7 @@ func scanPod(row pgx.Row) (api.Pod, error) {
 		&workloadID, &containersJSON, &labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.Pod{}, err
+		return api.Pod{}, fmt.Errorf("scan pod: %w", err)
 	}
 	p.Id = &id
 	p.NamespaceId = namespaceID
@@ -2340,13 +2403,15 @@ func scanPod(row pgx.Row) (api.Pod, error) {
 
 // unmarshalContainers decodes a JSONB array into the shared ContainerList
 // type. Returns nil when the column is empty or contains an empty array.
+//
+//nolint:nilnil // nil, nil is the intentional "no data" signal for optional JSONB columns
 func unmarshalContainers(b []byte) (*api.ContainerList, error) {
 	if len(b) == 0 {
 		return nil, nil
 	}
 	var cs api.ContainerList
 	if err := json.Unmarshal(b, &cs); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal containers: %w", err)
 	}
 	if len(cs) == 0 {
 		return nil, nil
@@ -2376,7 +2441,7 @@ func scanNamespace(row pgx.Row) (api.Namespace, error) {
 		&owner, &criticality, &notes, &runbookURL, &annotationsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.Namespace{}, err
+		return api.Namespace{}, fmt.Errorf("scan namespace: %w", err)
 	}
 	n.Id = &id
 	n.ClusterId = clusterID
@@ -2412,11 +2477,13 @@ func scanNamespace(row pgx.Row) (api.Namespace, error) {
 // UpsertNode inserts-or-updates a node keyed by (cluster_id, name). The
 // unique index on (cluster_id, name) drives the ON CONFLICT target. On
 // conflict only mutable columns are overwritten so created_at is preserved.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
-	values, err := nodeInsertValues(in, id, now)
+	values, err := nodeInsertValues(&in, id, now)
 	if err != nil {
 		return api.Node{}, err
 	}
@@ -2523,7 +2590,7 @@ func scanNode(row pgx.Row) (api.Node, error) {
 		&owner, &criticality, &notes, &runbookURL, &annotationsJSON, &hardwareModel,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.Node{}, err
+		return api.Node{}, fmt.Errorf("scan node: %w", err)
 	}
 
 	n.Id = &id
@@ -2597,13 +2664,15 @@ func scanNode(row pgx.Row) (api.Node, error) {
 // unmarshalMapArray decodes a JSONB array of objects. Returns nil for
 // empty arrays so the pointer semantics match what callers expect
 // (nil = absent, &[...] = present).
+//
+//nolint:nilnil // nil, nil is the intentional "no data" signal for optional JSONB columns
 func unmarshalMapArray(b []byte) (*[]map[string]interface{}, error) {
 	if len(b) == 0 {
 		return nil, nil
 	}
 	var out []map[string]interface{}
 	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal map array: %w", err)
 	}
 	if len(out) == 0 {
 		return nil, nil
@@ -2612,11 +2681,11 @@ func unmarshalMapArray(b []byte) (*[]map[string]interface{}, error) {
 }
 
 // marshalLabels encodes the optional labels map as JSON, preserving NULL-vs-empty semantics.
-func marshalLabels(labels *map[string]string) ([]byte, error) {
+func marshalLabels(labels *map[string]string) ([]byte, error) { //nolint:gocritic // ptrToRefParam: callers pass *map from generated API types
 	if labels == nil {
 		return []byte("{}"), nil
 	}
-	b, err := json.Marshal(*labels)
+	b, err := json.Marshal(*labels) //nolint:errchkjson // map[string]string is unconditionally JSON-safe
 	if err != nil {
 		return nil, fmt.Errorf("marshal labels: %w", err)
 	}
@@ -2650,7 +2719,7 @@ func scanCluster(row pgx.Row) (api.Cluster, error) {
 		&owner, &criticality, &notes, &runbookURL, &annotationsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.Cluster{}, err
+		return api.Cluster{}, fmt.Errorf("scan cluster: %w", err)
 	}
 
 	c.Id = &id
@@ -2707,7 +2776,7 @@ func decodeCursor(c string) (time.Time, uuid.UUID, error) {
 	}
 	parts := strings.SplitN(string(raw), "|", 2)
 	if len(parts) != 2 {
-		return time.Time{}, uuid.Nil, errors.New("cursor format invalid")
+		return time.Time{}, uuid.Nil, errCursorFormatInvalid
 	}
 	ts, err := time.Parse(time.RFC3339Nano, parts[0])
 	if err != nil {
@@ -2738,6 +2807,8 @@ func accessModesPointer(modes []string) *[]string {
 }
 
 // CreatePersistentVolume inserts a cluster-scoped PV.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreatePersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -2769,7 +2840,10 @@ func (p *PG) CreatePersistentVolume(ctx context.Context, in api.PersistentVolume
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
 			case "23505":
-				return api.PersistentVolume{}, fmt.Errorf("persistent volume %q in cluster %s already exists: %w", in.Name, in.ClusterId, api.ErrConflict)
+				return api.PersistentVolume{}, fmt.Errorf(
+					"persistent volume %q in cluster %s already exists: %w",
+					in.Name, in.ClusterId, api.ErrConflict,
+				)
 			case "23503":
 				return api.PersistentVolume{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 			}
@@ -2819,6 +2893,8 @@ func (p *PG) GetPersistentVolume(ctx context.Context, id uuid.UUID) (api.Persist
 }
 
 // ListPersistentVolumes returns up to limit PVs, optionally filtered by cluster.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolume, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -2889,6 +2965,8 @@ func (p *PG) ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, li
 }
 
 // UpdatePersistentVolume applies merge-patch on mutable PV fields.
+//
+//nolint:gocyclo,gocritic // merge-patch nil checks are inherently repetitive; hugeParam: Store interface requires value param
 func (p *PG) UpdatePersistentVolume(ctx context.Context, id uuid.UUID, in api.PersistentVolumeUpdate) (api.PersistentVolume, error) {
 	sets := make([]string, 0, 8)
 	args := make([]any, 0, 10)
@@ -2960,6 +3038,8 @@ func (p *PG) DeletePersistentVolume(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpsertPersistentVolume inserts-or-updates a PV keyed by (cluster_id, name).
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -3055,7 +3135,7 @@ func scanPersistentVolume(row pgx.Row) (api.PersistentVolume, error) {
 		&labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.PersistentVolume{}, err
+		return api.PersistentVolume{}, fmt.Errorf("scan persistent volume: %w", err)
 	}
 	pv.Id = &id
 	pv.ClusterId = clusterID
@@ -3100,6 +3180,8 @@ func classifyPVCFKError(err error, namespaceID uuid.UUID, boundVolumeID *uuid.UU
 }
 
 // CreatePersistentVolumeClaim inserts a namespace-scoped PVC.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreatePersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -3173,7 +3255,11 @@ func (p *PG) GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (api.Pe
 }
 
 // ListPersistentVolumeClaims returns up to limit PVCs, optionally filtered by namespace.
-func (p *PG) ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolumeClaim, string, error) {
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
+func (p *PG) ListPersistentVolumeClaims(
+	ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string,
+) ([]api.PersistentVolumeClaim, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -3241,6 +3327,8 @@ func (p *PG) ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.U
 }
 
 // UpdatePersistentVolumeClaim applies merge-patch on mutable PVC fields.
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdatePersistentVolumeClaim(ctx context.Context, id uuid.UUID, in api.PersistentVolumeClaimUpdate) (api.PersistentVolumeClaim, error) {
 	sets := make([]string, 0, 8)
 	args := make([]any, 0, 10)
@@ -3306,6 +3394,8 @@ func (p *PG) DeletePersistentVolumeClaim(ctx context.Context, id uuid.UUID) erro
 }
 
 // UpsertPersistentVolumeClaim inserts-or-updates a PVC keyed by (namespace_id, name).
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -3389,7 +3479,7 @@ func scanPersistentVolumeClaim(row pgx.Row) (api.PersistentVolumeClaim, error) {
 		&labelsJSON,
 		&createdAt, &updatedAt,
 	); err != nil {
-		return api.PersistentVolumeClaim{}, err
+		return api.PersistentVolumeClaim{}, fmt.Errorf("scan pvc: %w", err)
 	}
 	pvc.Id = &id
 	pvc.NamespaceId = namespaceID

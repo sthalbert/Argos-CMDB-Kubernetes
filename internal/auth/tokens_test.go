@@ -14,46 +14,61 @@ func TestMintTokenFormat(t *testing.T) {
 	// itself uses IndexByte to find the first `_`, so match that
 	// (the first `_` after the scheme is always the separator because
 	// the prefix is hex-only).
-	for i := 0; i < 50; i++ {
-		tok, err := MintToken()
-		if err != nil {
-			t.Fatalf("MintToken: %v", err)
-		}
+	for i := range 50 {
+		assertMintedTokenValid(t, i)
+	}
+}
 
-		if !strings.HasPrefix(tok.Plaintext, TokenScheme) {
-			t.Errorf("plaintext missing scheme: %q", tok.Plaintext)
-		}
+func assertMintedTokenValid(t *testing.T, iteration int) {
+	t.Helper()
+	tok, err := MintToken()
+	if err != nil {
+		t.Fatalf("[%d] MintToken: %v", iteration, err)
+	}
 
-		rest := strings.TrimPrefix(tok.Plaintext, TokenScheme)
-		sep := strings.IndexByte(rest, '_')
-		if sep != 8 {
-			t.Fatalf("first `_` should be at position 8 (after 8-hex prefix), got %d in %q", sep, rest)
-		}
+	prefix := assertTokenSchemeAndPrefix(t, tok)
+	assertTokenHashVerifies(t, tok)
+	assertTokenParseRoundTrip(t, tok, prefix)
+}
 
-		prefix := rest[:sep]
-		// Prefix is hex — must not contain `_` itself.
-		if strings.ContainsRune(prefix, '_') {
-			t.Errorf("prefix contains underscore: %q", prefix)
-		}
-		if tok.Prefix != prefix {
-			t.Errorf("stored prefix %q differs from plaintext prefix %q", tok.Prefix, prefix)
-		}
+func assertTokenSchemeAndPrefix(t *testing.T, tok MintedToken) string {
+	t.Helper()
+	if !strings.HasPrefix(tok.Plaintext, TokenScheme) {
+		t.Errorf("plaintext missing scheme: %q", tok.Plaintext)
+	}
+	rest := strings.TrimPrefix(tok.Plaintext, TokenScheme)
+	sep := strings.IndexByte(rest, '_')
+	if sep != 8 {
+		t.Fatalf("first `_` should be at position 8 (after 8-hex prefix), got %d in %q", sep, rest)
+	}
+	prefix := rest[:sep]
+	if strings.ContainsRune(prefix, '_') {
+		t.Errorf("prefix contains underscore: %q", prefix)
+	}
+	if tok.Prefix != prefix {
+		t.Errorf("stored prefix %q differs from plaintext prefix %q", tok.Prefix, prefix)
+	}
+	return prefix
+}
 
-		if !strings.HasPrefix(tok.Hash, "$argon2id$") {
-			t.Errorf("hash not argon2id")
-		}
-		if err := VerifyPassword(tok.Plaintext, tok.Hash); err != nil {
-			t.Errorf("minted hash does not verify: %v", err)
-		}
+func assertTokenHashVerifies(t *testing.T, tok MintedToken) {
+	t.Helper()
+	if !strings.HasPrefix(tok.Hash, "$argon2id$") {
+		t.Errorf("hash not argon2id")
+	}
+	if err := VerifyPassword(tok.Plaintext, tok.Hash); err != nil {
+		t.Errorf("minted hash does not verify: %v", err)
+	}
+}
 
-		// ParseToken should split identically.
-		gotPrefix, gotFull, err := ParseToken(tok.Plaintext)
-		if err != nil {
-			t.Errorf("ParseToken on a freshly minted plaintext failed: %v", err)
-		}
-		if gotPrefix != prefix || gotFull != tok.Plaintext {
-			t.Errorf("ParseToken roundtrip: prefix=%q full=%q", gotPrefix, gotFull)
-		}
+func assertTokenParseRoundTrip(t *testing.T, tok MintedToken, wantPrefix string) {
+	t.Helper()
+	gotPrefix, gotFull, err := ParseToken(tok.Plaintext)
+	if err != nil {
+		t.Errorf("ParseToken on a freshly minted plaintext failed: %v", err)
+	}
+	if gotPrefix != wantPrefix || gotFull != tok.Plaintext {
+		t.Errorf("ParseToken roundtrip: prefix=%q full=%q", gotPrefix, gotFull)
 	}
 }
 
@@ -102,7 +117,7 @@ func TestScopesForRole(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := ScopesForRole(c.role)
-		caller := Caller{Scopes: got}
+		caller := &Caller{Scopes: got}
 		for _, s := range c.has {
 			if !caller.HasScope(s) {
 				t.Errorf("role=%s missing expected scope %q; got %v", c.role, s, got)

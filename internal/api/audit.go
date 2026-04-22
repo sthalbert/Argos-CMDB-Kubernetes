@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -59,10 +60,10 @@ func AuditMiddleware(recorder AuditRecorder) MiddlewareFunc {
 			ev := buildAuditEvent(r, rw.status, bodySnap)
 			if err := recorder.InsertAuditEvent(r.Context(), ev); err != nil {
 				slog.Error("audit: insert failed",
-					"error", err,
-					"method", r.Method,
-					"path", r.URL.Path,
-					"status", rw.status,
+					slog.Any("error", err),
+					slog.String("method", r.Method),
+					slog.String("path", r.URL.Path),
+					slog.Int("status", rw.status),
 				)
 			}
 		})
@@ -157,7 +158,7 @@ func deriveAction(r *http.Request, status int) string {
 // deriveResource maps an admin / domain URL to (resource_type,
 // optional_id). Returns "" when the URL doesn't match a known shape;
 // the PG layer translates empty strings into SQL NULL.
-func deriveResource(r *http.Request) (string, string) {
+func deriveResource(r *http.Request) (resType, resID string) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if len(parts) < 2 || parts[0] != "v1" {
 		return "", ""
@@ -186,39 +187,31 @@ func deriveResource(r *http.Request) (string, string) {
 	return kind, id
 }
 
+// singularNames maps collection (URL-segment) names to their singular
+// form for audit display. Only the kinds argosd actually serves are
+// listed — anything else passes through unchanged (best-effort display
+// only).
+var singularNames = map[string]string{ //nolint:gochecknoglobals // read-only lookup table
+	"users":                    "user",
+	"tokens":                   "token",
+	"sessions":                 "session",
+	"audit":                    "audit",
+	"clusters":                 "cluster",
+	"namespaces":               "namespace",
+	"nodes":                    "node",
+	"pods":                     "pod",
+	"workloads":                "workload",
+	"services":                 "service",
+	"ingresses":                "ingress",
+	"persistent-volumes":       "persistent_volume",
+	"persistent-volume-claims": "persistent_volume_claim",
+	"auth":                     "auth",
+}
+
 // singular naively de-pluralises collection names for audit display.
-// Only the kinds argosd actually serves are listed — anything else
-// passes through unchanged (best-effort display only).
 func singular(plural string) string {
-	switch plural {
-	case "users":
-		return "user"
-	case "tokens":
-		return "token"
-	case "sessions":
-		return "session"
-	case "audit":
-		return "audit"
-	case "clusters":
-		return "cluster"
-	case "namespaces":
-		return "namespace"
-	case "nodes":
-		return "node"
-	case "pods":
-		return "pod"
-	case "workloads":
-		return "workload"
-	case "services":
-		return "service"
-	case "ingresses":
-		return "ingress"
-	case "persistent-volumes":
-		return "persistent_volume"
-	case "persistent-volume-claims":
-		return "persistent_volume_claim"
-	case "auth":
-		return "auth"
+	if s, ok := singularNames[plural]; ok {
+		return s
 	}
 	return plural
 }
@@ -266,6 +259,7 @@ type statusRecorder struct {
 	written bool
 }
 
+// WriteHeader captures the status code before forwarding to the wrapped writer.
 func (r *statusRecorder) WriteHeader(code int) {
 	if !r.written {
 		r.status = code
@@ -279,7 +273,11 @@ func (r *statusRecorder) Write(p []byte) (int, error) {
 		r.status = http.StatusOK
 		r.written = true
 	}
-	return r.ResponseWriter.Write(p)
+	n, err := r.ResponseWriter.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("write response: %w", err)
+	}
+	return n, nil
 }
 
 // ListAuditEvents handler lives in auth_handlers.go alongside the

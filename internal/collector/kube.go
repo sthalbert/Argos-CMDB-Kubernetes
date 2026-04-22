@@ -23,15 +23,17 @@ func podContainers(p *corev1.Pod) []map[string]interface{} {
 		len(p.Status.ContainerStatuses)+len(p.Status.InitContainerStatuses))
 
 	statusIdx := make(map[string]corev1.ContainerStatus, len(p.Status.ContainerStatuses))
-	for _, cs := range p.Status.ContainerStatuses {
-		statusIdx[cs.Name] = cs
+	for i := range p.Status.ContainerStatuses {
+		cs := &p.Status.ContainerStatuses[i]
+		statusIdx[cs.Name] = *cs
 	}
 	initStatusIdx := make(map[string]corev1.ContainerStatus, len(p.Status.InitContainerStatuses))
-	for _, cs := range p.Status.InitContainerStatuses {
-		initStatusIdx[cs.Name] = cs
+	for i := range p.Status.InitContainerStatuses {
+		cs := &p.Status.InitContainerStatuses[i]
+		initStatusIdx[cs.Name] = *cs
 	}
 
-	emit := func(name, specImage string, init bool, cs corev1.ContainerStatus, hasStatus bool) {
+	emit := func(name, specImage string, isInit bool, cs corev1.ContainerStatus, hasStatus bool) {
 		image := specImage
 		var imageID string
 		if hasStatus {
@@ -43,7 +45,7 @@ func podContainers(p *corev1.Pod) []map[string]interface{} {
 		entry := map[string]interface{}{
 			"name":  name,
 			"image": image,
-			"init":  init,
+			"init":  isInit,
 		}
 		if imageID != "" {
 			entry["image_id"] = imageID
@@ -51,11 +53,13 @@ func podContainers(p *corev1.Pod) []map[string]interface{} {
 		out = append(out, entry)
 	}
 
-	for _, c := range p.Spec.Containers {
+	for i := range p.Spec.Containers {
+		c := &p.Spec.Containers[i]
 		cs, ok := statusIdx[c.Name]
 		emit(c.Name, c.Image, false, cs, ok)
 	}
-	for _, c := range p.Spec.InitContainers {
+	for i := range p.Spec.InitContainers {
+		c := &p.Spec.InitContainers[i]
 		cs, ok := initStatusIdx[c.Name]
 		emit(c.Name, c.Image, true, cs, ok)
 	}
@@ -65,12 +69,14 @@ func podContainers(p *corev1.Pod) []map[string]interface{} {
 // podTemplateContainers flattens a pod template's declared containers.
 // Used by Workload ingestion, where status-resolved image IDs aren't
 // available (those live on the owned Pods).
-func podTemplateContainers(tpl corev1.PodSpec) []map[string]interface{} {
+func podTemplateContainers(tpl *corev1.PodSpec) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(tpl.Containers)+len(tpl.InitContainers))
-	for _, c := range tpl.Containers {
+	for i := range tpl.Containers {
+		c := &tpl.Containers[i]
 		out = append(out, map[string]interface{}{"name": c.Name, "image": c.Image, "init": false})
 	}
-	for _, c := range tpl.InitContainers {
+	for i := range tpl.InitContainers {
+		c := &tpl.InitContainers[i]
 		out = append(out, map[string]interface{}{"name": c.Name, "image": c.Image, "init": true})
 	}
 	return out
@@ -141,7 +147,7 @@ func loadKubeConfig(kubeconfigPath string) (*rest.Config, error) {
 func (k *KubeClient) ServerVersion(_ context.Context) (string, error) {
 	info, err := k.clientset.Discovery().ServerVersion()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("discovery server version: %w", err)
 	}
 	return info.GitVersion, nil
 }
@@ -298,7 +304,8 @@ func (k *KubeClient) ListNamespaces(ctx context.Context) ([]NamespaceInfo, error
 		return nil, fmt.Errorf("list namespaces: %w", err)
 	}
 	out := make([]NamespaceInfo, 0, len(list.Items))
-	for _, n := range list.Items {
+	for i := range list.Items {
+		n := &list.Items[i]
 		out = append(out, NamespaceInfo{
 			Name:   n.Name,
 			Phase:  string(n.Status.Phase),
@@ -340,7 +347,7 @@ func (k *KubeClient) ListPods(ctx context.Context) ([]PodInfo, error) {
 // controllerOwner returns the (kind, name) of the ownerReference marked
 // controller: true, if any. Pods with no controller — bare pods, or ones
 // whose controller was deleted mid-reconcile — return ("", "").
-func controllerOwner(refs []metav1.OwnerReference) (string, string) {
+func controllerOwner(refs []metav1.OwnerReference) (kind, name string) {
 	for _, r := range refs {
 		if r.Controller != nil && *r.Controller {
 			return r.Kind, r.Name
@@ -368,8 +375,8 @@ func (k *KubeClient) ListPersistentVolumes(ctx context.Context) ([]PVInfo, error
 			StorageClassName: pv.Spec.StorageClassName,
 			Labels:           pv.Labels,
 		}
-		if cap, ok := pv.Spec.Capacity[corev1.ResourceStorage]; ok {
-			info.Capacity = cap.String()
+		if capacity, ok := pv.Spec.Capacity[corev1.ResourceStorage]; ok {
+			info.Capacity = capacity.String()
 		}
 		if modes := pv.Spec.AccessModes; len(modes) > 0 {
 			m := make([]string, 0, len(modes))
@@ -451,9 +458,6 @@ func (k *KubeClient) ListReplicaSetOwners(ctx context.Context) ([]ReplicaSetOwne
 	return out, nil
 }
 
-// ListServices returns every Service visible through the configured kubeconfig,
-// across all namespaces. Ports are serialised into generic maps so the store
-// can persist them as JSONB without coupling to client-go types.
 // ListIngresses returns every Ingress visible through the configured
 // kubeconfig. Rules and TLS entries are flattened to generic maps so the
 // store persists them as JSONB without coupling to client-go types.
@@ -463,52 +467,60 @@ func (k *KubeClient) ListIngresses(ctx context.Context) ([]IngressInfo, error) {
 		return nil, fmt.Errorf("list ingresses: %w", err)
 	}
 	out := make([]IngressInfo, 0, len(list.Items))
-	for _, ing := range list.Items {
-		rules := make([]map[string]interface{}, 0, len(ing.Spec.Rules))
-		for _, r := range ing.Spec.Rules {
-			paths := []map[string]interface{}{}
-			if r.HTTP != nil {
-				for _, p := range r.HTTP.Paths {
-					path := map[string]interface{}{
-						"path": p.Path,
-					}
-					if p.PathType != nil {
-						path["path_type"] = string(*p.PathType)
-					}
-					if backend := netv1Backend(&p.Backend); backend != nil {
-						path["backend"] = backend
-					}
-					paths = append(paths, path)
-				}
-			}
-			entry := map[string]interface{}{"host": r.Host, "paths": paths}
-			rules = append(rules, entry)
-		}
-
-		tls := make([]map[string]interface{}, 0, len(ing.Spec.TLS))
-		for _, t := range ing.Spec.TLS {
-			tls = append(tls, map[string]interface{}{
-				"hosts":       t.Hosts,
-				"secret_name": t.SecretName,
-			})
-		}
-
+	for i := range list.Items {
+		ing := &list.Items[i]
 		var className string
 		if ing.Spec.IngressClassName != nil {
 			className = *ing.Spec.IngressClassName
 		}
-
 		out = append(out, IngressInfo{
 			Name:             ing.Name,
 			Namespace:        ing.Namespace,
 			IngressClassName: className,
-			Rules:            rules,
-			TLS:              tls,
+			Rules:            flattenIngressRules(ing.Spec.Rules),
+			TLS:              flattenIngressTLS(ing.Spec.TLS),
 			LoadBalancer:     netv1LoadBalancerIngress(ing.Status.LoadBalancer.Ingress),
 			Labels:           ing.Labels,
 		})
 	}
 	return out, nil
+}
+
+// flattenIngressRules converts Kubernetes IngressRules into generic maps.
+func flattenIngressRules(rules []networkingv1.IngressRule) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(rules))
+	for _, r := range rules {
+		paths := []map[string]interface{}{}
+		if r.HTTP != nil {
+			for j := range r.HTTP.Paths {
+				p := &r.HTTP.Paths[j]
+				path := map[string]interface{}{
+					"path": p.Path,
+				}
+				if p.PathType != nil {
+					path["path_type"] = string(*p.PathType)
+				}
+				if backend := netv1Backend(&p.Backend); backend != nil {
+					path["backend"] = backend
+				}
+				paths = append(paths, path)
+			}
+		}
+		out = append(out, map[string]interface{}{"host": r.Host, "paths": paths})
+	}
+	return out
+}
+
+// flattenIngressTLS converts Kubernetes IngressTLS entries into generic maps.
+func flattenIngressTLS(tls []networkingv1.IngressTLS) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(tls))
+	for _, t := range tls {
+		out = append(out, map[string]interface{}{
+			"hosts":       t.Hosts,
+			"secret_name": t.SecretName,
+		})
+	}
+	return out
 }
 
 // netv1LoadBalancerIngress flattens NetworkingV1 LB entries into the
@@ -577,38 +589,47 @@ func corev1LoadBalancerIngress(ingress []corev1.LoadBalancerIngress) []map[strin
 	return out
 }
 
+// ListServices returns every Service visible through the configured kubeconfig,
+// across all namespaces.
 func (k *KubeClient) ListServices(ctx context.Context) ([]ServiceInfo, error) {
 	list, err := k.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list services: %w", err)
 	}
 	out := make([]ServiceInfo, 0, len(list.Items))
-	for _, s := range list.Items {
-		ports := make([]map[string]interface{}, 0, len(s.Spec.Ports))
-		for _, p := range s.Spec.Ports {
-			entry := map[string]interface{}{
-				"name":        p.Name,
-				"port":        int(p.Port),
-				"protocol":    string(p.Protocol),
-				"target_port": p.TargetPort.String(),
-			}
-			if p.NodePort != 0 {
-				entry["node_port"] = int(p.NodePort)
-			}
-			ports = append(ports, entry)
-		}
+	for i := range list.Items {
+		s := &list.Items[i]
 		out = append(out, ServiceInfo{
 			Name:         s.Name,
 			Namespace:    s.Namespace,
 			Type:         string(s.Spec.Type),
 			ClusterIP:    s.Spec.ClusterIP,
 			Selector:     s.Spec.Selector,
-			Ports:        ports,
+			Ports:        flattenServicePorts(s.Spec.Ports),
 			LoadBalancer: corev1LoadBalancerIngress(s.Status.LoadBalancer.Ingress),
 			Labels:       s.Labels,
 		})
 	}
 	return out, nil
+}
+
+// flattenServicePorts converts Kubernetes ServicePorts into generic maps.
+func flattenServicePorts(ports []corev1.ServicePort) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(ports))
+	for i := range ports {
+		p := &ports[i]
+		entry := map[string]interface{}{
+			"name":        p.Name,
+			"port":        int(p.Port),
+			"protocol":    string(p.Protocol),
+			"target_port": p.TargetPort.String(),
+		}
+		if p.NodePort != 0 {
+			entry["node_port"] = int(p.NodePort)
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // ListWorkloads fans out three AppsV1 list calls (Deployments, StatefulSets,
@@ -618,11 +639,35 @@ func (k *KubeClient) ListServices(ctx context.Context) ([]ServiceInfo, error) {
 func (k *KubeClient) ListWorkloads(ctx context.Context) ([]WorkloadInfo, error) {
 	out := make([]WorkloadInfo, 0)
 
+	deployments, err := k.listDeployments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, deployments...)
+
+	statefulSets, err := k.listStatefulSets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, statefulSets...)
+
+	daemonSets, err := k.listDaemonSets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, daemonSets...)
+
+	return out, nil
+}
+
+func (k *KubeClient) listDeployments(ctx context.Context) ([]WorkloadInfo, error) {
 	deps, err := k.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list deployments: %w", err)
 	}
-	for _, d := range deps.Items {
+	out := make([]WorkloadInfo, 0, len(deps.Items))
+	for i := range deps.Items {
+		d := &deps.Items[i]
 		replicas := int(d.Status.Replicas)
 		readyReplicas := int(d.Status.ReadyReplicas)
 		out = append(out, WorkloadInfo{
@@ -631,16 +676,21 @@ func (k *KubeClient) ListWorkloads(ctx context.Context) ([]WorkloadInfo, error) 
 			Kind:          api.Deployment,
 			Replicas:      &replicas,
 			ReadyReplicas: &readyReplicas,
-			Containers:    podTemplateContainers(d.Spec.Template.Spec),
+			Containers:    podTemplateContainers(&d.Spec.Template.Spec),
 			Labels:        d.Labels,
 		})
 	}
+	return out, nil
+}
 
+func (k *KubeClient) listStatefulSets(ctx context.Context) ([]WorkloadInfo, error) {
 	sfs, err := k.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list statefulsets: %w", err)
 	}
-	for _, s := range sfs.Items {
+	out := make([]WorkloadInfo, 0, len(sfs.Items))
+	for i := range sfs.Items {
+		s := &sfs.Items[i]
 		replicas := int(s.Status.Replicas)
 		readyReplicas := int(s.Status.ReadyReplicas)
 		out = append(out, WorkloadInfo{
@@ -649,16 +699,21 @@ func (k *KubeClient) ListWorkloads(ctx context.Context) ([]WorkloadInfo, error) 
 			Kind:          api.StatefulSet,
 			Replicas:      &replicas,
 			ReadyReplicas: &readyReplicas,
-			Containers:    podTemplateContainers(s.Spec.Template.Spec),
+			Containers:    podTemplateContainers(&s.Spec.Template.Spec),
 			Labels:        s.Labels,
 		})
 	}
+	return out, nil
+}
 
+func (k *KubeClient) listDaemonSets(ctx context.Context) ([]WorkloadInfo, error) {
 	dss, err := k.clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list daemonsets: %w", err)
 	}
-	for _, d := range dss.Items {
+	out := make([]WorkloadInfo, 0, len(dss.Items))
+	for i := range dss.Items {
+		d := &dss.Items[i]
 		// DaemonSet has no scalar desired count; expose ReadyReplicas only
 		// via Status.NumberReady so the CMDB surfaces observable fleet size.
 		readyReplicas := int(d.Status.NumberReady)
@@ -667,10 +722,9 @@ func (k *KubeClient) ListWorkloads(ctx context.Context) ([]WorkloadInfo, error) 
 			Namespace:     d.Namespace,
 			Kind:          api.DaemonSet,
 			ReadyReplicas: &readyReplicas,
-			Containers:    podTemplateContainers(d.Spec.Template.Spec),
+			Containers:    podTemplateContainers(&d.Spec.Template.Spec),
 			Labels:        d.Labels,
 		})
 	}
-
 	return out, nil
 }

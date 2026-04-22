@@ -94,7 +94,7 @@ func nsNatKey(clusterID uuid.UUID, name string) string {
 
 func (m *memStore) Ping(_ context.Context) error { return m.pingErr }
 
-func (m *memStore) CreateCluster(_ context.Context, in ClusterCreate) (Cluster, error) {
+func (m *memStore) CreateCluster(_ context.Context, in ClusterCreate) (Cluster, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, exists := m.byName[in.Name]; exists {
@@ -153,7 +153,7 @@ func (m *memStore) ListClusters(_ context.Context, limit int, _ string) ([]Clust
 		limit = 50
 	}
 	out := make([]Cluster, 0, len(m.byID))
-	for _, c := range m.byID {
+	for _, c := range m.byID { //nolint:gocritic // acceptable copy in test code
 		out = append(out, c)
 	}
 	if len(out) > limit {
@@ -162,6 +162,7 @@ func (m *memStore) ListClusters(_ context.Context, limit int, _ string) ([]Clust
 	return out, "", nil
 }
 
+//nolint:gocyclo,gocritic // merge-patch test fake; interface-mandated signature
 func (m *memStore) UpdateCluster(_ context.Context, id uuid.UUID, in ClusterUpdate) (Cluster, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -231,7 +232,7 @@ func (m *memStore) DeleteCluster(_ context.Context, id uuid.UUID) error {
 // the Kubernetes API. Used for both fresh inserts and on-conflict
 // updates so an operator's curated edits are not overwritten on the
 // next collector tick (ADR-0008 invariant).
-func copyNodeCollectorFieldsFromCreate(n *Node, in NodeCreate) {
+func copyNodeCollectorFieldsFromCreate(n *Node, in NodeCreate) { //nolint:gocritic // value semantics intentional for test helper
 	n.DisplayName = in.DisplayName
 	n.Role = in.Role
 	n.KubeletVersion = in.KubeletVersion
@@ -265,7 +266,7 @@ func copyNodeCollectorFieldsFromCreate(n *Node, in NodeCreate) {
 // copyNodeCuratedFieldsFromCreate is the second half: the
 // operator-owned columns (ADR-0008). Only applied on fresh inserts,
 // never on upsert-conflict — the collector never carries these values.
-func copyNodeCuratedFieldsFromCreate(n *Node, in NodeCreate) {
+func copyNodeCuratedFieldsFromCreate(n *Node, in NodeCreate) { //nolint:gocritic // value semantics intentional for test helper
 	n.Owner = in.Owner
 	n.Criticality = in.Criticality
 	n.Notes = in.Notes
@@ -276,12 +277,12 @@ func copyNodeCuratedFieldsFromCreate(n *Node, in NodeCreate) {
 
 // copyNodeMutableFromCreate sets every mutable column (collector-owned
 // + curated). Used for the insert path on CreateNode and UpsertNode.
-func copyNodeMutableFromCreate(n *Node, in NodeCreate) {
+func copyNodeMutableFromCreate(n *Node, in NodeCreate) { //nolint:gocritic // value semantics intentional for test helper
 	copyNodeCollectorFieldsFromCreate(n, in)
 	copyNodeCuratedFieldsFromCreate(n, in)
 }
 
-func (m *memStore) CreateNode(_ context.Context, in NodeCreate) (Node, error) {
+func (m *memStore) CreateNode(_ context.Context, in NodeCreate) (Node, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
@@ -324,7 +325,7 @@ func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int,
 		limit = 50
 	}
 	out := make([]Node, 0, len(m.nodesByID))
-	for _, n := range m.nodesByID {
+	for _, n := range m.nodesByID { //nolint:gocritic // acceptable copy in test code
 		if clusterID != nil && n.ClusterId != *clusterID {
 			continue
 		}
@@ -336,6 +337,7 @@ func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int,
 	return out, "", nil
 }
 
+//nolint:gocyclo,gocognit,gocritic // merge-patch test fake; 30+ nullable fields
 func (m *memStore) UpdateNode(_ context.Context, id uuid.UUID, in NodeUpdate) (Node, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -463,7 +465,7 @@ func (m *memStore) DeleteNode(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) CreateNamespace(_ context.Context, in NamespaceCreate) (Namespace, error) {
+func (m *memStore) CreateNamespace(_ context.Context, in NamespaceCreate) (Namespace, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
@@ -513,7 +515,7 @@ func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit
 		limit = 50
 	}
 	out := make([]Namespace, 0, len(m.nsByID))
-	for _, n := range m.nsByID {
+	for _, n := range m.nsByID { //nolint:gocritic // acceptable copy in test code
 		if clusterID != nil && n.ClusterId != *clusterID {
 			continue
 		}
@@ -574,7 +576,7 @@ func (m *memStore) DeleteNamespace(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) CreatePod(_ context.Context, in PodCreate) (Pod, error) {
+func (m *memStore) CreatePod(_ context.Context, in PodCreate) (Pod, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -620,6 +622,7 @@ func (m *memStore) GetPod(_ context.Context, id uuid.UUID) (Pod, error) {
 	return p, nil
 }
 
+//nolint:gocyclo // multi-filter test fake
 func (m *memStore) ListPods(_ context.Context, filter PodListFilter, limit int, _ string) ([]Pod, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -715,7 +718,7 @@ func (m *memStore) DeletePod(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) {
+func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -784,7 +787,7 @@ func (m *memStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, kee
 	return deleted, nil
 }
 
-func (m *memStore) CreateWorkload(_ context.Context, in WorkloadCreate) (Workload, error) {
+func (m *memStore) CreateWorkload(_ context.Context, in WorkloadCreate) (Workload, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -825,7 +828,10 @@ func (m *memStore) GetWorkload(_ context.Context, id uuid.UUID) (Workload, error
 	return wl, nil
 }
 
-func (m *memStore) ListWorkloads(_ context.Context, filter WorkloadListFilter, limit int, _ string) ([]Workload, string, error) {
+//nolint:gocyclo // multi-filter test fake
+func (m *memStore) ListWorkloads(
+	_ context.Context, filter WorkloadListFilter, limit int, _ string,
+) ([]Workload, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -894,7 +900,7 @@ func (m *memStore) DeleteWorkload(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workload, error) {
+func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workload, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -1116,7 +1122,7 @@ func (m *memStore) DeleteIngressesNotIn(_ context.Context, namespaceID uuid.UUID
 	return deleted, nil
 }
 
-func (m *memStore) CreateService(_ context.Context, in ServiceCreate) (Service, error) {
+func (m *memStore) CreateService(_ context.Context, in ServiceCreate) (Service, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -1219,7 +1225,7 @@ func (m *memStore) DeleteService(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, error) {
+func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -1281,7 +1287,7 @@ func (m *memStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID,
 	return deleted, nil
 }
 
-func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Namespace, error) {
+func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Namespace, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
@@ -1330,7 +1336,7 @@ func (m *memStore) DeleteNodesNotIn(_ context.Context, clusterID uuid.UUID, keep
 		keep[name] = struct{}{}
 	}
 	var deleted int64
-	for id, n := range m.nodesByID {
+	for id, n := range m.nodesByID { //nolint:gocritic // acceptable copy in test code
 		if n.ClusterId != clusterID {
 			continue
 		}
@@ -1352,7 +1358,7 @@ func (m *memStore) DeleteNamespacesNotIn(_ context.Context, clusterID uuid.UUID,
 		keep[name] = struct{}{}
 	}
 	var deleted int64
-	for id, n := range m.nsByID {
+	for id, n := range m.nsByID { //nolint:gocritic // acceptable copy in test code
 		if n.ClusterId != clusterID {
 			continue
 		}
@@ -1366,7 +1372,7 @@ func (m *memStore) DeleteNamespacesNotIn(_ context.Context, clusterID uuid.UUID,
 	return deleted, nil
 }
 
-func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) {
+func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
@@ -1410,6 +1416,7 @@ func pvcNatKey(namespaceID uuid.UUID, name string) string {
 	return namespaceID.String() + "/" + name
 }
 
+//nolint:gocritic // interface-mandated signature
 func (m *memStore) CreatePersistentVolume(_ context.Context, in PersistentVolumeCreate) (PersistentVolume, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1462,7 +1469,7 @@ func (m *memStore) ListPersistentVolumes(_ context.Context, clusterID *uuid.UUID
 		limit = 50
 	}
 	out := make([]PersistentVolume, 0, len(m.pvsByID))
-	for _, pv := range m.pvsByID {
+	for _, pv := range m.pvsByID { //nolint:gocritic // acceptable copy in test code
 		if clusterID != nil && pv.ClusterId != *clusterID {
 			continue
 		}
@@ -1474,7 +1481,10 @@ func (m *memStore) ListPersistentVolumes(_ context.Context, clusterID *uuid.UUID
 	return out, "", nil
 }
 
-func (m *memStore) UpdatePersistentVolume(_ context.Context, id uuid.UUID, in PersistentVolumeUpdate) (PersistentVolume, error) {
+//nolint:gocyclo,gocritic // merge-patch test fake; interface-mandated signature
+func (m *memStore) UpdatePersistentVolume(
+	_ context.Context, id uuid.UUID, in PersistentVolumeUpdate,
+) (PersistentVolume, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	pv, ok := m.pvsByID[id]
@@ -1536,7 +1546,10 @@ func (m *memStore) DeletePersistentVolume(_ context.Context, id uuid.UUID) error
 	return nil
 }
 
-func (m *memStore) UpsertPersistentVolume(_ context.Context, in PersistentVolumeCreate) (PersistentVolume, error) {
+//nolint:gocritic // interface-mandated signature
+func (m *memStore) UpsertPersistentVolume(
+	_ context.Context, in PersistentVolumeCreate,
+) (PersistentVolume, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
@@ -1594,7 +1607,7 @@ func (m *memStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uui
 		keep[n] = struct{}{}
 	}
 	var deleted int64
-	for id, pv := range m.pvsByID {
+	for id, pv := range m.pvsByID { //nolint:gocritic // acceptable copy in test code
 		if pv.ClusterId != clusterID {
 			continue
 		}
@@ -1614,7 +1627,10 @@ func (m *memStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uui
 	return deleted, nil
 }
 
-func (m *memStore) CreatePersistentVolumeClaim(_ context.Context, in PersistentVolumeClaimCreate) (PersistentVolumeClaim, error) {
+//nolint:gocritic // interface-mandated signature
+func (m *memStore) CreatePersistentVolumeClaim(
+	_ context.Context, in PersistentVolumeClaimCreate,
+) (PersistentVolumeClaim, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -1661,7 +1677,9 @@ func (m *memStore) GetPersistentVolumeClaim(_ context.Context, id uuid.UUID) (Pe
 	return pvc, nil
 }
 
-func (m *memStore) ListPersistentVolumeClaims(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]PersistentVolumeClaim, string, error) {
+func (m *memStore) ListPersistentVolumeClaims(
+	_ context.Context, namespaceID *uuid.UUID, limit int, _ string,
+) ([]PersistentVolumeClaim, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -1729,7 +1747,10 @@ func (m *memStore) DeletePersistentVolumeClaim(_ context.Context, id uuid.UUID) 
 	return nil
 }
 
-func (m *memStore) UpsertPersistentVolumeClaim(_ context.Context, in PersistentVolumeClaimCreate) (PersistentVolumeClaim, error) {
+//nolint:gocritic // interface-mandated signature
+func (m *memStore) UpsertPersistentVolumeClaim(
+	_ context.Context, in PersistentVolumeClaimCreate,
+) (PersistentVolumeClaim, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -1860,7 +1881,7 @@ func TestHealthAndReadiness(t *testing.T) {
 	})
 }
 
-func TestClusterCRUD(t *testing.T) {
+func TestClusterCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test exercises full lifecycle
 	t.Parallel()
 	h := newTestHandler(t, newMemStore())
 
@@ -1938,7 +1959,7 @@ func TestClusterCRUD(t *testing.T) {
 	}
 }
 
-func TestNodeCRUD(t *testing.T) {
+func TestNodeCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test exercises full lifecycle
 	t.Parallel()
 	store := newMemStore()
 	h := newTestHandler(t, store)
@@ -2056,7 +2077,7 @@ func TestNodeCRUD(t *testing.T) {
 	}
 }
 
-func TestNamespaceCRUD(t *testing.T) {
+func TestNamespaceCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test exercises full lifecycle
 	t.Parallel()
 	store := newMemStore()
 	h := newTestHandler(t, store)
@@ -2150,7 +2171,7 @@ func TestNamespaceCRUD(t *testing.T) {
 	}
 }
 
-func TestPodCRUD(t *testing.T) {
+func TestPodCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test exercises full lifecycle
 	t.Parallel()
 	store := newMemStore()
 	h := newTestHandler(t, store)
@@ -2263,7 +2284,7 @@ func TestPodCRUD(t *testing.T) {
 	}
 }
 
-func TestWorkloadCRUD(t *testing.T) {
+func TestWorkloadCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test exercises full lifecycle
 	t.Parallel()
 	store := newMemStore()
 	h := newTestHandler(t, store)
@@ -2372,7 +2393,7 @@ func TestWorkloadCRUD(t *testing.T) {
 	}
 }
 
-func TestIngressCRUD(t *testing.T) {
+func TestIngressCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test exercises full lifecycle
 	t.Parallel()
 	store := newMemStore()
 	h := newTestHandler(t, store)
@@ -2444,7 +2465,7 @@ func TestIngressCRUD(t *testing.T) {
 	}
 }
 
-func TestServiceCRUD(t *testing.T) {
+func TestServiceCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test exercises full lifecycle
 	t.Parallel()
 	store := newMemStore()
 	h := newTestHandler(t, store)
@@ -2499,7 +2520,7 @@ func TestServiceCRUD(t *testing.T) {
 	}
 }
 
-func TestResponsesCarryAnssiLayer(t *testing.T) {
+func TestResponsesCarryAnssiLayer(t *testing.T) { //nolint:gocyclo // tests every entity kind for layer decoration
 	t.Parallel()
 	store := newMemStore()
 	h := newTestHandler(t, store)
@@ -2599,7 +2620,7 @@ func TestUnknownRoute404(t *testing.T) {
 }
 
 func do(h http.Handler, method, target, body string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req, _ := http.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}

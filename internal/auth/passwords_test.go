@@ -70,7 +70,7 @@ func TestRandomSecretNonEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s) == 0 {
+	if s == "" {
 		t.Fatal("empty secret")
 	}
 	// Base64-url unpadded: 16 raw bytes → 22 chars.

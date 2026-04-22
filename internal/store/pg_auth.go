@@ -23,6 +23,7 @@ import (
 const userColumns = `id, username, role, must_change_password,
 	created_at, updated_at, last_login_at, disabled_at`
 
+// CountActiveAdmins returns the number of non-disabled admin users.
 func (p *PG) CountActiveAdmins(ctx context.Context) (int, error) {
 	var n int
 	if err := p.pool.QueryRow(ctx,
@@ -33,6 +34,7 @@ func (p *PG) CountActiveAdmins(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// CreateUser inserts a new user and returns the stored representation.
 func (p *PG) CreateUser(ctx context.Context, in api.UserInsert) (api.User, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -52,6 +54,7 @@ func (p *PG) CreateUser(ctx context.Context, in api.UserInsert) (api.User, error
 	return p.GetUser(ctx, id)
 }
 
+// GetUser fetches a user by id.
 func (p *PG) GetUser(ctx context.Context, id uuid.UUID) (api.User, error) {
 	q := `SELECT ` + userColumns + ` FROM users WHERE id = $1`
 	u, err := scanUser(p.pool.QueryRow(ctx, q, id))
@@ -64,6 +67,7 @@ func (p *PG) GetUser(ctx context.Context, id uuid.UUID) (api.User, error) {
 	return u, nil
 }
 
+// GetUserByUsername fetches a non-disabled user by case-insensitive username, including the password hash.
 func (p *PG) GetUserByUsername(ctx context.Context, username string) (api.UserWithSecret, error) {
 	q := `SELECT ` + userColumns + `, password_hash
 	      FROM users
@@ -89,16 +93,19 @@ func (p *PG) GetUserByUsername(ctx context.Context, username string) (api.UserWi
 		}
 		return api.UserWithSecret{}, fmt.Errorf("select user by username: %w", err)
 	}
-	out.User.Id = &id
-	out.User.Role = api.Role(role)
-	out.User.MustChangePassword = &mustChange
-	out.User.CreatedAt = &createdAt
-	out.User.UpdatedAt = &updatedAt
-	out.User.LastLoginAt = lastLoginAt
-	out.User.DisabledAt = disabledAt
+	out.Id = &id
+	out.Role = api.Role(role)
+	out.MustChangePassword = &mustChange
+	out.CreatedAt = &createdAt
+	out.UpdatedAt = &updatedAt
+	out.LastLoginAt = lastLoginAt
+	out.DisabledAt = disabledAt
 	return out, nil
 }
 
+// ListUsers returns a cursor-paginated list of users sorted by creation date descending.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListUsers(ctx context.Context, limit int, cursor string) ([]api.User, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -159,6 +166,9 @@ func (p *PG) ListUsers(ctx context.Context, limit int, cursor string) ([]api.Use
 	return items, next, nil
 }
 
+// UpdateUser applies merge-patch semantics on user fields (role, must-change, disabled).
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdateUser(ctx context.Context, id uuid.UUID, in api.UserPatch) (api.User, error) {
 	sets := []string{"updated_at = $1"}
 	args := []any{time.Now().UTC()}
@@ -206,6 +216,7 @@ func (p *PG) UpdateUser(ctx context.Context, id uuid.UUID, in api.UserPatch) (ap
 	return p.GetUser(ctx, id)
 }
 
+// SetUserPassword updates the password hash and must-change flag, then invalidates all sessions.
 func (p *PG) SetUserPassword(ctx context.Context, id uuid.UUID, hash string, mustChange bool) error {
 	now := time.Now().UTC()
 	tag, err := p.pool.Exec(ctx,
@@ -223,6 +234,7 @@ func (p *PG) SetUserPassword(ctx context.Context, id uuid.UUID, hash string, mus
 	return p.DeleteSessionsForUser(ctx, id)
 }
 
+// TouchUserLogin records the last login timestamp.
 func (p *PG) TouchUserLogin(ctx context.Context, id uuid.UUID, now time.Time) error {
 	_, err := p.pool.Exec(ctx, `UPDATE users SET last_login_at = $1 WHERE id = $2`, now, id)
 	if err != nil {
@@ -231,6 +243,7 @@ func (p *PG) TouchUserLogin(ctx context.Context, id uuid.UUID, now time.Time) er
 	return nil
 }
 
+// DeleteUser removes a user by id, returning ErrConflict if the user owns active API tokens.
 func (p *PG) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	tag, err := p.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
 	if err != nil {
@@ -292,7 +305,7 @@ func scanUser(row pgx.Row) (api.User, error) {
 		&id, &out.Username, &role, &mustChange,
 		&createdAt, &updatedAt, &lastLoginAt, &disabledAt,
 	); err != nil {
-		return api.User{}, err
+		return api.User{}, fmt.Errorf("scan user: %w", err)
 	}
 	out.Id = &id
 	out.Role = api.Role(role)
@@ -306,6 +319,9 @@ func scanUser(row pgx.Row) (api.User, error) {
 
 // --- sessions ------------------------------------------------------------
 
+// CreateSession persists a new session row.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreateSession(ctx context.Context, in api.SessionInsert) error {
 	var userAgent, sourceIP any = in.UserAgent, in.SourceIP
 	if in.UserAgent == "" {
@@ -328,6 +344,7 @@ func (p *PG) CreateSession(ctx context.Context, in api.SessionInsert) error {
 	return nil
 }
 
+// GetActiveSession retrieves a non-expired session by cookie id.
 func (p *PG) GetActiveSession(ctx context.Context, id string) (auth.Session, error) {
 	var s auth.Session
 	err := p.pool.QueryRow(ctx,
@@ -345,6 +362,7 @@ func (p *PG) GetActiveSession(ctx context.Context, id string) (auth.Session, err
 	return s, nil
 }
 
+// TouchSession extends the session's last-used and expiry timestamps.
 func (p *PG) TouchSession(ctx context.Context, id string, now, newExpiry time.Time) error {
 	_, err := p.pool.Exec(ctx,
 		`UPDATE sessions SET last_used_at = $1, expires_at = $2 WHERE id = $3`,
@@ -382,6 +400,7 @@ func (p *PG) DeleteSessionByPublicID(ctx context.Context, publicID uuid.UUID) er
 	return nil
 }
 
+// DeleteSessionsForUser revokes every session for the given user.
 func (p *PG) DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := p.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID)
 	if err != nil {
@@ -416,7 +435,7 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 		tsIdx := len(args)
 		args = append(args, cid)
 		idIdx := len(args)
-		sb.WriteString(fmt.Sprintf(" AND (s.created_at, s.public_id) < ($%d, $%d)", tsIdx, idIdx))
+		fmt.Fprintf(&sb, " AND (s.created_at, s.public_id) < ($%d, $%d)", tsIdx, idIdx)
 	}
 	args = append(args, limit+1)
 	fmt.Fprintf(&sb, " ORDER BY s.created_at DESC, s.public_id DESC LIMIT $%d", len(args))
@@ -469,6 +488,9 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 const apiTokenColumns = `id, name, prefix, scopes, created_by_user_id,
 	created_at, last_used_at, expires_at, revoked_at`
 
+// CreateAPIToken inserts a new bearer token and returns the stored representation.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreateAPIToken(ctx context.Context, in api.APITokenInsert) (api.ApiToken, error) {
 	now := time.Now().UTC()
 	_, err := p.pool.Exec(ctx,
@@ -505,6 +527,7 @@ func (p *PG) getAPIToken(ctx context.Context, id uuid.UUID) (api.ApiToken, error
 	return t, nil
 }
 
+// GetActiveTokenByPrefix looks up a non-revoked, non-expired token by its 8-char prefix.
 func (p *PG) GetActiveTokenByPrefix(ctx context.Context, prefix string) (auth.APIToken, error) {
 	var (
 		t      auth.APIToken
@@ -528,6 +551,7 @@ func (p *PG) GetActiveTokenByPrefix(ctx context.Context, prefix string) (auth.AP
 	return t, nil
 }
 
+// TouchToken records the last-used timestamp for an API token.
 func (p *PG) TouchToken(ctx context.Context, id uuid.UUID, now time.Time) error {
 	_, err := p.pool.Exec(ctx, `UPDATE api_tokens SET last_used_at = $1 WHERE id = $2`, now, id)
 	if err != nil {
@@ -536,6 +560,9 @@ func (p *PG) TouchToken(ctx context.Context, id uuid.UUID, now time.Time) error 
 	return nil
 }
 
+// ListAPITokens returns a cursor-paginated list of API tokens sorted by creation date descending.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListAPITokens(ctx context.Context, limit int, cursor string) ([]api.ApiToken, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -596,6 +623,7 @@ func (p *PG) ListAPITokens(ctx context.Context, limit int, cursor string) ([]api
 	return items, next, nil
 }
 
+// RevokeAPIToken marks a token as revoked. Idempotent if already revoked; returns ErrNotFound if absent.
 func (p *PG) RevokeAPIToken(ctx context.Context, id uuid.UUID, now time.Time) error {
 	tag, err := p.pool.Exec(ctx,
 		`UPDATE api_tokens SET revoked_at = $1 WHERE id = $2 AND revoked_at IS NULL`,
@@ -623,6 +651,7 @@ func (p *PG) RevokeAPIToken(ctx context.Context, id uuid.UUID, now time.Time) er
 
 // --- OIDC identities + auth states --------------------------------------
 
+// GetUserByIdentity looks up a non-disabled user by their OIDC (issuer, subject) pair.
 func (p *PG) GetUserByIdentity(ctx context.Context, issuer, subject string) (api.User, error) {
 	// user_identities also has an id / created_at column — qualify every
 	// selected column with the users alias so the planner doesn't reject
@@ -694,6 +723,7 @@ func (p *PG) CreateUserWithIdentity(ctx context.Context, in api.UserInsert, iden
 	return p.GetUser(ctx, id)
 }
 
+// TouchUserIdentity updates the last-seen timestamp for an OIDC identity row.
 func (p *PG) TouchUserIdentity(ctx context.Context, userID uuid.UUID, issuer, subject string, now time.Time) error {
 	_, err := p.pool.Exec(ctx,
 		`UPDATE user_identities SET last_seen_at = $1
@@ -706,6 +736,9 @@ func (p *PG) TouchUserIdentity(ctx context.Context, userID uuid.UUID, issuer, su
 	return nil
 }
 
+// CreateOidcAuthState persists an in-flight OIDC state row (code_verifier + nonce).
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) CreateOidcAuthState(ctx context.Context, in api.OidcAuthStateInsert) error {
 	_, err := p.pool.Exec(ctx,
 		`INSERT INTO oidc_auth_states (state, code_verifier, nonce, created_at, expires_at)
@@ -721,14 +754,13 @@ func (p *PG) CreateOidcAuthState(ctx context.Context, in api.OidcAuthStateInsert
 // ConsumeOidcAuthState does SELECT ... FOR UPDATE + DELETE in one tx so
 // the row is single-use even under concurrent callbacks carrying the
 // same state (an attack scenario, not a normal case).
-func (p *PG) ConsumeOidcAuthState(ctx context.Context, state string) (string, string, error) {
+func (p *PG) ConsumeOidcAuthState(ctx context.Context, state string) (codeVerifier, nonce string, err error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return "", "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var codeVerifier, nonce string
 	err = tx.QueryRow(ctx,
 		`SELECT code_verifier, nonce FROM oidc_auth_states
 		 WHERE state = $1 AND expires_at > NOW()
@@ -773,7 +805,7 @@ func scanAPIToken(row pgx.Row) (api.ApiToken, error) {
 		&id, &out.Name, &prefix, &scopes, &createdBy,
 		&createdAt, &lastUsedAt, &expiresAt, &revokedAt,
 	); err != nil {
-		return api.ApiToken{}, err
+		return api.ApiToken{}, fmt.Errorf("scan api token: %w", err)
 	}
 	out.Id = &id
 	out.Prefix = &prefix

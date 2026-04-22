@@ -22,6 +22,7 @@ const SessionDuration = 8 * time.Hour
 // override either way.
 type SecureCookiePolicy int
 
+// SecureCookiePolicy values control the Secure flag on session cookies.
 const (
 	SecureAuto SecureCookiePolicy = iota
 	SecureAlways

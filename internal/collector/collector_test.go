@@ -171,14 +171,15 @@ func (s *fakeStore) GetClusterByName(_ context.Context, name string) (api.Cluste
 	if s.listErr != nil {
 		return api.Cluster{}, s.listErr
 	}
-	for _, c := range s.clusters {
-		if c.Name == name {
-			return c, nil
+	for i := range s.clusters {
+		if s.clusters[i].Name == name {
+			return s.clusters[i], nil
 		}
 	}
 	return api.Cluster{}, api.ErrNotFound
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
 func (s *fakeStore) UpdateCluster(_ context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -186,8 +187,8 @@ func (s *fakeStore) UpdateCluster(_ context.Context, id uuid.UUID, in api.Cluste
 		return api.Cluster{}, s.updateErr
 	}
 	s.updates = append(s.updates, recordedUpdate{id: id, patch: in})
-	for i, c := range s.clusters {
-		if c.Id != nil && *c.Id == id {
+	for i := range s.clusters {
+		if s.clusters[i].Id != nil && *s.clusters[i].Id == id {
 			if in.KubernetesVersion != nil {
 				s.clusters[i].KubernetesVersion = in.KubernetesVersion
 			}
@@ -197,6 +198,7 @@ func (s *fakeStore) UpdateCluster(_ context.Context, id uuid.UUID, in api.Cluste
 	return api.Cluster{}, api.ErrNotFound
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
 func (s *fakeStore) UpsertNode(_ context.Context, in api.NodeCreate) (api.Node, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -225,13 +227,13 @@ func (s *fakeStore) DeleteNodesNotIn(_ context.Context, clusterID uuid.UUID, kee
 	}
 	kept := s.existingNodes[:0]
 	var deleted int64
-	for _, n := range s.existingNodes {
-		if n.ClusterId != clusterID {
-			kept = append(kept, n)
+	for i := range s.existingNodes {
+		if s.existingNodes[i].ClusterId != clusterID {
+			kept = append(kept, s.existingNodes[i])
 			continue
 		}
-		if _, ok := keep[n.Name]; ok {
-			kept = append(kept, n)
+		if _, ok := keep[s.existingNodes[i].Name]; ok {
+			kept = append(kept, s.existingNodes[i])
 			continue
 		}
 		deleted++
@@ -250,13 +252,14 @@ func (s *fakeStore) DeleteNamespacesNotIn(_ context.Context, clusterID uuid.UUID
 	}
 	kept := s.existingNS[:0]
 	var deleted int64
-	for _, n := range s.existingNS {
+	for i := range s.existingNS {
+		n := &s.existingNS[i]
 		if n.ClusterId != clusterID {
-			kept = append(kept, n)
+			kept = append(kept, *n)
 			continue
 		}
 		if _, ok := keep[n.Name]; ok {
-			kept = append(kept, n)
+			kept = append(kept, *n)
 			continue
 		}
 		deleted++
@@ -265,6 +268,7 @@ func (s *fakeStore) DeleteNamespacesNotIn(_ context.Context, clusterID uuid.UUID
 	return deleted, nil
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
 func (s *fakeStore) UpsertNamespace(_ context.Context, in api.NamespaceCreate) (api.Namespace, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -286,6 +290,7 @@ func (s *fakeStore) UpsertNamespace(_ context.Context, in api.NamespaceCreate) (
 	}, nil
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
 func (s *fakeStore) UpsertPod(_ context.Context, in api.PodCreate) (api.Pod, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -329,6 +334,7 @@ func (s *fakeStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, ke
 	return deleted, nil
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
 func (s *fakeStore) UpsertService(_ context.Context, in api.ServiceCreate) (api.Service, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -414,6 +420,7 @@ func (s *fakeStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID
 	return deleted, nil
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
 func (s *fakeStore) UpsertWorkload(_ context.Context, in api.WorkloadCreate) (api.Workload, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -461,6 +468,7 @@ func (s *fakeStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUI
 	return deleted, nil
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
 func (s *fakeStore) UpsertPersistentVolume(_ context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -491,13 +499,13 @@ func (s *fakeStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uu
 	}
 	kept := s.existingPVs[:0]
 	var deleted int64
-	for _, pv := range s.existingPVs {
-		if pv.ClusterId != clusterID {
-			kept = append(kept, pv)
+	for i := range s.existingPVs {
+		if s.existingPVs[i].ClusterId != clusterID {
+			kept = append(kept, s.existingPVs[i])
 			continue
 		}
-		if _, ok := keep[pv.Name]; ok {
-			kept = append(kept, pv)
+		if _, ok := keep[s.existingPVs[i].Name]; ok {
+			kept = append(kept, s.existingPVs[i])
 			continue
 		}
 		deleted++
@@ -506,6 +514,7 @@ func (s *fakeStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uu
 	return deleted, nil
 }
 
+//nolint:gocritic // hugeParam: signature matches CmdbStore interface
 func (s *fakeStore) UpsertPersistentVolumeClaim(_ context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -795,6 +804,12 @@ func TestPollReconcilesNodesAndNamespaces(t *testing.T) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
+	assertNodeReconcile(t, store)
+	assertNamespaceReconcile(t, store)
+}
+
+func assertNodeReconcile(t *testing.T, store *fakeStore) {
+	t.Helper()
 	if len(store.reconcileNodesCalls) != 1 {
 		t.Fatalf("node reconcile calls=%d, want 1", len(store.reconcileNodesCalls))
 	}
@@ -804,7 +819,10 @@ func TestPollReconcilesNodesAndNamespaces(t *testing.T) {
 	if len(store.existingNodes) != 1 || store.existingNodes[0].Name != "node-a" {
 		t.Errorf("existingNodes=%v, want only node-a", store.existingNodes)
 	}
+}
 
+func assertNamespaceReconcile(t *testing.T, store *fakeStore) {
+	t.Helper()
 	if len(store.reconcileNSCalls) != 1 {
 		t.Fatalf("namespace reconcile calls=%d, want 1", len(store.reconcileNSCalls))
 	}
@@ -1439,7 +1457,10 @@ func TestPollIngestsPersistentVolumes(t *testing.T) {
 	source := &fakeSource{
 		version: "v1.29.5",
 		pvs: []PVInfo{
-			{Name: "pv-a", Capacity: "10Gi", AccessModes: []string{"ReadWriteOnce"}, Phase: "Bound", CSIDriver: "ebs.csi.aws.com", VolumeHandle: "vol-123"},
+			{
+				Name: "pv-a", Capacity: "10Gi", AccessModes: []string{"ReadWriteOnce"},
+				Phase: "Bound", CSIDriver: "ebs.csi.aws.com", VolumeHandle: "vol-123",
+			},
 			{Name: "pv-b", Capacity: "20Gi", ReclaimPolicy: "Retain"},
 		},
 	}
