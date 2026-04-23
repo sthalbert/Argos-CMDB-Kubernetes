@@ -337,6 +337,60 @@ func (p *PG) DeleteCluster(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// CountClusterChildren counts every child resource that ON DELETE CASCADE
+// will remove when the cluster is deleted. A single round-trip multi-CTE
+// query keeps the cost bounded regardless of how many resource types
+// exist (ADR-0010).
+func (p *PG) CountClusterChildren(ctx context.Context, clusterID uuid.UUID) (api.CascadeCounts, error) {
+	const q = `
+		WITH ns_ids AS (
+			SELECT id FROM namespaces WHERE cluster_id = $1
+		),
+		ns_count   AS (SELECT COUNT(*) AS c FROM ns_ids),
+		node_count AS (SELECT COUNT(*) AS c FROM nodes WHERE cluster_id = $1),
+		pv_count   AS (SELECT COUNT(*) AS c FROM persistent_volumes WHERE cluster_id = $1),
+		pod_count  AS (SELECT COUNT(*) AS c FROM pods WHERE namespace_id IN (SELECT id FROM ns_ids)),
+		wl_count   AS (SELECT COUNT(*) AS c FROM workloads WHERE namespace_id IN (SELECT id FROM ns_ids)),
+		svc_count  AS (SELECT COUNT(*) AS c FROM services WHERE namespace_id IN (SELECT id FROM ns_ids)),
+		ing_count  AS (SELECT COUNT(*) AS c FROM ingresses WHERE namespace_id IN (SELECT id FROM ns_ids)),
+		pvc_count  AS (SELECT COUNT(*) AS c FROM persistent_volume_claims WHERE namespace_id IN (SELECT id FROM ns_ids))
+		SELECT
+			(SELECT c FROM ns_count),
+			(SELECT c FROM node_count),
+			(SELECT c FROM pod_count),
+			(SELECT c FROM wl_count),
+			(SELECT c FROM svc_count),
+			(SELECT c FROM ing_count),
+			(SELECT c FROM pv_count),
+			(SELECT c FROM pvc_count)
+	`
+	// Verify the cluster exists before running counts; a non-existent
+	// cluster would just return all zeroes, which is misleading.
+	var exists bool
+	if err := p.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM clusters WHERE id=$1)", clusterID).Scan(&exists); err != nil {
+		return api.CascadeCounts{}, fmt.Errorf("count cluster children: existence check: %w", err)
+	}
+	if !exists {
+		return api.CascadeCounts{}, api.ErrNotFound
+	}
+
+	var cc api.CascadeCounts
+	err := p.pool.QueryRow(ctx, q, clusterID).Scan(
+		&cc.Namespaces,
+		&cc.Nodes,
+		&cc.Pods,
+		&cc.Workloads,
+		&cc.Services,
+		&cc.Ingresses,
+		&cc.PersistentVolumes,
+		&cc.PersistentVolumeClaims,
+	)
+	if err != nil {
+		return api.CascadeCounts{}, fmt.Errorf("count cluster children: %w", err)
+	}
+	return cc, nil
+}
+
 // CreateNode inserts a new node. Returns api.ErrNotFound when the parent
 // cluster does not exist (FK violation), api.ErrConflict on duplicate
 // (cluster_id, name).

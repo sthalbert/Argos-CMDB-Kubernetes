@@ -30,6 +30,34 @@ type AuditRecorder interface {
 	InsertAuditEvent(ctx context.Context, in AuditEventInsert) error
 }
 
+// auditBag is a mutable holder placed in the context before the handler
+// runs. Handlers call SetAuditDetails to attach extra fields; the
+// middleware reads them after the handler returns. A pointer-in-context
+// pattern is necessary because the strict-server handler receives a
+// derived context that cannot propagate values back to the middleware's
+// original request context.
+type auditBag struct {
+	details map[string]any
+}
+
+type ctxKeyAuditBag struct{}
+
+// withAuditBag returns a child context carrying a mutable audit bag.
+func withAuditBag(ctx context.Context) (context.Context, *auditBag) {
+	bag := &auditBag{}
+	return context.WithValue(ctx, ctxKeyAuditBag{}, bag), bag
+}
+
+// SetAuditDetails stores extra detail fields in the audit bag carried
+// by ctx. Handlers call this to enrich the audit event with domain-
+// specific data (e.g., a pre-deletion cascade snapshot per ADR-0010).
+// Safe to call when no bag is present (no-op).
+func SetAuditDetails(ctx context.Context, details map[string]any) {
+	if bag, ok := ctx.Value(ctxKeyAuditBag{}).(*auditBag); ok && bag != nil {
+		bag.details = details
+	}
+}
+
 // AuditMiddleware wraps the generated router and records every call
 // that looks state-changing. Recording happens after the downstream
 // handler returns so we capture the response status alongside the
@@ -54,11 +82,25 @@ func AuditMiddleware(recorder AuditRecorder) MiddlewareFunc {
 				r.Body = io.NopCloser(bytes.NewReader(buf))
 			}
 
+			// Inject a mutable audit bag so handlers can enrich
+			// the event via SetAuditDetails (ADR-0010).
+			ctx, bag := withAuditBag(r.Context())
+			r = r.WithContext(ctx)
+
 			rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r)
 
 			ev := buildAuditEvent(r, rw.status, bodySnap)
-			if err := recorder.InsertAuditEvent(r.Context(), ev); err != nil {
+			// Merge handler-injected details (e.g., cascade snapshot).
+			if bag.details != nil {
+				if ev.Details == nil {
+					ev.Details = make(map[string]any)
+				}
+				for k, v := range bag.details {
+					ev.Details[k] = v
+				}
+			}
+			if err := recorder.InsertAuditEvent(ctx, ev); err != nil {
 				slog.Error("audit: insert failed",
 					slog.Any("error", err),
 					slog.String("method", r.Method),

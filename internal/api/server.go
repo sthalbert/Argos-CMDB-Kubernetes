@@ -214,8 +214,29 @@ func (s *Server) UpdateCluster(ctx context.Context, req UpdateClusterRequestObje
 	return UpdateCluster200JSONResponse(withClusterLayer(c)), nil
 }
 
-// DeleteCluster removes a cluster.
+// DeleteCluster removes a cluster. Before deleting, it snapshots the
+// cluster metadata and cascade counts into the audit event so the
+// record is self-contained even after the row is gone (ADR-0010).
 func (s *Server) DeleteCluster(ctx context.Context, req DeleteClusterRequestObject) (DeleteClusterResponseObject, error) {
+	// Capture the pre-deletion snapshot for audit enrichment.
+	cluster, err := s.store.GetCluster(ctx, req.Id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return DeleteCluster404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+			}, nil
+		}
+		return nil, fmt.Errorf("deleteCluster: get snapshot: %w", err)
+	}
+
+	counts, err := s.store.CountClusterChildren(ctx, req.Id)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		slog.Error("deleteCluster: count children failed, proceeding without cascade counts",
+			slog.Any("error", err),
+			slog.String("cluster_id", req.Id.String()),
+		)
+	}
+
 	if err := s.store.DeleteCluster(ctx, req.Id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return DeleteCluster404ApplicationProblemPlusJSONResponse{
@@ -224,7 +245,41 @@ func (s *Server) DeleteCluster(ctx context.Context, req DeleteClusterRequestObje
 		}
 		return nil, fmt.Errorf("deleteCluster: %w", err)
 	}
+
+	SetAuditDetails(ctx, clusterDeletionSnapshot(&cluster, counts))
 	return DeleteCluster204Response{}, nil
+}
+
+// clusterDeletionSnapshot builds the audit-event details map for a
+// cluster deletion, capturing identity, curated metadata, and the
+// cascade impact (ADR-0010).
+func clusterDeletionSnapshot(c *Cluster, counts CascadeCounts) map[string]any {
+	details := map[string]any{
+		"cluster_name": c.Name,
+		"cascade_counts": map[string]int{
+			"namespaces":               counts.Namespaces,
+			"nodes":                    counts.Nodes,
+			"pods":                     counts.Pods,
+			"workloads":                counts.Workloads,
+			"services":                 counts.Services,
+			"ingresses":                counts.Ingresses,
+			"persistent_volumes":       counts.PersistentVolumes,
+			"persistent_volume_claims": counts.PersistentVolumeClaims,
+		},
+	}
+	if c.DisplayName != nil {
+		details["cluster_display_name"] = *c.DisplayName
+	}
+	if c.Environment != nil {
+		details["cluster_environment"] = *c.Environment
+	}
+	if c.Owner != nil {
+		details["cluster_owner"] = *c.Owner
+	}
+	if c.Criticality != nil {
+		details["cluster_criticality"] = *c.Criticality
+	}
+	return details
 }
 
 // ── Nodes ────────────────────────────────────────────────────────────

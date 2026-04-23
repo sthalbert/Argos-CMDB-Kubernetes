@@ -572,6 +572,9 @@ export function listClusters() {
 export function getCluster(id: string) {
   return request<Cluster>(`/v1/clusters/${id}`);
 }
+export function deleteCluster(id: string) {
+  return request<void>(`/v1/clusters/${id}`, { method: 'DELETE' });
+}
 
 export function listNodes(filter?: { cluster_id?: string }) {
   return request<PagedResponse<Node>>('/v1/nodes' + query({ limit: 200, ...filter }));
