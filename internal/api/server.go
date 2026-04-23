@@ -5,11 +5,36 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/argos/internal/auth"
 )
+
+var (
+	errRunbookURLInvalid = errors.New("runbook_url is not a valid URL")
+	errRunbookURLScheme  = errors.New("runbook_url must use http or https scheme")
+)
+
+// validateRunbookURL rejects runbook URLs that use a scheme other than
+// http or https. This prevents javascript: and data: XSS vectors when
+// the URL is rendered as an <a href> in the UI.
+func validateRunbookURL(raw *string) error {
+	if raw == nil || *raw == "" {
+		return nil
+	}
+	u, err := url.Parse(*raw)
+	if err != nil {
+		return errRunbookURLInvalid
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return errRunbookURLScheme
+	}
+	return nil
+}
 
 // Server implements StrictServerInterface for the Argos REST API.
 type Server struct {
@@ -129,6 +154,11 @@ func (s *Server) CreateCluster(ctx context.Context, req CreateClusterRequestObje
 			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'name' is required")),
 		}, nil
 	}
+	if err := validateRunbookURL(body.RunbookUrl); err != nil {
+		return CreateCluster400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", err.Error())),
+		}, nil
+	}
 
 	c, err := s.store.CreateCluster(ctx, body)
 	if err != nil {
@@ -167,6 +197,11 @@ func (s *Server) GetCluster(ctx context.Context, req GetClusterRequestObject) (G
 
 // UpdateCluster applies merge-patch updates to a cluster.
 func (s *Server) UpdateCluster(ctx context.Context, req UpdateClusterRequestObject) (UpdateClusterResponseObject, error) {
+	if err := validateRunbookURL(req.Body.RunbookUrl); err != nil {
+		return UpdateCluster400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", err.Error())),
+		}, nil
+	}
 	c, err := s.store.UpdateCluster(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -233,6 +268,11 @@ func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (C
 			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'cluster_id' is required")),
 		}, nil
 	}
+	if err := validateRunbookURL(body.RunbookUrl); err != nil {
+		return CreateNode400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", err.Error())),
+		}, nil
+	}
 
 	n, err := s.store.UpsertNode(ctx, body)
 	if err != nil {
@@ -276,6 +316,11 @@ func (s *Server) GetNode(ctx context.Context, req GetNodeRequestObject) (GetNode
 
 // UpdateNode applies merge-patch updates to a node.
 func (s *Server) UpdateNode(ctx context.Context, req UpdateNodeRequestObject) (UpdateNodeResponseObject, error) {
+	if err := validateRunbookURL(req.Body.RunbookUrl); err != nil {
+		return UpdateNode400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", err.Error())),
+		}, nil
+	}
 	n, err := s.store.UpdateNode(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -342,6 +387,11 @@ func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequest
 			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Missing field", "field 'cluster_id' is required")),
 		}, nil
 	}
+	if err := validateRunbookURL(body.RunbookUrl); err != nil {
+		return CreateNamespace400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", err.Error())),
+		}, nil
+	}
 
 	n, err := s.store.UpsertNamespace(ctx, body)
 	if err != nil {
@@ -385,6 +435,11 @@ func (s *Server) GetNamespace(ctx context.Context, req GetNamespaceRequestObject
 
 // UpdateNamespace applies merge-patch updates.
 func (s *Server) UpdateNamespace(ctx context.Context, req UpdateNamespaceRequestObject) (UpdateNamespaceResponseObject, error) {
+	if err := validateRunbookURL(req.Body.RunbookUrl); err != nil {
+		return UpdateNamespace400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid field", err.Error())),
+		}, nil
+	}
 	n, err := s.store.UpdateNamespace(ctx, req.Id, *req.Body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
