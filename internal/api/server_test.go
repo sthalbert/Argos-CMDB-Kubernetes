@@ -224,6 +224,63 @@ func (m *memStore) DeleteCluster(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+//nolint:gocyclo // test fake mirrors PG multi-CTE shape
+func (m *memStore) CountClusterChildren(_ context.Context, clusterID uuid.UUID) (CascadeCounts, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byID[clusterID]; !ok {
+		return CascadeCounts{}, ErrNotFound
+	}
+	var cc CascadeCounts
+	// Collect namespace IDs belonging to this cluster.
+	nsIDs := make(map[uuid.UUID]bool)
+	for id := range m.nsByID {
+		ns := m.nsByID[id]
+		if ns.ClusterId == clusterID {
+			cc.Namespaces++
+			if ns.Id != nil {
+				nsIDs[*ns.Id] = true
+			}
+		}
+	}
+	for id := range m.nodesByID {
+		if m.nodesByID[id].ClusterId == clusterID {
+			cc.Nodes++
+		}
+	}
+	for id := range m.pvsByID {
+		if m.pvsByID[id].ClusterId == clusterID {
+			cc.PersistentVolumes++
+		}
+	}
+	for id := range m.podsByID {
+		if nsIDs[m.podsByID[id].NamespaceId] {
+			cc.Pods++
+		}
+	}
+	for id := range m.workloadsByID {
+		if nsIDs[m.workloadsByID[id].NamespaceId] {
+			cc.Workloads++
+		}
+	}
+	for id := range m.servicesByID {
+		if nsIDs[m.servicesByID[id].NamespaceId] {
+			cc.Services++
+		}
+	}
+	for id := range m.ingressesByID {
+		if nsIDs[m.ingressesByID[id].NamespaceId] {
+			cc.Ingresses++
+		}
+	}
+	for id := range m.pvcsByID {
+		if nsIDs[m.pvcsByID[id].NamespaceId] {
+			cc.PersistentVolumeClaims++
+		}
+	}
+	return cc, nil
+}
+
 // copyNodeMutableFromCreate mirrors every NodeMutable-derived field from a
 // NodeCreate payload onto a Node. The fake carries them as-is so tests can
 // round-trip any of the 23 fields the collector now populates.
@@ -2616,6 +2673,146 @@ func TestUnknownRoute404(t *testing.T) {
 	rr := do(h, http.MethodGet, "/no-such-path", "")
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("status=%d", rr.Code)
+	}
+}
+
+// TestDeleteClusterAuditEnrichment verifies that deleting a cluster
+// populates the audit event with the pre-deletion snapshot containing
+// cluster metadata and cascade counts (ADR-0010).
+func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to-end test asserting multiple audit fields
+	t.Parallel()
+	store := newMemStore()
+
+	// Build handler with audit middleware wrapping it.
+	strict := NewStrictHandlerWithOptions(
+		NewServer("test", store, auth.SecureNever, nil),
+		[]StrictMiddlewareFunc{InjectRequestMiddleware},
+		StrictHTTPServerOptions{
+			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			},
+			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			},
+		},
+	)
+	h := AuditMiddleware(store)(Handler(strict))
+
+	// Create a cluster with curated metadata.
+	env := "production"
+	owner := "platform-team"
+	crit := "critical"
+	displayName := "Prod EU West"
+	rr := do(h, http.MethodPost, "/v1/clusters",
+		`{"name":"prod-eu","environment":"production","owner":"platform-team","criticality":"critical","display_name":"Prod EU West"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create cluster status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	var cluster Cluster
+	if err := json.Unmarshal(rr.Body.Bytes(), &cluster); err != nil {
+		t.Fatalf("decode cluster: %v", err)
+	}
+
+	// Add a namespace under the cluster.
+	cID := cluster.Id.String()
+	rr = do(h, http.MethodPost, "/v1/namespaces",
+		`{"name":"default","cluster_id":"`+cID+`"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create namespace status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	var ns Namespace
+	if err := json.Unmarshal(rr.Body.Bytes(), &ns); err != nil {
+		t.Fatalf("decode ns: %v", err)
+	}
+
+	// Add a node under the cluster.
+	rr = do(h, http.MethodPost, "/v1/nodes",
+		`{"name":"node-1","cluster_id":"`+cID+`"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create node status=%d body=%q", rr.Code, rr.Body.String())
+	}
+
+	// Add a pod under the namespace.
+	nsID := ns.Id.String()
+	rr = do(h, http.MethodPost, "/v1/pods",
+		`{"name":"pod-1","namespace_id":"`+nsID+`"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create pod status=%d body=%q", rr.Code, rr.Body.String())
+	}
+
+	// Clear audit events from creation calls.
+	store.mu.Lock()
+	store.authState.auditEvents = nil
+	store.mu.Unlock()
+
+	// Delete the cluster.
+	rr = do(h, http.MethodDelete, "/v1/clusters/"+cluster.Id.String(), "")
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete cluster status=%d body=%q", rr.Code, rr.Body.String())
+	}
+
+	// Verify the audit event contains the enriched details.
+	evs, _, err := store.ListAuditEvents(context.Background(), AuditEventFilter{}, 10, "")
+	if err != nil {
+		t.Fatalf("list audit events: %v", err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(evs))
+	}
+	ev := evs[0]
+	if ev.Action != "cluster.delete" {
+		t.Errorf("action = %q, want cluster.delete", ev.Action)
+	}
+	if ev.Details == nil {
+		t.Fatal("expected enriched details, got nil")
+	}
+
+	// Marshal and re-parse to inspect the details map.
+	detailsJSON, err := json.Marshal(*ev.Details)
+	if err != nil {
+		t.Fatalf("marshal details: %v", err)
+	}
+	var details map[string]any
+	if err := json.Unmarshal(detailsJSON, &details); err != nil {
+		t.Fatalf("unmarshal details: %v", err)
+	}
+
+	if details["cluster_name"] != "prod-eu" {
+		t.Errorf("cluster_name = %v", details["cluster_name"])
+	}
+	if details["cluster_display_name"] != displayName {
+		t.Errorf("cluster_display_name = %v, want %v", details["cluster_display_name"], displayName)
+	}
+	if details["cluster_environment"] != env {
+		t.Errorf("cluster_environment = %v, want %v", details["cluster_environment"], env)
+	}
+	if details["cluster_owner"] != owner {
+		t.Errorf("cluster_owner = %v, want %v", details["cluster_owner"], owner)
+	}
+	if details["cluster_criticality"] != crit {
+		t.Errorf("cluster_criticality = %v, want %v", details["cluster_criticality"], crit)
+	}
+
+	// Check cascade counts.
+	cascadeRaw, ok := details["cascade_counts"]
+	if !ok {
+		t.Fatal("missing cascade_counts in details")
+	}
+	cascade, ok := cascadeRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("cascade_counts type = %T", cascadeRaw)
+	}
+	// JSON numbers are float64.
+	wantCounts := map[string]float64{
+		"namespaces": 1, "nodes": 1, "pods": 1,
+		"workloads": 0, "services": 0, "ingresses": 0,
+		"persistent_volumes": 0, "persistent_volume_claims": 0,
+	}
+	for k, want := range wantCounts {
+		got, _ := cascade[k].(float64)
+		if got != want {
+			t.Errorf("cascade_counts[%s] = %v, want %v", k, got, want)
+		}
 	}
 }
 

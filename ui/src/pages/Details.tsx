@@ -12,9 +12,10 @@
 // feels consistent across the app.
 
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource, useResources } from '../hooks';
+import { useMe, isAdmin } from '../me';
 import { ClusterCuratedCard } from './cluster_curated';
 import { NamespaceCuratedCard } from './namespace_curated';
 import { NodeCuratedCard } from './node_curated';
@@ -53,7 +54,10 @@ function NodeStatusInline({
 
 export function ClusterDetail() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
+  const me = useMe();
   const [nonce, setNonce] = useState(0);
+  const [deleting, setDeleting] = useState(false);
   const reload = () => setNonce((n) => n + 1);
   const state = useResources(
     [
@@ -65,16 +69,48 @@ export function ClusterDetail() {
     [id, nonce],
   );
 
+  const handleDelete = async (cluster: api.Cluster, childCount: number) => {
+    const typed = prompt(
+      `This will permanently delete cluster "${cluster.name}" and all its ${childCount} child resources.\n\nType the cluster name to confirm:`,
+    );
+    if (typed === null) return; // cancelled
+    if (typed !== cluster.name) {
+      alert(`Name does not match. Expected "${cluster.name}".`);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.deleteCluster(cluster.id);
+      navigate('/clusters', { replace: true });
+    } catch (err) {
+      alert(err instanceof api.ApiError ? err.message : String(err));
+      setDeleting(false);
+    }
+  };
+
   return (
     <>
       <div className="breadcrumb">
         <Link to="/clusters">Clusters</Link> / <span>this cluster</span>
       </div>
       <AsyncView state={state}>
-        {([cluster, nodes, namespaces, pvs]) => (
+        {([cluster, nodes, namespaces, pvs]) => {
+          const childCount =
+            nodes.items.length + namespaces.items.length + pvs.items.length;
+          return (
           <>
             <h2>
               {cluster.display_name || cluster.name} <LayerPill layer={cluster.layer} />
+              {isAdmin(me) && (
+                <button
+                  className="danger"
+                  style={{ marginLeft: '1rem', fontSize: '0.85rem' }}
+                  disabled={deleting}
+                  onClick={() => handleDelete(cluster, childCount)}
+                >
+                  {deleting ? 'Deleting…' : 'Delete cluster'}
+                </button>
+              )}
             </h2>
             <dl className="kv-list">
               <KV k="Name" v={<code>{cluster.name}</code>} />
@@ -170,7 +206,8 @@ export function ClusterDetail() {
               </table>
             )}
           </>
-        )}
+          );
+        }}
       </AsyncView>
     </>
   );
