@@ -171,12 +171,13 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	)
 	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
 		BaseRouter: mux,
-		// Order matters: the outer middleware runs first, so the audit
-		// layer sits *after* auth — it sees the resolved caller on the
-		// request context and the final response status.
+		// Order matters: oapi-codegen wraps in list order, so the last
+		// entry becomes the outermost handler (runs first). Auth must be
+		// outermost so it resolves the caller before the audit layer reads
+		// it from the request context.
 		Middlewares: []api.MiddlewareFunc{
-			api.AuthMiddleware(pg, cfg.cookiePolicy),
 			api.AuditMiddleware(pg),
+			api.AuthMiddleware(pg, cfg.cookiePolicy),
 		},
 	})
 
