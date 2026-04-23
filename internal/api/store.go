@@ -35,6 +35,20 @@ type WorkloadListFilter struct {
 	ImageSubstring *string
 }
 
+// CascadeCounts holds the number of child resources that will be removed
+// when a cluster is deleted via ON DELETE CASCADE. Used by the DeleteCluster
+// handler to enrich the audit event with a pre-deletion impact snapshot.
+type CascadeCounts struct {
+	Namespaces             int `json:"namespaces"`
+	Nodes                  int `json:"nodes"`
+	Pods                   int `json:"pods"`
+	Workloads              int `json:"workloads"`
+	Services               int `json:"services"`
+	Ingresses              int `json:"ingresses"`
+	PersistentVolumes      int `json:"persistent_volumes"`
+	PersistentVolumeClaims int `json:"persistent_volume_claims"`
+}
+
 // Store is the persistence contract consumed by the REST handlers.
 // Implementations must be safe for concurrent use by multiple goroutines.
 type Store interface {
@@ -62,6 +76,11 @@ type Store interface {
 
 	// DeleteCluster removes a cluster by id. Returns ErrNotFound if absent.
 	DeleteCluster(ctx context.Context, id uuid.UUID) error
+
+	// CountClusterChildren counts child resources that will be cascade-deleted
+	// when the given cluster is removed. Returns ErrNotFound if the cluster
+	// does not exist. Used to build the pre-deletion audit snapshot (ADR-0010).
+	CountClusterChildren(ctx context.Context, clusterID uuid.UUID) (CascadeCounts, error)
 
 	// CreateNode inserts a new node. Returns ErrNotFound when the parent
 	// cluster does not exist; ErrConflict when (cluster_id, name) already

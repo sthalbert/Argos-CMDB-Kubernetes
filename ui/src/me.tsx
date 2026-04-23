@@ -20,3 +20,9 @@ export function useMe(): Me | null {
 export function canEdit(me: Me | null): boolean {
   return me?.role === 'admin' || me?.role === 'editor';
 }
+
+// isAdmin answers "does this role carry the delete scope?". Used to
+// gate destructive affordances like cluster deletion (ADR-0010).
+export function isAdmin(me: Me | null): boolean {
+  return me?.role === 'admin';
+}
