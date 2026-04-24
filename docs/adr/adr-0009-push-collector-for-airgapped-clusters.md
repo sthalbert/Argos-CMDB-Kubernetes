@@ -195,8 +195,9 @@ the air-gapped cluster, with:
 - A `Secret` carrying `ARGOS_API_TOKEN`.
 - Egress network policy allowing HTTPS to the argosd endpoint only.
 
-The Cluster row must be pre-created in argosd (`POST /v1/clusters`)
-before the push collector starts — same requirement as the pull model.
+The push collector auto-creates the cluster record on first contact if
+it doesn't exist (ADR-0011). Pre-registering via `POST /v1/clusters` is
+optional but recommended to populate curated metadata upfront.
 
 ### Bulk push (future optimisation)
 

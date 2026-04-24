@@ -74,13 +74,13 @@ helm install argos charts/argos \
 
 The chart creates a ClusterRole granting read-only `list` on the Kubernetes resources the collector ingests. The ServiceAccount is bound automatically.
 
-Remember to register the cluster in argosd first:
+The collector auto-creates the cluster record on first contact (ADR-0011). To populate curated metadata (display name, environment, owner) before the first tick, optionally pre-register:
 
 ```bash
 kubectl -n argos-system port-forward svc/argos 8080:8080 &
 curl -X POST http://localhost:8080/v1/clusters \
   -H 'Content-Type: application/json' \
-  -d '{"name":"my-cluster"}'
+  -d '{"name":"my-cluster","display_name":"My Cluster","environment":"prod"}'
 ```
 
 ## Enable OIDC
