@@ -72,6 +72,27 @@ var (
 		Name:      "build_info",
 		Help:      "Set to 1 for the running argosd build; labels carry version and Go toolchain info.",
 	}, []string{"version", "go_version"})
+
+	eolEnrichments = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "argos",
+		Subsystem: "eol",
+		Name:      "enrichments_total",
+		Help:      "EOL annotations written, per cluster, resource kind, and status.",
+	}, []string{"cluster", "resource", "status"})
+
+	eolErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "argos",
+		Subsystem: "eol",
+		Name:      "errors_total",
+		Help:      "EOL enrichment errors, per cluster, resource kind, and phase.",
+	}, []string{"cluster", "resource", "phase"})
+
+	eolLastRun = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "argos",
+		Subsystem: "eol",
+		Name:      "last_run_timestamp_seconds",
+		Help:      "Unix timestamp of the last completed EOL enrichment run.",
+	})
 )
 
 func init() {
@@ -85,6 +106,9 @@ func init() {
 		collectorErrors,
 		collectorLastPoll,
 		buildInfo,
+		eolEnrichments,
+		eolErrors,
+		eolLastRun,
 	)
 }
 
@@ -125,6 +149,21 @@ func ObserveReconciled(cluster, resource string, n int64) {
 // phase is one of "list", "upsert", "reconcile", "lookup".
 func ObserveError(cluster, resource, phase string) {
 	collectorErrors.WithLabelValues(cluster, resource, phase).Inc()
+}
+
+// ObserveEOLEnrichment increments the per-(cluster, resource, status) enrichment counter.
+func ObserveEOLEnrichment(cluster, resource, status string) {
+	eolEnrichments.WithLabelValues(cluster, resource, status).Inc()
+}
+
+// ObserveEOLError increments the per-(cluster, resource, phase) EOL error counter.
+func ObserveEOLError(cluster, resource, phase string) {
+	eolErrors.WithLabelValues(cluster, resource, phase).Inc()
+}
+
+// MarkEOLRun stamps the last-completed-run gauge with the current time.
+func MarkEOLRun() {
+	eolLastRun.Set(float64(time.Now().Unix()))
 }
 
 // MarkPoll stamps the last-successful-poll gauge with the current time.

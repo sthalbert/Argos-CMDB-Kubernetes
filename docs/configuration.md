@@ -75,6 +75,17 @@ Example:
 
 > **Security:** kubeconfig files must be mounted from a Kubernetes Secret, never passed as environment variable values. See [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md) for the full procedure.
 
+### EOL enrichment
+
+The EOL enricher is controlled at runtime via the **Admin > Settings** UI. These env vars configure the enricher behaviour and optionally seed the initial database setting. See [EOL Enrichment](eol-enrichment.md) for the full guide.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ARGOS_EOL_ENABLED` | no | -- | Seeds the `eol_enabled` database setting on startup. When set, its value is written to the settings table on boot. The admin can override it at runtime via the UI. |
+| `ARGOS_EOL_INTERVAL` | no | `2m` | Time between enrichment ticks. Accepts Go duration syntax. |
+| `ARGOS_EOL_APPROACHING_DAYS` | no | `90` | Number of days before EOL to flag a product as "approaching EOL". |
+| `ARGOS_EOL_BASE_URL` | no | `https://endoflife.date` | Base URL for the endoflife.date API. Override to point at an internal mirror in air-gapped environments. |
+
 ### Legacy (removed)
 
 | Variable | Status | Migration |

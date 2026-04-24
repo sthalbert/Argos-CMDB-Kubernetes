@@ -3556,3 +3556,42 @@ func scanPersistentVolumeClaim(row pgx.Row) (api.PersistentVolumeClaim, error) {
 	}
 	return pvc, nil
 }
+
+// --- Settings ------------------------------------------------------------
+
+// GetSettings returns the current runtime settings from the single-row
+// settings table.
+func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
+	const q = `SELECT eol_enabled, updated_at FROM settings WHERE id = 1`
+	var s api.Settings
+	if err := p.pool.QueryRow(ctx, q).Scan(&s.EOLEnabled, &s.UpdatedAt); err != nil {
+		return api.Settings{}, fmt.Errorf("get settings: %w", err)
+	}
+	return s, nil
+}
+
+// UpdateSettings applies the merge-patch on the settings row.
+func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Settings, error) {
+	sets := make([]string, 0, 2)
+	args := make([]any, 0, 2)
+	idx := 1
+
+	if in.EOLEnabled != nil {
+		sets = append(sets, fmt.Sprintf("eol_enabled=$%d", idx))
+		args = append(args, *in.EOLEnabled)
+		idx++
+	}
+
+	if len(sets) == 0 {
+		return p.GetSettings(ctx)
+	}
+
+	sets = append(sets, fmt.Sprintf("updated_at=$%d", idx))
+	args = append(args, time.Now().UTC())
+
+	q := fmt.Sprintf("UPDATE settings SET %s WHERE id=1", strings.Join(sets, ", "))
+	if _, err := p.pool.Exec(ctx, q, args...); err != nil {
+		return api.Settings{}, fmt.Errorf("update settings: %w", err)
+	}
+	return p.GetSettings(ctx)
+}

@@ -19,6 +19,7 @@ import (
 	"github.com/sthalbert/argos/internal/api"
 	"github.com/sthalbert/argos/internal/auth"
 	"github.com/sthalbert/argos/internal/collector"
+	"github.com/sthalbert/argos/internal/eol"
 	"github.com/sthalbert/argos/internal/metrics"
 	"github.com/sthalbert/argos/internal/store"
 	"github.com/sthalbert/argos/ui"
@@ -111,29 +112,17 @@ func run() error {
 	}
 	defer pg.Close()
 
-	if cfg.autoMigrate {
-		if err := pg.Migrate(rootCtx); err != nil {
-			return fmt.Errorf("migrate: %w", err)
-		}
-		slog.Info("migrations applied")
+	if err := maybeAutoMigrate(rootCtx, pg, cfg.autoMigrate); err != nil {
+		return err
 	}
 
 	if err := bootstrapAdminIfNeeded(rootCtx, pg); err != nil {
 		return fmt.Errorf("bootstrap admin: %w", err)
 	}
 
-	// Resolve the OIDC provider (if configured). Fatal on misconfig —
-	// operator should see the error at boot, not per-request 500s.
-	oidcProvider, err := auth.NewOIDCProvider(rootCtx, &cfg.oidcCfg)
-	if err != nil && !errors.Is(err, auth.ErrOIDCDisabled) {
-		return fmt.Errorf("oidc provider: %w", err)
-	}
-	if oidcProvider != nil {
-		slog.Info("oidc configured",
-			slog.String("issuer", oidcProvider.Config.Issuer),
-			slog.String("redirect_url", oidcProvider.Config.RedirectURL),
-			slog.String("label", oidcProvider.Config.Label),
-		)
+	oidcProvider, err := maybeInitOIDC(rootCtx, &cfg.oidcCfg)
+	if err != nil {
+		return err
 	}
 
 	drainCollectors, err := maybeStartCollectors(rootCtx, pg)
@@ -142,9 +131,44 @@ func run() error {
 	}
 	defer drainCollectors()
 
+	drainEOL, err := maybeStartEOLEnricher(rootCtx, pg)
+	if err != nil {
+		return err
+	}
+	defer drainEOL()
+
 	srv := buildHTTPServer(&cfg, pg, oidcProvider)
 
 	return serveAndShutdown(rootCtx, srv, cfg.shutdownTimeout)
+}
+
+// maybeAutoMigrate runs embedded goose migrations when enabled.
+func maybeAutoMigrate(ctx context.Context, pg *store.PG, enabled bool) error {
+	if !enabled {
+		return nil
+	}
+	if err := pg.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+	slog.Info("migrations applied")
+	return nil
+}
+
+// maybeInitOIDC resolves the OIDC provider when configured. Fatal on
+// misconfig so operators see the error at boot, not per-request 500s.
+func maybeInitOIDC(ctx context.Context, cfg *auth.OIDCConfig) (*auth.OIDCProvider, error) {
+	provider, err := auth.NewOIDCProvider(ctx, cfg)
+	if err != nil && !errors.Is(err, auth.ErrOIDCDisabled) {
+		return nil, fmt.Errorf("oidc provider: %w", err)
+	}
+	if provider != nil {
+		slog.Info("oidc configured",
+			slog.String("issuer", provider.Config.Issuer),
+			slog.String("redirect_url", provider.Config.RedirectURL),
+			slog.String("label", provider.Config.Label),
+		)
+	}
+	return provider, nil
 }
 
 // buildHTTPServer wires all HTTP routes, middleware, and the server struct.
@@ -157,6 +181,22 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
+	// Settings endpoints — hand-written, gated on admin role internally.
+	// Inject "admin" scope into context so the auth middleware resolves
+	// the caller (it skips public routes that lack scope declarations).
+	settingsAuth := auth.Middleware(pg, cfg.cookiePolicy)
+	requireAdminScope := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			//nolint:staticcheck // matches oapi-codegen context key convention
+			ctx := context.WithValue(
+				r.Context(), "BearerAuth.Scopes", []string{"admin"},
+			)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+	mux.Handle("GET /v1/admin/settings", requireAdminScope(settingsAuth(api.HandleGetSettings(pg))))
+	mux.Handle("PATCH /v1/admin/settings", requireAdminScope(settingsAuth(api.HandleUpdateSettings(pg))))
+
 	strict := api.NewStrictHandlerWithOptions(
 		api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider),
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
@@ -469,4 +509,64 @@ func parseBoolEnv(key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("parse %s=%q: %w", key, v, err)
 	}
 	return b, nil
+}
+
+func parseIntEnv(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
+	}
+	return n, nil
+}
+
+// maybeStartEOLEnricher spawns the EOL enrichment goroutine (ADR-0012).
+// The goroutine always starts; actual enrichment is gated by the
+// `eol_enabled` setting in the database (toggled by admins via the UI).
+// ARGOS_EOL_ENABLED seeds the DB setting on first boot when present.
+// Returns a drain function the caller defers.
+func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
+	// Seed the DB setting from env var when explicitly set.
+	if envVal := os.Getenv("ARGOS_EOL_ENABLED"); envVal != "" {
+		enabled, err := strconv.ParseBool(envVal)
+		if err != nil {
+			return nil, fmt.Errorf("parse ARGOS_EOL_ENABLED=%q: %w", envVal, err)
+		}
+		if _, err := s.UpdateSettings(ctx, api.SettingsPatch{EOLEnabled: &enabled}); err != nil {
+			slog.Warn("eol enricher: failed to seed settings from env", slog.Any("error", err))
+		}
+	}
+
+	interval, err := parseDurationEnv("ARGOS_EOL_INTERVAL", 2*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	approachingDays, err := parseIntEnv("ARGOS_EOL_APPROACHING_DAYS", 90)
+	if err != nil {
+		return nil, err
+	}
+	baseURL := envOr("ARGOS_EOL_BASE_URL", "https://endoflife.date")
+
+	client := eol.NewClient(baseURL, interval, nil)
+	enricher := eol.NewEnricher(s, client, interval, approachingDays)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := enricher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("eol enricher exited with error", slog.String("error", err.Error()))
+		}
+	}()
+
+	slog.Info("eol enricher goroutine started (actual enrichment gated by DB setting)",
+		slog.String("interval", interval.String()),
+		slog.Int("approaching_days", approachingDays),
+		slog.String("base_url", baseURL),
+	)
+
+	return wg.Wait, nil
 }

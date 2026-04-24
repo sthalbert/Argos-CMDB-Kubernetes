@@ -349,6 +349,39 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
 | GET | `/v1/admin/sessions` | List active sessions. |
 | DELETE | `/v1/admin/sessions/{id}` | Revoke a session. |
 
+### Settings
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/admin/settings` | Get current runtime settings. |
+| PATCH | `/v1/admin/settings` | Update runtime settings (merge-patch). |
+
+**Get settings:**
+
+```bash
+curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/admin/settings | jq .
+```
+
+```json
+{
+  "eol_enabled": true,
+  "updated_at": "2026-04-24T10:54:34Z"
+}
+```
+
+**Toggle EOL enrichment:**
+
+```bash
+curl -sS -b /tmp/argos.cookies -X PATCH http://localhost:8080/v1/admin/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"eol_enabled": false}'
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `eol_enabled` | boolean | Enable/disable the EOL enricher at runtime. See [EOL Enrichment](eol-enrichment.md). |
+| `updated_at` | datetime | Last time settings were modified. |
+
 ### Audit
 
 | Method | Path | Scope | Description |

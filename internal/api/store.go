@@ -398,6 +398,12 @@ type Store interface {
 	// with ErrNotFound. One-shot by design.
 	ConsumeOidcAuthState(ctx context.Context, state string) (codeVerifier, nonce string, err error)
 
+	// GetSettings returns the current runtime settings (single-row table).
+	GetSettings(ctx context.Context) (Settings, error)
+
+	// UpdateSettings applies the merge-patch on the settings row.
+	UpdateSettings(ctx context.Context, in SettingsPatch) (Settings, error)
+
 	// InsertAuditEvent appends one row to audit_events. Called from the
 	// audit middleware after the wrapped handler has produced a status.
 	// Never returns ErrConflict — id collisions are caller bugs.
@@ -496,6 +502,19 @@ type AuditEventInsert struct {
 	SourceIP      string
 	UserAgent     string
 	Details       map[string]any // JSONB payload, nil-friendly
+}
+
+// Settings holds runtime feature toggles stored in the single-row
+// settings table.
+type Settings struct {
+	EOLEnabled bool      `json:"eol_enabled"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// SettingsPatch is the merge-patch for UpdateSettings. Nil fields are
+// left unchanged.
+type SettingsPatch struct {
+	EOLEnabled *bool `json:"eol_enabled,omitempty"`
 }
 
 // AuditEventFilter collects the optional server-side filters. Nil

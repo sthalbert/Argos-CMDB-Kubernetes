@@ -597,3 +597,76 @@ table.entities select {
   outline: none;
   border-color: var(--accent-dim);
 }
+
+/* --- EOL Dashboard ------------------------------------------------------- */
+.eol-summary {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.eol-summary-card {
+  flex: 1;
+  min-width: 140px;
+  padding: 1rem 1.25rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.eol-summary-count {
+  display: block;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.eol-summary-label {
+  display: block;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+  opacity: 0.8;
+}
+.eol-bad {
+  background: #3a171c;
+  color: #f7716e;
+  border-color: #5a2328;
+}
+.eol-warn {
+  background: #3b2b12;
+  color: #fab661;
+  border-color: #5a4320;
+}
+.eol-ok {
+  background: #163821;
+  color: #7bd88f;
+  border-color: #1e5a30;
+}
+.eol-summary-card {
+  cursor: pointer;
+  transition: outline 0.1s, opacity 0.1s;
+}
+.eol-summary-card:hover {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.eol-active {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  opacity: 1;
+}
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+th.sortable:hover {
+  color: var(--accent);
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+}
