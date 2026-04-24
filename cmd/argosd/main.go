@@ -238,7 +238,7 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 
 	return &http.Server{
 		Addr:              cfg.addr,
-		Handler:           metrics.InstrumentHandler(api.SecurityHeadersMiddleware(mux)),
+		Handler:           metrics.InstrumentHandler(api.SecurityHeadersMiddleware(http.MaxBytesHandler(mux, 1<<20))),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
