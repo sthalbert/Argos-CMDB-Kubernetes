@@ -98,7 +98,7 @@ Key variables for the push collector:
 |----------|----------|-------------|
 | `ARGOS_SERVER_URL` | yes | argosd base URL. |
 | `ARGOS_API_TOKEN` | yes | PAT with `write` scope. |
-| `ARGOS_CLUSTER_NAME` | yes | Must match a pre-registered cluster. |
+| `ARGOS_CLUSTER_NAME` | yes | Name of this cluster. Auto-created if it doesn't exist (ADR-0011). |
 | `ARGOS_COLLECTOR_INTERVAL` | no | Polling interval (default `5m`). |
 | `ARGOS_COLLECTOR_RECONCILE` | no | Delete stale rows (default `true`). |
 
@@ -188,9 +188,9 @@ No write access to Kubernetes. The collector is read-only.
 - The PAT is invalid, expired, or revoked. Check the argosd admin panel under Tokens.
 - The `Authorization: Bearer` header is malformed. Verify `ARGOS_API_TOKEN` starts with `argos_pat_`.
 
-### 404 cluster not found
+### 404 on upsert calls
 
-- The cluster name in `ARGOS_CLUSTER_NAME` does not match any cluster registered in argosd. Register it first with `POST /v1/clusters`.
+- The cluster auto-creation failed (e.g. a name conflict or a transient error). Check collector logs for `auto-create cluster failed` messages.
 
 ### 403 Forbidden
 
@@ -215,4 +215,4 @@ No write access to Kubernetes. The collector is read-only.
 
 - Wait for at least one full polling interval.
 - Check collector logs for upsert errors.
-- Verify the cluster name matches exactly between the collector and the registered cluster in argosd.
+- Verify `ARGOS_CLUSTER_NAME` is correct — a typo silently creates a new cluster record (ADR-0011 NEG-002).

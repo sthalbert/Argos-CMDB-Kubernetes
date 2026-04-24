@@ -51,7 +51,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 ]
 ```
 
-- `name` is the cluster's CMDB name (same value the Cluster row carries); must already exist in the store.
+- `name` is the cluster's CMDB name (same value the Cluster row carries). The collector auto-creates the cluster record on first contact if it doesn't exist (ADR-0011); pre-registering via `POST /v1/clusters` is optional but recommended to populate curated metadata upfront.
 - `kubeconfig` is a filesystem path. An empty string means "use in-cluster config" (argosd's own ServiceAccount) — useful when argosd is deployed inside one of the target clusters.
 - Names must be unique within the list; `loadCollectorClusters` validates.
 
@@ -59,7 +59,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 
 **Concurrency:** each cluster's `Collector.Run(ctx)` is its own goroutine. Failures in one cluster (unreachable API, transient timeout) log and continue; other clusters' ticks are unaffected. Per-tick operations inside a single cluster remain sequential (as today).
 
-**Cluster record lifecycle:** explicit. Operators `POST /v1/clusters` for each cluster before the collector can write to it. If the collector can't find a matching cluster row it logs `"cluster not registered; POST /v1/clusters first"` and skips that tick — unchanged from today. Auto-creation is explicitly rejected (see alternatives).
+**Cluster record lifecycle:** the collector auto-creates a minimal cluster record (name only) on first contact if the cluster doesn't exist in the CMDB (ADR-0011, reversing the original ALT-007/ALT-008 rejection below). Pre-registration via `POST /v1/clusters` is optional but recommended to populate curated metadata (display name, environment, owner, criticality) before the first tick.
 
 **Per-cluster reconciliation isolation:** already correct by construction. Every `Delete*NotIn` call is scoped to a `cluster_id` (for cluster-scoped kinds) or `namespace_id` (for namespace-scoped kinds). Two collectors writing in parallel never delete each other's rows.
 
@@ -103,7 +103,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 ### Collector auto-registers the Cluster row
 
 - **ALT-007**: **Description**: If the collector can't find the cluster row at startup, it `POST`s one itself.
-- **ALT-008**: **Rejection Reason**: Collides with the CMDB's role as an authoritative inventory. Explicit registration forces the operator to commit metadata (display name, environment, region, labels) before the collector starts flooding rows in — data quality improves. Auto-registration is easy to add later if the friction becomes real.
+- **ALT-008**: **Originally rejected** — explicit registration was preferred for data quality. **Reversed by ADR-0011**: operational friction (boot-ordering, air-gap round-trips) outweighed the data-quality benefit. The collector now auto-creates a minimal record; operators can enrich metadata afterwards.
 
 ### Per-cluster interval / timeout overrides in v1
 

@@ -55,7 +55,7 @@ The embedded pull-mode collector is disabled by default.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARGOS_CLUSTER_NAME` | when single-cluster | -- | Name of the cluster to poll. Must match a cluster registered via `POST /v1/clusters`. When using in-cluster ServiceAccount credentials, no kubeconfig is needed. |
+| `ARGOS_CLUSTER_NAME` | when single-cluster | -- | Name of the cluster to poll. The collector auto-creates the cluster record if it doesn't exist (ADR-0011); pre-registering via `POST /v1/clusters` is optional but recommended to populate curated metadata. When using in-cluster ServiceAccount credentials, no kubeconfig is needed. |
 
 #### Multi-cluster mode
 
@@ -100,7 +100,7 @@ The standalone push-mode collector binary. It runs inside an air-gapped or netwo
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARGOS_CLUSTER_NAME` | yes | -- | Name of this cluster. Must match a cluster pre-registered in argosd via `POST /v1/clusters`. |
+| `ARGOS_CLUSTER_NAME` | yes | -- | Name of this cluster. The push collector auto-creates the record if it doesn't exist (ADR-0011); pre-registering via `POST /v1/clusters` is optional but recommended to populate curated metadata. |
 
 ### Collector behavior
 

@@ -101,11 +101,11 @@ First-time OIDC users land as role `viewer` (authorization is not
 claim-driven — ADR-0007). An `admin` promotes them through the admin
 panel at `/ui/admin/users` as needed.
 
-### Register a cluster
+### Cluster registration
 
-The CMDB requires explicit cluster registration before the collector writes
-anything (per ADR-0005). Register it through the admin session — first
-log in with the bootstrap password, then:
+The collector auto-creates a minimal cluster record (name only) on first contact if the cluster doesn't exist in the CMDB (ADR-0011). No manual step is required — after `kubectl apply -k deploy/`, the collector starts ingesting on the next tick.
+
+**Optional: pre-register with curated metadata.** If you want display name, environment, owner, or criticality populated before the first tick, register the cluster manually:
 
 ```sh
 # Port-forward the argosd service for a local curl.
@@ -116,7 +116,7 @@ curl -sS -c /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<your new rotated password>"}'
 
-# Register the cluster.
+# Pre-register the cluster with metadata.
 curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/clusters \
   -H 'Content-Type: application/json' \
   -d '{"name":"in-cluster","display_name":"Self","environment":"dev"}'
@@ -253,7 +253,7 @@ To catalogue multiple clusters from a single argosd (per ADR-0005):
 
 4. Each kubeconfig should authenticate a ServiceAccount in *its own* cluster with the same RBAC as `rbac.yaml`. A compromise of the argosd pod exposes every catalogued cluster — keep the kubeconfigs read-only-scoped (ADR-0005 NEG-001).
 
-5. `POST /v1/clusters` for each named cluster before the collectors start ingesting them.
+5. **Optional:** pre-register each cluster via `POST /v1/clusters` to populate curated metadata (display name, environment, owner, criticality) before the first tick. If skipped, the collector auto-creates a minimal record (name only) on first contact (ADR-0011).
 
 ## Uninstall
 

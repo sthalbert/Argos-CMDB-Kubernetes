@@ -142,9 +142,11 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/change-pass
   -d '{"current_password":"changeme-on-first-login","new_password":"a-strong-passphrase"}'
 ```
 
-### Register a cluster
+### Cluster registration
 
-The CMDB requires explicit cluster registration before any collector can write data. Create a cluster:
+The collector auto-creates a minimal cluster record (name only) on first contact if the cluster doesn't exist (ADR-0011). No manual step is required to start ingesting.
+
+**Optional: pre-register with curated metadata.** To populate display name, environment, or owner before the first tick:
 
 ```bash
 curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/clusters \
