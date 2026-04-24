@@ -6,6 +6,39 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.7.0] — 2026-04-24
+
+### Added
+
+- **Impact analysis graph** (ADR-0013) — server-side dependency graph
+  traversal from any CMDB entity. New endpoint
+  `GET /v1/impact/{entity_type}/{id}?depth=2` walks FK relationships
+  bidirectionally across all 9 entity types with 4 relation types
+  (`contains`, `owns`, `hosts`, `binds`). Depth-limited to 1–3 hops.
+  Interactive SVG diagram on every entity detail page with depth selector
+  and click-to-navigate. Prometheus metrics:
+  `argos_impact_queries_total`, `argos_impact_query_duration_seconds`.
+
+### Changed
+
+- **EOL Inventory redesign** — the EOL Dashboard is renamed to
+  "End-of-Life Inventory". Table columns are grouped into "what we run"
+  (Status, Product, Version, Patch, Entity, Cluster) and "what's
+  available" (Latest Available, EOL Date, Checked) with a visual
+  separator. Rows are highlighted red for EOL, orange for approaching
+  EOL. Column renames: "Cycle" → Version, "Cycle Latest" → Patch.
+
+- **`latest_available` field in EOL annotations** — the enricher now
+  stores the newest version of the product published on endoflife.date
+  (e.g. `1.32.3` when the entity runs `1.28`). Zero additional API
+  calls — the data is already fetched.
+
+### Upgrading
+
+No breaking changes, no migrations. The impact endpoint is available
+immediately after upgrade. EOL annotations are updated with the new
+`latest_available` field on the next enrichment tick.
+
 ## [0.1.1] — 2026-04-20
 
 Patch release on top of `v0.1.0` "Canopus". Adds the first two steps of
