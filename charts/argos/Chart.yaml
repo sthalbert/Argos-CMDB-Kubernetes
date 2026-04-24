@@ -4,8 +4,8 @@ description: >-
   A CMDB for Kubernetes environments aligned with the ANSSI SecNumCloud
   qualification framework. Polls clusters and exposes a REST API and web UI.
 type: application
-version: 0.9.0
-appVersion: "0.7.0"
+version: 0.9.1
+appVersion: "0.7.1"
 home: https://github.com/sthalbert/Argos
 sources:
   - https://github.com/sthalbert/Argos
