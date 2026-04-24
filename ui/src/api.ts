@@ -674,3 +674,46 @@ export interface Health {
 export function getHealthz(): Promise<Health> {
   return request<Health>('/healthz');
 }
+
+// --- Impact analysis -----------------------------------------------------
+
+export type ImpactEntityType =
+  | 'cluster'
+  | 'node'
+  | 'namespace'
+  | 'pod'
+  | 'workload'
+  | 'service'
+  | 'ingress'
+  | 'persistentvolume'
+  | 'persistentvolumeclaim';
+
+export interface ImpactGraphNode {
+  id: string;
+  type: ImpactEntityType;
+  name: string;
+  status?: string;
+  kind?: string;
+}
+
+export interface ImpactGraphEdge {
+  from: string;
+  to: string;
+  relation: 'contains' | 'owns' | 'hosts' | 'binds';
+}
+
+export interface ImpactGraph {
+  root: ImpactGraphNode;
+  nodes: ImpactGraphNode[];
+  edges: ImpactGraphEdge[];
+}
+
+export function getImpactGraph(
+  entityType: ImpactEntityType,
+  id: string,
+  depth: number = 2,
+): Promise<ImpactGraph> {
+  return request<ImpactGraph>(
+    `/v1/impact/${entityType}/${id}` + query({ depth }),
+  );
+}

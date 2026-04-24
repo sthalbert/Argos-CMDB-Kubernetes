@@ -409,6 +409,53 @@ Filter parameters:
 
 ---
 
+## Impact Analysis
+
+| Method | Path | Scope | Description |
+|--------|------|-------|-------------|
+| GET | `/v1/impact/{entity_type}/{id}` | `read` | Dependency graph for an entity. |
+
+**Entity types:** `cluster`, `node`, `namespace`, `pod`, `workload`, `service`, `ingress`, `persistentvolume`, `persistentvolumeclaim`.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `depth` | integer (1–3) | `2` | Number of relationship hops to traverse. |
+
+**Example:**
+
+```bash
+curl -sS -b /tmp/argos.cookies \
+  'http://localhost:8080/v1/impact/node/<uuid>?depth=2' | jq .
+```
+
+```json
+{
+  "root": { "id": "...", "type": "node", "name": "worker-1", "status": "Ready" },
+  "nodes": [
+    { "id": "...", "type": "node", "name": "worker-1", "status": "Ready" },
+    { "id": "...", "type": "cluster", "name": "prod", "status": "v1.30.2" },
+    { "id": "...", "type": "pod", "name": "nginx-abc", "status": "Running" }
+  ],
+  "edges": [
+    { "from": "<cluster-id>", "to": "<node-id>", "relation": "contains" },
+    { "from": "<node-id>", "to": "<pod-id>", "relation": "hosts" }
+  ]
+}
+```
+
+**Relation types:**
+
+| Relation | Meaning |
+|----------|---------|
+| `contains` | Parent scope contains child (Cluster → Namespace, Namespace → Pod). |
+| `owns` | Controller owns managed resource (Workload → Pod). |
+| `hosts` | Infrastructure hosts workload (Node → Pod). |
+| `binds` | Storage binding (PV ↔ PVC). |
+
+---
+
 ## Health
 
 | Method | Path | Auth | Description |

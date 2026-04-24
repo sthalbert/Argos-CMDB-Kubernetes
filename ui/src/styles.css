@@ -670,3 +670,53 @@ th.sortable:hover {
   font-size: inherit;
   text-decoration: underline;
 }
+
+/* --- Impact Graph -------------------------------------------------------- */
+.impact-graph-container {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #0e1012;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.impact-graph-svg {
+  width: 100%;
+  min-height: 200px;
+  max-height: 600px;
+}
+.impact-graph-svg a { cursor: pointer; }
+.impact-graph-svg a:hover rect { stroke-width: 2.5; }
+.impact-node-type {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.impact-node-name {
+  font-size: 11px;
+  fill: #e6e6e6;
+}
+.impact-node-status {
+  font-size: 9px;
+  fill: var(--muted);
+}
+.impact-edge-label {
+  font-size: 9px;
+  fill: var(--muted);
+}
+.depth-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.depth-btn:hover { border-color: var(--accent); color: var(--accent); }
+.depth-active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #fff;
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/sthalbert/argos/internal/auth"
 	"github.com/sthalbert/argos/internal/collector"
 	"github.com/sthalbert/argos/internal/eol"
+	"github.com/sthalbert/argos/internal/impact"
 	"github.com/sthalbert/argos/internal/metrics"
 	"github.com/sthalbert/argos/internal/store"
 	"github.com/sthalbert/argos/ui"
@@ -196,6 +197,18 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	}
 	mux.Handle("GET /v1/admin/settings", requireAdminScope(settingsAuth(api.HandleGetSettings(pg))))
 	mux.Handle("PATCH /v1/admin/settings", requireAdminScope(settingsAuth(api.HandleUpdateSettings(pg))))
+	// Impact analysis endpoint — requires read scope (any authenticated user).
+	requireReadScope := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			//nolint:staticcheck // matches oapi-codegen context key convention
+			ctx := context.WithValue(
+				r.Context(), "BearerAuth.Scopes", []string{"read"},
+			)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+	impactAuth := auth.Middleware(pg, cfg.cookiePolicy)
+	mux.Handle("GET /v1/impact/{entity_type}/{id}", requireReadScope(impactAuth(impact.HandleImpact(pg))))
 
 	strict := api.NewStrictHandlerWithOptions(
 		api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider),

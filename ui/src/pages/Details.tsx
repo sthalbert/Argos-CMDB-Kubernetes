@@ -19,6 +19,7 @@ import { useMe, isAdmin } from '../me';
 import { ClusterCuratedCard } from './cluster_curated';
 import { NamespaceCuratedCard } from './namespace_curated';
 import { NodeCuratedCard } from './node_curated';
+import { ImpactSection } from './ImpactGraph';
 import {
   AsyncView,
   Dash,
@@ -209,6 +210,7 @@ export function ClusterDetail() {
           );
         }}
       </AsyncView>
+      <ImpactSection entityType="clusters" entityId={id} />
     </>
   );
 }
@@ -474,6 +476,7 @@ export function NamespaceDetail() {
           </>
         )}
       </AsyncView>
+      <ImpactSection entityType="namespaces" entityId={id} />
     </>
   );
 }
@@ -652,6 +655,7 @@ export function WorkloadDetail() {
           );
         }}
       </AsyncView>
+      <ImpactSection entityType="workloads" entityId={id} />
     </>
   );
 }
@@ -733,6 +737,7 @@ export function PodDetail() {
           </>
         )}
       </AsyncView>
+      <ImpactSection entityType="pods" entityId={id} />
     </>
   );
 }
@@ -1058,6 +1063,7 @@ export function NodeDetail() {
           </>
         )}
       </AsyncView>
+      <ImpactSection entityType="nodes" entityId={id} />
     </>
   );
 }
@@ -1229,6 +1235,7 @@ export function IngressDetail() {
           </>
         )}
       </AsyncView>
+      <ImpactSection entityType="ingresses" entityId={id} />
     </>
   );
 }

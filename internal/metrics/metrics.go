@@ -93,6 +93,21 @@ var (
 		Name:      "last_run_timestamp_seconds",
 		Help:      "Unix timestamp of the last completed EOL enrichment run.",
 	})
+
+	impactQueries = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "argos",
+		Subsystem: "impact",
+		Name:      "queries_total",
+		Help:      "Impact graph queries, per entity type.",
+	}, []string{"entity_type"})
+
+	impactDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "argos",
+		Subsystem: "impact",
+		Name:      "query_duration_seconds",
+		Help:      "Impact graph query duration in seconds.",
+		Buckets:   prometheus.DefBuckets,
+	}, []string{"entity_type"})
 )
 
 func init() {
@@ -109,6 +124,8 @@ func init() {
 		eolEnrichments,
 		eolErrors,
 		eolLastRun,
+		impactQueries,
+		impactDuration,
 	)
 }
 
@@ -164,6 +181,12 @@ func ObserveEOLError(cluster, resource, phase string) {
 // MarkEOLRun stamps the last-completed-run gauge with the current time.
 func MarkEOLRun() {
 	eolLastRun.Set(float64(time.Now().Unix()))
+}
+
+// ObserveImpactQuery records an impact graph query.
+func ObserveImpactQuery(entityType string, duration time.Duration) {
+	impactQueries.WithLabelValues(entityType).Inc()
+	impactDuration.WithLabelValues(entityType).Observe(duration.Seconds())
 }
 
 // MarkPoll stamps the last-successful-poll gauge with the current time.
