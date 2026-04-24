@@ -234,6 +234,11 @@ func (e *Enricher) resolveAnnotation(ctx context.Context, mr MatchResult) (*Anno
 	return e.buildAnnotation(mr, cycle, cycles), nil
 }
 
+// buildAnnotation constructs an EOL annotation from the matched cycle and
+// the full product cycle list. allCycles is ordered newest-first (as returned
+// by endoflife.date); the first element's Latest field becomes LatestAvailable
+// — the product-wide latest version — so operators can see how far behind
+// they are, not just whether their current cycle is patched.
 func (e *Enricher) buildAnnotation(mr MatchResult, cycle *Cycle, allCycles []Cycle) *Annotation {
 	ann := &Annotation{
 		Product:   mr.Product,
