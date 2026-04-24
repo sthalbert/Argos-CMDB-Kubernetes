@@ -68,13 +68,14 @@ func parseDateField(v any) (time.Time, bool) {
 // Annotation is the structured payload stored as a JSON string value
 // in the entity's annotations map under "argos.io/eol.<product>".
 type Annotation struct {
-	Product   string `json:"product"`
-	Cycle     string `json:"cycle"`
-	EOL       string `json:"eol,omitempty"`
-	EOLStatus Status `json:"eol_status"`
-	Support   string `json:"support,omitempty"`
-	Latest    string `json:"latest,omitempty"`
-	CheckedAt string `json:"checked_at"`
+	Product         string `json:"product"`
+	Cycle           string `json:"cycle"`
+	EOL             string `json:"eol,omitempty"`
+	EOLStatus       Status `json:"eol_status"`
+	Support         string `json:"support,omitempty"`
+	Latest          string `json:"latest,omitempty"`
+	LatestAvailable string `json:"latest_available,omitempty"`
+	CheckedAt       string `json:"checked_at"`
 }
 
 // MatchResult is the output of a version matcher: the endoflife.date

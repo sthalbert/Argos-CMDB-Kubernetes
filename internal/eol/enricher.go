@@ -231,15 +231,21 @@ func (e *Enricher) resolveAnnotation(ctx context.Context, mr MatchResult) (*Anno
 		return nil, nil //nolint:nilnil // nil annotation signals "skip" to caller
 	}
 
-	return e.buildAnnotation(mr, cycle), nil
+	return e.buildAnnotation(mr, cycle, cycles), nil
 }
 
-func (e *Enricher) buildAnnotation(mr MatchResult, cycle *Cycle) *Annotation {
+func (e *Enricher) buildAnnotation(mr MatchResult, cycle *Cycle, allCycles []Cycle) *Annotation {
 	ann := &Annotation{
 		Product:   mr.Product,
 		Cycle:     mr.Cycle,
 		Latest:    cycle.Latest,
 		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// The endoflife.date API returns cycles newest-first;
+	// the first element's Latest field is the product-wide latest version.
+	if len(allCycles) > 0 && allCycles[0].Latest != "" {
+		ann.LatestAvailable = allCycles[0].Latest
 	}
 
 	now := time.Now().UTC()

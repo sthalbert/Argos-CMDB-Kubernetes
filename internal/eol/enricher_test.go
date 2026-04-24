@@ -108,9 +108,10 @@ func TestEnricherEnrichesClusterKubernetesVersion(t *testing.T) {
 	// Set up a fake endoflife.date server with a past EOL date.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/kubernetes.json" {
+			// endoflife.date returns newest cycle first.
 			serveCycles(w, []Cycle{
-				{Cycle: "1.28", EOL: "2024-11-28", Support: "2024-09-28", Latest: "1.28.15"},
 				{Cycle: "1.30", EOL: "2028-06-28", Support: "2028-04-28", Latest: "1.30.14"},
+				{Cycle: "1.28", EOL: "2024-11-28", Support: "2024-09-28", Latest: "1.28.15"},
 			})
 			return
 		}
@@ -155,6 +156,11 @@ func TestEnricherEnrichesClusterKubernetesVersion(t *testing.T) {
 	}
 	if parsed.Latest != "1.28.15" {
 		t.Errorf("latest = %q, want 1.28.15", parsed.Latest)
+	}
+	// endoflife.date returns newest cycle first (1.30), so
+	// latest_available should be "1.30.14" even though the entity is on 1.28.
+	if parsed.LatestAvailable != "1.30.14" {
+		t.Errorf("latest_available = %q, want 1.30.14", parsed.LatestAvailable)
 	}
 }
 

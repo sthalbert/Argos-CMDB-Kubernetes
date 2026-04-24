@@ -598,7 +598,7 @@ table.entities select {
   border-color: var(--accent-dim);
 }
 
-/* --- EOL Dashboard ------------------------------------------------------- */
+/* --- EOL Inventory ------------------------------------------------------- */
 .eol-summary {
   display: flex;
   gap: 1rem;
@@ -660,6 +660,24 @@ th.sortable {
 }
 th.sortable:hover {
   color: var(--accent);
+}
+/* EOL table: row highlighting by status */
+.eol-table tr.eol-row-bad td {
+  background: rgba(248, 113, 113, 0.12);
+}
+.eol-table tr.eol-row-bad:hover td {
+  background: rgba(248, 113, 113, 0.2);
+}
+.eol-table tr.eol-row-warn td {
+  background: rgba(250, 182, 97, 0.08);
+}
+.eol-table tr.eol-row-warn:hover td {
+  background: rgba(250, 182, 97, 0.14);
+}
+/* EOL table: visual separator between "owned" and "available" column groups */
+.eol-table td.eol-col-separator,
+.eol-table thead tr th:nth-child(7) {
+  border-left: 2px solid var(--border);
 }
 .link-btn {
   background: none;

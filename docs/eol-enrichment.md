@@ -28,9 +28,9 @@ To disable it again, click **Disable** on the same card.
 
 > **Alternative: env var.** Setting `ARGOS_EOL_ENABLED=true` on the argosd Deployment seeds the database setting to `true` on startup. The UI toggle overrides it at runtime. See [Configuration](configuration.md) for all env vars.
 
-## Use the EOL dashboard
+## Use the EOL inventory
 
-All authenticated users can access the dashboard at **EOL** in the top navigation bar (or `/ui/eol`).
+All authenticated users can access the inventory at **EOL** in the top navigation bar (or `/ui/eol`).
 
 ### Summary cards
 
@@ -46,17 +46,25 @@ Three cards at the top show counts by severity:
 
 ### Table
 
-The table lists every enriched entity with its lifecycle data. Columns:
+The table lists every enriched entity with its lifecycle data. Columns are grouped into two sections separated by a visual border:
+
+**What we run** — the software currently deployed:
 
 | Column | Description |
 |--------|-------------|
-| Status | Lifecycle badge (End of Life, Approaching EOL, Supported). |
+| Status | Lifecycle badge (End of Life, Approaching EOL, Supported). Rows are highlighted red for EOL, orange for approaching EOL. |
 | Product | The endoflife.date product identifier (e.g. `kubernetes`, `containerd`, `ubuntu`). |
-| Cycle | The matched major.minor release cycle (e.g. `1.28`, `22.04`). |
+| Version | The matched major.minor release cycle (e.g. `1.28`, `22.04`). |
+| Patch | The latest patch version available for the entity's current cycle. |
 | Entity | Link to the cluster or node detail page. |
 | Cluster | Which cluster the entity belongs to. |
-| EOL Date | The date the cycle reaches end of life (from endoflife.date). |
-| Latest | The latest patch version available for that cycle. |
+
+**What's available** — upgrade targets and lifecycle dates:
+
+| Column | Description |
+|--------|-------------|
+| Latest Available | The newest version of the product published on endoflife.date (e.g. `1.32.3` when the entity runs `1.28`). |
+| EOL Date | The date the current cycle reaches end of life (from endoflife.date). |
 | Checked | When the enricher last verified this annotation. |
 
 **Click a column header** to sort by that column. Click again to reverse the sort direction. An arrow indicator shows the current sort column and direction.
@@ -87,6 +95,7 @@ Each enriched entity carries one annotation per matched product. The key is `arg
   "eol_status": "eol",
   "support": "2024-11-28",
   "latest": "1.28.15",
+  "latest_available": "1.32.3",
   "checked_at": "2026-04-24T10:00:00Z"
 }
 ```
@@ -98,7 +107,8 @@ Each enriched entity carries one annotation per matched product. The key is `arg
 | `eol` | EOL date in `YYYY-MM-DD` format. Empty when the product has no fixed EOL date. |
 | `eol_status` | One of `eol`, `approaching_eol`, `supported`, `unknown`. |
 | `support` | End of active support date, when available. |
-| `latest` | Latest patch version for the cycle. |
+| `latest` | Latest patch version for the entity's current cycle. |
+| `latest_available` | Latest version of the product overall (newest cycle's latest patch from endoflife.date). |
 | `checked_at` | UTC timestamp of the last enrichment check. |
 
 These annotations are visible on the entity detail pages (cluster and node) in the "Annotations" section, and are queryable via the REST API.

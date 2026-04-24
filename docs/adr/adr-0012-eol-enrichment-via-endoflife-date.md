@@ -57,6 +57,7 @@ The enrichment writes **annotations** on the entity, using a reserved `argos.io/
     "eol_status": "eol",
     "support": "2025-04-28",
     "latest": "1.28.15",
+    "latest_available": "1.32.3",
     "checked_at": "2026-04-24T10:00:00Z"
   },
   "argos.io/eol.containerd": {
@@ -65,6 +66,7 @@ The enrichment writes **annotations** on the entity, using a reserved `argos.io/
     "eol": "2024-02-16",
     "eol_status": "eol",
     "latest": "1.6.36",
+    "latest_available": "2.0.4",
     "checked_at": "2026-04-24T10:00:00Z"
   }
 }
@@ -133,11 +135,14 @@ A future enhancement can add query parameters (`?eol_status=eol`, `?eol_before=2
 
 ### UI surface
 
-The UI reads the `argos.io/eol.*` annotations and renders:
+The UI exposes an **End-of-Life Inventory** page (`/ui/eol`) that reads the `argos.io/eol.*` annotations and renders:
 
-- A **badge** on the entity card: red for `eol`, orange for `approaching_eol`, green for `supported`, grey for `unknown`.
-- A **tooltip** or expandable row showing the cycle, EOL date, latest available version, and `checked_at`.
-- A **dashboard widget** (future): count of EOL / approaching-EOL entities across the inventory for audit reporting.
+- **Summary cards** at the top: red (End of Life), orange (Approaching EOL), green (Supported) — clickable to filter the table.
+- A **sortable table** with two column groups separated by a visual border:
+  - *What we run*: Status (badge), Product, Version (major.minor cycle), Patch (latest patch for the cycle), Entity (link), Cluster.
+  - *What's available*: Latest Available (product-wide latest from endoflife.date), EOL Date, Checked.
+- **Row-level highlighting**: red background for EOL rows, orange for approaching EOL.
+- **Status badges** on entity detail pages (cluster, node).
 
 ### Push collector
 
@@ -176,6 +181,33 @@ The push collector (`argos-collector`) does **not** run the enricher. Enrichment
 
 - **Description**: Enrich with CVE counts per version rather than EOL dates.
 - **Rejection reason**: Complementary, not a substitute. EOL status is a lifecycle signal (is this version still receiving patches?); CVE count is a vulnerability signal (how many known issues exist?). endoflife.date is simpler to integrate (no API key, small payloads, stable schema). CVE enrichment is a natural follow-up that can reuse the same annotation model.
+
+## Amendment — Latest Available Version (2026-04-24)
+
+### Context
+
+The current annotation stores `latest` — the most recent patch for the entity's **own cycle** (e.g. `1.28.15` for cycle `1.28`). This tells operators whether they're on the newest patch, but not how far behind the current product release they are. An operator running Kubernetes 1.28 has no way to see that 1.32 exists without leaving the tool.
+
+SecNumCloud auditors frequently ask "what is the latest available version and why hasn't the platform upgraded?" — answering this requires cross-referencing endoflife.date manually today.
+
+### Decision
+
+Add a `latest_available` field to the EOL annotation (see updated example in the Enrichment model section above). This field contains the latest patch version of the **newest cycle** published on endoflife.date for that product (e.g. `1.32.3` when the entity runs cycle `1.28`).
+
+The enricher already fetches the full product cycles list; extracting the first element's `latest` field adds zero API calls.
+
+### UI changes
+
+The EOL Inventory table gains a **Latest Available** column showing the product-wide latest version. The table columns are grouped into two visual sections separated by a border:
+- **What we run** (Status, Product, Version, Patch, Entity, Cluster): the deployed software and its lifecycle state. Rows are highlighted red for EOL, orange for approaching EOL.
+- **What's available** (Latest Available, EOL Date, Checked): upgrade targets and lifecycle dates.
+
+Column renames for clarity: "Cycle" → **Version**, "Cycle Latest" → **Patch**.
+
+### Consequences
+
+- **POS**: Operators and auditors can instantly identify upgrade opportunities without leaving Argos.
+- **NEG**: None — the data is already fetched, this only stores one additional string per annotation (~10 bytes).
 
 ## Implementation Notes
 

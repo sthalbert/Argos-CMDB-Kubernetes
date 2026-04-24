@@ -13,6 +13,7 @@ interface EolAnnotation {
   eol_status: 'eol' | 'approaching_eol' | 'supported' | 'unknown';
   support?: string;
   latest?: string;
+  latest_available?: string;
   checked_at?: string;
 }
 
@@ -78,6 +79,7 @@ interface EolRow {
   eolStatus: EolStatus;
   eolDate: string | undefined;
   latest: string | undefined;
+  latestAvailable: string | undefined;
   checkedAt: string | undefined;
 }
 
@@ -99,6 +101,7 @@ function buildRows(clusters: api.Cluster[], nodes: api.Node[]): EolRow[] {
         eolStatus: ann.eol_status,
         eolDate: ann.eol,
         latest: ann.latest,
+        latestAvailable: ann.latest_available,
         checkedAt: ann.checked_at,
       });
     }
@@ -117,6 +120,7 @@ function buildRows(clusters: api.Cluster[], nodes: api.Node[]): EolRow[] {
         eolStatus: ann.eol_status,
         eolDate: ann.eol,
         latest: ann.latest,
+        latestAvailable: ann.latest_available,
         checkedAt: ann.checked_at,
       });
     }
@@ -218,7 +222,7 @@ export default function EolDashboard() {
 
   return (
     <>
-      <h2>End-of-Life Dashboard</h2>
+      <h2>End-of-Life Inventory</h2>
       <p className="muted" style={{ marginBottom: '1rem' }}>
         Lifecycle status of inventoried software, enriched from endoflife.date.
       </p>
@@ -310,22 +314,27 @@ function EolTable({
         </p>
       )}
 
-      <table className="entities">
+      <table className="entities eol-table">
+        <colgroup>
+          <col span={6} className="eol-col-owned" />
+          <col span={3} />
+        </colgroup>
         <thead>
           <tr>
             <SortHeader label="Status" sortKey="status" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
             <SortHeader label="Product" sortKey="product" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
-            <th>Cycle</th>
+            <th>Version</th>
+            <th>Patch</th>
             <SortHeader label="Entity" sortKey="entity" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
             <SortHeader label="Cluster" sortKey="cluster" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <th>Latest Available</th>
             <SortHeader label="EOL Date" sortKey="eolDate" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
-            <th>Latest</th>
             <th>Checked</th>
           </tr>
         </thead>
         <tbody>
           {sorted.map((r, i) => (
-            <tr key={i}>
+            <tr key={i} className={r.eolStatus === 'eol' ? 'eol-row-bad' : r.eolStatus === 'approaching_eol' ? 'eol-row-warn' : ''}>
               <td>
                 <EolBadge status={r.eolStatus} />
               </td>
@@ -335,6 +344,7 @@ function EolTable({
               <td>
                 <code>{r.cycle}</code>
               </td>
+              <td>{r.latest ? <code>{r.latest}</code> : <Dash />}</td>
               <td>
                 <Link to={`/${r.entityType === 'cluster' ? 'clusters' : 'nodes'}/${r.entityId}`}>
                   <strong>{r.entityName}</strong>
@@ -344,8 +354,8 @@ function EolTable({
                 </span>
               </td>
               <td>{r.clusterName}</td>
+              <td className="eol-col-separator">{r.latestAvailable ? <code>{r.latestAvailable}</code> : <Dash />}</td>
               <td>{r.eolDate ? <code>{r.eolDate}</code> : <Dash />}</td>
-              <td>{r.latest ? <code>{r.latest}</code> : <Dash />}</td>
               <td className="muted" style={{ fontSize: '0.8rem' }}>
                 {r.checkedAt ? new Date(r.checkedAt).toLocaleDateString() : <Dash />}
               </td>
