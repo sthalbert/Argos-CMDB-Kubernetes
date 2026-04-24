@@ -3310,9 +3310,9 @@ func (siw *ServerInterfaceWrapper) ReconcileIngresses(w http.ResponseWriter, r *
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
 
-	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"write"})
+	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"delete"})
 
 	r = r.WithContext(ctx)
 
@@ -3494,9 +3494,9 @@ func (siw *ServerInterfaceWrapper) ReconcileNamespaces(w http.ResponseWriter, r 
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
 
-	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"write"})
+	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"delete"})
 
 	r = r.WithContext(ctx)
 
@@ -3678,9 +3678,9 @@ func (siw *ServerInterfaceWrapper) ReconcileNodes(w http.ResponseWriter, r *http
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
 
-	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"write"})
+	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"delete"})
 
 	r = r.WithContext(ctx)
 
@@ -3862,9 +3862,9 @@ func (siw *ServerInterfaceWrapper) ReconcilePersistentVolumeClaims(w http.Respon
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
 
-	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"write"})
+	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"delete"})
 
 	r = r.WithContext(ctx)
 
@@ -4046,9 +4046,9 @@ func (siw *ServerInterfaceWrapper) ReconcilePersistentVolumes(w http.ResponseWri
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
 
-	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"write"})
+	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"delete"})
 
 	r = r.WithContext(ctx)
 
@@ -4254,9 +4254,9 @@ func (siw *ServerInterfaceWrapper) ReconcilePods(w http.ResponseWriter, r *http.
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
 
-	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"write"})
+	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"delete"})
 
 	r = r.WithContext(ctx)
 
@@ -4438,9 +4438,9 @@ func (siw *ServerInterfaceWrapper) ReconcileServices(w http.ResponseWriter, r *h
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
 
-	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"write"})
+	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"delete"})
 
 	r = r.WithContext(ctx)
 
@@ -4638,9 +4638,9 @@ func (siw *ServerInterfaceWrapper) ReconcileWorkloads(w http.ResponseWriter, r *
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"write"})
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{"delete"})
 
-	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"write"})
+	ctx = context.WithValue(ctx, SessionCookieScopes, []string{"delete"})
 
 	r = r.WithContext(ctx)
 
@@ -11286,42 +11286,42 @@ var swaggerSpec = []string{
 	"bZXO9eOfvqePEwJdw9UhClrqja8nENqoC3ywc76wCZ7YaqUb/NUIsN76Pilb7cL83tDSD6Y8z3/C3KHB",
 	"u8199L22s5lLqn6JRjOvMUNgrOq3TWazp+Mdmc3+6x/HbA5Ta2AP/+j2zGZP8C/KbP6YGXUb7GwRCL6C",
 	"5xel6YEKVyJuDta4PA7/aljtEZ+AqFWJnOLVKeh88P5JLmLRr+4i7DefFPCjqAvwu9h3K+/R3LHhsHgD",
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
