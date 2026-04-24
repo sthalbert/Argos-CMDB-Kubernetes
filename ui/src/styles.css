@@ -640,3 +640,33 @@ table.entities select {
   color: #7bd88f;
   border-color: #1e5a30;
 }
+.eol-summary-card {
+  cursor: pointer;
+  transition: outline 0.1s, opacity 0.1s;
+}
+.eol-summary-card:hover {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.eol-active {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  opacity: 1;
+}
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+th.sortable:hover {
+  color: var(--accent);
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+}

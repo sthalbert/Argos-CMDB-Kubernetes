@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResources } from '../hooks';
@@ -14,6 +15,8 @@ interface EolAnnotation {
   latest?: string;
   checked_at?: string;
 }
+
+type EolStatus = EolAnnotation['eol_status'];
 
 const EOL_PREFIX = 'argos.io/eol.';
 
@@ -33,7 +36,7 @@ function parseEolAnnotations(annotations?: Record<string, string> | null): EolAn
 
 // --- Status badge ---------------------------------------------------------
 
-function statusClass(status: EolAnnotation['eol_status']): string {
+function statusClass(status: EolStatus): string {
   switch (status) {
     case 'eol':
       return 'pill status-bad';
@@ -46,7 +49,7 @@ function statusClass(status: EolAnnotation['eol_status']): string {
   }
 }
 
-function statusLabel(status: EolAnnotation['eol_status']): string {
+function statusLabel(status: EolStatus): string {
   switch (status) {
     case 'eol':
       return 'End of Life';
@@ -59,7 +62,7 @@ function statusLabel(status: EolAnnotation['eol_status']): string {
   }
 }
 
-export const EolBadge = ({ status }: { status: EolAnnotation['eol_status'] }) => (
+export const EolBadge = ({ status }: { status: EolStatus }) => (
   <span className={statusClass(status)}>{statusLabel(status)}</span>
 );
 
@@ -72,11 +75,13 @@ interface EolRow {
   clusterName: string;
   product: string;
   cycle: string;
-  eolStatus: EolAnnotation['eol_status'];
+  eolStatus: EolStatus;
   eolDate: string | undefined;
   latest: string | undefined;
   checkedAt: string | undefined;
 }
+
+const STATUS_ORDER: Record<string, number> = { eol: 0, approaching_eol: 1, supported: 2, unknown: 3 };
 
 function buildRows(clusters: api.Cluster[], nodes: api.Node[]): EolRow[] {
   const clusterById = new Map(clusters.map((c) => [c.id, c]));
@@ -117,9 +122,7 @@ function buildRows(clusters: api.Cluster[], nodes: api.Node[]): EolRow[] {
     }
   }
 
-  // Sort: eol first, then approaching_eol, then supported
-  const order: Record<string, number> = { eol: 0, approaching_eol: 1, supported: 2, unknown: 3 };
-  rows.sort((a, b) => (order[a.eolStatus] ?? 4) - (order[b.eolStatus] ?? 4));
+  rows.sort((a, b) => (STATUS_ORDER[a.eolStatus] ?? 4) - (STATUS_ORDER[b.eolStatus] ?? 4));
   return rows;
 }
 
@@ -140,6 +143,53 @@ function countStatuses(rows: EolRow[]): StatusCounts {
   return counts;
 }
 
+// --- Sortable column header -----------------------------------------------
+
+type SortKey = 'status' | 'product' | 'entity' | 'cluster' | 'eolDate';
+
+function compareRows(a: EolRow, b: EolRow, key: SortKey, asc: boolean): number {
+  let cmp = 0;
+  switch (key) {
+    case 'status':
+      cmp = (STATUS_ORDER[a.eolStatus] ?? 4) - (STATUS_ORDER[b.eolStatus] ?? 4);
+      break;
+    case 'product':
+      cmp = a.product.localeCompare(b.product);
+      break;
+    case 'entity':
+      cmp = a.entityName.localeCompare(b.entityName);
+      break;
+    case 'cluster':
+      cmp = a.clusterName.localeCompare(b.clusterName);
+      break;
+    case 'eolDate':
+      cmp = (a.eolDate ?? '9999').localeCompare(b.eolDate ?? '9999');
+      break;
+  }
+  return asc ? cmp : -cmp;
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  currentKey,
+  asc,
+  onClick,
+}: {
+  label: string;
+  sortKey: SortKey;
+  currentKey: SortKey;
+  asc: boolean;
+  onClick: (key: SortKey) => void;
+}) {
+  const arrow = currentKey === sortKey ? (asc ? ' \u25b2' : ' \u25bc') : '';
+  return (
+    <th className="sortable" onClick={() => onClick(sortKey)}>
+      {label}{arrow}
+    </th>
+  );
+}
+
 // --- Page component -------------------------------------------------------
 
 export default function EolDashboard() {
@@ -147,6 +197,24 @@ export default function EolDashboard() {
     [() => api.listClusters(), () => api.listNodes()] as const,
     [],
   );
+  const [statusFilter, setStatusFilter] = useState<EolStatus | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('status');
+  const [sortAsc, setSortAsc] = useState(true);
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortKey(key);
+      setSortAsc(true);
+    }
+  };
+
+  const handleCardClick = (status: EolStatus) => {
+    setStatusFilter((prev) => (prev === status ? null : status));
+    setSortKey('status');
+    setSortAsc(true);
+  };
 
   return (
     <>
@@ -155,81 +223,136 @@ export default function EolDashboard() {
         Lifecycle status of inventoried software, enriched from endoflife.date.
       </p>
       <AsyncView state={state}>
-        {([clustersResp, nodesResp]) => {
-          const rows = buildRows(clustersResp.items, nodesResp.items);
-          if (rows.length === 0) {
-            return (
-              <p className="muted">
-                No EOL data available. Enable the enricher with{' '}
-                <code>ARGOS_EOL_ENABLED=true</code>.
-              </p>
-            );
-          }
-          const counts = countStatuses(rows);
-          return (
-            <>
-              <div className="eol-summary">
-                <div className="eol-summary-card eol-bad">
-                  <span className="eol-summary-count">{counts.eol}</span>
-                  <span className="eol-summary-label">End of Life</span>
-                </div>
-                <div className="eol-summary-card eol-warn">
-                  <span className="eol-summary-count">{counts.approaching_eol}</span>
-                  <span className="eol-summary-label">Approaching EOL</span>
-                </div>
-                <div className="eol-summary-card eol-ok">
-                  <span className="eol-summary-count">{counts.supported}</span>
-                  <span className="eol-summary-label">Supported</span>
-                </div>
-              </div>
-
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Product</th>
-                    <th>Cycle</th>
-                    <th>Entity</th>
-                    <th>Cluster</th>
-                    <th>EOL Date</th>
-                    <th>Latest</th>
-                    <th>Checked</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i}>
-                      <td>
-                        <EolBadge status={r.eolStatus} />
-                      </td>
-                      <td>
-                        <code>{r.product}</code>
-                      </td>
-                      <td>
-                        <code>{r.cycle}</code>
-                      </td>
-                      <td>
-                        <Link to={`/${r.entityType === 'cluster' ? 'clusters' : 'nodes'}/${r.entityId}`}>
-                          <strong>{r.entityName}</strong>
-                        </Link>
-                        <span className="muted" style={{ marginLeft: '0.4rem', fontSize: '0.8rem' }}>
-                          {r.entityType}
-                        </span>
-                      </td>
-                      <td>{r.clusterName}</td>
-                      <td>{r.eolDate ? <code>{r.eolDate}</code> : <Dash />}</td>
-                      <td>{r.latest ? <code>{r.latest}</code> : <Dash />}</td>
-                      <td className="muted" style={{ fontSize: '0.8rem' }}>
-                        {r.checkedAt ? new Date(r.checkedAt).toLocaleDateString() : <Dash />}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          );
-        }}
+        {([clustersResp, nodesResp]) => (
+          <EolTable
+            clusters={clustersResp.items}
+            nodes={nodesResp.items}
+            statusFilter={statusFilter}
+            sortKey={sortKey}
+            sortAsc={sortAsc}
+            onCardClick={handleCardClick}
+            onSort={handleSort}
+          />
+        )}
       </AsyncView>
+    </>
+  );
+}
+
+function EolTable({
+  clusters,
+  nodes,
+  statusFilter,
+  sortKey,
+  sortAsc,
+  onCardClick,
+  onSort,
+}: {
+  clusters: api.Cluster[];
+  nodes: api.Node[];
+  statusFilter: EolStatus | null;
+  sortKey: SortKey;
+  sortAsc: boolean;
+  onCardClick: (status: EolStatus) => void;
+  onSort: (key: SortKey) => void;
+}) {
+  const allRows = useMemo(() => buildRows(clusters, nodes), [clusters, nodes]);
+  const counts = useMemo(() => countStatuses(allRows), [allRows]);
+
+  const filtered = useMemo(
+    () => (statusFilter ? allRows.filter((r) => r.eolStatus === statusFilter) : allRows),
+    [allRows, statusFilter],
+  );
+
+  const sorted = useMemo(
+    () => [...filtered].sort((a, b) => compareRows(a, b, sortKey, sortAsc)),
+    [filtered, sortKey, sortAsc],
+  );
+
+  if (allRows.length === 0) {
+    return (
+      <p className="muted">
+        No EOL data available. Enable the enricher in{' '}
+        <strong>Admin &gt; Settings</strong>.
+      </p>
+    );
+  }
+
+  const cardClass = (status: EolStatus, colorClass: string) =>
+    `eol-summary-card ${colorClass}${statusFilter === status ? ' eol-active' : ''}`;
+
+  return (
+    <>
+      <div className="eol-summary">
+        <div className={cardClass('eol', 'eol-bad')} onClick={() => onCardClick('eol')}>
+          <span className="eol-summary-count">{counts.eol}</span>
+          <span className="eol-summary-label">End of Life</span>
+        </div>
+        <div className={cardClass('approaching_eol', 'eol-warn')} onClick={() => onCardClick('approaching_eol')}>
+          <span className="eol-summary-count">{counts.approaching_eol}</span>
+          <span className="eol-summary-label">Approaching EOL</span>
+        </div>
+        <div className={cardClass('supported', 'eol-ok')} onClick={() => onCardClick('supported')}>
+          <span className="eol-summary-count">{counts.supported}</span>
+          <span className="eol-summary-label">Supported</span>
+        </div>
+      </div>
+
+      {statusFilter && (
+        <p style={{ marginBottom: '0.75rem' }}>
+          Filtering: <EolBadge status={statusFilter} />{' '}
+          <button className="link-btn" onClick={() => onCardClick(statusFilter)}>
+            clear
+          </button>
+          <span className="muted" style={{ marginLeft: '0.5rem' }}>
+            ({sorted.length} of {allRows.length})
+          </span>
+        </p>
+      )}
+
+      <table className="entities">
+        <thead>
+          <tr>
+            <SortHeader label="Status" sortKey="status" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <SortHeader label="Product" sortKey="product" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <th>Cycle</th>
+            <SortHeader label="Entity" sortKey="entity" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <SortHeader label="Cluster" sortKey="cluster" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <SortHeader label="EOL Date" sortKey="eolDate" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <th>Latest</th>
+            <th>Checked</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r, i) => (
+            <tr key={i}>
+              <td>
+                <EolBadge status={r.eolStatus} />
+              </td>
+              <td>
+                <code>{r.product}</code>
+              </td>
+              <td>
+                <code>{r.cycle}</code>
+              </td>
+              <td>
+                <Link to={`/${r.entityType === 'cluster' ? 'clusters' : 'nodes'}/${r.entityId}`}>
+                  <strong>{r.entityName}</strong>
+                </Link>
+                <span className="muted" style={{ marginLeft: '0.4rem', fontSize: '0.8rem' }}>
+                  {r.entityType}
+                </span>
+              </td>
+              <td>{r.clusterName}</td>
+              <td>{r.eolDate ? <code>{r.eolDate}</code> : <Dash />}</td>
+              <td>{r.latest ? <code>{r.latest}</code> : <Dash />}</td>
+              <td className="muted" style={{ fontSize: '0.8rem' }}>
+                {r.checkedAt ? new Date(r.checkedAt).toLocaleDateString() : <Dash />}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </>
   );
 }
