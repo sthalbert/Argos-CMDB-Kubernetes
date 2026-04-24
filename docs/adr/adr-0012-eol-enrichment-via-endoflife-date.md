@@ -57,6 +57,7 @@ The enrichment writes **annotations** on the entity, using a reserved `argos.io/
     "eol_status": "eol",
     "support": "2025-04-28",
     "latest": "1.28.15",
+    "latest_available": "1.32.3",
     "checked_at": "2026-04-24T10:00:00Z"
   },
   "argos.io/eol.containerd": {
@@ -65,6 +66,7 @@ The enrichment writes **annotations** on the entity, using a reserved `argos.io/
     "eol": "2024-02-16",
     "eol_status": "eol",
     "latest": "1.6.36",
+    "latest_available": "2.0.4",
     "checked_at": "2026-04-24T10:00:00Z"
   }
 }
@@ -190,24 +192,7 @@ SecNumCloud auditors frequently ask "what is the latest available version and wh
 
 ### Decision
 
-Add a `latest_available` field to the EOL annotation. This field contains the latest patch version of the **newest cycle** published on endoflife.date for that product (e.g. `1.32.3` when the entity runs cycle `1.28`).
-
-Updated annotation example:
-
-```json
-{
-  "argos.io/eol.kubernetes": {
-    "product": "kubernetes",
-    "cycle": "1.28",
-    "eol": "2025-06-28",
-    "eol_status": "eol",
-    "support": "2025-04-28",
-    "latest": "1.28.15",
-    "latest_available": "1.32.3",
-    "checked_at": "2026-04-24T10:00:00Z"
-  }
-}
-```
+Add a `latest_available` field to the EOL annotation (see updated example in the Enrichment model section above). This field contains the latest patch version of the **newest cycle** published on endoflife.date for that product (e.g. `1.32.3` when the entity runs cycle `1.28`).
 
 The enricher already fetches the full product cycles list; extracting the first element's `latest` field adds zero API calls.
 
