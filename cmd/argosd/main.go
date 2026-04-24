@@ -164,6 +164,19 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
+	// Settings endpoints — hand-written, gated on admin role internally.
+	// Inject "admin" scope into context so the auth middleware resolves
+	// the caller (it skips public routes that lack scope declarations).
+	settingsAuth := auth.Middleware(pg, cfg.cookiePolicy)
+	requireAdminScope := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), "BearerAuth.Scopes", []string{"admin"}) //nolint:staticcheck // matches oapi-codegen context key convention
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+	mux.Handle("GET /v1/admin/settings", requireAdminScope(settingsAuth(api.HandleGetSettings(pg))))
+	mux.Handle("PATCH /v1/admin/settings", requireAdminScope(settingsAuth(api.HandleUpdateSettings(pg))))
+
 	strict := api.NewStrictHandlerWithOptions(
 		api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider),
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
@@ -490,19 +503,24 @@ func parseIntEnv(key string, fallback int) (int, error) {
 	return n, nil
 }
 
-// maybeStartEOLEnricher spawns the EOL enrichment goroutine when
-// ARGOS_EOL_ENABLED is truthy (ADR-0012). Returns a drain function
-// the caller defers. When disabled the drain is a no-op.
+// maybeStartEOLEnricher spawns the EOL enrichment goroutine (ADR-0012).
+// The goroutine always starts; actual enrichment is gated by the
+// `eol_enabled` setting in the database (toggled by admins via the UI).
+// ARGOS_EOL_ENABLED seeds the DB setting on first boot when present.
+// Returns a drain function the caller defers.
 func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
-	enabled, err := parseBoolEnv("ARGOS_EOL_ENABLED", false)
-	if err != nil {
-		return nil, err
-	}
-	if !enabled {
-		return func() {}, nil
+	// Seed the DB setting from env var when explicitly set.
+	if envVal := os.Getenv("ARGOS_EOL_ENABLED"); envVal != "" {
+		enabled, err := strconv.ParseBool(envVal)
+		if err != nil {
+			return nil, fmt.Errorf("parse ARGOS_EOL_ENABLED=%q: %w", envVal, err)
+		}
+		if _, err := s.UpdateSettings(ctx, api.SettingsPatch{EOLEnabled: &enabled}); err != nil {
+			slog.Warn("eol enricher: failed to seed settings from env", slog.Any("error", err))
+		}
 	}
 
-	interval, err := parseDurationEnv("ARGOS_EOL_INTERVAL", 24*time.Hour)
+	interval, err := parseDurationEnv("ARGOS_EOL_INTERVAL", 2*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -524,7 +542,7 @@ func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 		}
 	}()
 
-	slog.Info("eol enricher started",
+	slog.Info("eol enricher goroutine started (actual enrichment gated by DB setting)",
 		slog.String("interval", interval.String()),
 		slog.Int("approaching_days", approachingDays),
 		slog.String("base_url", baseURL),

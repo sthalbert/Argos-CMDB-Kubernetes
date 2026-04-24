@@ -17,6 +17,7 @@ const annotationPrefix = "argos.io/eol."
 
 // EnricherStore is the narrow subset of api.Store the enricher needs.
 type EnricherStore interface {
+	GetSettings(ctx context.Context) (api.Settings, error)
 	ListClusters(ctx context.Context, limit int, cursor string) ([]api.Cluster, string, error)
 	GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error)
 	UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error)
@@ -68,6 +69,17 @@ func (e *Enricher) Run(ctx context.Context) error {
 }
 
 func (e *Enricher) enrich(ctx context.Context) {
+	// Check the DB setting — skip when disabled by admin.
+	settings, err := e.store.GetSettings(ctx)
+	if err != nil {
+		slog.Warn("eol enricher: read settings failed, skipping tick", slog.Any("error", err))
+		return
+	}
+	if !settings.EOLEnabled {
+		slog.Debug("eol enricher: disabled via settings, skipping tick")
+		return
+	}
+
 	slog.Debug("eol enricher: tick started")
 
 	cursor := ""

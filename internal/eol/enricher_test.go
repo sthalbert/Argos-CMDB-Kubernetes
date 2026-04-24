@@ -16,9 +16,16 @@ import (
 
 // fakeStore implements EnricherStore for tests.
 type fakeStore struct {
-	mu       sync.Mutex
-	clusters []api.Cluster
-	nodes    []api.Node
+	mu         sync.Mutex
+	clusters   []api.Cluster
+	nodes      []api.Node
+	eolEnabled bool
+}
+
+func (s *fakeStore) GetSettings(_ context.Context) (api.Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return api.Settings{EOLEnabled: s.eolEnabled}, nil
 }
 
 func (s *fakeStore) ListClusters(_ context.Context, _ int, _ string) ([]api.Cluster, string, error) {
@@ -113,6 +120,7 @@ func TestEnricherEnrichesClusterKubernetesVersion(t *testing.T) {
 
 	clusterID := uuid.New()
 	store := &fakeStore{
+		eolEnabled: true,
 		clusters: []api.Cluster{
 			{Id: &clusterID, Name: "test", KubernetesVersion: ptr("v1.28.5")},
 		},
@@ -172,6 +180,7 @@ func TestEnricherEnrichesNodeFields(t *testing.T) {
 	clusterID := uuid.New()
 	nodeID := uuid.New()
 	store := &fakeStore{
+		eolEnabled: true,
 		clusters: []api.Cluster{
 			{Id: &clusterID, Name: "test", KubernetesVersion: ptr("v1.30.2")},
 		},
@@ -235,6 +244,7 @@ func TestEnricherPreservesExistingAnnotations(t *testing.T) {
 	clusterID := uuid.New()
 	existing := map[string]string{"team": "platform", "tier": "production"}
 	store := &fakeStore{
+		eolEnabled: true,
 		clusters: []api.Cluster{
 			{Id: &clusterID, Name: "test", KubernetesVersion: ptr("v1.30.2"), Annotations: &existing},
 		},

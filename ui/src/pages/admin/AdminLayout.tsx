@@ -25,6 +25,7 @@ export default function AdminLayout({ role }: { role: Role }) {
         {role === 'admin' && tab('/admin/tokens', 'Machine tokens')}
         {role === 'admin' && tab('/admin/sessions', 'Active sessions')}
         {tab('/admin/audit', 'Audit')}
+        {role === 'admin' && tab('/admin/settings', 'Settings')}
       </nav>
       <Outlet />
     </>

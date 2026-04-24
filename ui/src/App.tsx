@@ -23,11 +23,13 @@ import {
   NodeDetail,
   IngressDetail,
 } from './pages/Details';
+import EolDashboard from './pages/EolDashboard';
 import AdminLayout from './pages/admin/AdminLayout';
 import UsersPage from './pages/admin/Users';
 import TokensPage from './pages/admin/Tokens';
 import SessionsPage from './pages/admin/Sessions';
 import AuditPage from './pages/admin/Audit';
+import SettingsPage from './pages/admin/Settings';
 import { MeProvider } from './me';
 
 // --- auth gate ----------------------------------------------------------
@@ -119,6 +121,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
             {link('/persistentvolumes', 'PVs')}
             {link('/persistentvolumeclaims', 'PVCs')}
             {link('/search/image', 'Search')}
+            {link('/eol', 'EOL')}
             {(me.role === 'admin' || me.role === 'auditor') &&
               link(me.role === 'admin' ? '/admin/users' : '/admin/audit', 'Admin')}
           </nav>
@@ -195,6 +198,7 @@ export default function App() {
       <Route path="/persistentvolumeclaims" element={authed(<PersistentVolumeClaims />)} />
 
       <Route path="/search/image" element={authed(<ImageSearch />)} />
+      <Route path="/eol" element={authed(<EolDashboard />)} />
 
       {/* Admin panel — admins see every tab; auditors only get Audit. */}
       <Route
@@ -215,6 +219,7 @@ export default function App() {
         <Route path="tokens" element={<TokensPage />} />
         <Route path="sessions" element={<SessionsPage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/clusters" replace />} />

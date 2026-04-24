@@ -610,6 +610,14 @@ func (m *memStore) InsertAuditEvent(_ context.Context, in AuditEventInsert) erro
 }
 
 //nolint:gocyclo // multi-filter test fake
+func (m *memStore) GetSettings(_ context.Context) (Settings, error) {
+	return Settings{EOLEnabled: false}, nil
+}
+
+func (m *memStore) UpdateSettings(_ context.Context, _ SettingsPatch) (Settings, error) {
+	return Settings{EOLEnabled: false}, nil
+}
+
 func (m *memStore) ListAuditEvents(
 	_ context.Context, filter AuditEventFilter, limit int, _ string,
 ) ([]AuditEvent, string, error) {

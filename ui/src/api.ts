@@ -249,6 +249,28 @@ export function listAuditEvents(filter: AuditFilter = {}) {
   return request<PagedResponse<AuditEvent>>(`/v1/admin/audit?${q.toString()}`);
 }
 
+// Settings -----------------------------------------------------------------
+
+export interface Settings {
+  eol_enabled: boolean;
+  updated_at: string;
+}
+
+export interface SettingsPatch {
+  eol_enabled?: boolean;
+}
+
+export function getSettings() {
+  return request<Settings>('/v1/admin/settings');
+}
+
+export function updateSettings(patch: SettingsPatch) {
+  return request<Settings>('/v1/admin/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
 // Shared shapes ------------------------------------------------------------
 
 export interface PagedResponse<T> {
