@@ -485,17 +485,16 @@ export function NamespaceDetail() {
 
 export function WorkloadDetail() {
   const { id = '' } = useParams();
-  const state = useResources(
-    [() => api.getWorkload(id), () => api.listPods({ namespace_id: undefined })] as const,
-    [id],
+  const workloadState = useResource(() => api.getWorkload(id), [id]);
+  // Fetch pods scoped to the workload's namespace (not cluster-wide)
+  // to avoid the limit=200 pagination cutoff on large clusters. The
+  // client-side filter on workload_id still applies since the namespace
+  // may contain pods from other workloads.
+  const workloadData = workloadState.status === 'ready' ? workloadState.data : null;
+  const podsState = useResource(
+    async () => (workloadData ? api.listPods({ namespace_id: workloadData.namespace_id }) : null),
+    [workloadData?.namespace_id ?? ''],
   );
-  // We fetch ALL pods and filter by workload_id client-side, since
-  // /v1/pods doesn't yet have a workload_id query param. Namespace_id
-  // narrowing happens after we know the workload's namespace.
-  //
-  // Resolve the parent namespace so the KV row shows its name (and its
-  // cluster's name) rather than a bare UUID.
-  const workloadData = state.status === 'ready' ? state.data[0] : null;
   const namespaceResult = useResource(
     async () => (workloadData ? api.getNamespace(workloadData.namespace_id) : null),
     [workloadData?.namespace_id ?? ''],
@@ -526,9 +525,11 @@ export function WorkloadDetail() {
         )}
         <span>this workload</span>
       </div>
-      <AsyncView state={state}>
-        {([workload, pods]) => {
-          const ownedPods = pods.items.filter((p) => p.workload_id === workload.id);
+      <AsyncView state={workloadState}>
+        {(workload) => (
+          <AsyncView state={podsState}>
+            {(pods) => {
+          const ownedPods = (pods?.items ?? []).filter((p) => p.workload_id === workload.id);
           const nodes = Array.from(new Set(ownedPods.map((p) => p.node_name).filter(Boolean))) as string[];
           return (
             <>
@@ -654,6 +655,8 @@ export function WorkloadDetail() {
             </>
           );
         }}
+          </AsyncView>
+        )}
       </AsyncView>
       <ImpactSection entityType="workloads" entityId={id} />
     </>
