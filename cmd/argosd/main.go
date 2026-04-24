@@ -19,6 +19,7 @@ import (
 	"github.com/sthalbert/argos/internal/api"
 	"github.com/sthalbert/argos/internal/auth"
 	"github.com/sthalbert/argos/internal/collector"
+	"github.com/sthalbert/argos/internal/eol"
 	"github.com/sthalbert/argos/internal/metrics"
 	"github.com/sthalbert/argos/internal/store"
 	"github.com/sthalbert/argos/ui"
@@ -141,6 +142,12 @@ func run() error {
 		return err
 	}
 	defer drainCollectors()
+
+	drainEOL, err := maybeStartEOLEnricher(rootCtx, pg)
+	if err != nil {
+		return err
+	}
+	defer drainEOL()
 
 	srv := buildHTTPServer(&cfg, pg, oidcProvider)
 
@@ -469,4 +476,59 @@ func parseBoolEnv(key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("parse %s=%q: %w", key, v, err)
 	}
 	return b, nil
+}
+
+func parseIntEnv(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
+	}
+	return n, nil
+}
+
+// maybeStartEOLEnricher spawns the EOL enrichment goroutine when
+// ARGOS_EOL_ENABLED is truthy (ADR-0012). Returns a drain function
+// the caller defers. When disabled the drain is a no-op.
+func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
+	enabled, err := parseBoolEnv("ARGOS_EOL_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return func() {}, nil
+	}
+
+	interval, err := parseDurationEnv("ARGOS_EOL_INTERVAL", 24*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	approachingDays, err := parseIntEnv("ARGOS_EOL_APPROACHING_DAYS", 90)
+	if err != nil {
+		return nil, err
+	}
+	baseURL := envOr("ARGOS_EOL_BASE_URL", "https://endoflife.date")
+
+	client := eol.NewClient(baseURL, interval, nil)
+	enricher := eol.NewEnricher(s, client, interval, approachingDays)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := enricher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("eol enricher exited with error", slog.String("error", err.Error()))
+		}
+	}()
+
+	slog.Info("eol enricher started",
+		slog.String("interval", interval.String()),
+		slog.Int("approaching_days", approachingDays),
+		slog.String("base_url", baseURL),
+	)
+
+	return wg.Wait, nil
 }
