@@ -133,11 +133,14 @@ A future enhancement can add query parameters (`?eol_status=eol`, `?eol_before=2
 
 ### UI surface
 
-The UI reads the `argos.io/eol.*` annotations and renders:
+The UI exposes an **End-of-Life Inventory** page (`/ui/eol`) that reads the `argos.io/eol.*` annotations and renders:
 
-- A **badge** on the entity card: red for `eol`, orange for `approaching_eol`, green for `supported`, grey for `unknown`.
-- A **tooltip** or expandable row showing the cycle, EOL date, latest available version, and `checked_at`.
-- A **dashboard widget** (future): count of EOL / approaching-EOL entities across the inventory for audit reporting.
+- **Summary cards** at the top: red (End of Life), orange (Approaching EOL), green (Supported) — clickable to filter the table.
+- A **sortable table** with two column groups separated by a visual border:
+  - *What we run*: Status (badge), Product, Version (major.minor cycle), Patch (latest patch for the cycle), Entity (link), Cluster.
+  - *What's available*: Latest Available (product-wide latest from endoflife.date), EOL Date, Checked.
+- **Row-level highlighting**: red background for EOL rows, orange for approaching EOL.
+- **Status badges** on entity detail pages (cluster, node).
 
 ### Push collector
 
