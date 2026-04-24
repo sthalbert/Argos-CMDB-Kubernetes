@@ -42,7 +42,7 @@ func oidcStub(label string) *auth.OIDCProvider {
 func newTestHandlerWithOIDC(t *testing.T, store Store, oidc *auth.OIDCProvider) http.Handler {
 	t.Helper()
 	strict := NewStrictHandlerWithOptions(
-		NewServer("test", store, auth.SecureNever, oidc),
+		NewServer("test", store, auth.SecureNever, oidc, NewLoginRateLimiter()),
 		[]StrictMiddlewareFunc{InjectRequestMiddleware},
 		StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -158,7 +158,7 @@ func TestOidcCallback_UnknownStateBouncesToLogin(t *testing.T) {
 func TestFindOrCreateOidcUser_CreatesShadowFromPreferredUsername(t *testing.T) {
 	t.Parallel()
 	m := newMemStore()
-	s := NewServer("test", m, auth.SecureNever, nil) // no provider needed for this helper
+	s := NewServer("test", m, auth.SecureNever, nil, NewLoginRateLimiter()) // no provider needed for this helper
 	u, err := s.findOrCreateOidcUser(context.Background(), &auth.OIDCClaims{
 		Issuer:            "https://idp.example.com",
 		Sub:               "abc123",
@@ -179,7 +179,7 @@ func TestFindOrCreateOidcUser_CreatesShadowFromPreferredUsername(t *testing.T) {
 func TestFindOrCreateOidcUser_FallsBackToEmailLocalPart(t *testing.T) {
 	t.Parallel()
 	m := newMemStore()
-	s := NewServer("test", m, auth.SecureNever, nil)
+	s := NewServer("test", m, auth.SecureNever, nil, NewLoginRateLimiter())
 	u, err := s.findOrCreateOidcUser(context.Background(), &auth.OIDCClaims{
 		Issuer: "https://idp.example.com",
 		Sub:    "xyz",
@@ -196,7 +196,7 @@ func TestFindOrCreateOidcUser_FallsBackToEmailLocalPart(t *testing.T) {
 func TestFindOrCreateOidcUser_FallsBackToShortSub(t *testing.T) {
 	t.Parallel()
 	m := newMemStore()
-	s := NewServer("test", m, auth.SecureNever, nil)
+	s := NewServer("test", m, auth.SecureNever, nil, NewLoginRateLimiter())
 	u, err := s.findOrCreateOidcUser(context.Background(), &auth.OIDCClaims{
 		Issuer: "https://idp.example.com",
 		Sub:    "01234567890abcdef",
@@ -212,7 +212,7 @@ func TestFindOrCreateOidcUser_FallsBackToShortSub(t *testing.T) {
 func TestFindOrCreateOidcUser_IsIdempotentOnRepeatLogin(t *testing.T) {
 	t.Parallel()
 	m := newMemStore()
-	s := NewServer("test", m, auth.SecureNever, nil)
+	s := NewServer("test", m, auth.SecureNever, nil, NewLoginRateLimiter())
 	claims := &auth.OIDCClaims{
 		Issuer:            "https://idp.example.com",
 		Sub:               "abc123",
@@ -234,7 +234,7 @@ func TestFindOrCreateOidcUser_IsIdempotentOnRepeatLogin(t *testing.T) {
 func TestFindOrCreateOidcUser_ResolvesUsernameCollision(t *testing.T) {
 	t.Parallel()
 	m := newMemStore()
-	s := NewServer("test", m, auth.SecureNever, nil)
+	s := NewServer("test", m, auth.SecureNever, nil, NewLoginRateLimiter())
 	// Plant a pre-existing local user with the same username.
 	if _, err := m.CreateUser(context.Background(), UserInsert{
 		Username:     "dave",

@@ -210,15 +210,18 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	impactAuth := auth.Middleware(pg, cfg.cookiePolicy)
 	mux.Handle("GET /v1/impact/{entity_type}/{id}", requireReadScope(impactAuth(impact.HandleImpact(pg))))
 
+	loginLimiter := api.NewLoginRateLimiter()
 	strict := api.NewStrictHandlerWithOptions(
-		api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider),
+		api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter),
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
 		api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				slog.Warn("request parse error", slog.Any("error", err))
+				http.Error(w, "invalid request", http.StatusBadRequest)
 			},
 			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				slog.Error("unhandled handler error", slog.Any("error", err))
+				http.Error(w, "internal server error", http.StatusInternalServerError)
 			},
 		},
 	)
@@ -236,8 +239,11 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 
 	return &http.Server{
 		Addr:              cfg.addr,
-		Handler:           metrics.InstrumentHandler(mux),
+		Handler:           metrics.InstrumentHandler(api.SecurityHeadersMiddleware(http.MaxBytesHandler(mux, 1<<20))),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 }
 

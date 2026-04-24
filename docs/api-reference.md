@@ -268,7 +268,7 @@ Response:
 | Method | Path | Auth required | Description |
 |--------|------|---------------|-------------|
 | GET | `/v1/auth/config` | no | Public: is OIDC enabled? button label? |
-| POST | `/v1/auth/login` | no | Username/password login. Sets session cookie. |
+| POST | `/v1/auth/login` | no | Username/password login. Sets session cookie. Rate-limited: 5 req/min per IP (429 when exceeded). |
 | POST | `/v1/auth/logout` | yes | End the current session. |
 | GET | `/v1/auth/me` | yes | Caller identity, role, scopes, `must_change_password`. |
 | POST | `/v1/auth/change-password` | session only | Change the current user's password. |

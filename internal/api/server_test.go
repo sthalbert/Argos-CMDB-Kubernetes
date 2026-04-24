@@ -1881,7 +1881,7 @@ func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespac
 func newTestHandler(t *testing.T, store Store) http.Handler {
 	t.Helper()
 	strict := NewStrictHandlerWithOptions(
-		NewServer("test", store, auth.SecureNever, nil),
+		NewServer("test", store, auth.SecureNever, nil, NewLoginRateLimiter()),
 		[]StrictMiddlewareFunc{InjectRequestMiddleware},
 		StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -2685,7 +2685,7 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 
 	// Build handler with audit middleware wrapping it.
 	strict := NewStrictHandlerWithOptions(
-		NewServer("test", store, auth.SecureNever, nil),
+		NewServer("test", store, auth.SecureNever, nil, NewLoginRateLimiter()),
 		[]StrictMiddlewareFunc{InjectRequestMiddleware},
 		StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {

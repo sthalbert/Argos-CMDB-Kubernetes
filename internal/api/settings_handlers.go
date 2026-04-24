@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/sthalbert/argos/internal/auth"
@@ -20,7 +21,8 @@ func HandleGetSettings(store Store) http.HandlerFunc {
 		}
 		settings, err := store.GetSettings(r.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			slog.Error("get settings failed", slog.Any("error", err))
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -41,7 +43,8 @@ func HandleUpdateSettings(store Store) http.HandlerFunc {
 		}
 		settings, err := store.UpdateSettings(r.Context(), patch)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			slog.Error("update settings failed", slog.Any("error", err))
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

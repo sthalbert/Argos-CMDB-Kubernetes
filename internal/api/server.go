@@ -42,14 +42,15 @@ type Server struct {
 	store        Store
 	cookiePolicy auth.SecureCookiePolicy
 	oidc         *auth.OIDCProvider // nil when OIDC is not configured
+	loginLimiter *LoginRateLimiter  // per-IP login rate limiter (ADR-0007 IMP-009)
 }
 
 // NewServer wires the handlers with a persistence backend and the build
 // version reported on health probes. `cookiePolicy` governs the Secure
 // flag on session cookies (see ADR-0007); auto = mirror request scheme.
 // `oidc` may be nil to disable the OIDC flow entirely.
-func NewServer(version string, store Store, cookiePolicy auth.SecureCookiePolicy, oidc *auth.OIDCProvider) *Server {
-	return &Server{version: version, store: store, cookiePolicy: cookiePolicy, oidc: oidc}
+func NewServer(version string, store Store, cookiePolicy auth.SecureCookiePolicy, oidc *auth.OIDCProvider, loginLimiter *LoginRateLimiter) *Server {
+	return &Server{version: version, store: store, cookiePolicy: cookiePolicy, oidc: oidc, loginLimiter: loginLimiter}
 }
 
 var _ StrictServerInterface = (*Server)(nil)

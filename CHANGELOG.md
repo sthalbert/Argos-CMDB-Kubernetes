@@ -48,11 +48,49 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   both namespace and workload as UUIDs. Both now resolve and display
   human-readable names with links.
 
+### Security
+
+- **HTTP security headers** — new middleware sets `Content-Security-Policy`,
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy`, and `Strict-Transport-Security` (HSTS, conditional
+  on TLS) on every response.
+
+- **Login rate limiting** (ADR-0007 IMP-009) — per-IP sliding window
+  rate limiter on `POST /v1/auth/login`: 5 requests/minute, burst 5.
+  Returns 429 when exceeded. Idle IPs evicted after 30 minutes.
+
+- **golang.org/x/net upgrade** — v0.50.0 → v0.51.0 fixes GO-2026-4559
+  (HTTP/2 server panic via crafted frames).
+
+- **Request body size limit** — all POST/PATCH/PUT bodies are capped at
+  1 MiB via `http.MaxBytesHandler`. Returns 413 when exceeded.
+
+- **HTTP server timeouts** — `ReadTimeout: 30s`, `WriteTimeout: 60s`,
+  `IdleTimeout: 120s` prevent slowloris-style connection exhaustion.
+
+- **Error message sanitization** — `ResponseErrorHandlerFunc` and
+  settings handlers no longer leak internal error details (database
+  messages, constraint names) to clients. Errors are logged server-side
+  and a generic message is returned.
+
+- **Impact graph traversal cap** — graph nodes capped at 500 per query
+  to prevent resource exhaustion on large clusters. Response includes
+  `truncated: true` when the cap is hit.
+
+- **Reconcile endpoints require `delete` scope** — all 8 reconcile
+  endpoints (`POST /v1/{resource}/reconcile`) now require the `delete`
+  scope instead of `write`. Prevents editors from mass-deleting
+  resources via empty `keep_names`.
+
 ### Upgrading
 
-No breaking changes, no migrations. The impact endpoint is available
-immediately after upgrade. EOL annotations are updated with the new
-`latest_available` field on the next enrichment tick.
+The `workload_id` query parameter on `GET /v1/pods` and the impact
+endpoint are additive. EOL annotations are updated with `latest_available`
+on the next enrichment tick.
+
+**Breaking change:** reconcile endpoints now require `delete` scope.
+Existing push collector tokens with only `write` scope must be re-issued
+with `write` + `delete` scopes.
 
 ## [0.1.1] — 2026-04-20
 

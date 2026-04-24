@@ -171,7 +171,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	// Build the full HTTP handler chain identical to main.go.
 	mux := http.NewServeMux()
 	strict := api.NewStrictHandlerWithOptions(
-		api.NewServer("test", pg, auth.SecureNever, nil),
+		api.NewServer("test", pg, auth.SecureNever, nil, api.NewLoginRateLimiter()),
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
 		api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {

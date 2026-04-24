@@ -52,6 +52,7 @@ func (t *Traverser) Traverse(ctx context.Context, entityType EntityType, id uuid
 		nodeMap:  make(map[string]GraphNode),
 		edgeMap:  make(map[string]bool),
 		maxDepth: depth,
+		maxNodes: defaultMaxNodes,
 	}
 
 	root, err := b.fetchNode(ctx, entityType, id)
@@ -71,23 +72,35 @@ func (t *Traverser) Traverse(ctx context.Context, entityType EntityType, id uuid
 	edges := make([]GraphEdge, 0, len(b.edges))
 	edges = append(edges, b.edges...)
 
-	return &Graph{Root: *root, Nodes: nodes, Edges: edges}, nil
+	return &Graph{Root: *root, Nodes: nodes, Edges: edges, Truncated: b.truncated}, nil
 }
 
+const defaultMaxNodes = 500
+
 type builder struct {
-	store    TraverserStore
-	seen     map[string]bool // "type:id" → visited
-	nodeMap  map[string]GraphNode
-	edgeMap  map[string]bool // "from->to" dedup
-	edges    []GraphEdge
-	maxDepth int
+	store     TraverserStore
+	seen      map[string]bool // "type:id" → visited
+	nodeMap   map[string]GraphNode
+	edgeMap   map[string]bool // "from->to" dedup
+	edges     []GraphEdge
+	maxDepth  int
+	maxNodes  int
+	truncated bool
 }
 
 func nodeKey(t EntityType, id string) string { return string(t) + ":" + id }
 
 //nolint:gocritic // hugeParam: GraphNode is passed by value intentionally for map storage.
 func (b *builder) addNode(n GraphNode) {
-	b.nodeMap[nodeKey(n.Type, n.ID)] = n
+	key := nodeKey(n.Type, n.ID)
+	if _, exists := b.nodeMap[key]; exists {
+		return
+	}
+	if b.maxNodes > 0 && len(b.nodeMap) >= b.maxNodes {
+		b.truncated = true
+		return
+	}
+	b.nodeMap[key] = n
 }
 
 func (b *builder) addEdge(from, to string, rel Relation) {
@@ -196,6 +209,9 @@ func (b *builder) fetchNode(ctx context.Context, t EntityType, id uuid.UUID) (*G
 
 //nolint:cyclop,gocyclo,gocritic // graph expansion has many entity types but each branch is simple.
 func (b *builder) expand(ctx context.Context, node GraphNode, depth int) error {
+	if b.truncated {
+		return nil
+	}
 	if depth >= b.maxDepth {
 		return nil
 	}

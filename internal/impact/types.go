@@ -52,9 +52,10 @@ type GraphEdge struct {
 
 // Graph is the API response: a flat set of nodes and edges.
 type Graph struct {
-	Root  GraphNode   `json:"root"`
-	Nodes []GraphNode `json:"nodes"`
-	Edges []GraphEdge `json:"edges"`
+	Root      GraphNode   `json:"root"`
+	Nodes     []GraphNode `json:"nodes"`
+	Edges     []GraphEdge `json:"edges"`
+	Truncated bool        `json:"truncated,omitempty"`
 }
 
 // ValidEntityType returns true when t is a recognised entity type.

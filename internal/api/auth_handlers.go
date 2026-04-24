@@ -363,6 +363,12 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 
 	r := httpRequestFromCtx(ctx)
 
+	if !s.loginLimiter.Allow(clientIP(r)) {
+		return Login429ApplicationProblemPlusJSONResponse(
+			Problem{Type: "about:blank", Title: "Too Many Requests", Status: 429},
+		), nil
+	}
+
 	user, err := s.store.GetUserByUsername(ctx, body.Username)
 	if err != nil {
 		// Still run an argon2 verify against a dummy hash so timing
