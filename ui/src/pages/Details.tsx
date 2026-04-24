@@ -21,6 +21,9 @@ import { NamespaceCuratedCard } from './namespace_curated';
 import { NodeCuratedCard } from './node_curated';
 import { ImpactSection } from './ImpactGraph';
 import {
+  ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon, IngressIcon,
+} from '../icons';
+import {
   AsyncView,
   Dash,
   IdLink,
@@ -101,7 +104,7 @@ export function ClusterDetail() {
           return (
           <>
             <h2>
-              {cluster.display_name || cluster.name} <LayerPill layer={cluster.layer} />
+              <ClusterIcon size={20} /> {cluster.display_name || cluster.name} <LayerPill layer={cluster.layer} />
               {isAdmin(me) && (
                 <button
                   className="danger"
@@ -254,7 +257,7 @@ export function NamespaceDetail() {
         {([ns, workloads, pods, services, ingresses, pvcs]) => (
           <>
             <h2>
-              {ns.name} <LayerPill layer={ns.layer} />
+              <NamespaceIcon size={20} /> {ns.name} <LayerPill layer={ns.layer} />
             </h2>
             <dl className="kv-list">
               <KV
@@ -532,7 +535,7 @@ export function WorkloadDetail() {
           return (
             <>
               <h2>
-                {workload.name} <LayerPill layer={workload.layer} />
+                <WorkloadIcon size={20} /> {workload.name} <LayerPill layer={workload.layer} />
               </h2>
               <dl className="kv-list">
                 <KV k="Kind" v={<span className="pill">{workload.kind}</span>} />
@@ -687,7 +690,7 @@ export function PodDetail() {
           return (
           <>
             <h2>
-              {pod.name} <LayerPill layer={pod.layer} />
+              <PodIcon size={20} /> {pod.name} <LayerPill layer={pod.layer} />
             </h2>
             <dl className="kv-list">
               <KV k="Phase" v={pod.phase} />
@@ -802,7 +805,7 @@ export function NodeDetail() {
         {(n) => (
           <>
             <h2>
-              {n.display_name || n.name} <LayerPill layer={n.layer} />{' '}
+              <NodeIcon size={20} /> {n.display_name || n.name} <LayerPill layer={n.layer} />{' '}
               <NodeStatusInline ready={n.ready} unschedulable={n.unschedulable} />
             </h2>
 
@@ -1132,7 +1135,7 @@ export function IngressDetail() {
         {(i) => (
           <>
             <h2>
-              {i.name} <LayerPill layer={i.layer} />
+              <IngressIcon size={20} /> {i.name} <LayerPill layer={i.layer} />
             </h2>
             <dl className="kv-list">
               <KV k="Ingress class" v={i.ingress_class_name} />

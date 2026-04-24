@@ -7,12 +7,16 @@ import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses } from '../components';
+import {
+  ClusterIcon, NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
+  ServiceIcon, IngressIcon, VolumeIcon,
+} from '../icons';
 
 export function Clusters() {
   const state = useResource(() => api.listClusters(), []);
   return (
     <>
-      <h2>Clusters</h2>
+      <h2><ClusterIcon size={20} /> Clusters</h2>
       <AsyncView state={state}>
         {(resp) => (
           <table className="entities">
@@ -67,7 +71,7 @@ export function Nodes() {
   );
   return (
     <>
-      <h2>Nodes</h2>
+      <h2><NodeIcon size={20} /> Nodes</h2>
       <AsyncView state={state}>
         {({ nodes, clustersById }) => (
           <table className="entities">
@@ -158,7 +162,7 @@ export function Namespaces() {
   );
   return (
     <>
-      <h2>Namespaces</h2>
+      <h2><NamespaceIcon size={20} /> Namespaces</h2>
       <AsyncView state={state}>
         {({ namespaces, clustersById }) => (
           <table className="entities">
@@ -242,7 +246,7 @@ export function Workloads() {
 
   return (
     <>
-      <h2>Workloads</h2>
+      <h2><WorkloadIcon size={20} /> Workloads</h2>
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={workloads}>
@@ -304,7 +308,7 @@ export function Pods() {
   const workloads = useResource(() => api.listWorkloads(), []);
   return (
     <>
-      <h2>Pods</h2>
+      <h2><PodIcon size={20} /> Pods</h2>
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={pods}>
@@ -379,7 +383,7 @@ export function Services() {
   const services = useResource(() => api.listServices(), []);
   return (
     <>
-      <h2>Services</h2>
+      <h2><ServiceIcon size={20} /> Services</h2>
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={services}>
@@ -441,7 +445,7 @@ export function Ingresses() {
   const ingresses = useResource(() => api.listIngresses(), []);
   return (
     <>
-      <h2>Ingresses</h2>
+      <h2><IngressIcon size={20} /> Ingresses</h2>
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={ingresses}>
@@ -510,7 +514,7 @@ export function PersistentVolumes() {
   );
   return (
     <>
-      <h2>Persistent Volumes</h2>
+      <h2><VolumeIcon size={20} /> Persistent Volumes</h2>
       <AsyncView state={state}>
         {({ pvs, clustersById }) => (
           <table className="entities">
@@ -559,7 +563,7 @@ export function PersistentVolumeClaims() {
   const pvcs = useResource(() => api.listPersistentVolumeClaims(), []);
   return (
     <>
-      <h2>Persistent Volume Claims</h2>
+      <h2><VolumeIcon size={20} /> Persistent Volume Claims</h2>
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={pvcs}>

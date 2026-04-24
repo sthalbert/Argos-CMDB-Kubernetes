@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError, getAuthConfig, login } from '../api';
+import { ClusterIcon } from '../icons';
 
 // Username + password login per ADR-0007. A successful POST sets the
 // session cookie server-side; we never see the cookie value in JS.
@@ -80,6 +81,12 @@ export default function Login() {
 
   return (
     <form className="login" onSubmit={onSubmit}>
+      <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+        <ClusterIcon size={32} style={{ color: 'var(--accent)' }} />
+        <div style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '0.02em', marginTop: '0.5rem' }}>
+          Argos CMDB
+        </div>
+      </div>
       <h2>Sign in</h2>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
         First install? Read the <code>ARGOS FIRST-RUN BOOTSTRAP</code> banner

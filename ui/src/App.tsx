@@ -31,6 +31,10 @@ import SessionsPage from './pages/admin/Sessions';
 import AuditPage from './pages/admin/Audit';
 import SettingsPage from './pages/admin/Settings';
 import { MeProvider } from './me';
+import {
+  ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon,
+  ServiceIcon, IngressIcon, VolumeIcon, SearchIcon, EolIcon, AdminIcon,
+} from './icons';
 
 // --- auth gate ----------------------------------------------------------
 
@@ -100,8 +104,9 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
     }
     navigate('/login', { replace: true });
   };
-  const link = (to: string, label: string) => (
+  const link = (to: string, label: string, Icon?: React.FC<{ size?: number }>) => (
     <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')}>
+      {Icon && <Icon size={14} />}
       {label}
     </NavLink>
   );
@@ -111,19 +116,19 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '2rem', flexWrap: 'wrap' }}>
           <h1>Argos CMDB</h1>
           <nav style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-            {link('/clusters', 'Clusters')}
-            {link('/namespaces', 'Namespaces')}
-            {link('/nodes', 'Nodes')}
-            {link('/workloads', 'Workloads')}
-            {link('/pods', 'Pods')}
-            {link('/services', 'Services')}
-            {link('/ingresses', 'Ingresses')}
-            {link('/persistentvolumes', 'PVs')}
-            {link('/persistentvolumeclaims', 'PVCs')}
-            {link('/search/image', 'Search')}
-            {link('/eol', 'EOL')}
+            {link('/clusters', 'Clusters', ClusterIcon)}
+            {link('/namespaces', 'Namespaces', NamespaceIcon)}
+            {link('/nodes', 'Nodes', NodeIcon)}
+            {link('/workloads', 'Workloads', WorkloadIcon)}
+            {link('/pods', 'Pods', PodIcon)}
+            {link('/services', 'Services', ServiceIcon)}
+            {link('/ingresses', 'Ingresses', IngressIcon)}
+            {link('/persistentvolumes', 'PVs', VolumeIcon)}
+            {link('/persistentvolumeclaims', 'PVCs', VolumeIcon)}
+            {link('/search/image', 'Search', SearchIcon)}
+            {link('/eol', 'EOL', EolIcon)}
             {(me.role === 'admin' || me.role === 'auditor') &&
-              link(me.role === 'admin' ? '/admin/users' : '/admin/audit', 'Admin')}
+              link(me.role === 'admin' ? '/admin/users' : '/admin/audit', 'Admin', AdminIcon)}
           </nav>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

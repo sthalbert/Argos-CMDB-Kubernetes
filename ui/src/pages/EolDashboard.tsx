@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResources } from '../hooks';
 import { AsyncView, Dash } from '../components';
+import { EolIcon } from '../icons';
 
 // --- EOL annotation parsing -----------------------------------------------
 
@@ -222,7 +223,7 @@ export default function EolDashboard() {
 
   return (
     <>
-      <h2>End-of-Life Inventory</h2>
+      <h2><EolIcon size={20} /> End-of-Life Inventory</h2>
       <p className="muted" style={{ marginBottom: '1rem' }}>
         Lifecycle status of inventoried software, enriched from endoflife.date.
       </p>
