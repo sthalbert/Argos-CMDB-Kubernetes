@@ -86,6 +86,18 @@ The EOL enricher is controlled at runtime via the **Admin > Settings** UI. These
 | `ARGOS_EOL_APPROACHING_DAYS` | no | `90` | Number of days before EOL to flag a product as "approaching EOL". |
 | `ARGOS_EOL_BASE_URL` | no | `https://endoflife.date` | Base URL for the endoflife.date API. Override to point at an internal mirror in air-gapped environments. |
 
+### Security
+
+The following security features are built-in and require no configuration:
+
+| Feature | Default | Notes |
+|---------|---------|-------|
+| HTTP security headers | Always on | CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy. HSTS set only over TLS. |
+| Login rate limiting | 5 req/min per IP | Returns 429 when exceeded. Implements ADR-0007 IMP-009. |
+| Request body size limit | 1 MiB | Returns 413 when exceeded. |
+| Server timeouts | Read: 30s, Write: 60s, Idle: 120s | Prevents slowloris attacks. |
+| Impact graph node cap | 500 nodes | Response includes `truncated: true` when cap is hit. |
+
 ### Legacy (removed)
 
 | Variable | Status | Migration |
