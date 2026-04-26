@@ -42,6 +42,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if and .Values.mcp.enabled (eq .Values.mcp.transport "sse") }}
+            - name: mcp
+              containerPort: {{ trimPrefix ":" .Values.mcp.addr | default "8090" }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: ARGOS_ADDR
               value: {{ .Values.argosd.addr | quote }}
@@ -66,6 +71,18 @@ spec:
             {{- else }}
             - name: ARGOS_CLUSTER_NAME
               value: {{ .Values.collector.clusterName | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.mcp.enabled }}
+            - name: ARGOS_MCP_ENABLED
+              value: "true"
+            - name: ARGOS_MCP_TRANSPORT
+              value: {{ .Values.mcp.transport | quote }}
+            - name: ARGOS_MCP_ADDR
+              value: {{ .Values.mcp.addr | quote }}
+            {{- if .Values.mcp.token }}
+            - name: ARGOS_MCP_TOKEN
+              value: {{ .Values.mcp.token | quote }}
             {{- end }}
             {{- end }}
           envFrom:

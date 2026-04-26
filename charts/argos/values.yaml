@@ -101,10 +101,23 @@ externalDatabase:
 # The Secret must contain ARGOS_DATABASE_URL (and optionally other ARGOS_* keys).
 existingSecret: ""
 
+# -- MCP server (Model Context Protocol for AI agents).
+mcp:
+  # -- Enable the MCP server (seeds mcp_enabled DB setting on startup).
+  enabled: false
+  # -- Transport: "sse" (HTTP, remote agents) or "stdio" (local agents).
+  transport: "sse"
+  # -- Listen address for SSE transport.
+  addr: ":8090"
+  # -- PAT for stdio transport auth (not needed for SSE — uses bearer header).
+  token: ""
+
 # -- Kubernetes Service.
 service:
   type: ClusterIP
   port: 8080
+  # -- MCP SSE port (only exposed when mcp.enabled and mcp.transport=sse).
+  mcpPort: 8090
 
 # -- ServiceAccount.
 serviceAccount:
