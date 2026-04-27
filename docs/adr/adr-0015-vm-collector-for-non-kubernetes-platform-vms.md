@@ -76,7 +76,7 @@ This ADR decides the data model, the credential-management story, the deployment
                        │                                            │
               ┌────────┴───────────────┐                  ┌─────────┴──────────────┐
               │   argos-vm-collector   │                  │   argos-vm-collector   │
-              │   (numspot-prod)       │                  │   (numspot-dr)         │
+              │   (acme-prod)          │                  │   (acme-dr)            │
               │                        │                  │                        │
               │   1. Fetches creds     │                  │   1. Fetches creds     │
               │      from argosd       │                  │      from argosd       │
@@ -88,7 +88,7 @@ This ADR decides the data model, the credential-management story, the deployment
                        ▼ Outscale API                                ▼ Outscale API
               ┌──────────────────┐                          ┌──────────────────┐
               │  Outscale        │                          │  Outscale        │
-              │  numspot-prod    │                          │  numspot-dr      │
+              │  acme-prod       │                          │  acme-dr         │
               └──────────────────┘                          └──────────────────┘
 ```
 
@@ -195,7 +195,7 @@ CREATE INDEX virtual_machines_created_at_id_idx ON virtual_machines (created_at 
 
 ### 3. Data model — `cloud_accounts` table
 
-VMs FK to a `cloud_accounts` table. The **name field is operator-editable** — operators rename `numspot-prod-eu-west-2` to `Production OSC EU` from the admin UI without breaking foreign keys.
+VMs FK to a `cloud_accounts` table. The **name field is operator-editable** — operators rename `acme-prod-eu-west-2` to `Production OSC EU` from the admin UI without breaking foreign keys.
 
 ```sql
 CREATE TABLE cloud_accounts (
@@ -287,16 +287,16 @@ Onboarding flow:
    ARGOS_SERVER_URL=https://argos.internal:8080
    ARGOS_API_TOKEN=argos_pat_xxxx_yyyy        (vm-collector scope, bound to account name)
    ARGOS_VM_COLLECTOR_PROVIDER=outscale
-   ARGOS_VM_COLLECTOR_ACCOUNT_NAME=numspot-prod
+   ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod
    ARGOS_VM_COLLECTOR_REGION=eu-west-2
    ```
-2. **Collector boots.** Calls `GET /v1/cloud-accounts/by-name/numspot-prod/credentials`.
+2. **Collector boots.** Calls `GET /v1/cloud-accounts/by-name/acme-prod/credentials`.
 3. **First contact** — argosd has no row with that name:
    - Argosd's handler **does not auto-create** on `GET /credentials` (a credential read should never side-effect).
    - Returns `404 Not Found` with body `{"error":"cloud_account_not_registered"}`.
    - Collector receives the 404 and fires `POST /v1/cloud-accounts` with `{provider, name, region}`. The handler creates a placeholder row in `status = 'pending_credentials'`, AK and SK NULL.
-   - Collector logs `cloud account "numspot-prod" registered, awaiting admin to provide credentials` and waits.
-4. **Admin sees the placeholder.** The admin UI surfaces the row prominently: 🔴 `numspot-prod (pending credentials)`. Admin clicks → form → enters AK + SK → POST `/v1/admin/cloud-accounts/{id}/credentials` (admin scope). Argosd encrypts the SK, stores it, transitions row to `status = 'active'`.
+   - Collector logs `cloud account "acme-prod" registered, awaiting admin to provide credentials` and waits.
+4. **Admin sees the placeholder.** The admin UI surfaces the row prominently: 🔴 `acme-prod (pending credentials)`. Admin clicks → form → enters AK + SK → POST `/v1/admin/cloud-accounts/{id}/credentials` (admin scope). Argosd encrypts the SK, stores it, transitions row to `status = 'active'`.
 5. **Collector retries.** Next interval, `GET .../credentials` returns the pair. Collector starts polling Outscale.
 6. **Steady state.** Collector posts VMs every interval, reconciles, updates `last_seen_at` via `PATCH /status`. Admin can rotate the SK at any time via `PATCH /credentials`; the collector picks up the new SK on the next periodic refresh (every hour by default; configurable via `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`).
 

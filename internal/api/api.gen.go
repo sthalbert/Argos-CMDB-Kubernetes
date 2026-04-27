@@ -1014,8 +1014,8 @@ type NodeList struct {
 }
 
 // NodeMutable Fields on a Node that clients may set and later update. Modelled on
-// Mercator's logical-server entity, with Kubernetes-specific
-// additions (role, taints, conditions, the full OS stack). Curated
+// a logical-server entity, with Kubernetes-specific additions (role,
+// taints, conditions, the full OS stack). Curated
 // operator-owned fields (`owner`, `criticality`, `notes`,
 // `runbook_url`, `annotations`, `hardware_model`) are populated by
 // editors / admins through the detail page; the collector never
@@ -1124,8 +1124,8 @@ type NodeMutable struct {
 }
 
 // NodeUpdate Fields on a Node that clients may set and later update. Modelled on
-// Mercator's logical-server entity, with Kubernetes-specific
-// additions (role, taints, conditions, the full OS stack). Curated
+// a logical-server entity, with Kubernetes-specific additions (role,
+// taints, conditions, the full OS stack). Curated
 // operator-owned fields (`owner`, `criticality`, `notes`,
 // `runbook_url`, `annotations`, `hardware_model`) are populated by
 // editors / admins through the detail page; the collector never

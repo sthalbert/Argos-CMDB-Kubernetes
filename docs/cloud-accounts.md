@@ -53,7 +53,7 @@ You can register an account two ways: ahead of time through the UI, or implicitl
 3. Click **Register account**.
 4. Fill in:
    - **Provider** — `outscale` is the only value in v1.
-   - **Name** — operator-friendly. Must be unique per provider. Editable later. Example: `numspot-prod`.
+   - **Name** — operator-friendly. Must be unique per provider. Editable later. Example: `acme-prod`.
    - **Region** — provider region code. Example: `eu-west-2`.
    - **Access Key** and **Secret Key** — optional at this stage. If left blank, the row is created in `pending_credentials` status and you can fill creds later.
    - **Owner**, **Criticality**, **Notes**, **Runbook URL** — curated metadata, all optional.
@@ -68,13 +68,13 @@ curl -sS -b /tmp/argos.cookies -X POST https://argos.internal:8080/v1/admin/clou
   -H 'Content-Type: application/json' \
   -d '{
     "provider": "outscale",
-    "name": "numspot-prod",
+    "name": "acme-prod",
     "region": "eu-west-2",
     "access_key": "AKIA...",
     "secret_key": "wJalrXUt...",
     "owner": "platform-team",
     "criticality": "high",
-    "runbook_url": "https://wiki.example.com/runbooks/numspot-prod"
+    "runbook_url": "https://wiki.example.com/runbooks/acme-prod"
   }'
 ```
 
@@ -84,13 +84,13 @@ Response (SK never returned):
 {
   "id": "1f2c4a3e-...",
   "provider": "outscale",
-  "name": "numspot-prod",
+  "name": "acme-prod",
   "region": "eu-west-2",
   "status": "active",
   "access_key": "AKIA...",
   "owner": "platform-team",
   "criticality": "high",
-  "runbook_url": "https://wiki.example.com/runbooks/numspot-prod",
+  "runbook_url": "https://wiki.example.com/runbooks/acme-prod",
   "created_at": "2026-04-26T09:12:00Z",
   "updated_at": "2026-04-26T09:12:00Z"
 }
@@ -99,7 +99,7 @@ Response (SK never returned):
 ### Option B — collector-first (hybrid)
 
 1. Issue a `vm-collector` PAT bound to a not-yet-registered account name (see [Issue a collector token](#issue-a-collector-token)).
-2. Deploy `argos-vm-collector` with `ARGOS_VM_COLLECTOR_ACCOUNT_NAME=numspot-prod` (see [vm-collector guide](vm-collector.md)).
+2. Deploy `argos-vm-collector` with `ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod` (see [vm-collector guide](vm-collector.md)).
 3. The collector calls `POST /v1/cloud-accounts` and creates the placeholder row.
 4. The admin home banner lights up: **1 cloud account pending credentials**.
 5. Admin opens **Admin > Cloud Accounts**, finds the 🔴 row, clicks **Set credentials**, and enters AK/SK.
@@ -151,7 +151,7 @@ Each `vm-collector` PAT is **bound to exactly one cloud account at issuance**. A
 1. **Admin > Cloud Accounts**.
 2. Open the account.
 3. Click **Issue collector token**.
-4. Enter a name (e.g. `numspot-prod-collector`).
+4. Enter a name (e.g. `acme-prod-collector`).
 5. Click **Mint**.
 6. Copy the plaintext token (`argos_pat_<prefix>_<suffix>`). It is shown **once** and never again.
 
@@ -163,7 +163,7 @@ The form pre-binds the token to the account UUID and pre-selects the `vm-collect
 curl -sS -b /tmp/argos.cookies -X POST \
   https://argos.internal:8080/v1/admin/cloud-accounts/<id>/tokens \
   -H 'Content-Type: application/json' \
-  -d '{"name": "numspot-prod-collector"}'
+  -d '{"name": "acme-prod-collector"}'
 ```
 
 Response (token shown once):
@@ -171,7 +171,7 @@ Response (token shown once):
 ```json
 {
   "id": "8a3b...",
-  "name": "numspot-prod-collector",
+  "name": "acme-prod-collector",
   "role": "vm-collector",
   "bound_cloud_account_id": "1f2c4a3e-...",
   "token": "argos_pat_3f9c1e7a_5N2pKdQ...",

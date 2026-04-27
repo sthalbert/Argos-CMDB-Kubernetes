@@ -20,7 +20,7 @@ ADR-0002 decided the ANSSI cartography layer for every entity Argos catalogues a
 
 This ADR resolves the question before any Ingress code lands, so the walking skeleton doesn't bake in a classification we'd have to retrofit.
 
-**What the two layers actually mean** (per ADR-0002 + Mercator):
+**What the two layers actually mean** (per ADR-0002):
 
 - `applicative` — applications and services internal to the information system. Deployed software, managed by application teams, owned inside the organisation.
 - `ecosystem` — external entities interacting with the information system: the internet at large, partners, suppliers, customer portals. Things *on the other side* of the IS boundary.
@@ -31,7 +31,7 @@ This ADR resolves the question before any Ingress code lands, so the walking ske
 
 ## Decision
 
-**Ingress is classified in the `applicative` layer.** This matches ADR-0002's roadmap and the Mercator convention that reserves `ecosystem` for external entities, not for the internal objects that touch them.
+**Ingress is classified in the `applicative` layer.** This matches ADR-0002's roadmap and the cartography convention that reserves `ecosystem` for external entities, not for the internal objects that touch them.
 
 **Implications for future work** (scoped here, not built in this ADR):
 
@@ -50,7 +50,7 @@ This ADR resolves the question before any Ingress code lands, so the walking ske
 
 ### Positive
 
-- **POS-001**: Layer classification stays consistent with how the ANSSI / Mercator model uses `ecosystem`: for external actors, not for bridges to them. Auditors reading Argos output see a taxonomy that matches their mental model.
+- **POS-001**: Layer classification stays consistent with how the ANSSI cartography model uses `ecosystem`: for external actors, not for bridges to them. Auditors reading Argos output see a taxonomy that matches their mental model.
 - **POS-002**: Keeps every Kubernetes-native kind inside `applicative` / `infrastructure_*` / `administration`. The `ecosystem` layer stays reserved for the work that genuinely populates it when the CMDB grows beyond K8s.
 - **POS-003**: Future "what's internet-exposed?" queries are answered by an explicit relationship or flag — a stronger, more auditable signal than a layer label that mixes classification with exposure.
 - **POS-004**: Implementation matches the existing Service pattern (same natural key shape, same FK cascade, same handler scaffolding). No new architectural concepts required for the walking skeleton.

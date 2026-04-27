@@ -62,7 +62,7 @@ All configuration is via environment variables.
 | `ARGOS_CA_CERT` | no | system CA pool | Path to a PEM-encoded CA certificate for verifying the argosd (or gateway) TLS certificate. Required when argosd uses a private CA. |
 | `ARGOS_CLIENT_CERT` | no | -- | Path to a PEM-encoded client certificate for mTLS to a gateway. |
 | `ARGOS_CLIENT_KEY` | no | -- | Path to a PEM-encoded client private key for mTLS. Required when `ARGOS_CLIENT_CERT` is set. |
-| `ARGOS_EXTRA_HEADERS` | no | -- | Comma-separated `key=value` pairs injected into every outbound HTTP request to argosd. Useful for gateway routing or tenant identification. Example: `X-Tenant-Id=numspot-prod,X-Route-Key=argos`. |
+| `ARGOS_EXTRA_HEADERS` | no | -- | Comma-separated `key=value` pairs injected into every outbound HTTP request to argosd. Useful for gateway routing or tenant identification. Example: `X-Tenant-Id=acme-prod,X-Route-Key=argos`. |
 
 ### Proxy
 
@@ -130,7 +130,7 @@ RestartSec=10s
 Environment="ARGOS_SERVER_URL=https://argos.internal:8080"
 EnvironmentFile=/etc/argos/vm-collector.env
 Environment="ARGOS_VM_COLLECTOR_PROVIDER=outscale"
-Environment="ARGOS_VM_COLLECTOR_ACCOUNT_NAME=numspot-prod"
+Environment="ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod"
 Environment="ARGOS_VM_COLLECTOR_REGION=eu-west-2"
 Environment="ARGOS_VM_COLLECTOR_INTERVAL=5m"
 
@@ -169,7 +169,7 @@ docker run --rm \
   -e ARGOS_SERVER_URL=https://argos.internal:8080 \
   -e ARGOS_API_TOKEN=argos_pat_3f9c1e7a_5N2pKdQ... \
   -e ARGOS_VM_COLLECTOR_PROVIDER=outscale \
-  -e ARGOS_VM_COLLECTOR_ACCOUNT_NAME=numspot-prod \
+  -e ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod \
   -e ARGOS_VM_COLLECTOR_REGION=eu-west-2 \
   -e ARGOS_VM_COLLECTOR_INTERVAL=1m \
   -p 9090:9090 \
@@ -212,7 +212,7 @@ The collector prepends this base path to every API request (`/argos/v1/cloud-acc
 ```yaml
 env:
   - name: ARGOS_EXTRA_HEADERS
-    value: "X-Tenant-Id=numspot-prod,X-Route-Key=argos"
+    value: "X-Tenant-Id=acme-prod,X-Route-Key=argos"
 ```
 
 ### mTLS to the gateway
