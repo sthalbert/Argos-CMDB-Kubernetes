@@ -26,6 +26,7 @@ type VM struct {
 	Zone                 string
 	Region               string
 	ImageID              string
+	ImageName            string // resolved via ReadImages(ImageId) — best-effort, empty when unavailable
 	KeypairName          string
 	BootMode             string
 	VPCID                string

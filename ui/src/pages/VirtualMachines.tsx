@@ -18,6 +18,8 @@ type SortKey =
   | 'region'
   | 'zone'
   | 'instance_type'
+  | 'image'
+  | 'private_ip'
   | 'power_state'
   | 'last_seen';
 
@@ -91,6 +93,10 @@ function compare(a: api.VirtualMachine, b: api.VirtualMachine, key: SortKey, asc
       return s(a.zone).localeCompare(s(b.zone)) * dir;
     case 'instance_type':
       return s(a.instance_type).localeCompare(s(b.instance_type)) * dir;
+    case 'image':
+      return s(a.image_name || a.image_id).localeCompare(s(b.image_name || b.image_id)) * dir;
+    case 'private_ip':
+      return s(a.private_ip).localeCompare(s(b.private_ip)) * dir;
     case 'power_state':
       return s(a.power_state).localeCompare(s(b.power_state)) * dir;
     case 'last_seen':
@@ -376,6 +382,20 @@ export default function VirtualMachines() {
                         onClick={handleSort}
                       />
                       <SortHeader
+                        label="Image"
+                        sortKey="image"
+                        currentKey={sortKey}
+                        asc={sortAsc}
+                        onClick={handleSort}
+                      />
+                      <SortHeader
+                        label="Private IP"
+                        sortKey="private_ip"
+                        currentKey={sortKey}
+                        asc={sortAsc}
+                        onClick={handleSort}
+                      />
+                      <SortHeader
                         label="Power state"
                         sortKey="power_state"
                         currentKey={sortKey}
@@ -435,6 +455,40 @@ export default function VirtualMachines() {
                           <td>{vm.region ? <code>{vm.region}</code> : <Dash />}</td>
                           <td>{vm.zone ? <code>{vm.zone}</code> : <Dash />}</td>
                           <td>{vm.instance_type ? <code>{vm.instance_type}</code> : <Dash />}</td>
+                          <td>
+                            {vm.image_name || vm.image_id ? (
+                              <span>
+                                {vm.image_name && <span>{vm.image_name}</span>}
+                                {vm.image_id && (
+                                  <div
+                                    className="muted"
+                                    style={{ fontSize: 'var(--fs-sm)', marginTop: '0.1rem' }}
+                                  >
+                                    <code>{vm.image_id}</code>
+                                  </div>
+                                )}
+                              </span>
+                            ) : (
+                              <Dash />
+                            )}
+                          </td>
+                          <td>
+                            {vm.private_ip ? (
+                              <span>
+                                <code>{vm.private_ip}</code>
+                                {vm.public_ip && (
+                                  <div
+                                    className="muted"
+                                    style={{ fontSize: 'var(--fs-sm)', marginTop: '0.1rem' }}
+                                  >
+                                    <code>{vm.public_ip}</code> public
+                                  </div>
+                                )}
+                              </span>
+                            ) : (
+                              <Dash />
+                            )}
+                          </td>
                           <td>
                             <PowerStatePill state={vm.power_state} />
                           </td>

@@ -199,6 +199,7 @@ type upsertVMBody struct {
 	Zone                 *string           `json:"zone,omitempty"`
 	Region               *string           `json:"region,omitempty"`
 	ImageID              *string           `json:"image_id,omitempty"`
+	ImageName            *string           `json:"image_name,omitempty"`
 	KeypairName          *string           `json:"keypair_name,omitempty"`
 	BootMode             *string           `json:"boot_mode,omitempty"`
 	ProviderAccountID    *string           `json:"provider_account_id,omitempty"`
@@ -242,6 +243,7 @@ func (s *Store) UpsertVirtualMachine(ctx context.Context, accountID uuid.UUID, v
 	body.Zone = stringPtrOrNil(vm.Zone)
 	body.Region = stringPtrOrNil(vm.Region)
 	body.ImageID = stringPtrOrNil(vm.ImageID)
+	body.ImageName = stringPtrOrNil(vm.ImageName)
 	body.KeypairName = stringPtrOrNil(vm.KeypairName)
 	body.BootMode = stringPtrOrNil(vm.BootMode)
 	body.ProviderAccountID = stringPtrOrNil(vm.ProviderAccountID)

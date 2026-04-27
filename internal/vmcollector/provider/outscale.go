@@ -90,11 +90,66 @@ func (o *Outscale) ListVMs(ctx context.Context) ([]VM, error) {
 		return nil, fmt.Errorf("outscale ReadVms (%s) %s: %w", status, body, err)
 	}
 	rawVMs := resp.GetVms()
+	// Resolve AMI ids → human image names via a single ReadImages call
+	// per tick (best-effort: a failure here logs a warning and leaves
+	// ImageName empty, but the VMs still get upserted).
+	imageNames := o.resolveImageNames(authCtx, rawVMs)
 	out := make([]VM, 0, len(rawVMs))
 	for i := range rawVMs {
-		out = append(out, mapOutscaleVM(&rawVMs[i], o.region))
+		vm := mapOutscaleVM(&rawVMs[i], o.region)
+		if name, ok := imageNames[vm.ImageID]; ok {
+			vm.ImageName = name
+		}
+		out = append(out, vm)
 	}
 	return out, nil
+}
+
+// resolveImageNames batch-fetches human image names for every distinct
+// ImageId in vms via a single ReadImages call filtered by ImageIds.
+// Returns an empty map (never nil) on success or on error — the caller
+// treats absence as "name not yet known", not as a fatal condition.
+func (o *Outscale) resolveImageNames(authCtx context.Context, vms []osc.Vm) map[string]string {
+	out := make(map[string]string)
+	if len(vms) == 0 {
+		return out
+	}
+	seen := make(map[string]struct{}, len(vms))
+	ids := make([]string, 0, len(vms))
+	for i := range vms {
+		id := vms[i].GetImageId()
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return out
+	}
+	req := osc.NewReadImagesRequest()
+	filter := osc.NewFiltersImage()
+	filter.SetImageIds(ids)
+	req.SetFilters(*filter)
+	resp, _, err := o.client.ImageApi.ReadImages(authCtx).
+		ReadImagesRequest(*req).
+		Execute()
+	if err != nil {
+		// Best-effort — log via the SDK's wrapped error and continue
+		// without image names. Operator-facing log lives in collector.
+		return out
+	}
+	for _, img := range resp.GetImages() {
+		id := img.GetImageId()
+		name := img.GetImageName()
+		if id != "" && name != "" {
+			out[id] = name
+		}
+	}
+	return out
 }
 
 // mapOutscaleVM converts an osc.Vm into the canonical VM struct.

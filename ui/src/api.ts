@@ -896,6 +896,7 @@ export interface VirtualMachine {
   zone?: string | null;
   region?: string | null;
   image_id?: string | null;
+  image_name?: string | null;
   keypair_name?: string | null;
   boot_mode?: string | null;
   provider_account_id?: string | null;

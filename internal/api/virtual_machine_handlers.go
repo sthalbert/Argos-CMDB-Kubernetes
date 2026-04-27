@@ -33,6 +33,7 @@ type vmUpsertReq struct {
 	Zone                 *string           `json:"zone,omitempty"`
 	Region               *string           `json:"region,omitempty"`
 	ImageID              *string           `json:"image_id,omitempty"`
+	ImageName            *string           `json:"image_name,omitempty"`
 	KeypairName          *string           `json:"keypair_name,omitempty"`
 	BootMode             *string           `json:"boot_mode,omitempty"`
 	ProviderAccountID    *string           `json:"provider_account_id,omitempty"`
@@ -111,6 +112,7 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 			Zone:                 req.Zone,
 			Region:               req.Region,
 			ImageID:              req.ImageID,
+			ImageName:            req.ImageName,
 			KeypairName:          req.KeypairName,
 			BootMode:             req.BootMode,
 			ProviderAccountID:    req.ProviderAccountID,

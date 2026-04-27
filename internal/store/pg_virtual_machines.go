@@ -28,7 +28,7 @@ const vmColumns = `id, cloud_account_id,
 	private_ip, public_ip, private_dns_name, vpc_id, subnet_id,
 	nics, security_groups,
 	instance_type, architecture, zone, region,
-	image_id, keypair_name, boot_mode, provider_account_id, provider_creation_date,
+	image_id, image_name, keypair_name, boot_mode, provider_account_id, provider_creation_date,
 	power_state, state_reason, ready, deletion_protection,
 	kernel_version, operating_system,
 	capacity_cpu, capacity_memory,
@@ -97,7 +97,7 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 			private_ip, public_ip, private_dns_name, vpc_id, subnet_id,
 			nics, security_groups,
 			instance_type, architecture, zone, region,
-			image_id, keypair_name, boot_mode, provider_account_id, provider_creation_date,
+			image_id, image_name, keypair_name, boot_mode, provider_account_id, provider_creation_date,
 			power_state, state_reason, ready, deletion_protection,
 			kernel_version, operating_system,
 			capacity_cpu, capacity_memory,
@@ -110,13 +110,13 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 			$6, $7, $8, $9, $10,
 			$11, $12,
 			$13, $14, $15, $16,
-			$17, $18, $19, $20, $21,
-			$22, $23, $24, $25,
-			$26, $27,
-			$28, $29,
-			$30, $31, $32,
-			$33, $34, '{}'::jsonb,
-			$35, $35, $35
+			$17, $18, $19, $20, $21, $22,
+			$23, $24, $25, $26,
+			$27, $28,
+			$29, $30,
+			$31, $32, $33,
+			$34, $35, '{}'::jsonb,
+			$36, $36, $36
 		)
 		ON CONFLICT (cloud_account_id, provider_vm_id) DO UPDATE
 		SET name                  = EXCLUDED.name,
@@ -133,6 +133,7 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 		    zone                  = EXCLUDED.zone,
 		    region                = EXCLUDED.region,
 		    image_id              = EXCLUDED.image_id,
+		    image_name            = EXCLUDED.image_name,
 		    keypair_name          = EXCLUDED.keypair_name,
 		    boot_mode             = EXCLUDED.boot_mode,
 		    provider_account_id   = EXCLUDED.provider_account_id,
@@ -162,7 +163,7 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 		in.PrivateIP, in.PublicIP, in.PrivateDNSName, in.VPCID, in.SubnetID,
 		nicsJSON, sgJSON,
 		in.InstanceType, in.Architecture, in.Zone, in.Region,
-		in.ImageID, in.KeypairName, in.BootMode, in.ProviderAccountID, in.ProviderCreationDate,
+		in.ImageID, in.ImageName, in.KeypairName, in.BootMode, in.ProviderAccountID, in.ProviderCreationDate,
 		in.PowerState, in.StateReason, in.Ready, in.DeletionProtection,
 		in.KernelVersion, in.OperatingSystem,
 		in.CapacityCPU, in.CapacityMemory,
@@ -420,6 +421,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		zone                 sql.NullString
 		region               sql.NullString
 		imageID              sql.NullString
+		imageName            sql.NullString
 		keypairName          sql.NullString
 		bootMode             sql.NullString
 		providerAccountID    sql.NullString
@@ -447,7 +449,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		&privateIP, &publicIP, &privateDNSName, &vpcID, &subnetID,
 		&nicsJSON, &sgJSON,
 		&instanceType, &architecture, &zone, &region,
-		&imageID, &keypairName, &bootMode, &providerAccountID, &providerCreationDate,
+		&imageID, &imageName, &keypairName, &bootMode, &providerAccountID, &providerCreationDate,
 		&out.PowerState, &stateReason, &out.Ready, &out.DeletionProtection,
 		&kernelVersion, &operatingSystem,
 		&capacityCPU, &capacityMemory,
@@ -476,6 +478,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 	out.Zone = nullableString(zone)
 	out.Region = nullableString(region)
 	out.ImageID = nullableString(imageID)
+	out.ImageName = nullableString(imageName)
 	out.KeypairName = nullableString(keypairName)
 	out.BootMode = nullableString(bootMode)
 	out.ProviderAccountID = nullableString(providerAccountID)

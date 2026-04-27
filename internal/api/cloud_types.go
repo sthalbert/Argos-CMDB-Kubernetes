@@ -97,6 +97,7 @@ type VirtualMachine struct {
 	Zone                 *string           `json:"zone,omitempty"`
 	Region               *string           `json:"region,omitempty"`
 	ImageID              *string           `json:"image_id,omitempty"`
+	ImageName            *string           `json:"image_name,omitempty"`
 	KeypairName          *string           `json:"keypair_name,omitempty"`
 	BootMode             *string           `json:"boot_mode,omitempty"`
 	ProviderAccountID    *string           `json:"provider_account_id,omitempty"`
@@ -144,6 +145,7 @@ type VirtualMachineUpsert struct {
 	Zone                 *string
 	Region               *string
 	ImageID              *string
+	ImageName            *string
 	KeypairName          *string
 	BootMode             *string
 	ProviderAccountID    *string

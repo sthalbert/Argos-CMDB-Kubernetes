@@ -171,7 +171,21 @@ export default function VirtualMachineDetail() {
                 <KV k="Architecture" v={vm.architecture} />
                 <KV k="Zone" v={vm.zone && <code>{vm.zone}</code>} />
                 <KV k="Region" v={vm.region && <code>{vm.region}</code>} />
-                <KV k="Image" v={vm.image_id && <code>{vm.image_id}</code>} />
+                <KV
+                  k="Image"
+                  v={
+                    (vm.image_name || vm.image_id) && (
+                      <span>
+                        {vm.image_name && <span>{vm.image_name}</span>}
+                        {vm.image_id && (
+                          <code style={{ marginLeft: vm.image_name ? '0.4rem' : 0 }}>
+                            {vm.image_id}
+                          </code>
+                        )}
+                      </span>
+                    )
+                  }
+                />
                 <KV k="Keypair" v={vm.keypair_name && <code>{vm.keypair_name}</code>} />
                 <KV k="Boot mode" v={vm.boot_mode} />
                 <KV
