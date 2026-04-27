@@ -6,8 +6,13 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
+
+// ErrMissingCredentials is returned by provider constructors when
+// required credentials (access_key, secret_key, region) are absent.
+var ErrMissingCredentials = errors.New("access_key, secret_key, region required")
 
 // VM is the canonical, provider-neutral view of a cloud VM. The
 // collector boundary maps each provider's native shape into this struct;

@@ -184,9 +184,11 @@ func startMetricsServer(ctx context.Context, addr string) {
 	}()
 	go func() {
 		<-ctx.Done()
+		// Use a fresh context: the parent ctx is already cancelled, so we need
+		// an independent timeout for the graceful shutdown window.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
+		_ = srv.Shutdown(shutdownCtx) //nolint:contextcheck // shutdown timeout is intentionally separated from the cancelled parent
 	}()
 }
 
@@ -194,8 +196,7 @@ func startMetricsServer(ctx context.Context, addr string) {
 // Only "outscale" is supported in v1. endpointURL is optional — empty
 // falls back to the SDK default of api.{region}.outscale.com.
 func pickProviderFactory(name, endpointURL string) (vmcollector.ProviderFactory, error) {
-	switch name {
-	case "outscale":
+	if name == "outscale" {
 		return func(creds apiclient.Credentials) (provider.Provider, error) {
 			return provider.NewOutscale(creds.AccessKey, creds.SecretKey, creds.Region, endpointURL)
 		}, nil

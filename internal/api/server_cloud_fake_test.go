@@ -53,7 +53,7 @@ func resetCloudFake() {
 func (m *memStore) UpsertCloudAccount(_ context.Context, in CloudAccountUpsert) (CloudAccount, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
-	for _, a := range cloudFake.accounts {
+	for _, a := range cloudFake.accounts { //nolint:gocritic // rangeValCopy: test fake; copy is intentional to avoid mutation
 		if a.Provider == in.Provider && a.Name == in.Name {
 			a.Region = in.Region
 			a.UpdatedAt = time.Now().UTC()
@@ -88,7 +88,7 @@ func (m *memStore) GetCloudAccount(_ context.Context, id uuid.UUID) (CloudAccoun
 func (m *memStore) GetCloudAccountByName(_ context.Context, provider, name string) (CloudAccount, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
-	for _, a := range cloudFake.accounts {
+	for _, a := range cloudFake.accounts { //nolint:gocritic // rangeValCopy: test fake; copy is intentional to avoid mutation
 		if a.Provider == provider && a.Name == name {
 			return a, nil
 		}
@@ -99,7 +99,7 @@ func (m *memStore) GetCloudAccountByName(_ context.Context, provider, name strin
 func (m *memStore) GetCloudAccountByNameAny(_ context.Context, name string) (CloudAccount, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
-	for _, a := range cloudFake.accounts {
+	for _, a := range cloudFake.accounts { //nolint:gocritic // rangeValCopy: test fake; copy is intentional to avoid mutation
 		if a.Name == name {
 			return a, nil
 		}
@@ -114,7 +114,7 @@ func (m *memStore) ListCloudAccounts(_ context.Context, limit int, _ string) ([]
 		limit = 50
 	}
 	out := make([]CloudAccount, 0, len(cloudFake.accounts))
-	for _, a := range cloudFake.accounts {
+	for _, a := range cloudFake.accounts { //nolint:gocritic // rangeValCopy: test fake; copy is intentional to avoid mutation
 		out = append(out, a)
 	}
 	if len(out) > limit {
@@ -181,7 +181,6 @@ func (m *memStore) UpdateCloudAccount(_ context.Context, id uuid.UUID, in CloudA
 	return a, nil
 }
 
-//nolint:gocritic // hugeParam for interface
 func (m *memStore) SetCloudAccountCredentials(_ context.Context, id uuid.UUID, accessKey string, encSK secrets.Ciphertext) (CloudAccount, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
@@ -291,7 +290,7 @@ func (m *memStore) DeleteCloudAccount(_ context.Context, id uuid.UUID) error {
 	}
 	delete(cloudFake.accounts, id)
 	delete(cloudFake.creds, id)
-	for vmID, vm := range cloudFake.vms {
+	for vmID, vm := range cloudFake.vms { //nolint:gocritic // rangeValCopy: test fake; copy is intentional to avoid mutation
 		if vm.CloudAccountID == id {
 			delete(cloudFake.vms, vmID)
 		}
@@ -388,7 +387,6 @@ func (m *memStore) ListVirtualMachines(_ context.Context, filter VirtualMachineL
 	return out, "", nil
 }
 
-//nolint:gocritic // hugeParam: Store interface requires value param
 func (m *memStore) UpdateVirtualMachine(_ context.Context, id uuid.UUID, in VirtualMachinePatch) (VirtualMachine, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
@@ -452,7 +450,7 @@ func (m *memStore) ReconcileVirtualMachines(_ context.Context, accountID uuid.UU
 	}
 	var n int64
 	now := time.Now().UTC()
-	for id, vm := range cloudFake.vms {
+	for id, vm := range cloudFake.vms { //nolint:gocritic // rangeValCopy: test fake; copy is intentional to write back modified value
 		if vm.CloudAccountID != accountID || vm.TerminatedAt != nil {
 			continue
 		}

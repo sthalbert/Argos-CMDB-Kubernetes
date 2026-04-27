@@ -104,7 +104,7 @@ func doReq(t *testing.T, h http.Handler, method, path string, body any) *httptes
 	} else {
 		rdr = bytes.NewReader(nil)
 	}
-	req := httptest.NewRequest(method, path, rdr)
+	req := httptest.NewRequest(method, path, rdr) //nolint:noctx // test helper; context is not needed for in-process handler tests
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -116,6 +116,8 @@ func doReq(t *testing.T, h http.Handler, method, path string, body any) *httptes
 // TestCloudAccountHybridOnboarding exercises the full onboarding flow
 // from ADR-0015 §6: collector POSTs to register, admin sets credentials,
 // collector fetches and gets the plaintext SK back.
+//
+//nolint:gocyclo // integration test — many sequential assertions; splitting would obscure the flow
 func TestCloudAccountHybridOnboarding(t *testing.T) {
 	resetCloudFake()
 	store := newMemStore()
@@ -349,10 +351,10 @@ func TestCloudAccountAuditScrub(t *testing.T) {
 	if !ok {
 		t.Fatalf("scrubSecrets returned %T", got)
 	}
-	if m["access_key"] != "[redacted]" {
+	if m["access_key"] != redactedValue {
 		t.Errorf("access_key = %v", m["access_key"])
 	}
-	if m["secret_key"] != "[redacted]" {
+	if m["secret_key"] != redactedValue {
 		t.Errorf("secret_key = %v", m["secret_key"])
 	}
 	if m["other"] != "x" {

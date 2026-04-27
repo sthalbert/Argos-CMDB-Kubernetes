@@ -42,7 +42,7 @@ const vmColumns = `id, cloud_account_id,
 // against nodes.provider_id: returns ErrConflict when the VM is
 // already known as a Kubernetes node.
 //
-//nolint:gocritic,gocyclo,gocognit // hugeParam: Store interface requires value param; insert columns are inherently long
+//nolint:gocritic // hugeParam: Store interface requires value param; insert columns are inherently long
 func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpsert) (api.VirtualMachine, error) {
 	// Server-side dedup. Outscale's CCM sets node.spec.providerID to a
 	// string containing the VmId, e.g. "aws:///<az>/i-96fff41b". A
@@ -193,8 +193,13 @@ func (p *PG) GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMa
 
 // ListVirtualMachines returns paged VMs filtered by VirtualMachineListFilter.
 //
-//nolint:gocyclo,gocritic // cursor-paginated query builder with optional filters; hugeParam: Store interface requires value param
-func (p *PG) ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error) {
+//nolint:gocyclo // cursor-paginated query builder with optional filters
+func (p *PG) ListVirtualMachines(
+	ctx context.Context,
+	filter api.VirtualMachineListFilter,
+	limit int,
+	cursor string,
+) ([]api.VirtualMachine, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -274,7 +279,7 @@ func (p *PG) ListVirtualMachines(ctx context.Context, filter api.VirtualMachineL
 
 // UpdateVirtualMachine applies merge-patch on curated-only fields.
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
+//nolint:gocyclo // merge-patch checks each optional field; branching is unavoidable
 func (p *PG) UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.VirtualMachinePatch) (api.VirtualMachine, error) {
 	sets := make([]string, 0, 8)
 	args := make([]any, 0, 9)
@@ -403,7 +408,7 @@ func marshalStringMap(m map[string]string) ([]byte, error) {
 	return b, nil
 }
 
-//nolint:gocyclo,gocognit // long flat field list — verbose but boring.
+//nolint:gocyclo // long flat field list — verbose but boring
 func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 	var (
 		out                  api.VirtualMachine
@@ -535,11 +540,13 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 // (well, the LIKE _ is allowed by underscore in identifiers, so that
 // part is best handled by the ESCAPE clause). Empty strings are
 // accepted by the caller's `if in.ProviderVMID != ""` guard.
+//
+//nolint:gocyclo // character-class validation switch; each case is one allowed character class
 func validProviderVMID(s string) bool {
 	if s == "" || len(s) > 256 {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		switch {
 		case c >= 'a' && c <= 'z':

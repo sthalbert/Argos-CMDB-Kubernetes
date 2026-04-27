@@ -38,6 +38,16 @@ var (
 	// ErrAccountDisabled is returned when argosd reports 403 — the
 	// account has been disabled by an admin.
 	ErrAccountDisabled = errors.New("cloud_account_disabled")
+	// ErrHTTPForbidden is returned on 403 responses that are not account-disabled.
+	ErrHTTPForbidden = errors.New("http 403 forbidden")
+	// ErrHTTPConflict is returned on 409 responses that are not kube-node conflicts.
+	ErrHTTPConflict = errors.New("http 409 conflict")
+	// ErrHTTPUnauthorized is returned on 401 responses.
+	ErrHTTPUnauthorized = errors.New("http 401 unauthorized")
+	// ErrHTTPClientError is returned on other 4xx responses.
+	ErrHTTPClientError = errors.New("http client error")
+	// ErrHTTPServerError is returned on 5xx responses (retriable).
+	ErrHTTPServerError = errors.New("http server error")
 	errBadTransport    = errors.New("unexpected default transport type")
 	errNoCACerts       = errors.New("CA cert file contains no valid certificates")
 	errMaxRetries      = errors.New("max retries exceeded")
@@ -218,7 +228,7 @@ type upsertVMBody struct {
 
 // UpsertVirtualMachine POSTs /v1/virtual-machines.
 //
-//nolint:gocyclo // straight-line mapping
+//nolint:gocritic // hugeParam: provider.VM matches the CollectorStore interface; copying is acceptable on this path
 func (s *Store) UpsertVirtualMachine(ctx context.Context, accountID uuid.UUID, vm provider.VM) error {
 	body := upsertVMBody{
 		CloudAccountID:     accountID,
@@ -303,7 +313,7 @@ func (s *Store) doJSON(ctx context.Context, method, path string, body, dst any) 
 	fullURL := s.baseURL + path
 
 	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		stop, err := s.doOnce(ctx, method, fullURL, marshalled, dst)
 		if err != nil {
 			lastErr = err
@@ -361,25 +371,25 @@ func (s *Store) doOnce(ctx context.Context, method, fullURL string, marshalled [
 		if bytes.Contains(respBody, []byte("Account Disabled")) {
 			return true, ErrAccountDisabled
 		}
-		return true, fmt.Errorf("%s %s: 403: %s", method, req.URL.Path, truncate(string(respBody), 200))
+		return true, fmt.Errorf("%s %s: 403: %s: %w", method, req.URL.Path, truncate(string(respBody)), ErrHTTPForbidden)
 	case resp.StatusCode == http.StatusConflict:
 		// On POST /virtual-machines this means already-a-kube-node;
 		// surface the dedicated sentinel so the collector can log and continue.
 		if strings.HasPrefix(req.URL.Path, "/v1/virtual-machines") && bytes.Contains(respBody, []byte("already_inventoried_as_kubernetes_node")) {
 			return true, ErrAlreadyKubeNode
 		}
-		return true, fmt.Errorf("%s %s: 409: %s", method, req.URL.Path, truncate(string(respBody), 200))
+		return true, fmt.Errorf("%s %s: 409: %s: %w", method, req.URL.Path, truncate(string(respBody)), ErrHTTPConflict)
 	case resp.StatusCode == http.StatusUnauthorized:
 		slog.Error("apiclient: unauthorised, not retrying",
 			slog.String("method", method), slog.String("path", req.URL.Path))
-		return true, fmt.Errorf("%s %s: 401", method, req.URL.Path)
+		return true, fmt.Errorf("%s %s: %w", method, req.URL.Path, ErrHTTPUnauthorized)
 	case resp.StatusCode >= 500:
 		slog.Warn("apiclient: transient 5xx, retrying",
 			slog.String("method", method), slog.String("path", req.URL.Path),
 			slog.Int("status", resp.StatusCode))
-		return false, fmt.Errorf("%s %s: %d %s", method, req.URL.Path, resp.StatusCode, truncate(string(respBody), 200))
+		return false, fmt.Errorf("%s %s: %d %s: %w", method, req.URL.Path, resp.StatusCode, truncate(string(respBody)), ErrHTTPServerError)
 	default:
-		return true, fmt.Errorf("%s %s: %d %s", method, req.URL.Path, resp.StatusCode, truncate(string(respBody), 200))
+		return true, fmt.Errorf("%s %s: %d %s: %w", method, req.URL.Path, resp.StatusCode, truncate(string(respBody)), ErrHTTPClientError)
 	}
 }
 
@@ -393,9 +403,10 @@ func backoff(ctx context.Context, attempt int) {
 	}
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
+func truncate(s string) string {
+	const maxLen = 200
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:n] + "..."
+	return s[:maxLen] + "..."
 }

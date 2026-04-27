@@ -42,6 +42,7 @@ var (
 	errDuplicateClusterName   = errors.New("ARGOS_COLLECTOR_CLUSTERS entry: duplicate name")
 	errNoCollectorClusters    = errors.New("ARGOS_COLLECTOR_CLUSTERS or ARGOS_CLUSTER_NAME must be set when ARGOS_COLLECTOR_ENABLED=true")
 	errInvalidCookiePolicy    = errors.New("ARGOS_SESSION_SECURE_COOKIE must be auto / always / never")
+	errEncryptedCredentials   = errors.New("secrets master key missing but cloud_accounts rows carry encrypted credentials")
 )
 
 func main() {
@@ -178,10 +179,10 @@ func initSecretsEncrypter(ctx context.Context, pg *store.PG) (*secrets.Encrypter
 		return nil, fmt.Errorf("secrets encrypter: count rows: %w", cerr)
 	}
 	if count > 0 {
-		return nil, fmt.Errorf("secrets master key missing but %d cloud_accounts row(s) carry encrypted credentials: set %s", count, secrets.MasterKeyEnvVar)
+		return nil, fmt.Errorf("%w: %d row(s) require %s", errEncryptedCredentials, count, secrets.MasterKeyEnvVar)
 	}
 	slog.Warn("secrets master key not configured; VM collector features disabled until ARGOS_SECRETS_MASTER_KEY is set")
-	return nil, nil
+	return nil, nil //nolint:nilnil // nil encrypter is the intentional "disabled" sentinel; callers check for nil before use
 }
 
 // maybeAutoMigrate runs embedded goose migrations when enabled.
@@ -214,8 +215,6 @@ func maybeInitOIDC(ctx context.Context, cfg *auth.OIDCConfig) (*auth.OIDCProvide
 }
 
 // buildHTTPServer wires all HTTP routes, middleware, and the server struct.
-//
-//nolint:gocyclo,gocognit // route table is inherently long after ADR-0015 hand-written endpoints
 func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvider, enc *secrets.Encrypter) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
@@ -279,21 +278,39 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	mux.Handle("POST /v1/admin/cloud-accounts", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleCreateCloudAccount(pg, enc)))))
 	mux.Handle("GET /v1/admin/cloud-accounts/{id}", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleGetCloudAccount(pg)))))
 	mux.Handle("PATCH /v1/admin/cloud-accounts/{id}", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandlePatchCloudAccount(pg)))))
-	mux.Handle("PATCH /v1/admin/cloud-accounts/{id}/credentials", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandlePatchCloudAccountCredentials(pg, enc)))))
+	mux.Handle(
+		"PATCH /v1/admin/cloud-accounts/{id}/credentials",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandlePatchCloudAccountCredentials(pg, enc)))),
+	)
 	mux.Handle("POST /v1/admin/cloud-accounts/{id}/disable", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleDisableCloudAccount(pg)))))
 	mux.Handle("POST /v1/admin/cloud-accounts/{id}/enable", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleEnableCloudAccount(pg)))))
 	mux.Handle("DELETE /v1/admin/cloud-accounts/{id}", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleDeleteCloudAccount(pg)))))
-	mux.Handle("POST /v1/admin/cloud-accounts/{id}/tokens", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleCreateCloudAccountToken(pg)))))
+	mux.Handle(
+		"POST /v1/admin/cloud-accounts/{id}/tokens",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleCreateCloudAccountToken(pg)))),
+	)
 
 	// Collector-side cloud-accounts (vm-collector scope).
 	mux.Handle("POST /v1/cloud-accounts", requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleCollectorRegisterCloudAccount(pg)))))
-	mux.Handle("PATCH /v1/cloud-accounts/{id}/status", requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleCollectorPatchCloudAccountStatus(pg)))))
-	mux.Handle("GET /v1/cloud-accounts/by-name/{name}/credentials", requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleCollectorGetCredentialsByName(pg, enc)))))
-	mux.Handle("GET /v1/cloud-accounts/{id}/credentials", requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleCollectorGetCredentialsByID(pg, enc)))))
+	mux.Handle(
+		"PATCH /v1/cloud-accounts/{id}/status",
+		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleCollectorPatchCloudAccountStatus(pg)))),
+	)
+	mux.Handle(
+		"GET /v1/cloud-accounts/by-name/{name}/credentials",
+		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleCollectorGetCredentialsByName(pg, enc)))),
+	)
+	mux.Handle(
+		"GET /v1/cloud-accounts/{id}/credentials",
+		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleCollectorGetCredentialsByID(pg, enc)))),
+	)
 
 	// Virtual-machines.
 	mux.Handle("POST /v1/virtual-machines", requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleUpsertVirtualMachine(pg)))))
-	mux.Handle("POST /v1/virtual-machines/reconcile", requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleReconcileVirtualMachines(pg)))))
+	mux.Handle(
+		"POST /v1/virtual-machines/reconcile",
+		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleReconcileVirtualMachines(pg)))),
+	)
 	mux.Handle("GET /v1/virtual-machines", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListVirtualMachines(pg)))))
 	mux.Handle("GET /v1/virtual-machines/{id}", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetVirtualMachine(pg)))))
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))

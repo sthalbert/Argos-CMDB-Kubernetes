@@ -486,7 +486,12 @@ type Store interface {
 
 	// ListVirtualMachines returns paged VMs filtered by VirtualMachineListFilter.
 	// terminated rows are excluded unless filter.IncludeTerminated.
-	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, limit int, cursor string) (items []VirtualMachine, nextCursor string, err error)
+	ListVirtualMachines(
+		ctx context.Context,
+		filter VirtualMachineListFilter,
+		limit int,
+		cursor string,
+	) (items []VirtualMachine, nextCursor string, err error)
 
 	// UpdateVirtualMachine applies merge-patch on curated-only fields.
 	UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in VirtualMachinePatch) (VirtualMachine, error)
@@ -500,7 +505,6 @@ type Store interface {
 	// Returns the count of rows tombstoned.
 	ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUID, keepProviderVMIDs []string) (tombstoned int64, err error)
 }
-
 
 // UserIdentityInsert carries the federation tuple persisted on first
 // OIDC login. Email is optional but useful for admin display.

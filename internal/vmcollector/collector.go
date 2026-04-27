@@ -18,9 +18,13 @@ import (
 	"github.com/sthalbert/argos/internal/vmcollector/provider"
 )
 
+// ErrCredentialsNotProvisioned is returned by ensureCredentials when the
+// account is registered but no credentials have been supplied by an admin yet.
+var ErrCredentialsNotProvisioned = errors.New("credentials not yet provisioned")
+
 // CollectorStore is the slice of apiclient.Store the collector consumes.
 // Declared as an interface so unit tests can swap in a fake.
-type CollectorStore interface { //nolint:revive // stutter is intentional alongside Collector
+type CollectorStore interface {
 	FetchCredentialsByName(ctx context.Context, name string) (apiclient.Credentials, error)
 	RegisterCloudAccount(ctx context.Context, providerName, name, region string) (apiclient.CloudAccount, error)
 	UpdateCloudAccountStatus(ctx context.Context, id uuid.UUID, status string, lastSeenAt *time.Time, lastErr *string) error
@@ -59,6 +63,8 @@ type Collector struct {
 
 // New builds a Collector. The factory is invoked once on first
 // successful credential fetch, and again on each refresh.
+//
+//nolint:gocritic // hugeParam: Config is the standard constructor signature; callers pass by value intentionally
 func New(cfg Config, store CollectorStore, factory ProviderFactory) *Collector {
 	if cfg.Interval <= 0 {
 		cfg.Interval = 5 * time.Minute
@@ -73,8 +79,6 @@ func New(cfg Config, store CollectorStore, factory ProviderFactory) *Collector {
 }
 
 // Run executes the polling loop until ctx is cancelled.
-//
-//nolint:gocyclo,gocognit // top-level orchestration; alternative is a soup of small methods.
 func (c *Collector) Run(ctx context.Context) error {
 	slog.Info("vm-collector starting",
 		slog.String("provider", c.cfg.Provider),
@@ -91,7 +95,7 @@ func (c *Collector) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			slog.Info("vm-collector stopping")
-			return ctx.Err()
+			return fmt.Errorf("vm-collector: %w", ctx.Err())
 		case <-ticker.C:
 		}
 	}
@@ -100,7 +104,7 @@ func (c *Collector) Run(ctx context.Context) error {
 // runOnce performs one tick: ensure credentials, ensure provider,
 // list VMs, filter, upsert each, reconcile, update status.
 //
-//nolint:gocyclo,gocognit // tick logic is inherently branchy
+//nolint:gocyclo // tick logic is inherently branchy
 func (c *Collector) runOnce(ctx context.Context) {
 	tickStart := time.Now()
 	tickCtx, cancel := context.WithTimeout(ctx, c.cfg.FetchTimeout)
@@ -174,7 +178,7 @@ func (c *Collector) runOnce(ctx context.Context) {
 // attempt it auto-registers the account if missing. Refreshes
 // credentials when the cache age exceeds CredentialRefresh.
 //
-//nolint:gocognit // bootstrap branching
+//nolint:gocyclo // bootstrap branching logic is intentionally inline for readability
 func (c *Collector) ensureCredentials(ctx context.Context) error {
 	c.mu.Lock()
 	cachedAccountID := c.accountID
@@ -205,7 +209,7 @@ func (c *Collector) ensureCredentials(ctx context.Context) error {
 		c.mu.Lock()
 		c.accountID = acct.ID
 		c.mu.Unlock()
-		return errors.New("credentials not yet provisioned")
+		return ErrCredentialsNotProvisioned
 	}
 
 	// We need the account id. If we don't have one yet, register

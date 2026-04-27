@@ -18,10 +18,10 @@ import (
 )
 
 const (
-	cccmTagPrefix     = "OscK8sClusterID/"
-	cccmNodeNameKey   = "OscK8sNodeName"
-	argosIgnoreKey    = "argos.io/ignore"
-	argosIgnoreOnVal  = "true"
+	cccmTagPrefix    = "OscK8sClusterID/"
+	cccmNodeNameKey  = "OscK8sNodeName"
+	argosIgnoreKey   = "argos.io/ignore"
+	argosIgnoreOnVal = "true"
 )
 
 // Apply returns the subset of vms that should be pushed to argosd.

@@ -139,8 +139,10 @@ func TestCollectorTickEndToEnd(t *testing.T) {
 			{ProviderVMID: "i-1", Name: "vault", PowerState: "running"},
 			{ProviderVMID: "i-2", Name: "dns", PowerState: "running"},
 			// Filtered out — kube node tag.
-			{ProviderVMID: "i-3", Name: "kube-w1", PowerState: "running",
-				Tags: map[string]string{"OscK8sNodeName": "kube-w1"}},
+			{
+				ProviderVMID: "i-3", Name: "kube-w1", PowerState: "running",
+				Tags: map[string]string{"OscK8sNodeName": "kube-w1"},
+			},
 		},
 	}
 	c := New(Config{

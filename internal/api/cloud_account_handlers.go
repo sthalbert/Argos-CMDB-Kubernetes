@@ -12,6 +12,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -61,7 +62,7 @@ type adminPatchCloudAccountReq struct {
 	Region      *string            `json:"region,omitempty"`
 	Owner       *string            `json:"owner,omitempty"`
 	Criticality *string            `json:"criticality,omitempty"`
-	Notes      *string             `json:"notes,omitempty"`
+	Notes       *string            `json:"notes,omitempty"`
 	RunbookURL  *string            `json:"runbook_url,omitempty"`
 	Annotations *map[string]string `json:"annotations,omitempty"`
 }
@@ -81,9 +82,9 @@ type collectorRegisterReq struct {
 
 // collectorStatusReq is the body for PATCH /v1/cloud-accounts/{id}/status.
 type collectorStatusReq struct {
-	Status      *string `json:"status,omitempty"`
+	Status      *string   `json:"status,omitempty"`
 	LastSeenAt  *jsonTime `json:"last_seen_at,omitempty"`
-	LastError   *string `json:"last_error,omitempty"`
+	LastError   *string   `json:"last_error,omitempty"`
 	LastErrorAt *jsonTime `json:"last_error_at,omitempty"`
 }
 
@@ -102,6 +103,7 @@ type jsonTime struct {
 	Value string
 }
 
+// UnmarshalJSON implements json.Unmarshaler for jsonTime, tolerating null.
 func (t *jsonTime) UnmarshalJSON(b []byte) error {
 	if len(b) == 0 || string(b) == "null" {
 		return nil
@@ -137,6 +139,8 @@ func HandleListCloudAccounts(store Store) http.HandlerFunc {
 }
 
 // HandleCreateCloudAccount — admin scope. POST /v1/admin/cloud-accounts.
+//
+//nolint:gocyclo // multi-step onboarding flow: upsert + optional patch + optional credential set
 func HandleCreateCloudAccount(store Store, enc *secrets.Encrypter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireAdmin(w, r) {
@@ -391,9 +395,7 @@ func HandleCollectorRegisterCloudAccount(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "provider, name, region required")
 			return
 		}
-		acct, err := store.UpsertCloudAccount(r.Context(), CloudAccountUpsert{
-			Provider: req.Provider, Name: req.Name, Region: req.Region,
-		})
+		acct, err := store.UpsertCloudAccount(r.Context(), CloudAccountUpsert(req))
 		if err != nil {
 			slog.Error("collector register cloud account", slog.Any("error", err))
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
@@ -412,6 +414,8 @@ func HandleCollectorRegisterCloudAccount(store Store) http.HandlerFunc {
 
 // HandleCollectorPatchCloudAccountStatus — vm-collector scope.
 // PATCH /v1/cloud-accounts/{id}/status.
+//
+//nolint:gocyclo // status patch validates multiple optional fields; branching is unavoidable
 func HandleCollectorPatchCloudAccountStatus(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := auth.CallerFromContext(r.Context())
@@ -489,7 +493,7 @@ func HandleCollectorGetCredentialsByName(store Store, enc *secrets.Encrypter) ht
 			writeProblem(w, http.StatusNotFound, "Cloud Account Not Registered", "")
 			return
 		}
-		respondCredentials(w, r, store, enc, acct)
+		respondCredentials(w, r, store, enc, &acct)
 	}
 }
 
@@ -516,11 +520,11 @@ func HandleCollectorGetCredentialsByID(store Store, enc *secrets.Encrypter) http
 			handleAccountLookupErr(w, err)
 			return
 		}
-		respondCredentials(w, r, store, enc, acct)
+		respondCredentials(w, r, store, enc, &acct)
 	}
 }
 
-func respondCredentials(w http.ResponseWriter, r *http.Request, store Store, enc *secrets.Encrypter, acct CloudAccount) {
+func respondCredentials(w http.ResponseWriter, r *http.Request, store Store, enc *secrets.Encrypter, acct *CloudAccount) {
 	if enc == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "Encryption Disabled",
 			"argosd has no master key; cannot decrypt credentials")
@@ -569,8 +573,12 @@ func respondCredentials(w http.ResponseWriter, r *http.Request, store Store, enc
 // don't change. The store now does a single-query lookup across
 // providers (ADR-0015 M3) — no more per-provider fan-out.
 func lookupAccountByName(r *http.Request, store Store, name string) (CloudAccount, error) {
-	if acct, err := store.GetCloudAccountByNameAny(r.Context(), name); err == nil || !errors.Is(err, ErrNotFound) {
-		return acct, err
+	acct, err := store.GetCloudAccountByNameAny(r.Context(), name)
+	if err == nil {
+		return acct, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return CloudAccount{}, fmt.Errorf("get cloud account by name: %w", err)
 	}
 	return CloudAccount{}, ErrNotFound
 }
@@ -594,7 +602,7 @@ func legacyLookupAccountByName(r *http.Request, store Store, name string) (Cloud
 			return acct, nil
 		}
 		if !errors.Is(err, ErrNotFound) {
-			return CloudAccount{}, err
+			return CloudAccount{}, fmt.Errorf("get cloud account by name: %w", err)
 		}
 	}
 	return CloudAccount{}, ErrNotFound
@@ -611,6 +619,8 @@ func handleAccountLookupErr(w http.ResponseWriter, err error) {
 
 // pathUUID extracts a UUID from a router path value. Returns (uuid, true)
 // on success or writes a 400 and returns (_, false).
+//
+//nolint:unparam // name is kept for error message clarity; future routes may use different parameter names
 func pathUUID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
 	raw := r.PathValue(name)
 	if raw == "" {
@@ -729,7 +739,9 @@ func HandleCreateCloudAccountToken(store Store) http.HandlerFunc {
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		slog.Warn("writeJSON: encode error", slog.Any("error", err))
+	}
 }
 
 // writeProblem writes a minimal RFC 7807 application/problem+json response.
@@ -740,5 +752,7 @@ func writeProblem(w http.ResponseWriter, status int, title, detail string) {
 	if detail != "" {
 		body["detail"] = detail
 	}
-	_ = json.NewEncoder(w).Encode(body)
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		slog.Warn("writeProblem: encode error", slog.Any("error", err))
+	}
 }

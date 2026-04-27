@@ -29,8 +29,6 @@ const cloudAccountColumns = `id, provider, name, region, status,
 
 // UpsertCloudAccount idempotently registers a cloud account by
 // (provider, name). New rows are created in pending_credentials.
-//
-//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertCloudAccount(ctx context.Context, in api.CloudAccountUpsert) (api.CloudAccount, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -237,8 +235,6 @@ func (p *PG) UpdateCloudAccount(ctx context.Context, id uuid.UUID, in api.CloudA
 
 // SetCloudAccountCredentials writes AK plaintext and SK ciphertext+nonce+kid,
 // transitions the row to status='active'.
-//
-//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) SetCloudAccountCredentials(ctx context.Context, id uuid.UUID, accessKey string, encSK secrets.Ciphertext) (api.CloudAccount, error) {
 	now := time.Now().UTC()
 	const q = `
@@ -268,11 +264,11 @@ func (p *PG) GetCloudAccountCredentials(ctx context.Context, id uuid.UUID) (stri
 	const q = `SELECT status, access_key, secret_key_encrypted, secret_key_nonce, secret_key_kid
 	           FROM cloud_accounts WHERE id = $1`
 	var (
-		status   string
-		ak       sql.NullString
-		ctBytes  []byte
-		nonce    []byte
-		kid      sql.NullString
+		status  string
+		ak      sql.NullString
+		ctBytes []byte
+		nonce   []byte
+		kid     sql.NullString
 	)
 	err := p.pool.QueryRow(ctx, q, id).Scan(&status, &ak, &ctBytes, &nonce, &kid)
 	if err != nil {

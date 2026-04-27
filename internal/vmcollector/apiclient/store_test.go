@@ -15,6 +15,7 @@ import (
 	"github.com/sthalbert/argos/internal/vmcollector/provider"
 )
 
+//nolint:unparam // token varies across test scenarios for future extensibility
 func newClient(t *testing.T, srv *httptest.Server, token string) *Store {
 	t.Helper()
 	store, err := NewStore(Config{ServerURL: srv.URL, Token: token})

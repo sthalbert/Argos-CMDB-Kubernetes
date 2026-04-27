@@ -36,7 +36,7 @@ type Outscale struct {
 // private deployments, or a stub server).
 func NewOutscale(accessKey, secretKey, region, endpointURL string) (*Outscale, error) {
 	if accessKey == "" || secretKey == "" || region == "" {
-		return nil, fmt.Errorf("outscale: access_key, secret_key, region required")
+		return nil, ErrMissingCredentials
 	}
 	if endpointURL == "" {
 		endpointURL = fmt.Sprintf("https://api.%s.outscale.com/api/v1", region)
@@ -58,8 +58,6 @@ func NewOutscale(accessKey, secretKey, region, endpointURL string) (*Outscale, e
 func (o *Outscale) Kind() string { return "outscale" }
 
 // ListVMs returns every VM visible under the configured AK/SK + region.
-//
-//nolint:gocyclo,gocognit // long flat mapping; clearer as one func than ten helpers
 func (o *Outscale) ListVMs(ctx context.Context) ([]VM, error) {
 	authCtx := context.WithValue(ctx, osc.ContextAWSv4, osc.AWSv4{
 		AccessKey: o.accessKey,
@@ -142,7 +140,7 @@ func (o *Outscale) resolveImageNames(authCtx context.Context, vms []osc.Vm) map[
 		// without image names. Operator-facing log lives in collector.
 		return out
 	}
-	for _, img := range resp.GetImages() {
+	for _, img := range resp.GetImages() { //nolint:gocritic // rangeValCopy: osc.Image is SDK-owned; indexing would add unsafe coupling
 		id := img.GetImageId()
 		name := img.GetImageName()
 		if id != "" && name != "" {
@@ -153,8 +151,6 @@ func (o *Outscale) resolveImageNames(authCtx context.Context, vms []osc.Vm) map[
 }
 
 // mapOutscaleVM converts an osc.Vm into the canonical VM struct.
-//
-//nolint:gocyclo,gocognit // straight-line field mapping
 func mapOutscaleVM(v *osc.Vm, fallbackRegion string) VM {
 	tags := flattenTags(v.GetTags())
 	name := tags["Name"]

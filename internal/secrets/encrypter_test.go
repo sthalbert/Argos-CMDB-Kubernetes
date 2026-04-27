@@ -90,7 +90,7 @@ func TestEncrypter_NonceUniqueness(t *testing.T) {
 	}
 	const trials = 100
 	seen := make(map[string]struct{}, trials)
-	for i := 0; i < trials; i++ {
+	for i := range trials {
 		ct, err := enc.Encrypt([]byte("payload"), []byte("aad"))
 		if err != nil {
 			t.Fatalf("Encrypt: %v", err)

@@ -243,15 +243,7 @@ func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
 		}
-		vm, err := store.UpdateVirtualMachine(r.Context(), id, VirtualMachinePatch{
-			DisplayName: req.DisplayName,
-			Role:        req.Role,
-			Owner:       req.Owner,
-			Criticality: req.Criticality,
-			Notes:       req.Notes,
-			RunbookURL:  req.RunbookURL,
-			Annotations: req.Annotations,
-		})
+		vm, err := store.UpdateVirtualMachine(r.Context(), id, VirtualMachinePatch(req))
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				writeProblem(w, http.StatusNotFound, "Not Found", "")

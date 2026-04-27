@@ -102,7 +102,7 @@ func NewEncrypterFromEnv() (*Encrypter, error) {
 func (e *Encrypter) Fingerprint() string {
 	const hex = "0123456789abcdef"
 	out := make([]byte, 8)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		out[i*2] = hex[e.keyHash[i]>>4]
 		out[i*2+1] = hex[e.keyHash[i]&0x0f]
 	}

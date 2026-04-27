@@ -24,9 +24,9 @@ func TestCanonicalPowerState(t *testing.T) {
 func TestParseInstanceTypeCapacity(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		in       string
-		wantCPU  string
-		wantMem  string
+		in      string
+		wantCPU string
+		wantMem string
 	}{
 		{"tinav7.c4r8p2", "4", "8Gi"},
 		{"tinav5.c2r4p1", "2", "4Gi"},
@@ -47,13 +47,13 @@ func TestParseInstanceTypeCapacity(t *testing.T) {
 func TestDeriveRegionFromZone(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
-		"eu-west-2b":  "eu-west-2",
-		"eu-west-2a":  "eu-west-2",
-		"us-east-1c":  "us-east-1",
+		"eu-west-2b":           "eu-west-2",
+		"eu-west-2a":           "eu-west-2",
+		"us-east-1c":           "us-east-1",
 		"cloudgouv-eu-west-1a": "cloudgouv-eu-west-1",
-		"":             "",
-		"weird":        "",
-		"eu-west-2":    "", // already a region, no zone suffix
+		"":                     "",
+		"weird":                "",
+		"eu-west-2":            "", // already a region, no zone suffix
 	}
 	for in, want := range tests {
 		if got := DeriveRegionFromZone(in); got != want {
