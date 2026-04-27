@@ -512,7 +512,7 @@ curl -sS -b /tmp/argos.cookies -X POST \
   -H 'Content-Type: application/json' \
   -d '{
     "provider": "outscale",
-    "name": "numspot-prod",
+    "name": "acme-prod",
     "region": "eu-west-2",
     "access_key": "AKIA...",
     "secret_key": "wJalrXUt..."
@@ -525,7 +525,7 @@ Response (SK never returned):
 {
   "id": "1f2c4a3e-...",
   "provider": "outscale",
-  "name": "numspot-prod",
+  "name": "acme-prod",
   "region": "eu-west-2",
   "status": "active",
   "access_key": "AKIA...",
@@ -557,7 +557,7 @@ The SK is encrypted with AES-256-GCM under `ARGOS_SECRETS_MASTER_KEY` before it 
 curl -sS -b /tmp/argos.cookies -X POST \
   https://argos.internal:8080/v1/admin/cloud-accounts/<id>/tokens \
   -H 'Content-Type: application/json' \
-  -d '{"name": "numspot-prod-collector"}'
+  -d '{"name": "acme-prod-collector"}'
 ```
 
 Response (token shown **once**):
@@ -565,7 +565,7 @@ Response (token shown **once**):
 ```json
 {
   "id": "8a3b...",
-  "name": "numspot-prod-collector",
+  "name": "acme-prod-collector",
   "role": "vm-collector",
   "bound_cloud_account_id": "1f2c4a3e-...",
   "token": "argos_pat_3f9c1e7a_5N2pKdQ...",
@@ -579,7 +579,7 @@ The PAT is bound to this `cloud_account_id` at issuance — it can only access t
 
 ```bash
 curl -sS -H "Authorization: Bearer argos_pat_3f9c1e7a_..." \
-  https://argos.internal:8080/v1/cloud-accounts/by-name/numspot-prod/credentials
+  https://argos.internal:8080/v1/cloud-accounts/by-name/acme-prod/credentials
 ```
 
 ```json
@@ -601,7 +601,7 @@ curl -sS -H "Authorization: Bearer argos_pat_3f9c1e7a_..." \
   -H 'Content-Type: application/json' \
   -d '{
     "provider": "outscale",
-    "name": "numspot-prod",
+    "name": "acme-prod",
     "region": "eu-west-2"
   }'
 ```

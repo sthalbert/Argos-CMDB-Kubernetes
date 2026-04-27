@@ -28,7 +28,7 @@ func newClient(t *testing.T, srv *httptest.Server, token string) *Store {
 func TestFetchCredentialsByName(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/cloud-accounts/by-name/numspot-prod/credentials" {
+		if r.URL.Path != "/v1/cloud-accounts/by-name/acme-prod/credentials" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer t-1" {
@@ -40,7 +40,7 @@ func TestFetchCredentialsByName(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := newClient(t, srv, "t-1")
-	got, err := c.FetchCredentialsByName(context.Background(), "numspot-prod")
+	got, err := c.FetchCredentialsByName(context.Background(), "acme-prod")
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}

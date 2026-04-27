@@ -73,7 +73,7 @@ STAG_ID=$(jval "$STAG" id)
 echo "stag id=$STAG_ID"
 
 echo "=== nodes ==="
-# Helper: build a full Mercator-aligned Node payload. Assigns one zone /
+# Helper: build a full enriched Node payload. Assigns one zone /
 # instance type per worker so the UI cartography looks lived-in.
 post_node() {
     local cluster_id="$1"

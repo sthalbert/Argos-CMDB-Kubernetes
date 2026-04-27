@@ -21,7 +21,7 @@ scope and rationale.
     container template ("application = workload" view).
   - **Pod** → containers with `image_id` digests + backlinks to parent
     workload / namespace.
-  - **Node** → full Mercator-aligned view (Identity, OS & runtime,
+  - **Node** → full enriched view (Identity, OS & runtime,
     Networking, capacity + allocatable table, Conditions with per-row
     health colouring, Taints, Labels) plus an impact-analysis callout
     and a workload-grouped pod breakdown.

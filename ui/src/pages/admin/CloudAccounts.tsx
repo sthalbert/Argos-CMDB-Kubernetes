@@ -210,7 +210,7 @@ function CreateForm({ reload }: { reload: Reload }) {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="numspot-prod"
+            placeholder="acme-prod"
             autoFocus
           />
         </div>

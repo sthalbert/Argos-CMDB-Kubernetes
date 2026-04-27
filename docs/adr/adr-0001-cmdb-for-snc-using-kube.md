@@ -18,9 +18,9 @@ superseded_by: ""
 
 **SNC** in this document refers to **SecNumCloud**, the ANSSI security qualification framework for trusted cloud offerings (IaaS / PaaS / SaaS) handling sensitive data and sensitive information systems. Qualified offerings receive the *Visa de sécurité de l'ANSSI*. The framework imposes technical, operational, and legal requirements — including cartography of the qualified perimeter — on cloud providers and on the sensitive systems operated within that perimeter. Authoritative reference: https://cyber.gouv.fr/enjeux-technologiques/cloud/.
 
-The Kubernetes perimeter in scope of this project falls within a SecNumCloud-aligned environment, so its inventory must be catalogued with the rigour the SecNumCloud / ANSSI cartography requirements expect — for evidence packages, compliance audits, impact analysis, and incident response. The predecessor CMDB, **Mercator** (https://github.com/dbarzin/mercator), covers the ANSSI cartography layering for traditional IT assets (physical, logical, applicative, administration, ecosystem) but its data model does not represent Kubernetes-native objects — pods, deployments, services, helm releases, CRDs, nodes, namespaces, ingresses, persistent volumes — nor the relationships between them.
+The Kubernetes perimeter in scope of this project falls within a SecNumCloud-aligned environment, so its inventory must be catalogued with the rigour the SecNumCloud / ANSSI cartography requirements expect — for evidence packages, compliance audits, impact analysis, and incident response. Existing general-purpose CMDBs cover the ANSSI cartography layering for traditional IT assets (physical, logical, applicative, administration, ecosystem) but their data models do not represent Kubernetes-native objects — pods, deployments, services, helm releases, CRDs, nodes, namespaces, ingresses, persistent volumes — nor the relationships between them.
 
-Manually maintaining these assets in Mercator is infeasible: Kubernetes workloads are dynamic (pods roll frequently) and hierarchical (helm release → chart → resources → pods → nodes → cluster).
+Manually maintaining these assets in a general-purpose CMDB is infeasible: Kubernetes workloads are dynamic (pods roll frequently) and hierarchical (helm release → chart → resources → pods → nodes → cluster).
 
 A new CMDB — project codename **Argos** — is required with the following constraints:
 
@@ -34,7 +34,7 @@ A new CMDB — project codename **Argos** — is required with the following con
 
 ## Decision
 
-Build **Argos**, a Go-based CMDB purpose-built for Kubernetes, to replace Mercator for Kubernetes-scoped inventory while preserving the ANSSI cartography model.
+Build **Argos**, a Go-based CMDB purpose-built for Kubernetes-scoped inventory while preserving the ANSSI cartography model.
 
 Foundational stack:
 
@@ -43,7 +43,7 @@ Foundational stack:
 - **API style**: REST over HTTP, contract-first with an OpenAPI 3 specification. Any client — curl, Python, Go, shell — can push or query data using the published contract.
 - **Kubernetes ingestion**: polling-based collector that invokes `kubectl` (or the equivalent Kubernetes REST API) against reachable clusters on a scheduled interval. Informer/watch-based ingestion is explicitly out of scope for v1.
 - **External push clients**: language-agnostic — scripts in Python, Go, or shell POST to the REST API using the OpenAPI contract.
-- **Data model**: inherits Mercator's ANSSI cartography layering and extends each layer with Kubernetes-native entity types (Cluster, Node, Namespace, Workload, Pod, Service, Ingress, HelmRelease, CRD, PersistentVolume, Secret metadata, …) and their relationships.
+- **Data model**: inherits the ANSSI cartography layering and extends each layer with Kubernetes-native entity types (Cluster, Node, Namespace, Workload, Pod, Service, Ingress, HelmRelease, CRD, PersistentVolume, Secret metadata, …) and their relationships.
 
 ## Consequences
 
@@ -60,16 +60,16 @@ Foundational stack:
 
 - **NEG-001**: Polling introduces staleness: the CMDB reflects cluster state as of the last poll, not real-time. Live incidents must still consult the cluster directly.
 - **NEG-002**: Building a bespoke CMDB concentrates the maintenance burden (schema evolution, API versioning, migrations) on a single developer.
-- **NEG-003**: Parallel operation with Mercator during transition creates a dual-source-of-truth risk until non-Kubernetes assets are migrated or partitioned by scope.
+- **NEG-003**: Parallel operation with any pre-existing general-purpose CMDB during transition creates a dual-source-of-truth risk until non-Kubernetes assets are migrated or partitioned by scope.
 - **NEG-004**: JSONB fields enable schema drift; API-layer validation and schema linting are required to keep the data model from degrading into opaque blobs.
 - **NEG-005**: Solo ownership is a bus-factor risk; documentation and ADRs must compensate.
 
 ## Alternatives Considered
 
-### Extend Mercator to support Kubernetes
+### Extend an existing PHP/Laravel general-purpose CMDB
 
-- **ALT-001**: **Description**: Fork Mercator (PHP/Laravel) and add Kubernetes entity types and collectors to its existing data model.
-- **ALT-002**: **Rejection Reason**: Mercator's data model is not designed for the cardinality, hierarchy, or dynamism of Kubernetes objects. Forking diverges from upstream and locks the project into a PHP stack misaligned with the Kubernetes ecosystem, which is Go-native.
+- **ALT-001**: **Description**: Fork an existing PHP/Laravel general-purpose CMDB and add Kubernetes entity types and collectors to its existing data model.
+- **ALT-002**: **Rejection Reason**: That data model is not designed for the cardinality, hierarchy, or dynamism of Kubernetes objects. Forking diverges from upstream and locks the project into a PHP stack misaligned with the Kubernetes ecosystem, which is Go-native.
 
 ### Adopt an existing Kubernetes inventory/catalog tool (Backstage, Kubeview, Steampipe)
 
@@ -104,7 +104,6 @@ Foundational stack:
 
 - **REF-001**: ANSSI — SecNumCloud / cloud qualification (authoritative) — https://cyber.gouv.fr/enjeux-technologiques/cloud/
 - **REF-002**: ANSSI — SecNumCloud qualification FAQ — https://cyber.gouv.fr/enjeux-technologiques/cloud/faq-qualification-secnumcloud/
-- **REF-003**: Mercator CMDB (predecessor) — https://github.com/dbarzin/mercator
-- **REF-004**: ANSSI cartography — community guide (non-authoritative introduction to the five-layer model) — https://my-carto.com/blog/cartographie-anssi-cybersecurite/
-- **REF-005**: OpenAPI 3.1 specification — https://spec.openapis.org/oas/v3.1.0
-- **REF-006**: Kubernetes API reference — https://kubernetes.io/docs/reference/kubernetes-api/
+- **REF-003**: ANSSI cartography — community guide (non-authoritative introduction to the five-layer model) — https://my-carto.com/blog/cartographie-anssi-cybersecurite/
+- **REF-004**: OpenAPI 3.1 specification — https://spec.openapis.org/oas/v3.1.0
+- **REF-005**: Kubernetes API reference — https://kubernetes.io/docs/reference/kubernetes-api/

@@ -1400,7 +1400,7 @@ func uuidMustParse(t *testing.T) uuid.UUID {
 }
 
 // Exercises the enriched Node columns added in migration 00012. Upserts
-// a node with a full Mercator-aligned payload (role / cloud identity /
+// a node with a full enriched payload (role / cloud identity /
 // OS stack / capacity+allocatable pairs / conditions / taints) and
 // confirms every field round-trips through scanNode.
 //
@@ -2016,7 +2016,7 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 }
 
 // Mirrors TestPGClusterCuratedMetadata for nodes (migration 00020).
-// Nodes have the most elaborate collector UPSERT (every Mercator field
+// Nodes have the most elaborate collector UPSERT (every enriched field
 // in the DO UPDATE SET clause), so pinning the curated-field-survival
 // invariant at the SQL level matters more here than for namespaces.
 // Also round-trips `hardware_model`.

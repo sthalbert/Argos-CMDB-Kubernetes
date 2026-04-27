@@ -129,7 +129,7 @@ func TestCloudAccountHybridOnboarding(t *testing.T) {
 	muxAdmin := buildCloudMux(t, store, enc, adminCaller())
 	rr := doReq(t, muxAdmin, http.MethodPost, "/v1/admin/cloud-accounts", map[string]any{
 		"provider": "outscale",
-		"name":     "numspot-prod",
+		"name":     "acme-prod",
 		"region":   "eu-west-2",
 	})
 	if rr.Code != http.StatusCreated {
@@ -149,7 +149,7 @@ func TestCloudAccountHybridOnboarding(t *testing.T) {
 	mux := buildCloudMux(t, store, enc, col)
 	rr = doReq(t, mux, http.MethodPost, "/v1/cloud-accounts", map[string]any{
 		"provider": "outscale",
-		"name":     "numspot-prod",
+		"name":     "acme-prod",
 		"region":   "eu-west-2",
 	})
 	if rr.Code != http.StatusOK {
@@ -159,7 +159,7 @@ func TestCloudAccountHybridOnboarding(t *testing.T) {
 	// Step 2b: collector tries to fetch credentials BEFORE admin sets them
 	// → expect 404.
 	rr = doReq(t, mux, http.MethodGet,
-		"/v1/cloud-accounts/by-name/numspot-prod/credentials", nil)
+		"/v1/cloud-accounts/by-name/acme-prod/credentials", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("fetch creds before admin: status=%d body=%q", rr.Code, rr.Body.String())
 	}
@@ -184,7 +184,7 @@ func TestCloudAccountHybridOnboarding(t *testing.T) {
 
 	// Step 4: collector fetches credentials → 200, plaintext SK.
 	rr = doReq(t, mux, http.MethodGet,
-		"/v1/cloud-accounts/by-name/numspot-prod/credentials", nil)
+		"/v1/cloud-accounts/by-name/acme-prod/credentials", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("collector fetch creds: status=%d body=%q", rr.Code, rr.Body.String())
 	}

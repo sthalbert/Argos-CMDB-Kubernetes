@@ -1,11 +1,11 @@
 -- +goose Up
--- Bring the Node row in line with Mercator's logical-server model plus
+-- Bring the Node row in line with a logical-server model plus
 -- Kubernetes-specific context needed for incident response: role,
 -- networking, cloud identity, the full OS stack, capacity + allocatable
 -- resource pairs, conditions, taints, and the scheduling toggles.
 --
 -- All fields are collector-owned — the polling loop overwrites them every
--- tick. Mercator's curated `description`, `attributes`, `install_date`,
+-- tick. Curated `description`, `attributes`, `install_date`,
 -- `patching_frequency` fields belong in the upcoming curated-metadata
 -- table per ADR-0006 and are intentionally absent here.
 --

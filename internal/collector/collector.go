@@ -20,8 +20,8 @@ import (
 // lives in this package (not in api) so the Kubernetes-facing KubeSource
 // interface stays decoupled from the CMDB wire types.
 //
-// Modelled on Mercator's logical-server entity plus Kubernetes-specific
-// additions needed for incident response (role, taints, conditions,
+// Modelled on a logical-server entity plus Kubernetes-specific additions
+// needed for incident response (role, taints, conditions,
 // capacity/allocatable pairs). Everything here is observed state — the
 // collector overwrites it every tick via UpsertNode.
 type NodeInfo struct {

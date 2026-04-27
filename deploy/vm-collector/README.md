@@ -29,7 +29,7 @@ One deployment per cloud account. To inventory three Outscale accounts, deploy t
 1. **argosd** is deployed and reachable from the collector. argosd has `ARGOS_SECRETS_MASTER_KEY` configured (it MUST, otherwise the credentials-fetch endpoint returns 503).
 2. **Admin pre-registers the cloud account** in the argosd UI:
    - Go to **Admin > Cloud Accounts > Add account**.
-   - Pick the provider (e.g. `outscale`), enter a name (e.g. `numspot-prod`) and region (e.g. `eu-west-2`).
+   - Pick the provider (e.g. `outscale`), enter a name (e.g. `acme-prod`) and region (e.g. `eu-west-2`).
    - Optionally fill in AK and SK now. If you skip them, the row is created with `status=pending_credentials` and the collector will wait until you fill them in.
 3. **Admin issues a vm-collector PAT** bound to that account:
    - On the same Cloud Accounts detail page, click **Issue collector token**.

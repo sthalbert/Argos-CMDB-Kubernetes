@@ -21,7 +21,7 @@ Argos is API-only today. Every interaction — register a cluster, list pods, in
 - **Auditors** need to *read* the cartography layer-by-layer: "show me everything classified `applicative` in `prod-eu-west-1` as of today", "which pods front an internet-facing Ingress", "what changed in the last 30 days". Issuing those as raw REST queries is neither practical nor defensible in an audit interview — the tooling itself is part of the qualification evidence.
 - **Operators** need to *annotate* assets with information Kubernetes doesn't carry: the business owner of a workload, the SNC criticality tier of a namespace, a free-text operational note, a link to the runbook, the ticket that justified a given cluster's existence. That metadata has to live *somewhere*, and shoving it into K8s annotations (the only place the collector would see it) defeats the point — it would require write access back into every catalogued cluster and couple CMDB state to cluster state.
 
-Mercator (the tool Argos replaces for the K8s portion of the inventory) ships with a UI that does exactly these two things. Replacing Mercator without offering equivalent affordances means asking users to regress.
+General-purpose CMDBs in the same space typically ship with a UI that does exactly these two things. Argos cannot offer less without asking users to regress.
 
 **Two tensions force the decision:**
 
@@ -41,7 +41,7 @@ This ADR decides the UI's scope, its data model contract with the collector, and
 3. **Show freshness and collector health.** Surface `argos_collector_last_poll_timestamp_seconds` per `(cluster, resource)` so auditors can see at a glance which data is stale. Reuses the `/metrics` endpoint added in ADR context.
 4. **Read-only for observed fields.** `Pod.Phase`, `Workload.Kind`, `Ingress.Rules`, etc. render but are not editable in the UI — editing them would be pointless (the next collector tick would revert).
 
-**Out of scope (v1):** dashboards, charts, full-text search, diff view across time, relationship graphs, Mercator-style map rendering. All defensible future work; none block the audit + annotation use case this ADR unlocks.
+**Out of scope (v1):** dashboards, charts, full-text search, diff view across time, relationship graphs, full cartography map rendering. All defensible future work; none block the audit + annotation use case this ADR unlocks.
 
 **Curated-metadata model.** Every entity kind that accepts human annotations gets a **separate `curated_metadata` column or adjacent table** whose contents the collector is forbidden to touch. The existing `labels` JSONB column stays reserved for Kubernetes-origin labels (what the cluster says). A new `annotations` JSONB column (or equivalent) is added, plus a small set of first-class curated fields:
 
@@ -90,7 +90,7 @@ The collector's existing `Upsert*` paths **only set collector-owned columns** (e
 ### No UI — document `curl` recipes instead
 
 - **ALT-001**: **Description**: Publish a cookbook of `curl` / `jq` invocations for common audit queries; do not build a UI.
-- **ALT-002**: **Rejection Reason**: Fails both target users. Auditors can't review thousands of pods through `jq`, and operators have nowhere to record non-K8s metadata. Mercator's UI sets a floor that Argos cannot clear by going backwards.
+- **ALT-002**: **Rejection Reason**: Fails both target users. Auditors can't review thousands of pods through `jq`, and operators have nowhere to record non-K8s metadata. Comparable CMDB UIs set a floor that Argos cannot clear by going backwards.
 
 ### Separate `argos-ui` repository, deployed independently
 
@@ -135,8 +135,7 @@ The collector's existing `Upsert*` paths **only set collector-owned columns** (e
 - **REF-001**: ADR-0001 — CMDB for SNC using Kubernetes — `docs/adr/adr-0001-cmdb-for-snc-using-kube.md` (POS-003 anticipates external push via API; the same affordance underpins a browser client)
 - **REF-002**: ADR-0002 — Kubernetes-to-ANSSI cartography layer mapping — `docs/adr/adr-0002-kubernetes-to-anssi-cartography-layers.md` (layer filter is the UI's primary audit axis)
 - **REF-003**: ADR-0005 — Multi-cluster collector topology — `docs/adr/adr-0005-multi-cluster-collector.md` (UI's cluster selector is trivial now that every row carries cluster_id)
-- **REF-004**: Mercator — reference implementation of a comparable audit UI — https://github.com/dbsystel/mercator
-- **REF-005**: ANSSI SecNumCloud cartography requirements — https://cyber.gouv.fr/enjeux-technologiques/cloud/
-- **REF-006**: OpenAPI 3.1 — https://spec.openapis.org/oas/v3.1.0
-- **REF-007**: `openapi-typescript-codegen` (one candidate for TS client generation) — https://github.com/ferdikoomen/openapi-typescript-codegen
-- **REF-008**: Vite — https://vitejs.dev/
+- **REF-004**: ANSSI SecNumCloud cartography requirements — https://cyber.gouv.fr/enjeux-technologiques/cloud/
+- **REF-005**: OpenAPI 3.1 — https://spec.openapis.org/oas/v3.1.0
+- **REF-006**: `openapi-typescript-codegen` (one candidate for TS client generation) — https://github.com/ferdikoomen/openapi-typescript-codegen
+- **REF-007**: Vite — https://vitejs.dev/

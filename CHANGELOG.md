@@ -311,7 +311,7 @@ migration required.
   procedural / out of system scope). DICT
   (disponibilité / intégrité / confidentialité / traçabilité) classification
   will land on Namespace + Workload in a later release at the Application
-  abstraction, per the Mercator model.
+  abstraction.
 
 ### Fixed
 
@@ -358,9 +358,9 @@ and the UI renders an "Edit" placeholder until an editor fills them in.
 ## [0.1.0] — 2026-04-19 — "Canopus"
 
 First tagged release. Argos is a Kubernetes-aware CMDB aligned with the
-ANSSI **SecNumCloud (SNC)** qualification framework, replacing the
-Kubernetes-scoped portion of Mercator. Named after the principal star
-of the old *Argo Navis* constellation — a classical navigation marker.
+ANSSI **SecNumCloud (SNC)** qualification framework. Named after the
+principal star of the old *Argo Navis* constellation — a classical
+navigation marker.
 
 ### Highlights
 
@@ -405,7 +405,7 @@ of the old *Argo Navis* constellation — a classical navigation marker.
   their top-level controller (`ON DELETE SET NULL`); PVCs carry a
   nullable `bound_volume_id` FK (same semantics).
 - Pods and Workloads include a `containers` JSONB column for SBOM /
-  CVE workflows. Nodes carry a Mercator-aligned field set (role, cloud
+  CVE workflows. Nodes carry an enriched field set (role, cloud
   identity, OS stack, capacity + allocatable, conditions, taints).
   Services and Ingresses carry a `load_balancer` JSONB column so
   on-prem VIPs (MetalLB, Kube-VIP, hardware LBs) surface alongside
@@ -472,7 +472,7 @@ of the old *Argo Navis* constellation — a classical navigation marker.
   the embed for backend-only builds).
 - List and detail pages for every resource kind; **Cluster →
   Namespace → Workload → Pod** and **Cluster → Node** drill-downs.
-- Node detail renders the full Mercator picture: identity, OS &
+- Node detail renders the full enriched picture: identity, OS &
   runtime, networking, resources (capacity vs allocatable), conditions
   with per-row health colouring, taints, labels — plus an
   impact-analysis callout of affected pods grouped by workload.

@@ -32,7 +32,7 @@ type Outscale struct {
 
 // NewOutscale builds an Outscale Provider for the given AK/SK/region.
 // The default API endpoint pattern is api.{region}.outscale.com.
-// Pass endpointURL to override (e.g. for Numspot, OUTSCALE-compatible
+// Pass endpointURL to override (e.g. for OUTSCALE-compatible
 // private deployments, or a stub server).
 func NewOutscale(accessKey, secretKey, region, endpointURL string) (*Outscale, error) {
 	if accessKey == "" || secretKey == "" || region == "" {

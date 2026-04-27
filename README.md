@@ -8,7 +8,7 @@
 
 A Configuration Management Database (CMDB) for Kubernetes environments, aligned with the [ANSSI SecNumCloud](https://cyber.gouv.fr/enjeux-technologiques/cloud/) (SNC) qualification framework. Argos polls one or more Kubernetes clusters, mirrors the inventory into PostgreSQL, and exposes a REST API and web UI so auditors can see the cartography and operators can annotate assets with business context.
 
-Replaces the Kubernetes-scoped portion of [Mercator](https://github.com/dbsystel/mercator). **Status:** alpha -- data model and HTTP contract are stable; expect additive changes until 1.0.
+**Status:** alpha -- data model and HTTP contract are stable; expect additive changes until 1.0.
 
 ## Features
 
@@ -97,7 +97,7 @@ Argos ships as **two binaries**: `argosd` (the central server with API, UI, Post
 
 | # | Topic |
 |---|-------|
-| [0001](docs/adr/adr-0001-cmdb-for-snc-using-kube.md) | Build a CMDB for SNC against the Kubernetes API (replaces Mercator for the K8s scope). |
+| [0001](docs/adr/adr-0001-cmdb-for-snc-using-kube.md) | Build a CMDB for SNC against the Kubernetes API. |
 | [0002](docs/adr/adr-0002-kubernetes-to-anssi-cartography-layers.md) | Map every Kubernetes kind onto one of the six ANSSI cartography layers. |
 | [0003](docs/adr/adr-0003-workload-polymorphism.md) | Single `workloads` table polymorphic on `kind`, with a JSONB `spec` column. |
 | [0004](docs/adr/adr-0004-ingress-layer-classification.md) | Classify Ingress in the `applicative` layer. |

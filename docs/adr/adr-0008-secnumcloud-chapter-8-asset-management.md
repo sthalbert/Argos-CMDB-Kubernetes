@@ -28,7 +28,7 @@ The clauses and their Argos status as of `v0.1.0` "Canopus":
 - **8.1.a — Equipment inventory**: each equipment must carry
   identification (names, IPs, MACs), function, **model**, **location**,
   **owner**, and **security need** (§8.3). Argos covers the first two
-  (Mercator-aligned fields on Nodes; `layer` per ADR-0002;
+  (enriched fields on Nodes; `layer` per ADR-0002;
   `workload.kind` per ADR-0003). Model / location / owner are
   **partial or absent** — `cluster.region` + `node.zone` cover cloud
   location only, owner landed on Cluster only (PR #48), and bare-metal
@@ -36,12 +36,12 @@ The clauses and their Argos status as of `v0.1.0` "Canopus":
 - **8.1.b — Software inventory with version + installed equipment**:
   containerised software is covered by the `containers` JSONB on Pods
   and Workloads; node-level software (kubelet, kube-proxy, container
-  runtime, OS image, kernel) is covered by the Mercator enrichment on
-  Nodes. Pod→Node mapping is served by `GET /v1/pods?node_name=…`.
+  runtime, OS image, kernel) is covered by the enriched Node fields.
+  Pod→Node mapping is served by `GET /v1/pods?node_name=…`.
   This clause is **largely satisfied**; only non-Kubernetes software
   (hypervisor / firmware / storage appliances) is out of scope, which
   is acceptable because Argos is the Kubernetes-scoped CMDB — other
-  inventories remain in the parent Mercator instance.
+  inventories remain in any pre-existing general-purpose CMDB.
 - **8.1.c — License validity**: **not modelled** in Argos, and **will
   not be**. Software licensing is handled by
   [Dependency-Track](https://dependencytrack.org/) as the authoritative
@@ -51,12 +51,11 @@ The clauses and their Argos status as of `v0.1.0` "Canopus":
 - **8.2 — Restitution des actifs**: out of technical scope; procedural
   HR control for on/offboarding staff.
 - **8.3 — Identification des besoins de sécurité**: the référentiel
-  requires the provider to identify per-service security needs. In the
-  Mercator data model — which Argos aligns to per ADR-0001 — DICT
-  classifications live on the **Application** entity (see
-  [Mercator applications view](https://dbarzin.github.io/mercator/model/#applications-view)),
-  **not** on every physical or logical asset. Argos has two abstractions
-  that map to Mercator's Application: the **Namespace** (tenant-style
+  requires the provider to identify per-service security needs.
+  Following the established ANSSI / EBIOS-RM convention, DICT
+  classifications live on the **Application** entity, **not** on
+  every physical or logical asset. Argos has two abstractions
+  that map to that Application notion: the **Namespace** (tenant-style
   grouping, "application = namespace" view from ADR-0006) and the
   **Workload** (deployed unit, "application = workload" view). DICT
   storage must land on those two kinds only.
@@ -90,8 +89,8 @@ and implemented as a follow-up PR series:
    the *information* handled by the application.
 
 2. **Add structured DICT security-need fields at the Application
-   level**, following the ANSSI EBIOS-RM convention and the Mercator
-   applications view. DICT stands for **D**isponibilité /
+   level**, following the ANSSI EBIOS-RM convention. DICT stands for
+   **D**isponibilité /
    **I**ntégrité / **C**onfidentialité / **T**raçabilité. Concretely:
    - Four integer columns `sec_disponibilite`, `sec_integrite`,
      `sec_confidentialite`, `sec_tracabilite`, each in the range 0..4
@@ -126,8 +125,8 @@ and implemented as a follow-up PR series:
 
 ### Positive
 
-- **POS-001**: DICT lands where Mercator puts it — at the Application
-  abstraction — so an SNC assessor used to Mercator can point at the
+- **POS-001**: DICT lands at the Application abstraction — so an SNC
+  assessor familiar with the EBIOS-RM convention can point at the
   same conceptual row without re-learning a bespoke Argos taxonomy.
   The two Argos Application abstractions (Namespace and Workload) are
   both already first-class entities with detail pages; no new kind
@@ -176,12 +175,12 @@ and implemented as a follow-up PR series:
 
 - **ALT-001**: **Description**: The original draft of this ADR put
   DICT on Cluster, Namespace, Node, Workload.
-- **ALT-002**: **Rejection Reason**: Contradicts how Mercator —
-  Argos's reference model per ADR-0001 — positions DICT. Mercator
-  places classification on the Application entity; replicating it on
-  infrastructure (Cluster, Node) forces synthetic summaries and does
-  not match what an SNC assessor expects to see. Operator feedback
-  flagged this during review of the ADR's first iteration.
+- **ALT-002**: **Rejection Reason**: Contradicts the established
+  ANSSI / EBIOS-RM positioning of DICT on the Application entity, not
+  on infrastructure. Replicating it on Cluster / Node would force
+  synthetic summaries and would not match what an SNC assessor expects
+  to see. Operator feedback flagged this during review of the ADR's
+  first iteration.
 
 ### Free-form labels / annotations only
 
@@ -329,11 +328,7 @@ and implemented as a follow-up PR series:
 - **REF-006**: ANSSI, *EBIOS Risk Manager* — source of the DICT
   (Disponibilité / Intégrité / Confidentialité / Traçabilité)
   classification convention and the 0..4 default scale.
-- **REF-007**: Mercator data model — Applications view
-  ([https://dbarzin.github.io/mercator/model/#applications-view](https://dbarzin.github.io/mercator/model/#applications-view))
-  — places DICT on the Application entity, which Argos honours by
-  landing those columns on Namespace and Workload only.
-- **REF-008**: Dependency-Track
+- **REF-007**: Dependency-Track
   ([https://dependencytrack.org/](https://dependencytrack.org/)) —
   external system of record for SBOM and license compliance. Argos
   publishes `containers[].image` as the join key; licenses are not

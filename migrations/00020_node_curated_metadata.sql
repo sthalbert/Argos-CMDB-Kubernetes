@@ -10,7 +10,7 @@
 -- "model" requirement of SNC §8.1.a for on-prem deployments.
 --
 -- The collector's UPSERT on nodes has an elaborate DO UPDATE SET clause
--- covering every Mercator-aligned field; neither the curated columns
+-- covering every enriched field; neither the curated columns
 -- nor `hardware_model` are listed there, so operator edits survive
 -- every poll — verified by the PG integration test.
 --
