@@ -78,15 +78,13 @@ func TestCertReloader_InitialLoad(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reloader.Close() })
 
+	// GetClientCertificate's contract is (cert, nil) on success or
+	// (nil, err) on failure — never (nil, nil) — so once err is nil
+	// the cert is non-nil by construction. NewCertReloader's reload()
+	// also guarantees Leaf is parsed and stored on the keypair.
 	cert, err := reloader.GetClientCertificate(nil)
 	if err != nil {
 		t.Fatalf("GetClientCertificate: %v", err)
-	}
-	if cert == nil {
-		t.Fatal("cert is nil")
-	}
-	if cert.Leaf == nil {
-		t.Fatal("cert.Leaf is nil")
 	}
 	if cert.Leaf.Subject.CommonName != "initial-cn" {
 		t.Errorf("CN = %q; want initial-cn", cert.Leaf.Subject.CommonName)
