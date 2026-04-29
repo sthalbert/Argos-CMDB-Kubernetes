@@ -6,6 +6,24 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.12.1] — 2026-04-29
+
+Helm chart 0.15.1 / appVersion 0.12.1. UI hotfix for the VM applications
+editor introduced in 0.12.0.
+
+### Fixed
+
+- **`PATCH /v1/virtual-machines/{id}` returned `400 invalid JSON body` when
+  adding a new application row from the UI.** The `ApplicationsCard` editor
+  was sending `added_at: ""` and `added_by: ""` for fresh rows; the server
+  decodes `added_at` into `time.Time`, which cannot parse the empty string,
+  so the entire request was rejected before reaching the diff logic that
+  would have stamped the missing values. The form now omits those fields
+  entirely on new rows (and only re-sends them for rows that already carry
+  server-stamped values), letting the server take its existing
+  preserve-or-stamp path. No schema or API change — only the UI payload
+  shape is fixed.
+
 ## [0.12.0] — 2026-04-29
 
 Helm chart 0.15.0 / appVersion 0.12.0. Adds VM application inventory and EOL

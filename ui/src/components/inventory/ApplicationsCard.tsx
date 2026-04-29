@@ -170,17 +170,17 @@ function ApplicationsForm({
         return;
       }
     }
-    const payload: api.VMApplication[] = cleaned.map((d) => ({
+    // The server stamps added_at / added_by for new rows and preserves
+    // them for matching (product, version, name) keys; on input these are
+    // omitted entirely when empty (Go time.Time can't decode "").
+    const payload = cleaned.map((d) => ({
       product: d.product,
       version: d.version,
-      name: d.name || undefined,
-      notes: d.notes || undefined,
-      // The server overwrites added_at / added_by for new rows and
-      // preserves them for matching (product, version, name) keys, so
-      // sending back the values the read returned is safe.
-      added_at: d.added_at ?? '',
-      added_by: d.added_by ?? '',
-    }));
+      ...(d.name ? { name: d.name } : {}),
+      ...(d.notes ? { notes: d.notes } : {}),
+      ...(d.added_at ? { added_at: d.added_at } : {}),
+      ...(d.added_by ? { added_by: d.added_by } : {}),
+    })) as api.VMApplication[];
     setBusy(true);
     try {
       await onSave(payload);
