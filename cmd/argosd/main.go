@@ -1167,7 +1167,7 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := mcpSrv.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := mcpSrv.Run(ctx); !errors.Is(err, context.Canceled) {
 			slog.Error("mcp server exited with error", slog.String("error", err.Error()))
 		}
 	}()

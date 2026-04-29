@@ -138,6 +138,7 @@ func TestEnricherEnrichesClusterKubernetesVersion(t *testing.T) {
 	ann := store.clusters[0].Annotations
 	if ann == nil {
 		t.Fatal("expected annotations to be set")
+		return
 	}
 	raw, ok := (*ann)["argos.io/eol.kubernetes"]
 	if !ok {
@@ -267,6 +268,7 @@ func TestEnricherPreservesExistingAnnotations(t *testing.T) {
 	ann := store.clusters[0].Annotations
 	if ann == nil {
 		t.Fatal("expected annotations")
+		return
 	}
 	if (*ann)["team"] != "platform" {
 		t.Error("existing 'team' annotation was overwritten")

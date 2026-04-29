@@ -97,6 +97,10 @@ linters:
           - err113
           - maintidx
         path: (.+)_test.go
+      - linters:
+          - staticcheck
+        text: "SA1019: n.Status.NodeInfo.KubeProxyVersion is deprecated"
+        path: internal/collector/kube.go
     paths:
       - third_party$
       - builtin$
