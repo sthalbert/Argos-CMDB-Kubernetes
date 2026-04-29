@@ -696,22 +696,47 @@ Status may transition between `active` and `error` only; the collector cannot di
 | POST | `/v1/virtual-machines/reconcile` | `vm-collector` | Soft-delete tombstones. |
 | GET | `/v1/virtual-machines` | `read` | Paginated, filters. |
 | GET | `/v1/virtual-machines/{id}` | `read` | |
-| PATCH | `/v1/virtual-machines/{id}` | `write` | Curated metadata only. |
+| PATCH | `/v1/virtual-machines/{id}` | `write` | Curated metadata including `applications`. |
 | DELETE | `/v1/virtual-machines/{id}` | `delete` | Soft-delete. |
+| GET | `/v1/virtual-machines/applications/distinct` | `read` | Distinct products + versions for autocomplete. |
 
 **List VMs:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `cloud_account_id` | UUID | Scope to a single account. |
-| `region` | string | Exact match. |
-| `role` | string | Exact match (e.g. `bastion`, `vault`). |
-| `power_state` | string | One of `running`, `stopped`, `terminated`, etc. |
-| `include_terminated` | bool | Default `false` (tombstones hidden). |
+All filters are AND-ed. None of them mutate state.
+
+| Parameter | Type | Match | Description |
+|-----------|------|-------|-------------|
+| `cloud_account_id` | UUID | exact | Scope to a single account by UUID. |
+| `cloud_account_name` | string | exact | Scope to a single account by name (resolved server-side). When both are set, `cloud_account_id` wins. |
+| `region` | string | exact | |
+| `role` | string | exact | e.g. `bastion`, `vault`, `dns`. |
+| `power_state` | string | exact | One of `running`, `stopped`, `terminated`, etc. |
+| `name` | string | case-insensitive substring on `name` and `display_name` | Max 100 chars. LIKE wildcards in the value are escaped. |
+| `image` | string | case-insensitive substring on `image_id` and `image_name` | Max 100 chars. LIKE wildcards in the value are escaped. |
+| `application` | string | JSONB containment on `applications[].product` (normalized) | Max 64 chars. Normalized server-side before matching. |
+| `application_version` | string | exact match on `applications[].version` | Max 64 chars. Requires `application` to be set. |
+| `include_terminated` | bool | flag | Default `false` (tombstones hidden). |
 
 ```bash
+# All running VMs in a specific account:
 curl -sS -H "Authorization: Bearer $TOKEN" \
   'https://argos.internal:8080/v1/virtual-machines?cloud_account_id=<uuid>&power_state=running'
+
+# All VMs running Vault (any version):
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  'https://argos.internal:8080/v1/virtual-machines?application=vault'
+
+# All VMs running a specific Vault version:
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  'https://argos.internal:8080/v1/virtual-machines?application=vault&application_version=1.13.4'
+
+# All VMs whose name contains "bastion" in a given region:
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  'https://argos.internal:8080/v1/virtual-machines?region=eu-west-2&name=bastion'
+
+# All VMs running a specific AMI:
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  'https://argos.internal:8080/v1/virtual-machines?image=ami-75374985'
 ```
 
 **Upsert a VM (vm-collector):**
@@ -776,7 +801,84 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X PATCH \
   }'
 ```
 
-Only curated fields (`display_name`, `owner`, `criticality`, `notes`, `runbook_url`, `annotations`) are accepted. Provider-sourced fields (`provider_vm_id`, `private_ip`, `instance_type`, etc.) cannot be patched — they are owned by the collector.
+Accepted curated fields: `display_name`, `owner`, `criticality`, `notes`, `runbook_url`, `annotations`, `applications`. Provider-sourced fields (`provider_vm_id`, `private_ip`, `instance_type`, etc.) cannot be patched — they are owned by the collector.
+
+**Set or replace the applications list (ADR-0019):**
+
+`applications` has replace-not-merge semantics: a non-null value replaces the entire list. Omitting `applications` from the request leaves the existing list unchanged.
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" -X PATCH \
+  https://argos.internal:8080/v1/virtual-machines/<id> \
+  -H 'Content-Type: application/merge-patch+json' \
+  -d '{
+    "applications": [
+      {
+        "product": "vault",
+        "version": "1.15.4",
+        "name": "vault-prod-eu",
+        "notes": "autounseal via OSC KMS"
+      },
+      {
+        "product": "cyberwatch",
+        "version": "12.4"
+      },
+      {
+        "product": "bind",
+        "version": "9.18.30"
+      }
+    ]
+  }'
+```
+
+`product` is normalized server-side (trim, lowercase, whitespace / underscore / hyphen runs to single hyphens). `added_at` and `added_by` are server-stamped; input values for those fields are ignored. Maximum 100 entries. Empty `product` or `version` is rejected with `400`. Duplicate `(product, version, name)` tuples within the same submission are rejected with `400`.
+
+Response body is the updated `VirtualMachine` object. The EOL enricher annotates the VM with lifecycle data for each application on its next tick.
+
+**`VMApplication` object:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `product` | string | yes | Normalized to lowercase kebab-case. Should match an endoflife.date product id when one exists. Max 64 chars. |
+| `version` | string | yes | Declared installed version. The enricher extracts `X.Y` to look up lifecycle data. Max 64 chars. |
+| `name` | string | no | Optional label to disambiguate multiple instances of the same product. Max 200 chars. |
+| `notes` | string | no | Free-form operator context. Max 4096 chars. |
+| `added_at` | datetime | server-stamped | RFC 3339 timestamp. Preserved across PATCHes for unchanged `(product, version, name)` keys. |
+| `added_by` | string | server-stamped | Username or `token:<name>`. Input value is ignored. |
+
+**List distinct applications for autocomplete (`GET /v1/virtual-machines/applications/distinct`):**
+
+Returns the distinct normalized product names recorded across the fleet, with the version strings declared for each product. Used by the VM list page to populate the Application and App version filter dropdowns. Requires the `read` scope. Returns at most 200 distinct products.
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  https://argos.internal:8080/v1/virtual-machines/applications/distinct
+```
+
+```json
+{
+  "products": [
+    {
+      "product": "bind",
+      "versions": ["9.18.30"]
+    },
+    {
+      "product": "cyberwatch",
+      "versions": ["12.4", "12.3"]
+    },
+    {
+      "product": "vault",
+      "versions": ["1.15.4", "1.13.4"]
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `products` | Array of `VMApplicationDistinct` objects, sorted by product name. |
+| `products[].product` | Normalized product name. |
+| `products[].versions` | Distinct version strings declared for this product across all VMs. |
 
 ---
 

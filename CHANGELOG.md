@@ -6,6 +6,87 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.12.0] — 2026-04-29
+
+Helm chart 0.15.0 / appVersion 0.12.0. Adds VM application inventory and EOL
+enrichment for platform software (ADR-0019): operators can now record what runs
+on each non-Kubernetes VM, the EOL enricher evaluates those declared versions
+against endoflife.date, and the VM list grows six new server-side filters plus
+a distinct-applications endpoint for autocomplete.
+
+### Added
+
+- **`virtual_machines.applications` JSONB column** (ADR-0019 §1, migration
+  `00028_add_vm_applications.sql`) — operator-curated list of platform software
+  entries per VM (`product`, `version`, `name`, `notes`, `added_at`,
+  `added_by`). `product` is normalized server-side (trimmed, lower-cased,
+  whitespace collapsed to hyphens) so `"Hashicorp Vault"` and `"vault"`
+  deduplicate to the same key. The column is backed by a GIN
+  `jsonb_path_ops` index for O(log n) `@>` containment queries; a functional
+  index on `LOWER(name)` and a btree index on `image_id` are also added.
+  `UpsertVirtualMachine` (the collector path) never touches `applications`;
+  only `PATCH /v1/virtual-machines/{id}` does.
+- **EOL enrichment for VM applications** (ADR-0019 §2) — the `internal/eol/`
+  enricher gains a third pass, `enrichVirtualMachines`, that walks every
+  non-terminated VM's `applications` list and writes `argos.io/eol.<product>`
+  annotations using the same endoflife.date lookup used for clusters and nodes.
+  Products not on endoflife.date receive a stub annotation with
+  `eol_status=unknown` so operators see the row was evaluated rather than
+  silently dropped. Stale EOL annotations from removed applications are reaped
+  automatically on the next enrichment tick.
+- **Six new server-side filters on `GET /v1/virtual-machines`** (ADR-0019 §3)
+  — `name` (case-insensitive substring on `name` / `display_name`), `image`
+  (case-insensitive substring on `image_id` / `image_name`),
+  `cloud_account_name` (resolves to UUID via an inner subquery on the UNIQUE
+  index), `application` (JSONB containment on `applications[].product`,
+  normalized server-side), `application_version` (narrows `application` to a
+  specific version; ignored when `application` is absent), and `region` /
+  `role` remain exact-match. All six AND with the existing filters and respect
+  the `vm-collector` PAT account-binding restriction. LIKE metacharacters in
+  `name` and `image` values are escaped before interpolation.
+- **`GET /v1/virtual-machines/applications/distinct`** (ADR-0019 §3) —
+  returns `{products: [{product, versions}]}` with up to 200 distinct
+  normalized product names and, for each, the sorted list of distinct versions
+  seen across non-terminated VMs. Requires `read` scope. Drives the cascading
+  product → version dropdown in the VM list UI.
+- **`applications` field on `PATCH /v1/virtual-machines/{id}`** (ADR-0019 §4)
+  — accepts a `*[]VMApplication` with replace-not-merge semantics: the
+  submitted list replaces the stored list in full. The handler diffs input
+  against the existing list to preserve `added_at` / `added_by` for unchanged
+  `(product, version, name)` tuples and stamps fresh values on new entries.
+  Maximum 100 entries; per-field length caps enforced (product 64, version 64,
+  name 200, notes 4096 characters).
+- **VM Applications card on `/ui/virtual-machines/:id`** — read mode shows a
+  table (product, version, name, notes, EOL status badge, latest available,
+  added by, added at); edit mode flips to a per-row editor with add/remove
+  buttons submitting the full list. Editor and admin see the Edit button;
+  viewer and auditor see read-only.
+- **Cascading filter on `/ui/virtual-machines`** — Application dropdown
+  populates from `GET /v1/virtual-machines/applications/distinct`; selecting a
+  product immediately narrows the App-version dropdown to the versions in
+  inventory for that product.
+- **Search and Clear buttons on the VM list filter bar** — replaces the
+  previous debounced auto-apply. Filters now require explicit submission;
+  Clear resets all inputs at once.
+
+### Changed
+
+- **`/ui/search/image` renamed "Search by image or application"** — the page
+  now also surfaces platform VMs by image substring (`image_id` / `image_name`)
+  and by exact normalized product (via `?application=<product>` on
+  `GET /v1/virtual-machines`). The two result sets (K8s workloads/pods and
+  platform VMs) are unioned by entity id and displayed in separate sections.
+  The URL slug and browser title are updated; existing bookmarks using the old
+  slug continue to work via a redirect.
+- **EOL dashboard at `/ui/eol` now includes VMs as an entity dimension** —
+  the aggregator reads `argos.io/eol.*` annotations from `virtual_machines`
+  alongside clusters and nodes. A new "Type" column (cluster / node / vm) and
+  a corresponding filter chip appear in the summary card row. Row-level
+  red/orange highlighting and the two-column-group layout ("What we run" /
+  "What's available") are unchanged.
+- **Filter layout on `/ui/virtual-machines` regrouped** — filters block sits
+  above the VM search block, separated by a `border-top` divider.
+
 ## [0.11.2] — 2026-04-29
 
 Charts-only release. `appVersion` stays at `0.11.1` — no binary changed —

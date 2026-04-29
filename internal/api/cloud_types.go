@@ -7,12 +7,70 @@ package api
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/argos/internal/secrets"
 )
+
+// VMApplication is one entry in a virtual machine's `applications` JSONB
+// column (ADR-0019). Operators record what's running on a platform VM
+// (Vault, DNS, Cyberwatch, …) and the EOL enricher uses `Product` +
+// `Version` to look up lifecycle data on endoflife.date.
+//
+// `Product` is normalized server-side (NormalizeProductName) so that
+// "Hashicorp Vault", "hashicorp-vault", and "Vault" deduplicate to the
+// same key. `AddedAt` and `AddedBy` are server-stamped on insert and
+// preserved across PATCH calls when (product, version, name) is unchanged.
+type VMApplication struct {
+	Product string    `json:"product"`
+	Version string    `json:"version"`
+	Name    *string   `json:"name,omitempty"`
+	Notes   *string   `json:"notes,omitempty"`
+	AddedAt time.Time `json:"added_at"`
+	AddedBy string    `json:"added_by"`
+}
+
+// NormalizeProductName collapses operator-typed product names into a
+// stable kebab-case key. Trim, lowercase, collapse runs of whitespace
+// and underscores into single hyphens. The result is what gets indexed,
+// matched, and used as the suffix in `argos.io/eol.<product>` annotations.
+func NormalizeProductName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	prevHyphen := false
+	for _, r := range s {
+		switch r {
+		case ' ', '\t', '_', '-':
+			if !prevHyphen && b.Len() > 0 {
+				b.WriteByte('-')
+				prevHyphen = true
+			}
+		default:
+			b.WriteRune(r)
+			prevHyphen = false
+		}
+	}
+	out := b.String()
+	return strings.TrimRight(out, "-")
+}
+
+// VMApplicationKey returns a stable identity key for diffing PATCH input
+// against the existing applications list — `(product, version, name)` so
+// two `vault@1.15.4` entries with different `name` labels are distinct.
+func VMApplicationKey(a *VMApplication) string {
+	name := ""
+	if a.Name != nil {
+		name = *a.Name
+	}
+	return a.Product + "|" + a.Version + "|" + name
+}
 
 // CloudAccount status constants — matches the CHECK constraint on the
 // cloud_accounts table.
@@ -120,6 +178,7 @@ type VirtualMachine struct {
 	Criticality          *string           `json:"criticality,omitempty"`
 	Notes                *string           `json:"notes,omitempty"`
 	RunbookURL           *string           `json:"runbook_url,omitempty"`
+	Applications         []VMApplication   `json:"applications"`
 	CreatedAt            time.Time         `json:"created_at"`
 	UpdatedAt            time.Time         `json:"updated_at"`
 	LastSeenAt           time.Time         `json:"last_seen_at"`
@@ -167,23 +226,53 @@ type VirtualMachineUpsert struct {
 
 // VirtualMachinePatch is the merge-patch for UpdateVirtualMachine.
 // Curated-only — the collector path goes through UpsertVirtualMachine.
+//
+// Applications has replace-not-merge semantics (ADR-0019 §4): a non-nil
+// pointer replaces the entire list. The handler diffs the input against
+// the stored list to preserve `added_at` / `added_by` on entries whose
+// (product, version, name) key is unchanged, and stamps fresh values on
+// new entries. The store sees the final list.
 type VirtualMachinePatch struct {
-	DisplayName *string
-	Role        *string
-	Owner       *string
-	Criticality *string
-	Notes       *string
-	RunbookURL  *string
-	Annotations *map[string]string
+	DisplayName  *string
+	Role         *string
+	Owner        *string
+	Criticality  *string
+	Notes        *string
+	RunbookURL   *string
+	Annotations  *map[string]string
+	Applications *[]VMApplication
 }
 
 // VirtualMachineListFilter collects the optional filters for ListVirtualMachines.
+//
+// Name and Image are bounded substring filters (LIKE-escape applied at the
+// SQL layer). CloudAccountName resolves via an inner subquery against the
+// cloud_accounts UNIQUE index. Application is a JSONB containment filter
+// matching any entry whose normalized product equals the given value.
 type VirtualMachineListFilter struct {
-	CloudAccountID    *uuid.UUID
-	Region            *string
-	Role              *string
-	PowerState        *string
-	IncludeTerminated bool
+	CloudAccountID   *uuid.UUID
+	CloudAccountName *string
+	Region           *string
+	Role             *string
+	PowerState       *string
+	Name             *string
+	Image            *string
+	Application      *string
+	// ApplicationVersion narrows Application to a specific version. Only
+	// honoured when Application is also set; ignored otherwise so callers
+	// can't bypass the product-name normalization. Matches the JSONB entry
+	// (product, version) tuple via containment.
+	ApplicationVersion *string
+	IncludeTerminated  bool
+}
+
+// VMApplicationDistinct is one row of the distinct-applications response.
+// `Versions` is the sorted, deduplicated list of versions seen for the
+// product across every non-terminated VM. Drives the cascading
+// product → version dropdown in the VM list UI.
+type VMApplicationDistinct struct {
+	Product  string   `json:"product"`
+	Versions []string `json:"versions"`
 }
 
 // _ enforces secrets.Ciphertext stays imported even when no method

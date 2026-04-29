@@ -875,6 +875,19 @@ export interface VMBlockDevice {
   iops?: number;
 }
 
+// VMApplication is an operator-declared application running on a VM
+// (ADR-0019). The EOL enricher consumes the (product, version) pair to
+// write argos.io/eol.<product> annotations, so the catalog drives the
+// lifecycle scan.
+export interface VMApplication {
+  product: string;
+  version: string;
+  name?: string | null;
+  notes?: string | null;
+  added_at: string;
+  added_by: string;
+}
+
 export interface VirtualMachine {
   id: string;
   cloud_account_id: string;
@@ -915,6 +928,7 @@ export interface VirtualMachine {
   tags?: Record<string, string> | null;
   labels?: Record<string, string> | null;
   annotations?: Record<string, string> | null;
+  applications?: VMApplication[] | null;
   owner?: string | null;
   criticality?: string | null;
   notes?: string | null;
@@ -927,10 +941,15 @@ export interface VirtualMachine {
 
 export interface VirtualMachineListFilter {
   cloud_account_id?: string;
+  cloud_account_name?: string;
   region?: string;
   role?: string;
   power_state?: string;
   include_terminated?: boolean;
+  name?: string;
+  image?: string;
+  application?: string;
+  application_version?: string;
 }
 
 export type VirtualMachinePatch = Partial<Pick<
@@ -942,6 +961,7 @@ export type VirtualMachinePatch = Partial<Pick<
   | 'notes'
   | 'runbook_url'
   | 'annotations'
+  | 'applications'
 >>;
 
 export function listVirtualMachines(filter: VirtualMachineListFilter = {}) {
@@ -950,10 +970,15 @@ export function listVirtualMachines(filter: VirtualMachineListFilter = {}) {
       query({
         limit: 200,
         cloud_account_id: filter.cloud_account_id,
+        cloud_account_name: filter.cloud_account_name,
         region: filter.region,
         role: filter.role,
         power_state: filter.power_state,
         include_terminated: filter.include_terminated ? 'true' : undefined,
+        name: filter.name,
+        image: filter.image,
+        application: filter.application,
+        application_version: filter.application_version,
       }),
   );
 }
@@ -968,4 +993,22 @@ export function updateVirtualMachine(id: string, patch: VirtualMachinePatch) {
 }
 export function deleteVirtualMachine(id: string) {
   return request<void>(`/v1/virtual-machines/${id}`, { method: 'DELETE' });
+}
+
+// VMApplicationDistinct is one row of the distinct-applications response —
+// a product name and the sorted, deduplicated list of versions seen for
+// that product across every non-terminated VM. Drives the cascading
+// product → version dropdown on the Virtual Machines page.
+export interface VMApplicationDistinct {
+  product: string;
+  versions: string[];
+}
+
+// listDistinctVMApplications returns the distinct (product, versions) pairs
+// across all non-terminated VMs. Used by the VirtualMachines list page to
+// populate the application + version filter dropdowns.
+export function listDistinctVMApplications() {
+  return request<{ products: VMApplicationDistinct[] }>(
+    '/v1/virtual-machines/applications/distinct',
+  );
 }

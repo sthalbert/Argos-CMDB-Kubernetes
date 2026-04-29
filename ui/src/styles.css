@@ -911,6 +911,42 @@ th.sortable:hover {
   color: var(--fg-2) !important;
   font-size: var(--fs-base) !important;
 }
+.vm-filter-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: end;
+}
+.vm-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: end;
+  margin: 0 0 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.vm-search label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.vm-search label input {
+  padding: 0.4rem 0.55rem;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--fg-1);
+  font-family: inherit;
+  font-size: var(--fs-base);
+}
+.vm-search label input:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
 
 .vm-row-terminated td {
   opacity: 0.55;

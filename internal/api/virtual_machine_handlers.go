@@ -4,16 +4,23 @@ package api
 // Mounted on the main mux next to the cloud-accounts handlers.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/argos/internal/auth"
 )
+
+// timeNow is overridable in tests so the diff logic in diffVMApplications
+// produces deterministic added_at stamps. Real callers use time.Now.
+var timeNow = time.Now
 
 // vmUpsertReq is the body for POST /v1/virtual-machines (collector).
 type vmUpsertReq struct {
@@ -54,15 +61,40 @@ type vmUpsertReq struct {
 }
 
 // vmPatchReq is the body for PATCH /v1/virtual-machines/{id}.
+//
+// Applications has replace-not-merge semantics (ADR-0019 §4): a non-nil
+// pointer replaces the entire list. The handler diffs the input against
+// the stored list to preserve `added_at` / `added_by` on entries whose
+// (product, version, name) key is unchanged, and stamps fresh values
+// on new entries. Input values for added_at / added_by are ignored.
 type vmPatchReq struct {
-	DisplayName *string            `json:"display_name,omitempty"`
-	Role        *string            `json:"role,omitempty"`
-	Owner       *string            `json:"owner,omitempty"`
-	Criticality *string            `json:"criticality,omitempty"`
-	Notes       *string            `json:"notes,omitempty"`
-	RunbookURL  *string            `json:"runbook_url,omitempty"`
-	Annotations *map[string]string `json:"annotations,omitempty"`
+	DisplayName  *string            `json:"display_name,omitempty"`
+	Role         *string            `json:"role,omitempty"`
+	Owner        *string            `json:"owner,omitempty"`
+	Criticality  *string            `json:"criticality,omitempty"`
+	Notes        *string            `json:"notes,omitempty"`
+	RunbookURL   *string            `json:"runbook_url,omitempty"`
+	Annotations  *map[string]string `json:"annotations,omitempty"`
+	Applications *[]VMApplication   `json:"applications,omitempty"`
 }
+
+// VM applications input bounds — bounded to keep the JSONB column small,
+// the audit log readable, and the GIN index efficient.
+const (
+	vmAppsMaxEntries     = 100
+	vmAppProductMaxLen   = 64
+	vmAppVersionMaxLen   = 64
+	vmAppNameMaxLen      = 200
+	vmAppNotesMaxLen     = 4096
+	vmListNameMaxLen     = 100
+	vmListImageMaxLen    = 100
+	vmListAccountMaxLen  = 200
+	vmListAppFilterMaxLn = 64
+	// vmListEnumMaxLen caps region / role / power_state filter values.
+	// These are exact-match enum-ish fields; an oversized value is never
+	// legitimate and would only inflate the audit log on the hot path.
+	vmListEnumMaxLen = 64
+)
 
 // vmReconcileReq is the body for POST /v1/virtual-machines/reconcile.
 type vmReconcileReq struct {
@@ -148,9 +180,77 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 	}
 }
 
-// HandleListVirtualMachines — read scope. GET /v1/virtual-machines.
+// parseVMListFilter builds a VirtualMachineListFilter from the request query
+// string. Returns ("", filter) on success; returns (problem, zero) on the
+// first validation error so the caller can surface a 400.
 //
-//nolint:gocyclo // filter parsing is repetitive but flat
+//nolint:gocyclo // each query param is an independent branch; flat and intentional
+func parseVMListFilter(r *http.Request) (string, VirtualMachineListFilter) {
+	q := r.URL.Query()
+	var f VirtualMachineListFilter
+	if v := q.Get("cloud_account_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return "invalid cloud_account_id", f
+		}
+		f.CloudAccountID = &id
+	}
+	if v := q.Get("cloud_account_name"); v != "" {
+		if len(v) > vmListAccountMaxLen {
+			return "cloud_account_name too long", f
+		}
+		f.CloudAccountName = &v
+	}
+	if v := q.Get("region"); v != "" {
+		if len(v) > vmListEnumMaxLen {
+			return "region too long", f
+		}
+		f.Region = &v
+	}
+	if v := q.Get("role"); v != "" {
+		if len(v) > vmListEnumMaxLen {
+			return "role too long", f
+		}
+		f.Role = &v
+	}
+	if v := q.Get("power_state"); v != "" {
+		if len(v) > vmListEnumMaxLen {
+			return "power_state too long", f
+		}
+		f.PowerState = &v
+	}
+	if v := q.Get("name"); v != "" {
+		if len(v) > vmListNameMaxLen {
+			return "name too long", f
+		}
+		f.Name = &v
+	}
+	if v := q.Get("image"); v != "" {
+		if len(v) > vmListImageMaxLen {
+			return "image too long", f
+		}
+		f.Image = &v
+	}
+	if v := q.Get("application"); v != "" {
+		if len(v) > vmListAppFilterMaxLn {
+			return "application too long", f
+		}
+		f.Application = &v
+	}
+	if v := q.Get("application_version"); v != "" {
+		if len(v) > vmAppVersionMaxLen {
+			return "application_version too long", f
+		}
+		f.ApplicationVersion = &v
+	}
+	if v := q.Get("include_terminated"); v != "" {
+		b, _ := strconv.ParseBool(v)
+		f.IncludeTerminated = b
+	}
+	return "", f
+}
+
+// HandleListVirtualMachines — read scope. GET /v1/virtual-machines.
 func HandleListVirtualMachines(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := auth.CallerFromContext(r.Context())
@@ -158,27 +258,10 @@ func HandleListVirtualMachines(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
 			return
 		}
-		filter := VirtualMachineListFilter{}
-		if v := r.URL.Query().Get("cloud_account_id"); v != "" {
-			id, err := uuid.Parse(v)
-			if err != nil {
-				writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid cloud_account_id")
-				return
-			}
-			filter.CloudAccountID = &id
-		}
-		if v := r.URL.Query().Get("region"); v != "" {
-			filter.Region = &v
-		}
-		if v := r.URL.Query().Get("role"); v != "" {
-			filter.Role = &v
-		}
-		if v := r.URL.Query().Get("power_state"); v != "" {
-			filter.PowerState = &v
-		}
-		if v := r.URL.Query().Get("include_terminated"); v != "" {
-			b, _ := strconv.ParseBool(v)
-			filter.IncludeTerminated = b
+		problem, filter := parseVMListFilter(r)
+		if problem != "" {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", problem)
+			return
 		}
 		limit := 50
 		if v := r.URL.Query().Get("limit"); v != "" {
@@ -243,7 +326,24 @@ func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
 		}
-		vm, err := store.UpdateVirtualMachine(r.Context(), id, VirtualMachinePatch(req))
+		patch := VirtualMachinePatch{
+			DisplayName: req.DisplayName,
+			Role:        req.Role,
+			Owner:       req.Owner,
+			Criticality: req.Criticality,
+			Notes:       req.Notes,
+			RunbookURL:  req.RunbookURL,
+			Annotations: req.Annotations,
+		}
+		if req.Applications != nil {
+			diffed, problem := diffVMApplications(r.Context(), store, id, *req.Applications, caller)
+			if problem != "" {
+				writeProblem(w, http.StatusBadRequest, "Bad Request", problem)
+				return
+			}
+			patch.Applications = &diffed
+		}
+		vm, err := store.UpdateVirtualMachine(r.Context(), id, patch)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				writeProblem(w, http.StatusNotFound, "Not Found", "")
@@ -254,6 +354,123 @@ func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, vm)
+	}
+}
+
+// diffVMApplications validates the input list, normalizes product names,
+// reads the existing list from the store, and preserves added_at / added_by
+// for entries whose (product, version, name) key matches existing rows.
+// New entries are stamped with the current time and the caller's identifier.
+//
+// Returns (final list, "") on success, or ([], problem-detail) on validation
+// failure. Caller may be nil (defense in depth — the handler already gated
+// on caller != nil).
+//
+//nolint:gocyclo // per-entry validation branches are flat and intentional
+func diffVMApplications(
+	ctx context.Context,
+	store Store,
+	vmID uuid.UUID,
+	input []VMApplication,
+	caller *auth.Caller,
+) (apps []VMApplication, problem string) {
+	if len(input) > vmAppsMaxEntries {
+		return nil, "applications: too many entries (max 100)"
+	}
+	// Operate on a copy so the caller's request struct stays clean.
+	work := make([]VMApplication, len(input))
+	copy(work, input)
+	for i := range work {
+		work[i].Product = NormalizeProductName(work[i].Product)
+		work[i].Version = strings.TrimSpace(work[i].Version)
+		if work[i].Product == "" {
+			return nil, "applications: empty product"
+		}
+		if work[i].Version == "" {
+			return nil, "applications: empty version"
+		}
+		if len(work[i].Product) > vmAppProductMaxLen {
+			return nil, "applications: product too long"
+		}
+		if len(work[i].Version) > vmAppVersionMaxLen {
+			return nil, "applications: version too long"
+		}
+		if work[i].Name != nil && len(*work[i].Name) > vmAppNameMaxLen {
+			return nil, "applications: name too long"
+		}
+		if work[i].Notes != nil && len(*work[i].Notes) > vmAppNotesMaxLen {
+			return nil, "applications: notes too long"
+		}
+	}
+
+	existing, err := store.GetVirtualMachine(ctx, vmID)
+	if err != nil {
+		// Surface ErrNotFound up to the handler so it returns 404; for
+		// any other store error, we treat it as a missing baseline and
+		// stamp every input as new — the surrounding UpdateVirtualMachine
+		// call will surface the underlying error.
+		if !errors.Is(err, ErrNotFound) {
+			existing = VirtualMachine{}
+		}
+	}
+	existingByKey := make(map[string]VMApplication, len(existing.Applications))
+	for i := range existing.Applications {
+		existingByKey[VMApplicationKey(&existing.Applications[i])] = existing.Applications[i]
+	}
+
+	now := timeNow().UTC()
+	addedBy := callerIdentifier(caller)
+	out := make([]VMApplication, 0, len(work))
+	for i := range work {
+		entry := work[i]
+		if prev, ok := existingByKey[VMApplicationKey(&entry)]; ok {
+			entry.AddedAt = prev.AddedAt
+			entry.AddedBy = prev.AddedBy
+		} else {
+			entry.AddedAt = now
+			entry.AddedBy = addedBy
+		}
+		out = append(out, entry)
+	}
+	return out, ""
+}
+
+// callerIdentifier returns the audit-friendly identifier for the caller.
+// Mirrors the audit middleware's actor logic (audit.go).
+func callerIdentifier(caller *auth.Caller) string {
+	if caller == nil {
+		return ""
+	}
+	switch caller.Kind {
+	case auth.CallerKindUser:
+		return caller.Username
+	case auth.CallerKindToken:
+		if caller.TokenName != "" {
+			return "token:" + caller.TokenName
+		}
+		return "token"
+	default:
+		return ""
+	}
+}
+
+// HandleListDistinctVMApplications — read scope. GET
+// /v1/virtual-machines/applications/distinct. Used by the UI to populate
+// the application-filter autocomplete (ADR-0019 §3).
+func HandleListDistinctVMApplications(store Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		caller := auth.CallerFromContext(r.Context())
+		if caller == nil || !caller.HasScope(auth.ScopeRead) {
+			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+			return
+		}
+		products, err := store.ListDistinctVMApplications(r.Context())
+		if err != nil {
+			slog.Error("list distinct vm applications", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"products": products})
 	}
 }
 

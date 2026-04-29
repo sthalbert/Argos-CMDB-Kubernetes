@@ -3,8 +3,10 @@ package eol
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +26,9 @@ type EnricherStore interface {
 	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Node, string, error)
 	GetNode(ctx context.Context, id uuid.UUID) (api.Node, error)
 	UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (api.Node, error)
+	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error)
+	GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMachine, error)
+	UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.VirtualMachinePatch) (api.VirtualMachine, error)
 }
 
 // Enricher periodically queries endoflife.date and annotates CMDB
@@ -99,8 +104,33 @@ func (e *Enricher) enrich(ctx context.Context) {
 		cursor = next
 	}
 
+	e.enrichVirtualMachines(ctx)
+
 	metrics.MarkEOLRun()
 	slog.Debug("eol enricher: tick completed")
+}
+
+// enrichVirtualMachines walks all non-terminated VMs and writes
+// `argos.io/eol.<product>` annotations driven by the operator-declared
+// applications list. Filter intentionally omits IncludeTerminated so
+// soft-deleted rows don't pile up annotation churn.
+func (e *Enricher) enrichVirtualMachines(ctx context.Context) {
+	cursor := ""
+	for {
+		vms, next, err := e.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, 100, cursor)
+		if err != nil {
+			slog.Error("eol enricher: list virtual machines", slog.Any("error", err))
+			metrics.ObserveEOLError("_all_", "vm", "list")
+			return
+		}
+		for i := range vms {
+			e.enrichVirtualMachine(ctx, &vms[i])
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
 }
 
 func (e *Enricher) enrichCluster(ctx context.Context, cluster *api.Cluster) {
@@ -216,6 +246,183 @@ func (e *Enricher) enrichNode(ctx context.Context, clusterName string, node *api
 			metrics.ObserveEOLEnrichment(clusterName, "node", string(ann.EOLStatus))
 		}
 	}
+}
+
+// enrichVirtualMachine builds a fresh `argos.io/eol.<product>` set from
+// the VM's declared applications and writes the result, dropping every
+// previous `argos.io/eol.*` key in the process so stale annotations are
+// reaped automatically (operators removing an entry from the list see
+// the matching annotation disappear on the next tick).
+//
+// Operator metadata under any other key (owner team, custom tags) is
+// preserved untouched. No-op writes are skipped to keep audit log
+// volume bounded.
+func (e *Enricher) enrichVirtualMachine(ctx context.Context, vm *api.VirtualMachine) { //nolint:gocyclo // per-product loop with error branches
+	if vm.TerminatedAt != nil {
+		return
+	}
+	vmName := vm.Name
+
+	// Build the new EOL annotation set. Each application yields one entry
+	// — either a real lifecycle annotation when endoflife.date knows the
+	// product, or a stub with eol_status="unknown" so auditors can see
+	// the row was evaluated.
+	newEOL := make(map[string]string)
+	for i := range vm.Applications {
+		app := &vm.Applications[i]
+		product := api.NormalizeProductName(app.Product)
+		if product == "" {
+			continue
+		}
+		ann, err := e.resolveVMApplicationAnnotation(ctx, product, app.Version)
+		if err != nil {
+			slog.Warn("eol enricher: resolve vm application",
+				slog.Any("error", err),
+				slog.String("vm", vmName),
+				slog.String("product", product))
+			metrics.ObserveEOLError(vmName, "vm", "resolve")
+			continue
+		}
+		key := annotationPrefix + product
+		b, err := json.Marshal(ann) //nolint:errchkjson // *Annotation contains only string fields; always serialisable
+		if err != nil {
+			slog.Warn("eol enricher: marshal vm annotation",
+				slog.Any("error", err),
+				slog.String("vm", vmName),
+				slog.String("product", product))
+			continue
+		}
+		// Last write wins on duplicate normalized products — matches the
+		// "two apps share a product key, only one annotation makes sense"
+		// edge case (the latter wins, which is the operator's most recent
+		// declaration in list order).
+		newEOL[key] = string(b)
+		metrics.ObserveEOLEnrichment(vmName, "vm", string(ann.EOLStatus))
+	}
+
+	// Compute the merged annotations: keep every non-EOL annotation,
+	// drop every existing `argos.io/eol.*`, then layer in newEOL.
+	merged := make(map[string]string)
+	for k, v := range vm.Annotations {
+		if !strings.HasPrefix(k, annotationPrefix) {
+			merged[k] = v
+		}
+	}
+	for k, v := range newEOL {
+		merged[k] = v
+	}
+
+	if vmAnnotationsEqual(vm.Annotations, merged) {
+		return
+	}
+
+	if _, err := e.store.UpdateVirtualMachine(ctx, vm.ID, api.VirtualMachinePatch{Annotations: &merged}); err != nil {
+		slog.Warn("eol enricher: update vm annotations",
+			slog.Any("error", err),
+			slog.String("vm", vmName))
+		metrics.ObserveEOLError(vmName, "vm", "update")
+	}
+}
+
+// resolveVMApplicationAnnotation looks up `product` on endoflife.date
+// and returns an annotation describing the entity's `version`. Returns
+// a stub annotation with eol_status="unknown" when the product is not
+// on endoflife.date or the version cannot be parsed into a major.minor
+// cycle — operators see the row was evaluated rather than silently
+// dropped.
+func (e *Enricher) resolveVMApplicationAnnotation(ctx context.Context, product, version string) (*Annotation, error) {
+	cycles, err := e.client.GetProduct(ctx, product)
+	if err != nil {
+		if errorsIsProductNotFound(err) {
+			return &Annotation{
+				Product:   product,
+				Cycle:     strings.TrimSpace(version),
+				EOLStatus: StatusUnknown,
+				CheckedAt: time.Now().UTC().Format(time.RFC3339),
+			}, nil
+		}
+		return nil, fmt.Errorf("get product %s: %w", product, err)
+	}
+
+	cycleKey := extractMajorMinor(version)
+	if cycleKey == "" {
+		return &Annotation{
+			Product:   product,
+			Cycle:     strings.TrimSpace(version),
+			EOLStatus: StatusUnknown,
+			CheckedAt: time.Now().UTC().Format(time.RFC3339),
+		}, nil
+	}
+
+	cycle := FindCycle(cycles, cycleKey)
+	if cycle == nil {
+		return &Annotation{
+			Product:   product,
+			Cycle:     cycleKey,
+			EOLStatus: StatusUnknown,
+			CheckedAt: time.Now().UTC().Format(time.RFC3339),
+		}, nil
+	}
+
+	return e.buildAnnotation(MatchResult{Product: product, Cycle: cycleKey}, cycle, cycles), nil
+}
+
+// extractMajorMinor pulls a "X.Y" cycle string out of a free-form
+// operator-typed version. Strips a leading "v" and any "-suffix".
+// Returns "" when the input has no recognisable numeric major.minor.
+func extractMajorMinor(version string) string {
+	v := strings.TrimSpace(version)
+	v = strings.TrimPrefix(v, "v")
+	v = strings.TrimPrefix(v, "V")
+	if v == "" {
+		return ""
+	}
+	if i := strings.IndexAny(v, "-+ "); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	if !isNumeric(parts[0]) || !isNumeric(parts[1]) {
+		return ""
+	}
+	return parts[0] + "." + parts[1]
+}
+
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// errorsIsProductNotFound returns true when the underlying error is the
+// well-known "product not on endoflife.date" sentinel. Wrapping is
+// honored via errors.Is.
+func errorsIsProductNotFound(err error) bool {
+	return errors.Is(err, ErrProductNotFound)
+}
+
+// vmAnnotationsEqual compares the existing annotations map with the
+// merged one. Both come from this package so a string-equality compare
+// per key is enough — JSON serialisation is stable for our annotation
+// shape (no maps, only string fields).
+func vmAnnotationsEqual(existing, merged map[string]string) bool {
+	if len(existing) != len(merged) {
+		return false
+	}
+	for k, v := range existing {
+		if merged[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // resolveAnnotation fetches the product cycles and builds the annotation.

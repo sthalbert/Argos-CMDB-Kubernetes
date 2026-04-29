@@ -3,13 +3,22 @@ import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, SectionTitle, Empty } from '../components';
+import { isAdmin, useMe } from '../me';
 
 // Image search — answers "which applications run component X in version Y?"
 // The query is kept in the URL (?q=) so auditors can bookmark / share.
 //
-// Server-side filter: /v1/workloads?image= and /v1/pods?image= both do
-// case-insensitive substring match on the `image` field of every entry in
-// the containers JSON. Init containers included.
+// Server-side filters:
+//  - /v1/workloads?image= and /v1/pods?image= do case-insensitive substring
+//    match on the `image` field of every entry in the containers JSON
+//    (init containers included).
+//  - /v1/virtual-machines?image= does the same case-insensitive substring
+//    match on the VM's image_name and image_id (the cloud AMI fields).
+//  - /v1/virtual-machines?application= does an exact match on the
+//    NORMALIZED product name (ADR-0019); typing "vault" surfaces every VM
+//    whose applications array contains the product `vault`. The two VM
+//    queries are unioned so platform VMs running operator-declared apps
+//    show up alongside K8s workloads.
 
 export default function ImageSearch() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,11 +38,14 @@ export default function ImageSearch() {
 
   return (
     <>
-      <h2>Search by container image</h2>
+      <h2>Search by image or application</h2>
       <p className="muted" style={{ marginTop: 0 }}>
-        Case-insensitive substring match against the <code>image</code> field of every
-        container (init containers included) on both Workloads and Pods. Type a partial
-        like <code>log4j:2.15</code> to find everything on that version line.
+        Case-insensitive substring match against container images on Workloads
+        and Pods, and against AMI <code>image_name</code> / <code>image_id</code>{' '}
+        on Virtual Machines. Also matches platform VMs whose declared
+        applications include the typed product (e.g. <code>vault</code>,{' '}
+        <code>cyberwatch</code>). Type a partial like <code>log4j:2.15</code> or
+        <code>vault</code> to find everything that runs it.
       </p>
 
       <form className="search-form" onSubmit={submit}>
@@ -55,25 +67,42 @@ export default function ImageSearch() {
 }
 
 function Results({ q }: { q: string }) {
+  const me = useMe();
+  const canListAccounts = isAdmin(me);
   const state = useResource(
     () =>
       Promise.all([
         api.listWorkloads({ image: q }),
         api.listPods({ image: q }),
+        // Two parallel VM queries: image substring (image_name/image_id) and
+        // application exact-match (normalized product). Union by id so a VM
+        // whose AMI name AND applications both match isn't counted twice.
+        api.listVirtualMachines({ image: q }),
+        api.listVirtualMachines({ application: q }),
         api.listNamespaces(),
         api.listClusters(),
-      ]).then(([wls, pods, ns, cl]) => ({
-        workloads: wls.items,
-        pods: pods.items,
-        namespacesById: new Map(ns.items.map((n) => [n.id, n])),
-        clustersById: new Map(cl.items.map((c) => [c.id, c])),
-      })),
-    [q],
+        // Cloud accounts are admin-only; non-admins fall back to the UUID
+        // prefix in the rendered table.
+        canListAccounts ? api.listCloudAccounts() : Promise.resolve(null),
+      ]).then(([wls, pods, vmsByImage, vmsByApp, ns, cl, accounts]) => {
+        const vmsById = new Map<string, api.VirtualMachine>();
+        for (const vm of vmsByImage.items) vmsById.set(vm.id, vm);
+        for (const vm of vmsByApp.items) vmsById.set(vm.id, vm);
+        return {
+          workloads: wls.items,
+          pods: pods.items,
+          vms: Array.from(vmsById.values()),
+          namespacesById: new Map(ns.items.map((n) => [n.id, n])),
+          clustersById: new Map(cl.items.map((c) => [c.id, c])),
+          accountsById: new Map((accounts?.items ?? []).map((a) => [a.id, a])),
+        };
+      }),
+    [q, canListAccounts],
   );
 
   return (
     <AsyncView state={state}>
-      {({ workloads, pods, namespacesById, clustersById }) => {
+      {({ workloads, pods, vms, namespacesById, clustersById, accountsById }) => {
         // Unique namespace count across the union of workload + pod hits —
         // the top-line "affected apps" number shown in the callout.
         const affectedNamespaces = new Set<string>();
@@ -84,8 +113,10 @@ function Results({ q }: { q: string }) {
           <>
             <p className="impact-callout">
               Matches for <code>{q}</code>: <strong>{workloads.length}</strong> workloads,{' '}
-              <strong>{pods.length}</strong> pods, spanning <strong>{affectedApps}</strong>{' '}
-              namespace{affectedApps === 1 ? '' : 's'}.
+              <strong>{pods.length}</strong> pods, <strong>{vms.length}</strong>{' '}
+              virtual machine{vms.length === 1 ? '' : 's'}, spanning{' '}
+              <strong>{affectedApps}</strong> namespace
+              {affectedApps === 1 ? '' : 's'}.
             </p>
 
             <SectionTitle count={workloads.length}>Matching workloads</SectionTitle>
@@ -169,11 +200,112 @@ function Results({ q }: { q: string }) {
                 </tbody>
               </table>
             )}
+
+            <SectionTitle count={vms.length}>Matching virtual machines</SectionTitle>
+            {vms.length === 0 ? (
+              <Empty message="No virtual machines match." />
+            ) : (
+              <table className="entities">
+                <thead>
+                  <tr>
+                    <th>VM</th>
+                    <th>Cloud account</th>
+                    <th>Region</th>
+                    <th>Image</th>
+                    <th>Match</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vms.map((vm) => {
+                    const acct = accountsById.get(vm.cloud_account_id);
+                    return (
+                      <tr key={vm.id}>
+                        <td>
+                          <Link to={`/virtual-machines/${vm.id}`}>
+                            <strong>{vm.display_name || vm.name}</strong>
+                          </Link>
+                          {vm.display_name && (
+                            <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                              {vm.name}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          {acct ? (
+                            <span>
+                              {acct.name}{' '}
+                              <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                                {acct.provider}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="muted">{vm.cloud_account_id.slice(0, 8)}…</span>
+                          )}
+                        </td>
+                        <td>{vm.region ? <code>{vm.region}</code> : <Dash />}</td>
+                        <td>
+                          {vm.image_name || vm.image_id ? (
+                            <code>{vm.image_name || vm.image_id}</code>
+                          ) : (
+                            <Dash />
+                          )}
+                        </td>
+                        <td>{renderVMMatch(vm, q)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </>
         );
       }}
     </AsyncView>
   );
+}
+
+// renderVMMatch shows what made the VM hit the search — substring on the
+// image_name/image_id, or one or more application entries whose normalized
+// product matches the query. Both cases can fire simultaneously.
+function renderVMMatch(vm: api.VirtualMachine, q: string) {
+  const qLower = q.toLowerCase();
+  const qNormalized = normalizeProductName(q);
+  const parts: string[] = [];
+  const imageBag = `${vm.image_name ?? ''} ${vm.image_id ?? ''}`.toLowerCase();
+  if (imageBag.includes(qLower)) {
+    parts.push(`image: ${vm.image_name || vm.image_id}`);
+  }
+  for (const app of vm.applications ?? []) {
+    if (app.product === qNormalized) {
+      parts.push(`${app.product} ${app.version}`);
+    }
+  }
+  if (parts.length === 0) return <Dash />;
+  return <code>{parts.join(', ')}</code>;
+}
+
+// normalizeProductName mirrors api.NormalizeProductName server-side: trim,
+// lowercase, collapse whitespace/_/- runs into single hyphens. Kept inline
+// so the search UI can reproduce the server's match key without a round
+// trip — used only for display ("which application matched?"), never for
+// requests (the server normalizes again before applying the filter).
+function normalizeProductName(s: string): string {
+  const trimmed = s.trim().toLowerCase();
+  if (!trimmed) return '';
+  let out = '';
+  let prevHyphen = false;
+  for (const ch of trimmed) {
+    if (ch === ' ' || ch === '\t' || ch === '_' || ch === '-') {
+      if (!prevHyphen && out.length > 0) {
+        out += '-';
+        prevHyphen = true;
+      }
+    } else {
+      out += ch;
+      prevHyphen = false;
+    }
+  }
+  return out.replace(/-+$/, '');
 }
 
 function renderMatchedImages(containers: api.Container[] | null | undefined, q: string) {

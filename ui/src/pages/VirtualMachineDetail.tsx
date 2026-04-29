@@ -11,6 +11,7 @@ import { NetworkingCard } from '../components/inventory/NetworkingCard';
 import { CapacityCard } from '../components/inventory/CapacityCard';
 import { LabelsCard } from '../components/inventory/LabelsCard';
 import { AnnotationsCard } from '../components/inventory/AnnotationsCard';
+import { ApplicationsCard } from '../components/inventory/ApplicationsCard';
 import { CuratedMetadataCard } from '../components/inventory/CuratedMetadataCard';
 
 // VirtualMachineDetail is the per-VM drill-down page. Card layout mirrors
@@ -230,6 +231,16 @@ export default function VirtualMachineDetail() {
                 />
               </dl>
               <BlockDevicesTable devices={vm.block_devices} />
+
+              <ApplicationsCard
+                applications={vm.applications}
+                onSave={(apps) =>
+                  api
+                    .updateVirtualMachine(vm.id, { applications: apps })
+                    .then(() => undefined)
+                }
+                onSaved={reload}
+              />
 
               <LabelsCard labels={vm.tags} title="Tags (provider)" />
               <LabelsCard labels={vm.labels} title="Labels" />

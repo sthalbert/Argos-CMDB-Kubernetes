@@ -355,7 +355,90 @@ func (m *memStore) GetVirtualMachine(_ context.Context, id uuid.UUID) (VirtualMa
 	return vm, nil
 }
 
-//nolint:gocyclo,gocritic // filter checks; hugeParam for interface
+// vmMatchesFilter reports whether vm passes the given filter.
+// Called from ListVirtualMachines; extracted to keep cognitive complexity low.
+//
+//nolint:gocyclo,gocritic // filter evaluation is inherently branchy; hugeParam ok in test fake
+func vmMatchesFilter(vm VirtualMachine, filter VirtualMachineListFilter) bool {
+	if !filter.IncludeTerminated && vm.TerminatedAt != nil {
+		return false
+	}
+	if filter.CloudAccountID != nil && vm.CloudAccountID != *filter.CloudAccountID {
+		return false
+	}
+	if filter.CloudAccountName != nil {
+		a, ok := cloudFake.accounts[vm.CloudAccountID]
+		if !ok || a.Name != *filter.CloudAccountName {
+			return false
+		}
+	}
+	if filter.Region != nil && (vm.Region == nil || *vm.Region != *filter.Region) {
+		return false
+	}
+	if filter.Role != nil && (vm.Role == nil || *vm.Role != *filter.Role) {
+		return false
+	}
+	if filter.PowerState != nil && vm.PowerState != *filter.PowerState {
+		return false
+	}
+	if filter.Name != nil && !strings.Contains(strings.ToLower(vm.Name), strings.ToLower(*filter.Name)) {
+		return false
+	}
+	if !vmImageMatches(vm, filter.Image) {
+		return false
+	}
+	if !vmApplicationMatches(vm, filter.Application, filter.ApplicationVersion) {
+		return false
+	}
+	return true
+}
+
+// vmImageMatches checks whether vm.ImageID or vm.ImageName contain needle
+// (case-insensitive). Returns true when needle is nil.
+//
+//nolint:gocritic // hugeParam: test fake; value copy is fine
+func vmImageMatches(vm VirtualMachine, needle *string) bool {
+	if needle == nil {
+		return true
+	}
+	n := strings.ToLower(*needle)
+	imageID, imageName := "", ""
+	if vm.ImageID != nil {
+		imageID = strings.ToLower(*vm.ImageID)
+	}
+	if vm.ImageName != nil {
+		imageName = strings.ToLower(*vm.ImageName)
+	}
+	return strings.Contains(imageID, n) || strings.Contains(imageName, n)
+}
+
+// vmApplicationMatches checks whether any of vm.Applications has the given
+// product (normalized). When wantVersion is non-nil, also requires the
+// matching entry to have that version. Returns true when want is nil.
+//
+//nolint:gocritic // hugeParam: test fake; value copy is fine
+func vmApplicationMatches(vm VirtualMachine, want, wantVersion *string) bool {
+	if want == nil {
+		return true
+	}
+	normalized := NormalizeProductName(*want)
+	var version string
+	if wantVersion != nil {
+		version = strings.TrimSpace(*wantVersion)
+	}
+	for _, app := range vm.Applications {
+		if app.Product != normalized {
+			continue
+		}
+		if version != "" && app.Version != version {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+//nolint:gocritic // hugeParam: signature matches Store interface
 func (m *memStore) ListVirtualMachines(_ context.Context, filter VirtualMachineListFilter, limit int, _ string) ([]VirtualMachine, string, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
@@ -363,28 +446,57 @@ func (m *memStore) ListVirtualMachines(_ context.Context, filter VirtualMachineL
 		limit = 50
 	}
 	out := make([]VirtualMachine, 0, len(cloudFake.vms))
-	for _, vm := range cloudFake.vms {
-		if !filter.IncludeTerminated && vm.TerminatedAt != nil {
-			continue
+	for _, vm := range cloudFake.vms { //nolint:gocritic // rangeValCopy: test fake; copy is intentional
+		if vmMatchesFilter(vm, filter) {
+			out = append(out, vm)
 		}
-		if filter.CloudAccountID != nil && vm.CloudAccountID != *filter.CloudAccountID {
-			continue
-		}
-		if filter.Region != nil && (vm.Region == nil || *vm.Region != *filter.Region) {
-			continue
-		}
-		if filter.Role != nil && (vm.Role == nil || *vm.Role != *filter.Role) {
-			continue
-		}
-		if filter.PowerState != nil && vm.PowerState != *filter.PowerState {
-			continue
-		}
-		out = append(out, vm)
 	}
 	if len(out) > limit {
 		out = out[:limit]
 	}
 	return out, "", nil
+}
+
+//nolint:gocyclo // aggregates versions per product; complexity is inherent in the in-memory grouping
+func (m *memStore) ListDistinctVMApplications(_ context.Context) ([]VMApplicationDistinct, error) {
+	cloudFake.mu.Lock()
+	defer cloudFake.mu.Unlock()
+	versionsByProduct := make(map[string]map[string]struct{})
+	for _, vm := range cloudFake.vms { //nolint:gocritic // rangeValCopy: test fake; copy is intentional
+		if vm.TerminatedAt != nil {
+			continue
+		}
+		for _, app := range vm.Applications {
+			if app.Product == "" || app.Version == "" {
+				continue
+			}
+			if _, ok := versionsByProduct[app.Product]; !ok {
+				versionsByProduct[app.Product] = make(map[string]struct{})
+			}
+			versionsByProduct[app.Product][app.Version] = struct{}{}
+		}
+	}
+	out := make([]VMApplicationDistinct, 0, len(versionsByProduct))
+	for product, versionSet := range versionsByProduct {
+		versions := make([]string, 0, len(versionSet))
+		for v := range versionSet {
+			versions = append(versions, v)
+		}
+		// Sort versions to mirror PG behaviour.
+		for i := 1; i < len(versions); i++ {
+			for j := i; j > 0 && versions[j-1] > versions[j]; j-- {
+				versions[j-1], versions[j] = versions[j], versions[j-1]
+			}
+		}
+		out = append(out, VMApplicationDistinct{Product: product, Versions: versions})
+	}
+	// Sort by product to mirror PG behaviour.
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j-1].Product > out[j].Product; j-- {
+			out[j-1], out[j] = out[j], out[j-1]
+		}
+	}
+	return out, nil
 }
 
 func (m *memStore) UpdateVirtualMachine(_ context.Context, id uuid.UUID, in VirtualMachinePatch) (VirtualMachine, error) {
@@ -420,6 +532,12 @@ func (m *memStore) UpdateVirtualMachine(_ context.Context, id uuid.UUID, in Virt
 	}
 	if in.Annotations != nil {
 		vm.Annotations = *in.Annotations
+	}
+	if in.Applications != nil {
+		// Replace-not-merge: handler has already done the diff.
+		copyApps := make([]VMApplication, len(*in.Applications))
+		copy(copyApps, *in.Applications)
+		vm.Applications = copyApps
 	}
 	vm.UpdatedAt = time.Now().UTC()
 	cloudFake.vms[id] = vm

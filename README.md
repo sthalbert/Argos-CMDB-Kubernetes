@@ -24,6 +24,7 @@ A Configuration Management Database (CMDB) for Kubernetes environments, aligned 
 - **MCP server** -- Model Context Protocol interface exposing read-only CMDB tools for AI agents; SSE and stdio transports.
 - **DMZ ingest gateway** -- `argos-ingest-gw` reverse-proxy for collector push traffic behind a network perimeter; mTLS, hardcoded 18-route allowlist, 60 s token-verify cache (ADR-0016).
 - **Hardened public listener** -- native TLS 1.3 with hot cert reload, opt-in trusted-proxy header trust, trust-aware HSTS, secure session cookies, and a startup guard that refuses to ship credentials over plaintext (ADR-0017).
+- **VM application inventory and EOL enrichment** -- operators declare platform software running on each non-Kubernetes VM (Vault, BIND, Cyberwatch, …); the EOL enricher evaluates declared versions against endoflife.date and writes `argos.io/eol.<product>` annotations; the EOL dashboard surfaces VMs alongside clusters and nodes (ADR-0019).
 - **Helm chart per deployable binary** -- every Argos binary (`argosd`, `argos-ingest-gw`, `argos-collector`, `argos-vm-collector`) ships with a sibling chart under `charts/`. Independent versioning, shared hardening defaults (ADR-0018).
 - **Audit log** -- every state-changing call is recorded; passwords and tokens are scrubbed; `source` column distinguishes public-listener (`api`) from DMZ-gateway (`ingest_gw`) traffic.
 - **Embedded web UI** -- React SPA shipped inside the binary at `/ui/`.
@@ -69,6 +70,7 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 | [Authentication](docs/authentication.md) | Local users, OIDC, tokens, roles, sessions. |
 | [API Reference](docs/api-reference.md) | REST endpoints with curl examples. |
 | [EOL Enrichment](docs/eol-enrichment.md) | End-of-life inventory: setup, dashboard, annotation format. |
+| [VM Applications](docs/vm-applications.md) | Declare platform software on non-Kubernetes VMs; EOL enrichment and search filters for `applications`. |
 | [Impact Analysis](docs/impact-analysis.md) | Dependency graph: assess blast radius of a change. |
 | [MCP Server](docs/mcp-server.md) | Model Context Protocol server for AI agent integrations. |
 | [Monitoring](docs/monitoring.md) | Prometheus metrics, alerts, Grafana tips. |
@@ -119,6 +121,7 @@ Argos ships as **four binaries**: `argosd` (the central server with API, UI, Pos
 | [0016](docs/adr/adr-0016-dmz-ingest-gateway.md) | DMZ ingest gateway for collector push traffic — stateless reverse-proxy with mTLS, 18-route allowlist, and 60 s token-verify cache. |
 | [0017](docs/adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) | Public-listener TLS posture and proxy trust — native TLS / trusted-proxy switch, secure cookies, HSTS, transactional last-admin guard. |
 | [0018](docs/adr/adr-0018-helm-chart-per-deployable-binary.md) | Helm chart per deployable binary — every Argos binary ships with a sibling chart under `charts/`, independently versioned, sharing the hardening conventions of `charts/argos-ingest-gw`. |
+| [0019](docs/adr/adr-0019-vm-applications-and-eol-and-search.md) | VM applications inventory, EOL enrichment for platform software, and extended VM list search filters. |
 
 ## Contributing
 

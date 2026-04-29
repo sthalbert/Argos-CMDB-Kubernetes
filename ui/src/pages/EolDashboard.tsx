@@ -71,7 +71,7 @@ export const EolBadge = ({ status }: { status: EolStatus }) => (
 // --- Flat row for the table -----------------------------------------------
 
 interface EolRow {
-  entityType: 'cluster' | 'node';
+  entityType: 'cluster' | 'node' | 'vm';
   entityId: string;
   entityName: string;
   clusterName: string;
@@ -86,7 +86,11 @@ interface EolRow {
 
 const STATUS_ORDER: Record<string, number> = { eol: 0, approaching_eol: 1, supported: 2, unknown: 3 };
 
-function buildRows(clusters: api.Cluster[], nodes: api.Node[]): EolRow[] {
+function buildRows(
+  clusters: api.Cluster[],
+  nodes: api.Node[],
+  vms: api.VirtualMachine[],
+): EolRow[] {
   const clusterById = new Map(clusters.map((c) => [c.id, c]));
   const rows: EolRow[] = [];
 
@@ -116,6 +120,24 @@ function buildRows(clusters: api.Cluster[], nodes: api.Node[]): EolRow[] {
         entityId: node.id,
         entityName: node.name,
         clusterName: cluster ? cluster.display_name || cluster.name : node.cluster_id.slice(0, 8),
+        product: ann.product,
+        cycle: ann.cycle,
+        eolStatus: ann.eol_status,
+        eolDate: ann.eol,
+        latest: ann.latest,
+        latestAvailable: ann.latest_available,
+        checkedAt: ann.checked_at,
+      });
+    }
+  }
+
+  for (const vm of vms) {
+    for (const ann of parseEolAnnotations(vm.annotations)) {
+      rows.push({
+        entityType: 'vm',
+        entityId: vm.id,
+        entityName: vm.display_name || vm.name,
+        clusterName: '',
         product: ann.product,
         cycle: ann.cycle,
         eolStatus: ann.eol_status,
@@ -199,7 +221,7 @@ function SortHeader({
 
 export default function EolDashboard() {
   const state = useResources(
-    [() => api.listClusters(), () => api.listNodes()] as const,
+    [() => api.listClusters(), () => api.listNodes(), () => api.listVirtualMachines()] as const,
     [],
   );
   const [statusFilter, setStatusFilter] = useState<EolStatus | null>(null);
@@ -228,10 +250,11 @@ export default function EolDashboard() {
         Lifecycle status of inventoried software, enriched from endoflife.date.
       </p>
       <AsyncView state={state}>
-        {([clustersResp, nodesResp]) => (
+        {([clustersResp, nodesResp, vmsResp]) => (
           <EolTable
             clusters={clustersResp.items}
             nodes={nodesResp.items}
+            vms={vmsResp.items}
             statusFilter={statusFilter}
             sortKey={sortKey}
             sortAsc={sortAsc}
@@ -247,6 +270,7 @@ export default function EolDashboard() {
 function EolTable({
   clusters,
   nodes,
+  vms,
   statusFilter,
   sortKey,
   sortAsc,
@@ -255,13 +279,14 @@ function EolTable({
 }: {
   clusters: api.Cluster[];
   nodes: api.Node[];
+  vms: api.VirtualMachine[];
   statusFilter: EolStatus | null;
   sortKey: SortKey;
   sortAsc: boolean;
   onCardClick: (status: EolStatus) => void;
   onSort: (key: SortKey) => void;
 }) {
-  const allRows = useMemo(() => buildRows(clusters, nodes), [clusters, nodes]);
+  const allRows = useMemo(() => buildRows(clusters, nodes, vms), [clusters, nodes, vms]);
   const counts = useMemo(() => countStatuses(allRows), [allRows]);
 
   const filtered = useMemo(
@@ -347,14 +372,22 @@ function EolTable({
               </td>
               <td>{r.latest ? <code>{r.latest}</code> : <Dash />}</td>
               <td>
-                <Link to={`/${r.entityType === 'cluster' ? 'clusters' : 'nodes'}/${r.entityId}`}>
+                <Link
+                  to={`/${
+                    r.entityType === 'cluster'
+                      ? 'clusters'
+                      : r.entityType === 'vm'
+                      ? 'virtual-machines'
+                      : 'nodes'
+                  }/${r.entityId}`}
+                >
                   <strong>{r.entityName}</strong>
                 </Link>
                 <span className="muted" style={{ marginLeft: '0.4rem', fontSize: '0.8rem' }}>
                   {r.entityType}
                 </span>
               </td>
-              <td>{r.clusterName}</td>
+              <td>{r.clusterName || <Dash />}</td>
               <td className="eol-col-separator">{r.latestAvailable ? <code>{r.latestAvailable}</code> : <Dash />}</td>
               <td>{r.eolDate ? <code>{r.eolDate}</code> : <Dash />}</td>
               <td className="muted" style={{ fontSize: '0.8rem' }}>

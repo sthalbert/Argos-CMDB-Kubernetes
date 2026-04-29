@@ -2,6 +2,18 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from './api';
 
+// useDebouncedValue delays propagation of a fast-changing value (typed
+// search input) until it has been stable for `delayMs`. Used by list
+// pages to keep server-side filter requests cheap.
+export function useDebouncedValue<T>(value: T, delayMs: number = 300): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 // AsyncState is a tri-state discriminated union: loading / error / ready.
 // Pages switch on it instead of juggling three separate useState hooks.
 export type AsyncState<T> =

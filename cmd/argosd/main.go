@@ -456,6 +456,10 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleReconcileVirtualMachines(pg)))),
 	)
 	mux.Handle("GET /v1/virtual-machines", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListVirtualMachines(pg)))))
+	mux.Handle(
+		"GET /v1/virtual-machines/applications/distinct",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListDistinctVMApplications(pg)))),
+	)
 	mux.Handle("GET /v1/virtual-machines/{id}", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetVirtualMachine(pg)))))
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", requireScope(auth.ScopeDelete)(cloudAuth(auditWrap(api.HandleDeleteVirtualMachine(pg)))))

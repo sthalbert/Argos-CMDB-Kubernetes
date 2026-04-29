@@ -117,6 +117,35 @@ export default function VirtualMachines() {
   const [powerState, setPowerState] = useState<string>('');
   const [includeTerminated, setIncludeTerminated] = useState<boolean>(false);
   const [groupFilter, setGroupFilter] = useState<PowerStateGroup | null>(null);
+  // Free-text filters (ADR-0019). The *Input states track what the user
+  // has typed; the *Applied states are what the request actually carries.
+  // Submitting the form (button or Enter) copies typed → applied — that's
+  // what triggers a fresh server-side query.
+  const [nameInput, setNameInput] = useState<string>('');
+  const [imageInput, setImageInput] = useState<string>('');
+  const [appliedName, setAppliedName] = useState<string>('');
+  const [appliedImage, setAppliedImage] = useState<string>('');
+  const [application, setApplication] = useState<string>('');
+  // applicationVersion is only honoured server-side when application is
+  // also set (see api/cloud_types.go). The UI mirrors the same coupling:
+  // the dropdown is disabled until a product is selected, and changing
+  // the product resets the version to "any".
+  const [applicationVersion, setApplicationVersion] = useState<string>('');
+
+  const handleSearchSubmit = (e?: { preventDefault?: () => void }) => {
+    e?.preventDefault?.();
+    setAppliedName(nameInput.trim());
+    setAppliedImage(imageInput.trim());
+  };
+
+  const handleClearSearch = () => {
+    setNameInput('');
+    setImageInput('');
+    setAppliedName('');
+    setAppliedImage('');
+  };
+
+  const dirty = nameInput.trim() !== appliedName || imageInput.trim() !== appliedImage;
 
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortAsc, setSortAsc] = useState<boolean>(true);
@@ -138,6 +167,10 @@ export default function VirtualMachines() {
     region: region || undefined,
     power_state: powerState || undefined,
     include_terminated: includeTerminated,
+    name: appliedName || undefined,
+    image: appliedImage || undefined,
+    application: application || undefined,
+    application_version: application && applicationVersion ? applicationVersion : undefined,
   };
 
   // Cloud account dropdown is admin-only — viewers / editors can't list
@@ -147,9 +180,23 @@ export default function VirtualMachines() {
     [showAccountFilter],
   );
 
+  // Distinct applications list backs the application filter dropdown.
+  // Cheap (DISTINCT product over a JSONB array) and refreshed on each
+  // mount; the request fans out in parallel with listVirtualMachines.
+  const appsState = useResource(() => api.listDistinctVMApplications(), []);
+
   const vmsState = useResource(
     () => api.listVirtualMachines(filter),
-    [cloudAccountId, region, powerState, includeTerminated],
+    [
+      cloudAccountId,
+      region,
+      powerState,
+      includeTerminated,
+      appliedName,
+      appliedImage,
+      application,
+      applicationVersion,
+    ],
   );
 
   const splitRoles = (raw: string | null | undefined): string[] =>
@@ -326,6 +373,49 @@ export default function VirtualMachines() {
                     <option value="unknown">unknown</option>
                   </select>
                 </label>
+                <label>
+                  <span>Application</span>
+                  <select
+                    value={application}
+                    onChange={(e) => {
+                      setApplication(e.target.value);
+                      // Reset version when the product changes — the
+                      // option list belongs to the previous product.
+                      setApplicationVersion('');
+                    }}
+                    disabled={
+                      appsState.status !== 'ready' ||
+                      appsState.data.products.length === 0
+                    }
+                  >
+                    <option value="">Any</option>
+                    {appsState.status === 'ready' &&
+                      appsState.data.products.map((p) => (
+                        <option key={p.product} value={p.product}>
+                          {p.product}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label>
+                  <span>App version</span>
+                  <select
+                    value={applicationVersion}
+                    onChange={(e) => setApplicationVersion(e.target.value)}
+                    disabled={!application || appsState.status !== 'ready'}
+                  >
+                    <option value="">Any</option>
+                    {appsState.status === 'ready' &&
+                      application &&
+                      (appsState.data.products.find((p) => p.product === application)?.versions ?? []).map(
+                        (v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        ),
+                      )}
+                  </select>
+                </label>
                 <label className="vm-filter-checkbox">
                   <input
                     type="checkbox"
@@ -334,6 +424,48 @@ export default function VirtualMachines() {
                   />
                   <span>Include terminated</span>
                 </label>
+              </div>
+
+              <div className="vm-search">
+                <label>
+                  <span>Name</span>
+                  <input
+                    type="search"
+                    value={nameInput}
+                    placeholder="prefix or substring"
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSearchSubmit(e);
+                    }}
+                  />
+                </label>
+                <label>
+                  <span>Image</span>
+                  <input
+                    type="search"
+                    value={imageInput}
+                    placeholder="ami-… or name fragment"
+                    onChange={(e) => setImageInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSearchSubmit(e);
+                    }}
+                  />
+                </label>
+                <div className="vm-filter-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={handleSearchSubmit}
+                    disabled={!dirty && !appliedName && !appliedImage}
+                  >
+                    Search
+                  </button>
+                  {(appliedName || appliedImage || nameInput || imageInput) && (
+                    <button type="button" onClick={handleClearSearch}>
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
 
               {sorted.length === 0 ? (

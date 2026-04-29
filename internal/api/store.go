@@ -533,6 +533,12 @@ type Store interface {
 	// whose provider_vm_id is not in keep AND terminated_at IS NULL.
 	// Returns the count of rows tombstoned.
 	ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUID, keepProviderVMIDs []string) (tombstoned int64, err error)
+
+	// ListDistinctVMApplications returns the distinct products and, for
+	// each, the sorted list of distinct versions seen across every
+	// non-terminated VM's applications array. Drives the cascading
+	// product → version dropdown in the VM list UI (ADR-0019 §3).
+	ListDistinctVMApplications(ctx context.Context) ([]VMApplicationDistinct, error)
 }
 
 // UserIdentityInsert carries the federation tuple persisted on first

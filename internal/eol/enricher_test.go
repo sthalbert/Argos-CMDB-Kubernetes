@@ -19,6 +19,7 @@ type fakeStore struct {
 	mu         sync.Mutex
 	clusters   []api.Cluster
 	nodes      []api.Node
+	vms        []api.VirtualMachine
 	eolEnabled bool
 }
 
@@ -98,6 +99,45 @@ func (s *fakeStore) UpdateNode(_ context.Context, id uuid.UUID, in api.NodeUpdat
 		}
 	}
 	return api.Node{}, api.ErrNotFound
+}
+
+//nolint:gocritic // hugeParam: signature matches api.Store interface
+func (s *fakeStore) ListVirtualMachines(_ context.Context, _ api.VirtualMachineListFilter, _ int, _ string) ([]api.VirtualMachine, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make([]api.VirtualMachine, len(s.vms))
+	copy(cp, s.vms)
+	return cp, "", nil
+}
+
+func (s *fakeStore) GetVirtualMachine(_ context.Context, id uuid.UUID) (api.VirtualMachine, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.vms {
+		if s.vms[i].ID == id {
+			return s.vms[i], nil
+		}
+	}
+	return api.VirtualMachine{}, api.ErrNotFound
+}
+
+func (s *fakeStore) UpdateVirtualMachine(_ context.Context, id uuid.UUID, in api.VirtualMachinePatch) (api.VirtualMachine, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.vms {
+		if s.vms[i].ID == id {
+			if in.Annotations != nil {
+				s.vms[i].Annotations = *in.Annotations
+			}
+			if in.Applications != nil {
+				cp := make([]api.VMApplication, len(*in.Applications))
+				copy(cp, *in.Applications)
+				s.vms[i].Applications = cp
+			}
+			return s.vms[i], nil
+		}
+	}
+	return api.VirtualMachine{}, api.ErrNotFound
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -278,6 +318,129 @@ func TestEnricherPreservesExistingAnnotations(t *testing.T) {
 	}
 	if _, ok := (*ann)["argos.io/eol.kubernetes"]; !ok {
 		t.Error("eol annotation was not added")
+	}
+}
+
+// TestEnricherEnrichesVirtualMachineApplications covers the ADR-0019
+// pillar 2 path: operator-declared apps are looked up on endoflife.date
+// and surfaced as argos.io/eol.<product> annotations on the VM.
+func TestEnricherEnrichesVirtualMachineApplications(t *testing.T) { //nolint:gocyclo // end-to-end test asserting multiple vm annotation fields
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/vault.json":
+			serveCycles(w, []Cycle{
+				{Cycle: "1.15", EOL: "2025-09-30", Latest: "1.15.6"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	vmID := uuid.New()
+	customAnn := map[string]string{
+		"team":                  "platform",
+		"argos.io/eol.obsolete": `{"product":"obsolete","eol_status":"eol"}`,
+	}
+	vault := "vault-prod-01"
+	store := &fakeStore{
+		eolEnabled: true,
+		vms: []api.VirtualMachine{
+			{
+				ID:          vmID,
+				Name:        "vault-prod-01",
+				Annotations: customAnn,
+				Applications: []api.VMApplication{
+					{Product: "vault", Version: "1.15.4", Name: &vault},
+					{Product: "unknownproduct", Version: "1.0"},
+				},
+			},
+		},
+	}
+
+	client := NewClient(srv.URL, 1*time.Hour, srv.Client())
+	enricher := NewEnricher(store, client, 1*time.Hour, 90)
+
+	enricher.enrich(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	ann := store.vms[0].Annotations
+	if ann == nil {
+		t.Fatal("expected vm annotations to be set")
+	}
+	// Custom non-EOL annotations stay intact.
+	if ann["team"] != "platform" {
+		t.Error("team annotation was lost")
+	}
+	// Stale argos.io/eol.* annotations are removed (the obsolete one was
+	// not in the new applications list).
+	if _, ok := ann["argos.io/eol.obsolete"]; ok {
+		t.Error("stale argos.io/eol.obsolete should have been reaped")
+	}
+	// Vault gets a real lifecycle annotation.
+	raw, ok := ann["argos.io/eol.vault"]
+	if !ok {
+		t.Fatal("expected argos.io/eol.vault annotation")
+	}
+	var parsed Annotation
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		t.Fatalf("unmarshal vault annotation: %v", err)
+	}
+	if parsed.Product != "vault" || parsed.Cycle != "1.15" {
+		t.Errorf("vault annotation = %+v, want product=vault cycle=1.15", parsed)
+	}
+	// Unknown products produce stub annotations (auditors see the row was
+	// evaluated, rather than a silent drop).
+	stubRaw, ok := ann["argos.io/eol.unknownproduct"]
+	if !ok {
+		t.Fatal("expected stub argos.io/eol.unknownproduct annotation")
+	}
+	var stub Annotation
+	if err := json.Unmarshal([]byte(stubRaw), &stub); err != nil {
+		t.Fatalf("unmarshal stub annotation: %v", err)
+	}
+	if stub.EOLStatus != StatusUnknown {
+		t.Errorf("stub eol_status = %q, want %q", stub.EOLStatus, StatusUnknown)
+	}
+}
+
+// TestEnricherSkipsTerminatedVMs ensures soft-deleted VMs don't
+// accumulate annotation churn when the enricher ticks.
+func TestEnricherSkipsTerminatedVMs(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("endoflife.date should not be called for a terminated VM, got %s", r.URL.Path)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	terminatedAt := time.Now().UTC()
+	vmID := uuid.New()
+	store := &fakeStore{
+		eolEnabled: true,
+		vms: []api.VirtualMachine{
+			{
+				ID:           vmID,
+				Name:         "decommissioned",
+				TerminatedAt: &terminatedAt,
+				Applications: []api.VMApplication{{Product: "vault", Version: "1.15.4"}},
+			},
+		},
+	}
+
+	client := NewClient(srv.URL, 1*time.Hour, srv.Client())
+	enricher := NewEnricher(store, client, 1*time.Hour, 90)
+	enricher.enrich(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.vms[0].Annotations) != 0 {
+		t.Errorf("terminated VM should not be annotated, got %+v", store.vms[0].Annotations)
 	}
 }
 

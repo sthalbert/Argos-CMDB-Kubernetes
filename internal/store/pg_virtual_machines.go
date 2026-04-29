@@ -35,6 +35,7 @@ const vmColumns = `id, cloud_account_id,
 	block_devices, root_device_type, root_device_name,
 	tags, labels, annotations,
 	owner, criticality, notes, runbook_url,
+	applications,
 	created_at, updated_at, last_seen_at, terminated_at`
 
 // UpsertVirtualMachine inserts a new VM or updates the existing row
@@ -193,7 +194,7 @@ func (p *PG) GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMa
 
 // ListVirtualMachines returns paged VMs filtered by VirtualMachineListFilter.
 //
-//nolint:gocyclo // cursor-paginated query builder with optional filters
+//nolint:gocyclo,gocritic // gocyclo: cursor-paginated query builder with optional filters; gocritic/hugeParam: signature matches api.Store interface
 func (p *PG) ListVirtualMachines(
 	ctx context.Context,
 	filter api.VirtualMachineListFilter,
@@ -220,6 +221,13 @@ func (p *PG) ListVirtualMachines(
 		args = append(args, *filter.CloudAccountID)
 		conds = append(conds, fmt.Sprintf("cloud_account_id = $%d", len(args)))
 	}
+	if filter.CloudAccountName != nil {
+		// Inner subquery against the cloud_accounts UNIQUE (provider, name)
+		// index — O(1). Returns 0 rows if the account name doesn't exist,
+		// which collapses the outer query to empty without an error.
+		args = append(args, *filter.CloudAccountName)
+		conds = append(conds, fmt.Sprintf("cloud_account_id IN (SELECT id FROM cloud_accounts WHERE name = $%d)", len(args)))
+	}
 	if filter.Region != nil {
 		args = append(args, *filter.Region)
 		conds = append(conds, fmt.Sprintf("region = $%d", len(args)))
@@ -231,6 +239,44 @@ func (p *PG) ListVirtualMachines(
 	if filter.PowerState != nil {
 		args = append(args, *filter.PowerState)
 		conds = append(conds, fmt.Sprintf("power_state = $%d", len(args)))
+	}
+	if filter.Name != nil {
+		// Case-insensitive substring on LOWER(name), index-backed by
+		// virtual_machines_name_lower_idx for prefix queries; falls back
+		// to seq scan for full substring (acceptable for ≤ a few thousand
+		// VMs per typical SecNumCloud deployment). LIKE-escape applied
+		// so operator-pasted `%` / `_` is treated literally.
+		args = append(args, escapeLIKE(strings.ToLower(*filter.Name)))
+		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE '%%' || $%d || '%%' ESCAPE '\\'", len(args)))
+	}
+	if filter.Image != nil {
+		// Match across image_id (e.g. "ami-75374985") and image_name
+		// (e.g. "rocky-9.3-2024-08") — the operator may know either.
+		args = append(args, escapeLIKE(*filter.Image))
+		idx := len(args)
+		conds = append(conds, fmt.Sprintf(
+			"(image_id LIKE '%%' || $%d || '%%' ESCAPE '\\' OR LOWER(image_name) LIKE '%%' || LOWER($%d) || '%%' ESCAPE '\\')",
+			idx, idx,
+		))
+	}
+	if filter.Application != nil {
+		// JSONB containment via GIN jsonb_path_ops index on `applications`.
+		// Build the canonical containment fragment server-side from the
+		// normalized product name, so the client cannot inject arbitrary
+		// JSONB query operators. Use json.Marshal to escape any stray
+		// special characters in the normalized name (single quotes,
+		// backslashes, control chars) — even though NormalizeProductName
+		// already restricts the alphabet, defense in depth is cheap.
+		entry := map[string]string{"product": api.NormalizeProductName(*filter.Application)}
+		// ApplicationVersion narrows the match to a specific version when
+		// both fields are present. Honoured only with Application — the
+		// filter doesn't expose version-only search.
+		if filter.ApplicationVersion != nil {
+			entry["version"] = strings.TrimSpace(*filter.ApplicationVersion)
+		}
+		probe, _ := json.Marshal([]map[string]string{entry})
+		args = append(args, string(probe))
+		conds = append(conds, fmt.Sprintf("applications @> $%d::jsonb", len(args)))
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
@@ -314,6 +360,17 @@ func (p *PG) UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.Virt
 		}
 		appendSet("annotations", b)
 	}
+	if in.Applications != nil {
+		// Replace-not-merge semantics (ADR-0019 §4): the handler has
+		// already diffed the input against the stored list to preserve
+		// added_at / added_by where the (product, version, name) key
+		// matches. The store sees the final canonical list.
+		b, err := json.Marshal(*in.Applications)
+		if err != nil {
+			return api.VirtualMachine{}, fmt.Errorf("marshal vm applications: %w", err)
+		}
+		appendSet("applications", b)
+	}
 	if len(sets) == 0 {
 		return p.GetVirtualMachine(ctx, id)
 	}
@@ -389,6 +446,40 @@ func (p *PG) ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUID, 
 	return tag.RowsAffected(), nil
 }
 
+// ListDistinctVMApplications returns one row per distinct product, with
+// the sorted list of distinct versions seen for that product across every
+// non-terminated VM's applications array. Drives the cascading
+// product → version dropdown in the VM list UI (ADR-0019 §3).
+func (p *PG) ListDistinctVMApplications(ctx context.Context) ([]api.VMApplicationDistinct, error) {
+	const q = `
+		SELECT product, array_agg(DISTINCT version ORDER BY version) AS versions
+		FROM virtual_machines, jsonb_array_elements(applications) AS app,
+		     LATERAL (SELECT app->>'product' AS product, app->>'version' AS version) AS x
+		WHERE terminated_at IS NULL
+		  AND product IS NOT NULL AND product <> ''
+		  AND version IS NOT NULL AND version <> ''
+		GROUP BY product
+		ORDER BY product
+	`
+	rows, err := p.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("query distinct vm applications: %w", err)
+	}
+	defer rows.Close()
+	out := make([]api.VMApplicationDistinct, 0, 16)
+	for rows.Next() {
+		var entry api.VMApplicationDistinct
+		if err := rows.Scan(&entry.Product, &entry.Versions); err != nil {
+			return nil, fmt.Errorf("scan distinct vm application: %w", err)
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate distinct vm applications: %w", err)
+	}
+	return out, nil
+}
+
 // jsonOrEmptyArray returns the raw JSON if non-nil, else "[]".
 func jsonOrEmptyArray(b json.RawMessage) []byte {
 	if len(b) == 0 {
@@ -446,6 +537,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		criticality          sql.NullString
 		notes                sql.NullString
 		runbookURL           sql.NullString
+		applicationsJSON     []byte
 		terminatedAt         *time.Time
 	)
 	if err := row.Scan(
@@ -461,6 +553,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		&blockDevicesJSON, &rootDeviceType, &rootDeviceName,
 		&tagsJSON, &labelsJSON, &annotationsJSON,
 		&owner, &criticality, &notes, &runbookURL,
+		&applicationsJSON,
 		&out.CreatedAt, &out.UpdatedAt, &out.LastSeenAt, &terminatedAt,
 	); err != nil {
 		return api.VirtualMachine{}, fmt.Errorf("scan virtual machine: %w", err)
@@ -529,6 +622,16 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 	out.Criticality = nullableString(criticality)
 	out.Notes = nullableString(notes)
 	out.RunbookURL = nullableString(runbookURL)
+	out.Applications = []api.VMApplication{}
+	if len(applicationsJSON) > 0 {
+		var apps []api.VMApplication
+		if err := json.Unmarshal(applicationsJSON, &apps); err != nil {
+			return api.VirtualMachine{}, fmt.Errorf("unmarshal vm applications: %w", err)
+		}
+		if len(apps) > 0 {
+			out.Applications = apps
+		}
+	}
 	out.TerminatedAt = terminatedAt
 	return out, nil
 }
