@@ -24,6 +24,7 @@ A Configuration Management Database (CMDB) for Kubernetes environments, aligned 
 - **MCP server** -- Model Context Protocol interface exposing read-only CMDB tools for AI agents; SSE and stdio transports.
 - **DMZ ingest gateway** -- `argos-ingest-gw` reverse-proxy for collector push traffic behind a network perimeter; mTLS, hardcoded 18-route allowlist, 60 s token-verify cache (ADR-0016).
 - **Hardened public listener** -- native TLS 1.3 with hot cert reload, opt-in trusted-proxy header trust, trust-aware HSTS, secure session cookies, and a startup guard that refuses to ship credentials over plaintext (ADR-0017).
+- **Helm chart per deployable binary** -- every Argos binary (`argosd`, `argos-ingest-gw`, `argos-collector`, `argos-vm-collector`) ships with a sibling chart under `charts/`. Independent versioning, shared hardening defaults (ADR-0018).
 - **Audit log** -- every state-changing call is recorded; passwords and tokens are scrubbed; `source` column distinguishes public-listener (`api`) from DMZ-gateway (`ingest_gw`) traffic.
 - **Embedded web UI** -- React SPA shipped inside the binary at `/ui/`.
 
@@ -60,8 +61,8 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 | [Configuration](docs/configuration.md) | All environment variables for argosd and argos-collector. |
 | [Deploy with Helm](docs/deployment/helm.md) | One-command Kubernetes install with optional bundled PostgreSQL. |
 | [Deploy with Kustomize](docs/deployment/kubernetes.md) | Production deployment with plain manifests. |
-| [Push Collector](docs/deployment/push-collector.md) | Deploy argos-collector in air-gapped clusters. |
-| [VM Collector](docs/vm-collector.md) | Deploy argos-vm-collector to inventory non-Kubernetes platform VMs. |
+| [Push Collector](docs/deployment/push-collector.md) | Deploy argos-collector in air-gapped clusters (Helm or Kustomize). |
+| [VM Collector](docs/vm-collector.md) | Deploy argos-vm-collector to inventory non-Kubernetes platform VMs (Helm or Kustomize). |
 | [DMZ Ingest Gateway](docs/how-to-deploy-dmz-ingest-gateway.md) | Deploy argos-ingest-gw in a perimeter network to front collector push traffic (ADR-0016). |
 | [Cloud Accounts](docs/cloud-accounts.md) | Register cloud-provider accounts, manage AK/SK rotation, master key handling. |
 | [Docker (local dev)](docs/deployment/docker.md) | Run locally with Docker. |
@@ -75,7 +76,7 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 
 ## Architecture
 
-Argos ships as **three binaries**: `argosd` (the central server with API, UI, PostgreSQL store, and the in-process pull collectors), `argos-vm-collector` (a standalone push-mode binary that polls cloud-provider APIs for non-Kubernetes platform VMs and pushes observations to argosd), and `argos-ingest-gw` (the optional DMZ ingest gateway that fronts argosd's mTLS-only ingest listener for high-security deployments — ADR-0016). The same push-mode pattern powers `argos-collector` for air-gapped Kubernetes clusters.
+Argos ships as **four binaries**: `argosd` (the central server with API, UI, PostgreSQL store, and the in-process pull collectors), `argos-collector` (push-mode Kubernetes collector for air-gapped clusters), `argos-vm-collector` (push-mode cloud-VM collector for non-Kubernetes platform infrastructure), and `argos-ingest-gw` (the optional DMZ ingest gateway that fronts argosd's mTLS-only ingest listener for high-security deployments — ADR-0016). Each binary ships with its own first-class Helm chart under `charts/` (ADR-0018).
 
 ```
    Kubernetes cluster(s)        Air-gapped cluster        Cloud-provider account
@@ -117,6 +118,7 @@ Argos ships as **three binaries**: `argosd` (the central server with API, UI, Po
 | [0015](docs/adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) | VM collector for non-Kubernetes platform infrastructure (cloud_accounts + virtual_machines + standalone collector binary). |
 | [0016](docs/adr/adr-0016-dmz-ingest-gateway.md) | DMZ ingest gateway for collector push traffic — stateless reverse-proxy with mTLS, 18-route allowlist, and 60 s token-verify cache. |
 | [0017](docs/adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) | Public-listener TLS posture and proxy trust — native TLS / trusted-proxy switch, secure cookies, HSTS, transactional last-admin guard. |
+| [0018](docs/adr/adr-0018-helm-chart-per-deployable-binary.md) | Helm chart per deployable binary — every Argos binary ships with a sibling chart under `charts/`, independently versioned, sharing the hardening conventions of `charts/argos-ingest-gw`. |
 
 ## Contributing
 

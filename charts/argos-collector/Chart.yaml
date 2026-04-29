@@ -1,0 +1,26 @@
+apiVersion: v2
+name: argos-collector
+description: >-
+  Push-mode Kubernetes collector for the Argos CMDB (ADR-0009). Runs inside
+  air-gapped or DMZ-isolated clusters and pushes inventory observations to a
+  central argosd over HTTPS. One Helm release per source cluster. Ships
+  independently of the umbrella `argos` chart so the source-cluster release
+  contains only what belongs in that cluster.
+type: application
+version: 0.1.0
+appVersion: "0.11.1"
+home: https://github.com/sthalbert/Argos
+sources:
+  - https://github.com/sthalbert/Argos
+maintainers:
+  - name: Steve Albert
+    url: https://github.com/sthalbert
+keywords:
+  - argos
+  - cmdb
+  - kubernetes
+  - collector
+  - push
+  - airgap
+  - secnumcloud
+  - anssi

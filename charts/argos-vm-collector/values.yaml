@@ -1,0 +1,169 @@
+# Default values for argos-vm-collector — push-mode cloud-VM collector
+# (ADR-0015). One Helm release per cloud account; multi-account = N
+# releases.
+#
+# Required values that have no defensible default:
+#   - serverURL                       (argosd or DMZ-gateway URL)
+#   - account.name                    (cloud_accounts row name in argosd)
+#   - account.region                  (cloud-provider region the API targets)
+#   - tokenSecret.existingSecret      (operator-supplied vm-collector PAT)
+
+image:
+  repository: ghcr.io/sthalbert/argos-vm-collector
+  # tag defaults to .Chart.AppVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Conservative defaults — the VM collector is I/O-bound, polling a cloud
+# API and pushing to argosd. Tighten for large fleets, loosen for slow
+# cloud APIs.
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
+
+# ── Argosd / gateway endpoint ─────────────────────────────────────────
+# Required. Either argosd's public listener or the DMZ ingest gateway
+# (ADR-0016). HTTPS in any non-development setup.
+serverURL: ""
+
+# ── Cloud account ─────────────────────────────────────────────────────
+# Identifies the cloud_accounts row this collector services.
+account:
+  # Cloud provider — `outscale` is the only supported value today.
+  provider: outscale
+  # Required. Must match the `name` of an existing cloud_accounts row
+  # (or the row the collector will register on first contact per the
+  # hybrid-onboarding flow in ADR-0015 §6).
+  name: ""
+  # Required. Cloud-provider region the API targets, e.g. "eu-west-2"
+  # for Outscale.
+  region: ""
+  # Optional. Override the provider API endpoint (e.g. a private/VPC
+  # endpoint for air-gapped deployments). Leave empty for the SDK default.
+  providerEndpoint: ""
+
+# ── Authentication ────────────────────────────────────────────────────
+# Operator-supplied Secret carrying the vm-collector PAT. The chart
+# never generates tokens to keep plaintext PATs out of Helm release
+# state.
+#
+#   kubectl create secret generic argos-vm-collector-credentials \
+#     --namespace <ns> --from-literal=ARGOS_API_TOKEN=argos_pat_...
+tokenSecret:
+  existingSecret: ""
+  tokenKey: ARGOS_API_TOKEN
+
+# Collection cadence (ADR-0015 §IMP-003).
+# - interval: how often to list VMs from the cloud API.
+# - fetchTimeout: per-list-call deadline.
+# - reconcile=true: tombstone VMs that disappeared from the live listing
+#   (sets terminated_at / power_state='terminated'). Required for ANSSI
+#   cartography fidelity.
+# - credentialRefresh: re-fetch AK/SK from argosd on this cadence so an
+#   admin-rotated key takes effect without a redeploy.
+interval: 5m
+fetchTimeout: 30s
+reconcile: true
+credentialRefresh: 1h
+
+# ── mTLS to argosd / DMZ gateway ──────────────────────────────────────
+# Used together with serverURL pointing at the DMZ gateway (ADR-0016).
+# Leave existingSecret / caSecret empty to talk to argosd's public
+# listener over plain HTTPS.
+argosTLS:
+  # Kubernetes TLS Secret (kubernetes.io/tls) carrying tls.crt + tls.key.
+  existingSecret: ""
+  # ConfigMap or Secret carrying ca.crt. Used to verify argosd's or the
+  # gateway's server certificate when not signed by a public CA. Prefix
+  # the value with `configmap:` to mount a ConfigMap instead of a Secret.
+  caSecret: ""
+  caKey: ca.crt
+  # Comma-separated key=value list passed as ARGOS_EXTRA_HEADERS. Used by
+  # the DMZ gateway's X-Argos-* injection-defence wiring.
+  extraHeaders: ""
+
+# ── Outbound HTTP proxy ───────────────────────────────────────────────
+# Air-gap deployments often route outbound traffic through a proxy.
+proxy:
+  httpsProxy: ""
+  httpProxy: ""
+  noProxy: ""
+
+# ── Metrics ───────────────────────────────────────────────────────────
+# The vm-collector exposes Prometheus metrics on :9090. Defaults match
+# the binary; only override if you really need a non-standard port.
+metrics:
+  enabled: true
+  port: 9090
+  # Service is created when metrics.enabled=true so a ServiceMonitor or
+  # Prometheus scrape config can target the pod by service name.
+  service:
+    enabled: true
+    type: ClusterIP
+  # Prometheus Operator integration. Off by default — turn on when
+  # kube-prometheus-stack (or similar) is present.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+# ── Pod hardening ─────────────────────────────────────────────────────
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ── ServiceAccount ────────────────────────────────────────────────────
+# The vm-collector does not call the Kubernetes API — no ClusterRole is
+# required. The ServiceAccount exists only so the pod runs under a
+# dedicated identity (audit + future-proofing).
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ── NetworkPolicy ─────────────────────────────────────────────────────
+# Opt-in egress lock-down. Default off — most operators set up cluster
+# NetworkPolicies centrally rather than per-app.
+networkPolicy:
+  enabled: false
+  # CIDRs the collector is allowed to egress to (typically argosd or the
+  # DMZ gateway, plus the cloud-provider API). When empty, the chart
+  # leaves egress open to any IP — the policy still blocks ingress from
+  # anywhere except the metrics port (when metrics.enabled=true).
+  egressCIDRs: []
+
+# ── PodDisruptionBudget ───────────────────────────────────────────────
+# Only meaningful when replicaCount > 1. Default off.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# ── Pod-spec misc ─────────────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
