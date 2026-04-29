@@ -38,9 +38,69 @@ make docker-build-collector    # tags argos-collector:dev
 
 This produces a minimal static binary in a distroless image (`gcr.io/distroless/static-debian12:nonroot`, UID 65532). Transfer it to the air-gapped cluster's registry as needed.
 
-## Deploy with Kustomize
+## Deploy with Helm (recommended)
 
-Reference manifests live in `deploy/collector/`.
+Per ADR-0018, every Argos deployable ships with a Helm chart of its own. The collector chart lives at `charts/argos-collector` -- one Helm release per source cluster.
+
+### 1. Create the credentials Secret
+
+The chart never templates plaintext PATs into release state. Create the Secret out-of-band:
+
+```bash
+kubectl create namespace argos-collector
+kubectl create secret generic argos-collector-credentials \
+  --namespace argos-collector \
+  --from-literal=ARGOS_API_TOKEN="argos_pat_xxxxxxxx_yyyyyyyyyyyyyyyyyyyyyyyy"
+```
+
+### 2. Install the chart
+
+```bash
+helm install zad-prod charts/argos-collector \
+  --namespace argos-collector \
+  --set serverURL=https://argos.internal:8080 \
+  --set clusterName=zad-prod \
+  --set tokenSecret.existingSecret=argos-collector-credentials
+```
+
+The chart creates the ServiceAccount + ClusterRole (`list`-only on the eleven resource types the collector polls) + ClusterRoleBinding + Deployment automatically. Verify:
+
+```bash
+kubectl -n argos-collector rollout status deployment/zad-prod-argos-collector
+kubectl -n argos-collector logs deployment/zad-prod-argos-collector --tail=50
+```
+
+### 3. (Optional) Wire mTLS to a DMZ ingest gateway
+
+When pushing through `argos-ingest-gw` (ADR-0016), point `serverURL` at the gateway and supply the mTLS material:
+
+```bash
+helm upgrade zad-prod charts/argos-collector \
+  --namespace argos-collector \
+  --reuse-values \
+  --set serverURL=https://argos-gw.dmz.internal:8443 \
+  --set argosTLS.existingSecret=argos-collector-mtls \
+  --set argosTLS.caSecret=argos-gateway-ca \
+  --set argosTLS.extraHeaders="X-Argos-Tenant-Id=zad-prod"
+```
+
+### 4. (Optional) Lock down egress with NetworkPolicy
+
+```bash
+helm upgrade zad-prod charts/argos-collector \
+  --namespace argos-collector \
+  --reuse-values \
+  --set networkPolicy.enabled=true \
+  --set 'networkPolicy.egressCIDRs={10.96.0.0/12,10.0.5.0/24}'
+```
+
+The first CIDR must include the cluster's kube-API service range; the second points at argosd / the DMZ gateway. When `egressCIDRs` is set, the chart scopes the TCP/443 egress rule to those CIDRs only — leaving it empty falls back to "any 443" (the safe default for new releases).
+
+See `charts/argos-collector/values.yaml` for the full surface (proxy block, alternate kubeconfig source via Secret, PodDisruptionBudget, custom node selectors / tolerations / extra env / volumes).
+
+## Deploy with Kustomize (legacy)
+
+The reference Kustomize manifests under `deploy/collector/` remain available for operators who need raw YAML. They are positioned as a quick-start example, not the supported production path.
 
 ### 1. Create the credentials Secret
 

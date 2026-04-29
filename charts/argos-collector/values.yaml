@@ -1,0 +1,141 @@
+# Default values for argos-collector — the push-mode Kubernetes collector
+# (ADR-0009). One Helm release per source cluster.
+#
+# Required values that have no defensible default:
+#   - serverURL                       (argosd or DMZ-gateway URL)
+#   - clusterName                     (CMDB row name for this cluster)
+#   - tokenSecret.existingSecret      (operator-supplied PAT secret)
+
+image:
+  repository: ghcr.io/sthalbert/argos-collector
+  # tag defaults to .Chart.AppVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Conservative defaults — the collector is I/O-bound, not CPU-bound.
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
+
+# ── Argosd / gateway endpoint ─────────────────────────────────────────
+# Required. Either argosd's public listener or the DMZ ingest gateway's
+# inbound listener (ADR-0016). Use HTTPS in any non-development setup.
+serverURL: ""
+
+# CMDB row name for the cluster this collector ingests. Surfaces in the UI
+# and audit log. Required.
+clusterName: ""
+
+# ── Authentication ────────────────────────────────────────────────────
+# Operator-supplied Secret carrying the PAT. The chart never generates
+# tokens to keep plaintext PATs out of Helm release state.
+#
+#   kubectl create secret generic argos-collector-credentials \
+#     --namespace <ns> --from-literal=ARGOS_API_TOKEN=argos_pat_...
+tokenSecret:
+  existingSecret: ""
+  tokenKey: ARGOS_API_TOKEN
+
+# ── Kubernetes API access ─────────────────────────────────────────────
+# in-cluster (default): use the projected ServiceAccount token; the chart
+# creates the ServiceAccount + ClusterRole + ClusterRoleBinding.
+# secret: mount a kubeconfig from a Secret (cross-cluster collection,
+# operator brings their own kubeconfig).
+kubeconfig:
+  mode: in-cluster      # in-cluster | secret
+  existingSecret: ""    # required when mode=secret; key must be `kubeconfig`
+  mountPath: /etc/argos-collector/kubeconfig
+
+# Collection cadence. ADR-0005 / ADR-0009. Reconcile=true is required for
+# ANSSI cartography fidelity (deletes rows that disappeared from the live
+# listing) — only flip to false if you have a reason.
+interval: 5m
+fetchTimeout: 30s
+reconcile: true
+
+# ── mTLS to argosd / DMZ gateway ──────────────────────────────────────
+# Used together with serverURL pointing at the DMZ gateway (ADR-0016).
+# Leave existingSecret / caSecret empty to talk to argosd's public listener
+# over plain HTTPS.
+argosTLS:
+  # Kubernetes TLS Secret (kubernetes.io/tls) carrying tls.crt + tls.key.
+  existingSecret: ""
+  # ConfigMap or Secret carrying ca.crt. Used to verify argosd's or the
+  # gateway's server certificate when not signed by a public CA.
+  caSecret: ""
+  caKey: ca.crt
+  # Comma-separated key=value list passed as ARGOS_EXTRA_HEADERS. Used by
+  # the DMZ gateway's X-Argos-* injection-defence wiring.
+  extraHeaders: ""
+
+# ── Outbound HTTP proxy ───────────────────────────────────────────────
+# Air-gap deployments often route outbound traffic through a proxy.
+proxy:
+  httpsProxy: ""
+  httpProxy: ""
+  noProxy: ""
+
+# ── Pod hardening ─────────────────────────────────────────────────────
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ── ServiceAccount + RBAC ─────────────────────────────────────────────
+# Default: chart creates the SA and the read-only ClusterRole binding.
+# Set rbac.create=false when the cluster manages RBAC out-of-band.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  # When true, install the ClusterRole + ClusterRoleBinding.
+  create: true
+  # Override the ClusterRole/Binding name; defaults to the chart fullname.
+  clusterRoleName: ""
+
+# ── NetworkPolicy ─────────────────────────────────────────────────────
+# Opt-in egress lock-down. Default off — most operators set up cluster
+# NetworkPolicies centrally rather than per-app.
+networkPolicy:
+  enabled: false
+  # CIDRs the collector is allowed to egress to (typically argosd or the
+  # DMZ gateway, plus DNS). When empty, the chart leaves egress open to
+  # any IP — the policy still blocks ingress from anywhere except the
+  # kube-apiserver health-check probes.
+  egressCIDRs: []
+
+# ── PodDisruptionBudget ───────────────────────────────────────────────
+# Only meaningful when replicaCount > 1. Default off.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# ── Pod-spec misc ─────────────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""

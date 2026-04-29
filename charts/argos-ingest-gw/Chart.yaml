@@ -8,8 +8,8 @@ description: >-
   trusted zone. Ships independently of the umbrella `argos` chart so the
   DMZ release contains only what should be in the DMZ.
 type: application
-version: 0.1.0
-appVersion: "0.11.0"
+version: 0.1.1
+appVersion: "0.11.1"
 home: https://github.com/sthalbert/Argos
 sources:
   - https://github.com/sthalbert/Argos

@@ -80,9 +80,72 @@ There is **no `ARGOS_AK` or `ARGOS_SK` env var**. AK/SK live exclusively in argo
 
 ## Deployment recipes
 
-### Kubernetes (Kustomize)
+### Kubernetes (Helm — recommended)
 
-Reference manifests live in `deploy/vm-collector/`.
+Per ADR-0018, the VM collector ships with a first-class Helm chart at `charts/argos-vm-collector`. One Helm release per cloud account.
+
+```sh
+# 1. Mint the collector PAT in the Argos UI (Admin > Cloud Accounts > Issue collector token).
+# 2. Stash it in a Kubernetes Secret out-of-band — the chart never templates plaintext PATs.
+kubectl create namespace argos-vm-collector
+kubectl -n argos-vm-collector create secret generic argos-vm-collector-credentials \
+  --from-literal=ARGOS_API_TOKEN='argos_pat_3f9c1e7a_5N2pKdQ...'
+
+# 3. Install the chart.
+helm install acme-prod charts/argos-vm-collector \
+  --namespace argos-vm-collector \
+  --set serverURL=https://argos.internal:8080 \
+  --set account.name=acme-prod \
+  --set account.region=eu-west-2 \
+  --set tokenSecret.existingSecret=argos-vm-collector-credentials
+
+# 4. Watch the logs.
+kubectl -n argos-vm-collector rollout status deployment/acme-prod-argos-vm-collector
+kubectl -n argos-vm-collector logs deployment/acme-prod-argos-vm-collector -f
+```
+
+The chart wires the standard hardening defaults (UID 65532, `runAsNonRoot:true`, `readOnlyRootFilesystem`, drop ALL capabilities, seccomp `RuntimeDefault`) and disables `automountServiceAccountToken` — the collector never calls the Kubernetes API. `ARGOS_VM_COLLECTOR_METRICS_ADDR` is automatically set to `0.0.0.0:9090` so the metrics Service / ServiceMonitor can scrape it.
+
+Multi-account = N releases — one per cloud account. The chart is intentionally scoped narrow.
+
+#### Optional: ServiceMonitor for Prometheus Operator
+
+```sh
+helm upgrade acme-prod charts/argos-vm-collector \
+  --namespace argos-vm-collector \
+  --reuse-values \
+  --set metrics.serviceMonitor.enabled=true
+```
+
+#### Optional: mTLS to a DMZ ingest gateway
+
+```sh
+helm upgrade acme-prod charts/argos-vm-collector \
+  --namespace argos-vm-collector \
+  --reuse-values \
+  --set serverURL=https://argos-gw.dmz.internal:8443 \
+  --set argosTLS.existingSecret=argos-vm-collector-mtls \
+  --set argosTLS.caSecret=argos-gateway-ca \
+  --set argosTLS.extraHeaders="X-Argos-Tenant-Id=acme-prod"
+```
+
+#### Optional: NetworkPolicy lockdown
+
+```sh
+helm upgrade acme-prod charts/argos-vm-collector \
+  --namespace argos-vm-collector \
+  --reuse-values \
+  --set networkPolicy.enabled=true \
+  --set 'networkPolicy.egressCIDRs={10.0.5.0/24,52.47.0.0/16}'
+```
+
+The first CIDR points at argosd / the DMZ gateway, the second at the cloud-provider API. When `egressCIDRs` is empty the policy falls back to "any 443" (safe default for new releases).
+
+See `charts/argos-vm-collector/values.yaml` for the full surface.
+
+### Kubernetes (Kustomize — legacy)
+
+Reference manifests live in `deploy/vm-collector/`. Positioned as a quick-start example, not the supported production path — Helm is the recommended deployment surface (ADR-0018).
 
 ```sh
 # 1. Mint the collector PAT in the Argos UI (Admin > Cloud Accounts > Issue collector token).

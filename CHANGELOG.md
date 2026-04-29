@@ -6,6 +6,66 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.11.2] — 2026-04-29
+
+Charts-only release. `appVersion` stays at `0.11.1` — no binary changed —
+but every Argos deployable now ships with a first-class Helm chart per
+ADR-0018. Two new charts join the family: `charts/argos-collector` (the
+push-mode Kubernetes collector for air-gapped clusters) and
+`charts/argos-vm-collector` (the cloud-VM collector). The reference
+Kustomize manifests under `deploy/` are demoted to "examples / first
+contact" — Helm is now the supported deployment path for every binary.
+
+### Added
+
+- **`charts/argos-collector`** — independent chart for the push-mode K8s
+  collector (ADR-0009). One Helm release per source cluster. Surfaces
+  `serverURL`, `clusterName`, operator-supplied `tokenSecret.existingSecret`,
+  `kubeconfig.{mode=in-cluster|secret}`, polling cadence, mTLS-to-DMZ-gateway
+  block, outbound proxy block, opt-in NetworkPolicy + PodDisruptionBudget,
+  and the standard hardening defaults (UID 65532, `runAsNonRoot:true`,
+  `readOnlyRootFilesystem`, drop ALL capabilities, seccomp `RuntimeDefault`).
+  ClusterRole is genuinely minimal: `list` only, on the eleven resource
+  types the collector polls.
+- **`charts/argos-vm-collector`** — independent chart for the cloud-VM
+  collector (ADR-0015). One Helm release per cloud account. Surfaces the
+  same operator-supplied PAT pattern, `account.{provider, name, region}`,
+  the credential-refresh cadence, mTLS + proxy blocks, optional Service
+  + ServiceMonitor for Prometheus scraping of `:9090/metrics`, and opt-in
+  NetworkPolicy + PodDisruptionBudget. Creates no ClusterRole — the
+  vm-collector never calls the Kubernetes API.
+- **`docs/adr/adr-0018-helm-chart-per-deployable-binary.md`** — records
+  the chart-per-binary policy: every deployable Argos binary ships with a
+  Helm chart of its own, sibling to (not subchart of) `charts/argos`.
+  Independent chart versions, shared layout / labelling / hardening
+  conventions copied from `charts/argos-ingest-gw`.
+
+### Security
+
+- **`automountServiceAccountToken` is gated** in both new charts. The
+  `argos-vm-collector` pod hardcodes it to `false` (no K8s API access
+  needed); `argos-collector` ties it to `kubeconfig.mode == in-cluster`
+  so the `kubeconfig.mode=secret` path doesn't gratuitously expose the
+  projected SA token.
+- **NetworkPolicy egress is scoped** when `networkPolicy.egressCIDRs` is
+  set. Previously the unrestricted "any 443" rule sat alongside the
+  CIDR-list rule, defeating the lockdown; now the 443 rule is suppressed
+  when CIDRs are supplied and the egress is restricted to the listed
+  ranges only.
+
+### Migration
+
+No DB migration. Operationally:
+
+- Existing `deploy/collector/` and `deploy/vm-collector/` Kustomize
+  manifests still work — they're now positioned as quick-start examples,
+  not the supported production path. The Helm charts replace them as the
+  recommended deployment surface and make air-gap, mTLS-to-DMZ-gateway,
+  and one-release-per-cluster topologies first-class.
+- Operators on Kustomize can migrate at their own pace: `helm template`
+  the new chart, diff against the existing manifest set, and adopt
+  release by release.
+
 ## [0.11.1] — 2026-04-29
 
 Helm chart 0.14.0 / appVersion 0.11.1. Hardening release driven by the
@@ -56,10 +116,13 @@ the public-listener TLS posture and proxy-trust contract introduced here.
   client-IP / IsHTTPS helpers (`ParseTrustedCIDRs`, `ClientIP`, `IsHTTPS`).
   All previously-duplicated XFF parsing routes through it; downstream
   code is single-sourced.
-- **`internal/tlsutil`** — extracted `CertReloader` from `internal/ingestgw`
-  so both the public and ingest listeners share the same fsnotify-driven
-  hot-reload path. Both listeners now use the same loader, the same parse
-  guards, and the same atomic-rename support.
+- **Public-listener cert hot-reload** — `cmd/argosd/main.go:newCertReloader`
+  reloads the public listener's cert + key on every TLS handshake when the
+  on-disk file mtime advances (compatible with cert-manager rotations,
+  Vault Agent atomic renames, and manual file writes). Sibling to the
+  fsnotify-driven `internal/ingestgw/tls_reload.go` used by the DMZ
+  gateway; the two listeners use mechanism-appropriate reload paths
+  rather than a shared package.
 - **Helm chart `argosd.tls` block** — `existingSecret` references a
   `kubernetes.io/tls` Secret; the chart mounts it at
   `/etc/argos/tls` and wires `ARGOS_PUBLIC_LISTEN_TLS_CERT/_KEY`
