@@ -185,8 +185,8 @@ func newTestEnv(t *testing.T) *testEnv {
 	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
 		BaseRouter: mux,
 		Middlewares: []api.MiddlewareFunc{
-			api.AuthMiddleware(pg, auth.SecureNever),
-			api.AuditMiddleware(pg, "api"),
+			api.AuthMiddleware(pg, auth.SecureNever, nil),
+			api.AuditMiddleware(pg, "api", nil),
 		},
 	})
 

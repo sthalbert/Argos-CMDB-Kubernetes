@@ -80,6 +80,7 @@ func TestFindCycle(t *testing.T) {
 		c := FindCycle(cycles, "1.28")
 		if c == nil {
 			t.Fatal("expected cycle 1.28 to be found")
+			return
 		}
 		if c.Latest != "1.28.15" {
 			t.Errorf("latest = %q, want 1.28.15", c.Latest)

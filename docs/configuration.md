@@ -25,7 +25,21 @@ The main daemon that serves the REST API, web UI, and optionally runs the pull-m
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARGOS_SESSION_SECURE_COOKIE` | no | `auto` | Controls the `Secure` flag on the session cookie. Values: `auto` (mirror the request scheme -- HTTPS sets Secure), `always`, or `never`. Use `never` only for local HTTP development. |
+| `ARGOS_SESSION_SECURE_COOKIE` | no | `auto` | Controls the `Secure` flag on the session cookie. Values: `auto` (resolve from the trust-aware request scheme — see `ARGOS_TRUSTED_PROXIES`), `always`, or `never`. Pin to `always` when fronted by a TLS-terminating proxy so cookies never travel over plaintext. Use `never` only for local HTTP development. |
+
+### Public-listener TLS posture (ADR-0017)
+
+argosd supports two postures for the public listener; pick exactly one
+and configure the matching variables. `ARGOS_REQUIRE_HTTPS=true` makes
+the daemon refuse to start unless one of the two is fully configured —
+failing closed beats accidentally serving credentials over plain HTTP.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ARGOS_PUBLIC_LISTEN_TLS_CERT` | for native TLS | -- | Path to a PEM-encoded TLS certificate. When set with `ARGOS_PUBLIC_LISTEN_TLS_KEY`, argosd terminates TLS itself (TLS 1.3 floor, session tickets disabled). The keypair is reloaded on the next TLS handshake whenever the cert file's mtime changes — covers cert-manager rotations, Vault Agent atomic-rename, and manual rewrites. |
+| `ARGOS_PUBLIC_LISTEN_TLS_KEY` | for native TLS | -- | Path to the matching PEM-encoded private key. Must be readable by the argosd process (UID 65532 in the distroless image). |
+| `ARGOS_TRUSTED_PROXIES` | for trusted-proxy posture | (empty = none) | Comma-separated CIDR list of TLS-terminating proxies whose `X-Forwarded-For` and `X-Forwarded-Proto` argosd will honor. Empty = ignore both headers entirely (the secure default). Example: `10.0.0.0/8,172.16.0.0/12`. Set this when running behind ingress-nginx, Envoy, a cloud LB, or any other TLS-terminating proxy so audit logs, rate-limit buckets, and the Secure-cookie check see the real client transport instead of the proxy's. |
+| `ARGOS_REQUIRE_HTTPS` | no | `false` | When `true`, argosd refuses to start unless either `ARGOS_PUBLIC_LISTEN_TLS_CERT` + `_KEY` are set (native TLS) OR `ARGOS_TRUSTED_PROXIES` is non-empty AND `ARGOS_SESSION_SECURE_COOKIE=always` (trusted-proxy posture). Also force-emits `Strict-Transport-Security` so browsers refuse plaintext fallback. |
 
 ### OIDC (optional)
 

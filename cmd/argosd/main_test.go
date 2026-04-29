@@ -2,10 +2,12 @@ package main
 
 import (
 	"errors"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/sthalbert/argos/internal/auth"
+	"github.com/sthalbert/argos/internal/httputil"
 )
 
 func TestLoadCollectorClustersJSONPrecedence(t *testing.T) {
@@ -133,6 +135,11 @@ func setMinimalRunEnv(t *testing.T) {
 	t.Setenv("ARGOS_AUTO_MIGRATE", "")
 	t.Setenv("ARGOS_ADDR", "")
 	t.Setenv("ARGOS_OIDC_ISSUER", "")
+	// ADR-0017 — public-listener TLS posture and proxy trust.
+	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_CERT", "")
+	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_KEY", "")
+	t.Setenv("ARGOS_TRUSTED_PROXIES", "")
+	t.Setenv("ARGOS_REQUIRE_HTTPS", "")
 }
 
 func TestLoadRunConfig_Defaults(t *testing.T) {
@@ -422,5 +429,240 @@ func TestParseBoolEnv(t *testing.T) {
 	_, err = parseBoolEnv("B", false)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0017 — public listener TLS posture and proxy trust
+// ---------------------------------------------------------------------------
+
+// mustParseProxies is a test helper that turns a comma-separated CIDR list
+// into the parsed slice the runConfig carries; on parse failure it fails
+// the test rather than returning an error.
+//
+//nolint:unparam // generic helper; callers pass the same value today but new tests may not
+func mustParseProxies(t *testing.T, csv string) []*net.IPNet {
+	t.Helper()
+	out, err := httputil.ParseTrustedProxies(csv)
+	if err != nil {
+		t.Fatalf("ParseTrustedProxies(%q): %v", csv, err)
+	}
+	return out
+}
+
+func TestCheckTransportPosture_DisabledByDefault(t *testing.T) {
+	// requireHTTPS=false is the default; nothing should be enforced.
+	cfg := runConfig{
+		requireHTTPS:   false,
+		publicTLSCert:  "",
+		publicTLSKey:   "",
+		trustedProxies: nil,
+		cookiePolicy:   auth.SecureAuto,
+	}
+	if err := checkTransportPosture(&cfg); err != nil {
+		t.Fatalf("requireHTTPS=false must accept any transport posture, got %v", err)
+	}
+}
+
+func TestCheckTransportPosture_NativeTLSAccepted(t *testing.T) {
+	// Native TLS configured — branch (a) of ADR-0017 §3.
+	cfg := runConfig{
+		requireHTTPS:  true,
+		publicTLSCert: "/tls/tls.crt",
+		publicTLSKey:  "/tls/tls.key",
+		cookiePolicy:  auth.SecureAuto,
+	}
+	if err := checkTransportPosture(&cfg); err != nil {
+		t.Fatalf("native TLS must satisfy the guard, got %v", err)
+	}
+}
+
+func TestCheckTransportPosture_TrustedProxiesPlusSecureAlwaysAccepted(t *testing.T) {
+	// Branch (b): operator runs argosd behind a TLS-terminating ingress
+	// in the trust list AND has set the cookie policy to always-secure.
+	cfg := runConfig{
+		requireHTTPS:   true,
+		trustedProxies: mustParseProxies(t, "10.0.0.0/8"),
+		cookiePolicy:   auth.SecureAlways,
+	}
+	if err := checkTransportPosture(&cfg); err != nil {
+		t.Fatalf("trusted proxies + SecureAlways must satisfy the guard, got %v", err)
+	}
+}
+
+func TestCheckTransportPosture_NoTLSNoProxiesRefused(t *testing.T) {
+	// The pentest topology: requireHTTPS asked for, nothing configured.
+	cfg := runConfig{
+		requireHTTPS: true,
+		cookiePolicy: auth.SecureAuto,
+	}
+	err := checkTransportPosture(&cfg)
+	if !errors.Is(err, errTransportPostureRefused) {
+		t.Fatalf("want errTransportPostureRefused, got %v", err)
+	}
+}
+
+func TestCheckTransportPosture_TrustedProxiesButCookieAutoRefused(t *testing.T) {
+	// Trusted proxies alone are not enough — without SecureAlways, a
+	// downgrade attack on XFP could strip the Secure flag from cookies.
+	cfg := runConfig{
+		requireHTTPS:   true,
+		trustedProxies: mustParseProxies(t, "10.0.0.0/8"),
+		cookiePolicy:   auth.SecureAuto,
+	}
+	err := checkTransportPosture(&cfg)
+	if !errors.Is(err, errTransportPostureRefused) {
+		t.Fatalf("trusted proxies + SecureAuto must NOT satisfy the guard, got %v", err)
+	}
+}
+
+func TestCheckTransportPosture_TrustedProxiesButCookieNeverRefused(t *testing.T) {
+	cfg := runConfig{
+		requireHTTPS:   true,
+		trustedProxies: mustParseProxies(t, "10.0.0.0/8"),
+		cookiePolicy:   auth.SecureNever,
+	}
+	err := checkTransportPosture(&cfg)
+	if !errors.Is(err, errTransportPostureRefused) {
+		t.Fatalf("trusted proxies + SecureNever must NOT satisfy the guard, got %v", err)
+	}
+}
+
+func TestCheckTransportPosture_OnlyCertNoKeyRefused(t *testing.T) {
+	cfg := runConfig{
+		requireHTTPS:  true,
+		publicTLSCert: "/tls/tls.crt",
+		publicTLSKey:  "",
+		cookiePolicy:  auth.SecureAuto,
+	}
+	err := checkTransportPosture(&cfg)
+	if !errors.Is(err, errTransportPostureRefused) {
+		t.Fatalf("cert without key must NOT satisfy the guard, got %v", err)
+	}
+}
+
+func TestCheckTransportPosture_OnlyKeyNoCertRefused(t *testing.T) {
+	cfg := runConfig{
+		requireHTTPS:  true,
+		publicTLSCert: "",
+		publicTLSKey:  "/tls/tls.key",
+		cookiePolicy:  auth.SecureAuto,
+	}
+	err := checkTransportPosture(&cfg)
+	if !errors.Is(err, errTransportPostureRefused) {
+		t.Fatalf("key without cert must NOT satisfy the guard, got %v", err)
+	}
+}
+
+func TestCheckTransportPosture_NativeTLSWinsOverProxyBranch(t *testing.T) {
+	// When both branches are partially set, native TLS alone is enough —
+	// no need for the cookie-policy check on this branch.
+	cfg := runConfig{
+		requireHTTPS:   true,
+		publicTLSCert:  "/tls/tls.crt",
+		publicTLSKey:   "/tls/tls.key",
+		trustedProxies: mustParseProxies(t, "10.0.0.0/8"),
+		cookiePolicy:   auth.SecureAuto,
+	}
+	if err := checkTransportPosture(&cfg); err != nil {
+		t.Fatalf("native TLS branch is independently sufficient, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// loadRunConfig parsing of ADR-0017 env vars
+// ---------------------------------------------------------------------------
+
+func TestLoadRunConfig_PublicTLSPaths(t *testing.T) {
+	setMinimalRunEnv(t)
+	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_CERT", "/tls/tls.crt")
+	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_KEY", "/tls/tls.key")
+
+	cfg, err := loadRunConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.publicTLSCert != "/tls/tls.crt" {
+		t.Errorf("publicTLSCert: got %q", cfg.publicTLSCert)
+	}
+	if cfg.publicTLSKey != "/tls/tls.key" {
+		t.Errorf("publicTLSKey: got %q", cfg.publicTLSKey)
+	}
+}
+
+func TestLoadRunConfig_TrustedProxiesParsed(t *testing.T) {
+	setMinimalRunEnv(t)
+	t.Setenv("ARGOS_TRUSTED_PROXIES", "10.0.0.0/8, 192.168.0.0/16")
+
+	cfg, err := loadRunConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.trustedProxies) != 2 {
+		t.Fatalf("trustedProxies: want 2, got %d", len(cfg.trustedProxies))
+	}
+}
+
+func TestLoadRunConfig_TrustedProxiesInvalidCIDR(t *testing.T) {
+	setMinimalRunEnv(t)
+	t.Setenv("ARGOS_TRUSTED_PROXIES", "not-a-cidr")
+
+	if _, err := loadRunConfig(); err == nil {
+		t.Fatal("expected error on invalid CIDR")
+	}
+}
+
+func TestLoadRunConfig_RequireHTTPSDefaultFalse(t *testing.T) {
+	setMinimalRunEnv(t)
+
+	cfg, err := loadRunConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.requireHTTPS {
+		t.Error("requireHTTPS: want default false")
+	}
+}
+
+func TestLoadRunConfig_RequireHTTPSGuardRefuses(t *testing.T) {
+	// requireHTTPS=true with no other transport config — the pentest
+	// reproducer; loadRunConfig must refuse before the daemon starts.
+	setMinimalRunEnv(t)
+	t.Setenv("ARGOS_REQUIRE_HTTPS", "true")
+
+	_, err := loadRunConfig()
+	if !errors.Is(err, errTransportPostureRefused) {
+		t.Fatalf("want errTransportPostureRefused, got %v", err)
+	}
+}
+
+func TestLoadRunConfig_RequireHTTPSAcceptsNativeTLS(t *testing.T) {
+	setMinimalRunEnv(t)
+	t.Setenv("ARGOS_REQUIRE_HTTPS", "true")
+	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_CERT", "/tls/tls.crt")
+	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_KEY", "/tls/tls.key")
+
+	if _, err := loadRunConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadRunConfig_RequireHTTPSAcceptsProxiesPlusSecureAlways(t *testing.T) {
+	setMinimalRunEnv(t)
+	t.Setenv("ARGOS_REQUIRE_HTTPS", "true")
+	t.Setenv("ARGOS_TRUSTED_PROXIES", "10.0.0.0/8")
+	t.Setenv("ARGOS_SESSION_SECURE_COOKIE", "always")
+
+	if _, err := loadRunConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadRunConfig_InvalidRequireHTTPS(t *testing.T) {
+	setMinimalRunEnv(t)
+	t.Setenv("ARGOS_REQUIRE_HTTPS", "nope")
+
+	if _, err := loadRunConfig(); err == nil {
+		t.Fatal("expected error on invalid ARGOS_REQUIRE_HTTPS")
 	}
 }

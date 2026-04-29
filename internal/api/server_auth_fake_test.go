@@ -160,6 +160,12 @@ func (m *memStore) ListUsers(_ context.Context, limit int, _ string) ([]User, st
 func (m *memStore) UpdateUser(_ context.Context, id uuid.UUID, in UserPatch) (User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.updateUserLocked(id, in)
+}
+
+// updateUserLocked is the inner body of UpdateUser, callable while m.mu
+// is already held by a higher-level transactional method.
+func (m *memStore) updateUserLocked(id uuid.UUID, in UserPatch) (User, error) {
 	u, ok := m.authState.users[id]
 	if !ok {
 		return User{}, ErrNotFound
@@ -229,6 +235,12 @@ func (m *memStore) TouchUserLogin(_ context.Context, id uuid.UUID, now time.Time
 func (m *memStore) DeleteUser(_ context.Context, id uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.deleteUserLocked(id)
+}
+
+// deleteUserLocked is the inner body of DeleteUser, callable while m.mu
+// is already held by a higher-level transactional method.
+func (m *memStore) deleteUserLocked(id uuid.UUID) error {
 	u, ok := m.authState.users[id]
 	if !ok {
 		return ErrNotFound
@@ -248,6 +260,64 @@ func (m *memStore) DeleteUser(_ context.Context, id uuid.UUID) error {
 		}
 	}
 	return nil
+}
+
+// UpdateUserGuarded mirrors the PG implementation's transactional
+// semantics: count + check + update happen under one mutex acquisition
+// so two concurrent demotions cannot both observe `n=2` and commit.
+//
+//nolint:gocyclo // guarded count + write under one lock is inherently branchy
+func (m *memStore) UpdateUserGuarded(_ context.Context, id uuid.UUID, in UserPatch) (User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	target, ok := m.authState.users[id]
+	if !ok {
+		return User{}, ErrNotFound
+	}
+	demoting := in.Role != nil && *in.Role != auth.RoleAdmin
+	disabling := in.Disabled != nil && *in.Disabled
+	if (demoting || disabling) && target.Role == Role(auth.RoleAdmin) && target.DisabledAt == nil {
+		others := 0
+		for otherID, u := range m.authState.users {
+			if otherID == id {
+				continue
+			}
+			if u.Role == Role(auth.RoleAdmin) && u.DisabledAt == nil {
+				others++
+			}
+		}
+		if others == 0 {
+			return User{}, ErrLastAdmin
+		}
+	}
+	return m.updateUserLocked(id, in)
+}
+
+// DeleteUserGuarded mirrors UpdateUserGuarded for the delete path.
+func (m *memStore) DeleteUserGuarded(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	target, ok := m.authState.users[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if target.Role == Role(auth.RoleAdmin) && target.DisabledAt == nil {
+		others := 0
+		for otherID, u := range m.authState.users {
+			if otherID == id {
+				continue
+			}
+			if u.Role == Role(auth.RoleAdmin) && u.DisabledAt == nil {
+				others++
+			}
+		}
+		if others == 0 {
+			return ErrLastAdmin
+		}
+	}
+	return m.deleteUserLocked(id)
 }
 
 func (m *memStore) CreateSession(_ context.Context, in SessionInsert) error { //nolint:gocritic // interface-mandated signature

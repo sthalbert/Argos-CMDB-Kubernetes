@@ -6,6 +6,104 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.11.1] — 2026-04-29
+
+Helm chart 0.14.0 / appVersion 0.11.1. Hardening release driven by the
+2026-04-28 penetration test. Closes three P0 findings — plaintext-HTTP
+credential transit (AUTH-VULN-01/02/03), forgeable `X-Forwarded-For`
+rate-limit bypass (AUTH-VULN-04), and admin-account orphaning via the
+admin-user lifecycle endpoints (AUTHZ-VULN-01/02). New ADR-0017 documents
+the public-listener TLS posture and proxy-trust contract introduced here.
+
+### Security
+
+- **Native TLS termination on the public listener** (ADR-0017 §4) —
+  argosd can now serve HTTPS directly when `ARGOS_PUBLIC_LISTEN_TLS_CERT`
+  and `ARGOS_PUBLIC_LISTEN_TLS_KEY` are set. Cert + key are loaded at
+  startup, hot-reloaded via fsnotify on file change (works with cert-manager,
+  Vault Agent atomic-rename, manual file writes), and pinned to TLS 1.3 with
+  session tickets disabled. Refuses to start on parse error rather than
+  falling through to plain HTTP.
+- **Trust-aware Secure cookie + HSTS + client IP resolution** (ADR-0017 §5)
+  — `X-Forwarded-For` and `X-Forwarded-Proto` are honored only when the
+  immediate TCP peer's IP falls inside `ARGOS_TRUSTED_PROXIES` (a
+  comma-separated CIDR list). Empty list = ignore both headers entirely
+  (the secure default). Fixes AUTH-VULN-04: a remote client sending
+  `X-Forwarded-For: <victim-ip>` could previously bypass per-IP rate
+  limits on `/v1/auth/login`. Fixes AUTH-VULN-02: the session cookie's
+  `Secure` flag now reflects the resolved transport, not a forgeable
+  XFP header. Fixes AUTH-VULN-03: HSTS is emitted only over a verified
+  HTTPS request, with a force-emit override for operators declaring the
+  full deployment HTTPS-only.
+- **Startup posture guard** (ADR-0017 §7) — `ARGOS_REQUIRE_HTTPS=true`
+  refuses to boot unless either native TLS is configured (cert + key
+  present) or both `ARGOS_TRUSTED_PROXIES` is non-empty AND
+  `ARGOS_SESSION_SECURE_COOKIE=always`. Fails closed: "warn and serve
+  plain HTTP" is not an option once the operator has declared the
+  deployment HTTPS-only.
+- **Last-admin invariant guard on `DELETE /v1/admin/users/{id}` and
+  `PATCH /v1/admin/users/{id}`** (AUTHZ-VULN-01/-02) — both endpoints
+  now refuse with `409 Conflict` when the operation would leave the
+  deployment with zero active admins. The check + write run in a single
+  PostgreSQL transaction with `SELECT … FOR UPDATE` on the active-admin
+  set, closing the TOCTOU race two concurrent demotions could otherwise
+  exploit. New `Store.UpdateUserGuarded` and `Store.DeleteUserGuarded`
+  methods plus a new `api.ErrLastAdmin` sentinel.
+
+### Added
+
+- **`internal/httputil`** — small package centralising the trust-aware
+  client-IP / IsHTTPS helpers (`ParseTrustedCIDRs`, `ClientIP`, `IsHTTPS`).
+  All previously-duplicated XFF parsing routes through it; downstream
+  code is single-sourced.
+- **`internal/tlsutil`** — extracted `CertReloader` from `internal/ingestgw`
+  so both the public and ingest listeners share the same fsnotify-driven
+  hot-reload path. Both listeners now use the same loader, the same parse
+  guards, and the same atomic-rename support.
+- **Helm chart `argosd.tls` block** — `existingSecret` references a
+  `kubernetes.io/tls` Secret; the chart mounts it at
+  `/etc/argos/tls` and wires `ARGOS_PUBLIC_LISTEN_TLS_CERT/_KEY`
+  automatically.
+- **Helm chart `argosd.trustedProxies` and `argosd.requireHTTPS`** —
+  surface the new env vars so operators don't have to reach for
+  `extraEnv:` overrides.
+- **OpenAPI: `409 Conflict` on `PATCH /v1/admin/users/{id}`** —
+  documents the last-admin guard so generated clients render the
+  conflict correctly. The DELETE endpoint already declared 409.
+
+### Changed
+
+- **`api.AuthMiddleware` signature** — gains a `trustedProxies []*net.IPNet`
+  parameter; callers must update. Pass nil to ignore proxy headers
+  (the secure default).
+- **`api.AuditMiddleware` signature** — gains a `trustedProxies []*net.IPNet`
+  parameter so audit-event source IPs reflect the trust-aware client IP,
+  not the immediate proxy peer.
+- **`auth.Middleware` signature** — gains a `trustedProxies []*net.IPNet`
+  parameter, threaded through to the cookie helpers
+  (`SessionCookie`, `SetSessionCookie`, `ClearSessionCookie`).
+
+### Migration
+
+No DB migration. Two operational changes:
+
+1. **If you run argosd behind a TLS-terminating reverse proxy** (the
+   common pattern: ingress-nginx, Envoy, a cloud LB), set
+   `ARGOS_TRUSTED_PROXIES` to the proxy's CIDR(s) and pin
+   `ARGOS_SESSION_SECURE_COOKIE=always`. Without trust, the upgrade
+   silently downgrades cookie security and rate-limit accuracy — the
+   defaults are the safest possible state, not the most useful.
+
+2. **If you want HSTS / require HTTPS**, set `ARGOS_REQUIRE_HTTPS=true`.
+   The pod will refuse to start unless one of the two postures (native
+   TLS or trusted-proxy + SecureAlways) is present — failing closed
+   beats accidentally serving credentials over plain HTTP.
+
+`charts/argos` upgrades transparently with the existing values: the new
+`argosd.tls`, `argosd.trustedProxies`, `argosd.requireHTTPS` keys all
+default to empty / false, so existing releases are unaffected until the
+operator opts in.
+
 ## [0.11.0] — 2026-04-28
 
 Helm chart 0.13.0 / appVersion 0.11.0. Adds the DMZ ingest gateway track

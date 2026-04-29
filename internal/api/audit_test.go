@@ -131,7 +131,7 @@ func TestAuditMiddlewareRecordsWriteWithCaller(t *testing.T) { //nolint:gocyclo 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	})
-	mw := AuditMiddleware(m, "api")(inner)
+	mw := AuditMiddleware(m, "api", nil)(inner)
 
 	body := []byte(`{"name":"prod","password":"hunter2"}`)
 	r, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/admin/users", bytes.NewReader(body))
@@ -186,7 +186,7 @@ func TestAuditMiddlewareSkipsNonAdminReads(t *testing.T) {
 	t.Parallel()
 	m := newMemStore()
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
-	mw := AuditMiddleware(m, "api")(inner)
+	mw := AuditMiddleware(m, "api", nil)(inner)
 	r, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/clusters", http.NoBody)
 	mw.ServeHTTP(httptest.NewRecorder(), r)
 	if len(m.authState.auditEvents) != 0 {

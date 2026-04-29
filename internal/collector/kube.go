@@ -178,7 +178,6 @@ func (k *KubeClient) ListNodes(ctx context.Context) ([]NodeInfo, error) {
 		// distributions — keep reading it; empty string is fine when the
 		// cluster omits it. staticcheck flags the access, so suppress it
 		// locally rather than drop a field that classical distributions still surface.
-		//nolint:staticcheck // SA1019 — deprecated but still relevant for classic clusters.
 		kubeProxyVersion := n.Status.NodeInfo.KubeProxyVersion
 
 		info := NodeInfo{

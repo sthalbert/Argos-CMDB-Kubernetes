@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -258,11 +259,11 @@ var ErrUnauthorized = errors.New("unauthorized")
 // pass through untouched.
 //
 // `policy` governs the Secure flag on Set-Cookie rewrites (on expiry
-// refresh + logout). Pass it to the Clear helpers; this middleware
-// itself only refreshes, via a fresh Set-Cookie when it touches a
-// session, to keep the browser's Max-Age in step with the DB's
-// expires_at.
-func Middleware(store Store, policy SecureCookiePolicy) func(http.Handler) http.Handler {
+// refresh + logout). `trustedProxies` is consulted only when the policy
+// is SecureAuto: it gates whether X-Forwarded-Proto is honored when
+// deciding the Secure flag, per ADR-0017. Pass nil to ignore XFP
+// unconditionally — the secure default.
+func Middleware(store Store, policy SecureCookiePolicy, trustedProxies []*net.IPNet) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			required, authed := requiredScopes(r.Context())
@@ -272,7 +273,7 @@ func Middleware(store Store, policy SecureCookiePolicy) func(http.Handler) http.
 				return
 			}
 
-			caller, err := resolve(r, store, policy, w)
+			caller, err := resolve(r, store, policy, trustedProxies, w)
 			if err != nil {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="argos"`)
 				writeProblemJSON(w, http.StatusUnauthorized, "Unauthorized", "missing or invalid credentials")
@@ -325,8 +326,8 @@ func requiredScopes(ctx context.Context) ([]string, bool) {
 	return cookie, true
 }
 
-func resolve(r *http.Request, store Store, policy SecureCookiePolicy, w http.ResponseWriter) (*Caller, error) {
-	if caller, err := tryCookie(r, store, policy, w); err == nil {
+func resolve(r *http.Request, store Store, policy SecureCookiePolicy, trustedProxies []*net.IPNet, w http.ResponseWriter) (*Caller, error) {
+	if caller, err := tryCookie(r, store, policy, trustedProxies, w); err == nil {
 		return caller, nil
 	} else if !errors.Is(err, http.ErrNoCookie) {
 		return nil, err
@@ -334,7 +335,7 @@ func resolve(r *http.Request, store Store, policy SecureCookiePolicy, w http.Res
 	return tryBearer(r, store)
 }
 
-func tryCookie(r *http.Request, store Store, policy SecureCookiePolicy, w http.ResponseWriter) (*Caller, error) {
+func tryCookie(r *http.Request, store Store, policy SecureCookiePolicy, trustedProxies []*net.IPNet, w http.ResponseWriter) (*Caller, error) {
 	ck, err := r.Cookie(SessionCookieName)
 	if err != nil {
 		return nil, fmt.Errorf("read session cookie: %w", err)
@@ -347,17 +348,17 @@ func tryCookie(r *http.Request, store Store, policy SecureCookiePolicy, w http.R
 	if err != nil {
 		// Revoked / expired / unknown session → clear the cookie so the
 		// browser stops sending it every request.
-		ClearSessionCookie(w, r, policy)
+		ClearSessionCookie(w, r, policy, trustedProxies)
 		return nil, fmt.Errorf("get active session: %w", err)
 	}
 
 	user, err := store.GetUserForAuth(r.Context(), sess.UserID)
 	if err != nil {
-		ClearSessionCookie(w, r, policy)
+		ClearSessionCookie(w, r, policy, trustedProxies)
 		return nil, fmt.Errorf("get user for auth: %w", err)
 	}
 	if user.Disabled {
-		ClearSessionCookie(w, r, policy)
+		ClearSessionCookie(w, r, policy, trustedProxies)
 		return nil, ErrUnauthorized
 	}
 
@@ -366,7 +367,7 @@ func tryCookie(r *http.Request, store Store, policy SecureCookiePolicy, w http.R
 	// Best-effort refresh — if the UPDATE fails, the request still
 	// succeeds; we just won't have slid the expiry this tick.
 	_ = store.TouchSession(r.Context(), sess.ID, now, newExpiry)
-	SetSessionCookie(w, r, sess.ID, newExpiry, policy)
+	SetSessionCookie(w, r, sess.ID, newExpiry, policy, trustedProxies)
 
 	return &Caller{
 		Kind:               CallerKindUser,

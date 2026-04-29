@@ -221,14 +221,14 @@ func (s *Server) OidcCallback(ctx context.Context, request OidcCallbackRequestOb
 		CreatedAt: now,
 		ExpiresAt: expires,
 		UserAgent: r.UserAgent(),
-		SourceIP:  clientIP(r),
+		SourceIP:  s.clientIP(r),
 	}); err != nil {
 		return oidcCallbackErrorRedirect{code: "session_create_failed"}, nil //nolint:nilerr // redirect conveys the error to the user
 	}
 	_ = s.store.TouchUserLogin(ctx, *user.Id, now)
 	_ = s.store.TouchUserIdentity(ctx, *user.Id, claims.Issuer, claims.Sub, now)
 
-	cookie := auth.SessionCookie(sid, expires, r, s.cookiePolicy)
+	cookie := auth.SessionCookie(sid, expires, r, s.cookiePolicy, s.trustedProxies)
 	return oidcCallback302WithCookie{
 		location: "/ui/",
 		cookie:   cookie,
@@ -364,7 +364,7 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 
 	r := httpRequestFromCtx(ctx)
 
-	if !s.loginLimiter.Allow(clientIP(r)) {
+	if !s.loginLimiter.Allow(s.clientIP(r)) {
 		return Login429ApplicationProblemPlusJSONResponse(
 			Problem{Type: "about:blank", Title: "Too Many Requests", Status: 429},
 		), nil
@@ -398,13 +398,13 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		CreatedAt: now,
 		ExpiresAt: expires,
 		UserAgent: r.UserAgent(),
-		SourceIP:  clientIP(r),
+		SourceIP:  s.clientIP(r),
 	}); err != nil {
 		return nil, fmt.Errorf("login create session: %w", err)
 	}
 	_ = s.store.TouchUserLogin(ctx, *user.Id, now)
 
-	cookie := auth.SessionCookie(sid, expires, r, s.cookiePolicy)
+	cookie := auth.SessionCookie(sid, expires, r, s.cookiePolicy, s.trustedProxies)
 	return Login204Response{
 		Headers: Login204ResponseHeaders{
 			SetCookie: cookie.String(),
@@ -423,7 +423,7 @@ func (s *Server) Logout(ctx context.Context, _ LogoutRequestObject) (LogoutRespo
 		}
 	}
 	r := httpRequestFromCtx(ctx)
-	cookie := auth.ClearSessionCookieValue(r, s.cookiePolicy)
+	cookie := auth.ClearSessionCookieValue(r, s.cookiePolicy, s.trustedProxies)
 	return logout204WithCookie{cookie: cookie}, nil
 }
 
@@ -499,7 +499,7 @@ func (s *Server) ChangePassword(ctx context.Context, request ChangePasswordReque
 	// ours. Clear the cookie so the browser drops it and the UI
 	// redirects back to login.
 	r := httpRequestFromCtx(ctx)
-	cookie := auth.ClearSessionCookieValue(r, s.cookiePolicy)
+	cookie := auth.ClearSessionCookieValue(r, s.cookiePolicy, s.trustedProxies)
 	return changePassword204WithCookie{cookie: cookie}, nil
 }
 
@@ -527,7 +527,7 @@ func (s *Server) VerifyToken(ctx context.Context, request VerifyTokenRequestObje
 	}
 	if s.verifyLimiter != nil {
 		r := httpRequestFromCtx(ctx)
-		if !s.verifyLimiter.Allow(clientIP(r)) {
+		if !s.verifyLimiter.Allow(s.clientIP(r)) {
 			// Use the same generic detail string as the invalid-token
 			// path: a token-probing attacker must not be able to
 			// distinguish "you hit my rate limit" from "your guess
@@ -648,7 +648,12 @@ func (s *Server) GetUser(ctx context.Context, request GetUserRequestObject) (Get
 	return GetUser200JSONResponse(u), nil
 }
 
-// UpdateUser applies a merge-patch to an existing user.
+// UpdateUser applies a merge-patch to an existing user. The last-admin
+// invariant (AUTHZ-VULN-02 / audit finding H1) is enforced atomically
+// inside the store via UpdateUserGuarded so two concurrent demotions
+// cannot both observe `n=2` and commit.
+//
+//nolint:gocyclo // complexity is idiomatic Go error-handling branches; no logic can be removed without losing clarity
 func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error) {
 	body := request.Body
 
@@ -665,6 +670,7 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 		}
 		patch.Role = &r
 	}
+
 	// Password updates go through SetUserPassword so the hash stays out
 	// of UserPatch (and so we can force must_change_password atomically).
 	if body.Password != nil {
@@ -687,8 +693,16 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 		}
 	}
 
-	u, err := s.store.UpdateUser(ctx, request.Id, patch)
+	u, err := s.store.UpdateUserGuarded(ctx, request.Id, patch)
 	if err != nil {
+		if errors.Is(err, ErrLastAdmin) {
+			detail := "cannot demote or disable the only remaining active admin"
+			return UpdateUser409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(Problem{
+					Type: "about:blank", Title: "Last admin", Status: 409, Detail: &detail,
+				}),
+			}, nil
+		}
 		if errors.Is(err, ErrNotFound) {
 			return UpdateUser404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
@@ -699,7 +713,10 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 	return UpdateUser200JSONResponse(u), nil
 }
 
-// DeleteUser removes a user, guarding against self-deletion.
+// DeleteUser removes a user, guarding against self-deletion and against
+// orphaning the deployment by removing the last active admin (AUTHZ-VULN-01).
+// The last-admin check + delete is run atomically inside the store via
+// DeleteUserGuarded — see audit finding H1 for the TOCTOU rationale.
 func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject) (DeleteUserResponseObject, error) {
 	// Guard against an admin deleting themselves mid-session —
 	// re-admitting the break-glass admin path gets awkward. Requires
@@ -714,7 +731,23 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 			}),
 		}, nil
 	}
-	if err := s.store.DeleteUser(ctx, request.Id); err != nil {
+	if err := s.store.DeleteUserGuarded(ctx, request.Id); err != nil {
+		if errors.Is(err, ErrLastAdmin) {
+			detail := "cannot delete the only remaining active admin"
+			return DeleteUser409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(Problem{
+					Type: "about:blank", Title: "Last admin", Status: 409, Detail: &detail,
+				}),
+			}, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			detail := "user owns active API tokens — revoke them first"
+			return DeleteUser409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse(Problem{
+					Type: "about:blank", Title: "Conflict", Status: 409, Detail: &detail,
+				}),
+			}, nil
+		}
 		if errors.Is(err, ErrNotFound) {
 			return DeleteUser404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
@@ -920,21 +953,4 @@ func paging(limit *Limit, cursor *Cursor) (limitVal int, cursorVal string) {
 		c = *cursor
 	}
 	return l, c
-}
-
-// clientIP picks a best-effort source IP: X-Forwarded-For's first hop
-// if present (reverse-proxy deployments), else r.RemoteAddr. Stored
-// for admin session review; not used in any authz decision.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	// Strip port.
-	if i := strings.LastIndexByte(r.RemoteAddr, ':'); i >= 0 {
-		return r.RemoteAddr[:i]
-	}
-	return r.RemoteAddr
 }

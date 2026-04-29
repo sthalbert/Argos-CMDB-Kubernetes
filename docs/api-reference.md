@@ -383,8 +383,13 @@ All admin endpoints require the `admin` scope.
 | GET | `/v1/admin/users` | List users (paginated). |
 | POST | `/v1/admin/users` | Create a user. |
 | GET | `/v1/admin/users/{id}` | Get a user. |
-| PATCH | `/v1/admin/users/{id}` | Update role, password, or disabled state. |
-| DELETE | `/v1/admin/users/{id}` | Delete a user. |
+| PATCH | `/v1/admin/users/{id}` | Update role, password, or disabled state. Returns `409 Conflict` if the patch would demote (`role != admin`) or disable the only remaining active admin. |
+| DELETE | `/v1/admin/users/{id}` | Delete a user. Returns `409 Conflict` when the caller targets themselves, when the user owns active API tokens, or when the target is the only remaining active admin. |
+
+Both PATCH and DELETE enforce the last-admin invariant atomically inside
+a single PostgreSQL transaction — two simultaneous demotion / disable /
+delete requests on different admins will serialize and the second to
+commit will receive `409` rather than orphaning the deployment.
 
 **Create a user:**
 

@@ -23,6 +23,7 @@ A Configuration Management Database (CMDB) for Kubernetes environments, aligned 
 - **Impact analysis graph** -- interactive dependency diagram on every entity page; assess blast radius before a change.
 - **MCP server** -- Model Context Protocol interface exposing read-only CMDB tools for AI agents; SSE and stdio transports.
 - **DMZ ingest gateway** -- `argos-ingest-gw` reverse-proxy for collector push traffic behind a network perimeter; mTLS, hardcoded 18-route allowlist, 60 s token-verify cache (ADR-0016).
+- **Hardened public listener** -- native TLS 1.3 with hot cert reload, opt-in trusted-proxy header trust, trust-aware HSTS, secure session cookies, and a startup guard that refuses to ship credentials over plaintext (ADR-0017).
 - **Audit log** -- every state-changing call is recorded; passwords and tokens are scrubbed; `source` column distinguishes public-listener (`api`) from DMZ-gateway (`ingest_gw`) traffic.
 - **Embedded web UI** -- React SPA shipped inside the binary at `/ui/`.
 
@@ -115,6 +116,7 @@ Argos ships as **three binaries**: `argosd` (the central server with API, UI, Po
 | [0014](docs/adr/adr-0014-mcp-server.md) | MCP server for AI agent access to the CMDB. |
 | [0015](docs/adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) | VM collector for non-Kubernetes platform infrastructure (cloud_accounts + virtual_machines + standalone collector binary). |
 | [0016](docs/adr/adr-0016-dmz-ingest-gateway.md) | DMZ ingest gateway for collector push traffic — stateless reverse-proxy with mTLS, 18-route allowlist, and 60 s token-verify cache. |
+| [0017](docs/adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) | Public-listener TLS posture and proxy trust — native TLS / trusted-proxy switch, secure cookies, HSTS, transactional last-admin guard. |
 
 ## Contributing
 

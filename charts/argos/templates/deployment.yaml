@@ -56,6 +56,20 @@ spec:
               value: {{ .Values.argosd.shutdownTimeout | quote }}
             - name: ARGOS_SESSION_SECURE_COOKIE
               value: {{ .Values.argosd.sessionSecureCookie | quote }}
+            {{- if .Values.argosd.tls.existingSecret }}
+            - name: ARGOS_PUBLIC_LISTEN_TLS_CERT
+              value: {{ printf "%s/tls.crt" .Values.argosd.tls.mountPath | quote }}
+            - name: ARGOS_PUBLIC_LISTEN_TLS_KEY
+              value: {{ printf "%s/tls.key" .Values.argosd.tls.mountPath | quote }}
+            {{- end }}
+            {{- if .Values.argosd.trustedProxies }}
+            - name: ARGOS_TRUSTED_PROXIES
+              value: {{ .Values.argosd.trustedProxies | quote }}
+            {{- end }}
+            {{- if .Values.argosd.requireHTTPS }}
+            - name: ARGOS_REQUIRE_HTTPS
+              value: "true"
+            {{- end }}
             {{- if .Values.collector.enabled }}
             - name: ARGOS_COLLECTOR_ENABLED
               value: "true"
@@ -108,17 +122,31 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-          {{- if .Values.collector.kubeconfigSecret }}
+          {{- if or .Values.collector.kubeconfigSecret .Values.argosd.tls.existingSecret }}
           volumeMounts:
+            {{- if .Values.collector.kubeconfigSecret }}
             - name: kubeconfigs
               mountPath: /etc/argos/kubeconfigs
               readOnly: true
+            {{- end }}
+            {{- if .Values.argosd.tls.existingSecret }}
+            - name: tls
+              mountPath: {{ .Values.argosd.tls.mountPath }}
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- if .Values.collector.kubeconfigSecret }}
+      {{- if or .Values.collector.kubeconfigSecret .Values.argosd.tls.existingSecret }}
       volumes:
+        {{- if .Values.collector.kubeconfigSecret }}
         - name: kubeconfigs
           secret:
             secretName: {{ .Values.collector.kubeconfigSecret }}
+        {{- end }}
+        {{- if .Values.argosd.tls.existingSecret }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.argosd.tls.existingSecret }}
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

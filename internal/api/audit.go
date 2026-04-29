@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/argos/internal/auth"
+	"github.com/sthalbert/argos/internal/httputil"
 )
 
 // AuditRecorder is the narrow slice of Store the middleware needs.
@@ -70,7 +72,13 @@ func SetAuditDetails(ctx context.Context, details map[string]any) {
 // fronted by the DMZ gateway (ADR-0016). The label is passed through to
 // audit_events.source so operators can answer "what came through the
 // DMZ" with a single WHERE clause.
-func AuditMiddleware(recorder AuditRecorder, source string) MiddlewareFunc {
+//
+// `trustedProxies` is the operator-supplied CIDR list (ADR-0017 §2)
+// whose X-Forwarded-For headers we honor when resolving the SourceIP for
+// the audit row. Pass nil to ignore XFF unconditionally — the secure
+// default and what tests should use unless they're specifically
+// exercising proxy-trust behavior.
+func AuditMiddleware(recorder AuditRecorder, source string, trustedProxies []*net.IPNet) MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !shouldAudit(r) {
@@ -96,7 +104,7 @@ func AuditMiddleware(recorder AuditRecorder, source string) MiddlewareFunc {
 			rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r)
 
-			ev := buildAuditEvent(r, rw.status, bodySnap)
+			ev := buildAuditEvent(r, rw.status, bodySnap, trustedProxies)
 			ev.Source = source
 			// Merge handler-injected details (e.g., cascade snapshot).
 			if bag.details != nil {
@@ -138,8 +146,12 @@ func shouldAudit(r *http.Request) bool {
 		strings.HasSuffix(r.URL.Path, "/credentials")
 }
 
-func buildAuditEvent(r *http.Request, status int, bodySnap []byte) AuditEventInsert {
+func buildAuditEvent(r *http.Request, status int, bodySnap []byte, trustedProxies []*net.IPNet) AuditEventInsert {
 	caller := auth.CallerFromContext(r.Context())
+	sourceIP := ""
+	if ip := httputil.ClientIP(r, trustedProxies); ip != nil {
+		sourceIP = ip.String()
+	}
 	ev := AuditEventInsert{
 		ID:         uuid.New(),
 		OccurredAt: time.Now().UTC(),
@@ -148,7 +160,7 @@ func buildAuditEvent(r *http.Request, status int, bodySnap []byte) AuditEventIns
 		HTTPMethod: r.Method,
 		HTTPPath:   r.URL.Path,
 		HTTPStatus: status,
-		SourceIP:   clientIP(r),
+		SourceIP:   sourceIP,
 		UserAgent:  r.UserAgent(),
 	}
 	if caller != nil {

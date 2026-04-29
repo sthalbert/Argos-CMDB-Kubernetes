@@ -262,6 +262,198 @@ func (p *PG) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// lockActiveAdminsForGuard acquires row-level FOR UPDATE locks on every
+// currently-active admin row inside the open transaction. Two
+// concurrent guarded operations both observing the same admin set will
+// serialise on these locks: the second transaction blocks until the
+// first commits, then re-evaluates the count against the post-commit
+// snapshot — closing the TOCTOU window described in audit finding H1.
+func lockActiveAdminsForGuard(ctx context.Context, tx pgx.Tx) error {
+	// Discard the rows themselves; we only care about the side effect of
+	// FOR UPDATE acquiring the locks.
+	rows, err := tx.Query(ctx,
+		`SELECT id FROM users
+		 WHERE role = 'admin' AND disabled_at IS NULL
+		 FOR UPDATE`,
+	)
+	if err != nil {
+		return fmt.Errorf("lock active admins: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("scan locked admins: %w", err)
+	}
+	return nil
+}
+
+// UpdateUserGuarded mirrors UpdateUser but enforces the last-admin
+// invariant atomically inside a single transaction (audit finding H1).
+// Returns api.ErrLastAdmin when the patch would demote (role != admin)
+// or disable an active admin and no other active admin would remain.
+//
+//nolint:gocyclo // merge-patch + invariant guard is inherently branchy
+func (p *PG) UpdateUserGuarded(ctx context.Context, id uuid.UUID, in api.UserPatch) (api.User, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return api.User{}, fmt.Errorf("begin update guarded: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockActiveAdminsForGuard(ctx, tx); err != nil {
+		return api.User{}, err
+	}
+
+	var (
+		role       string
+		disabledAt *time.Time
+	)
+	err = tx.QueryRow(ctx,
+		`SELECT role, disabled_at FROM users WHERE id = $1 FOR UPDATE`,
+		id,
+	).Scan(&role, &disabledAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.User{}, api.ErrNotFound
+		}
+		return api.User{}, fmt.Errorf("lock target user: %w", err)
+	}
+
+	demoting := in.Role != nil && *in.Role != auth.RoleAdmin
+	disabling := in.Disabled != nil && *in.Disabled
+	if (demoting || disabling) && role == auth.RoleAdmin && disabledAt == nil {
+		var others int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM users
+			 WHERE role = 'admin' AND disabled_at IS NULL AND id <> $1`,
+			id,
+		).Scan(&others); err != nil {
+			return api.User{}, fmt.Errorf("count other admins: %w", err)
+		}
+		if others == 0 {
+			return api.User{}, api.ErrLastAdmin
+		}
+	}
+
+	if err := applyUserPatchTx(ctx, tx, id, in); err != nil {
+		return api.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return api.User{}, fmt.Errorf("commit update guarded: %w", err)
+	}
+	// Disabling kills sessions; do it after commit so the kill is durable.
+	if in.Disabled != nil && *in.Disabled {
+		if err := p.DeleteSessionsForUser(ctx, id); err != nil {
+			return api.User{}, err
+		}
+	}
+	return p.GetUser(ctx, id)
+}
+
+// applyUserPatchTx writes the merge-patch inside an already-open
+// transaction. Mirrors UpdateUser's body but returns rather than
+// committing, and skips the post-commit session sweep (the caller
+// performs it after Commit).
+func applyUserPatchTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, in api.UserPatch) error {
+	sets := []string{"updated_at = $1"}
+	args := []any{time.Now().UTC()}
+	idx := 2
+	if in.Role != nil {
+		if _, ok := auth.ValidRoles[*in.Role]; !ok {
+			return fmt.Errorf("invalid role %q: %w", *in.Role, api.ErrNotFound)
+		}
+		sets = append(sets, fmt.Sprintf("role = $%d", idx))
+		args = append(args, *in.Role)
+		idx++
+	}
+	if in.MustChangePassword != nil {
+		sets = append(sets, fmt.Sprintf("must_change_password = $%d", idx))
+		args = append(args, *in.MustChangePassword)
+		idx++
+	}
+	if in.Disabled != nil {
+		if *in.Disabled {
+			sets = append(sets, fmt.Sprintf("disabled_at = $%d", idx))
+			args = append(args, time.Now().UTC())
+		} else {
+			sets = append(sets, "disabled_at = NULL")
+		}
+	}
+	args = append(args, id)
+	q := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(sets, ", "), len(args))
+	tag, err := tx.Exec(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("update user tx: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteUserGuarded is the transactional counterpart to DeleteUser
+// (audit finding H1). Returns api.ErrLastAdmin when the target is the
+// only currently active admin.
+//
+//nolint:gocyclo // guarded count + write under one lock is inherently branchy
+func (p *PG) DeleteUserGuarded(ctx context.Context, id uuid.UUID) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete guarded: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockActiveAdminsForGuard(ctx, tx); err != nil {
+		return err
+	}
+
+	var (
+		role       string
+		disabledAt *time.Time
+	)
+	err = tx.QueryRow(ctx,
+		`SELECT role, disabled_at FROM users WHERE id = $1 FOR UPDATE`,
+		id,
+	).Scan(&role, &disabledAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.ErrNotFound
+		}
+		return fmt.Errorf("lock target user: %w", err)
+	}
+
+	if role == auth.RoleAdmin && disabledAt == nil {
+		var others int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM users
+			 WHERE role = 'admin' AND disabled_at IS NULL AND id <> $1`,
+			id,
+		).Scan(&others); err != nil {
+			return fmt.Errorf("count other admins: %w", err)
+		}
+		if others == 0 {
+			return api.ErrLastAdmin
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return fmt.Errorf("user owns active api tokens — revoke them first: %w", api.ErrConflict)
+		}
+		return fmt.Errorf("delete user tx: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delete guarded: %w", err)
+	}
+	return nil
+}
+
 // GetUserForAuth is the auth.Store lookup — lightweight view the
 // middleware uses after a session resolves.
 func (p *PG) GetUserForAuth(ctx context.Context, id uuid.UUID) (auth.User, error) {

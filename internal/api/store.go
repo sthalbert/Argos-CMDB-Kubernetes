@@ -16,6 +16,12 @@ import (
 var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("conflict")
+	// ErrLastAdmin is returned by UpdateUserGuarded / DeleteUserGuarded
+	// when a patch or delete would leave the deployment with zero active
+	// admin users. The transactional guard closes the TOCTOU race that a
+	// handler-level CountActiveAdmins + UPDATE pair would otherwise leave
+	// open under concurrent admin-degrading requests (audit finding H1).
+	ErrLastAdmin = errors.New("last admin")
 )
 
 // PodListFilter collects the optional filters accepted by ListPods. Nil
@@ -324,6 +330,15 @@ type Store interface {
 	// hashed form, not plaintext.
 	UpdateUser(ctx context.Context, id uuid.UUID, in UserPatch) (User, error)
 
+	// UpdateUserGuarded is the transactional wrapper around UpdateUser
+	// that enforces the last-admin invariant atomically. If the patch
+	// would demote (role != admin) or disable an active admin and no
+	// other active admin exists, it returns ErrLastAdmin without
+	// mutating the row. Implementations MUST hold a row-level lock on
+	// the candidate-admin set across the count + update so two
+	// concurrent demotions cannot both observe `n=2` and commit.
+	UpdateUserGuarded(ctx context.Context, id uuid.UUID, in UserPatch) (User, error)
+
 	// SetUserPassword stores a new argon2id hash, toggling the
 	// must_change_password flag as specified. On success also deletes every
 	// active session for the user so a password change effectively logs
@@ -337,6 +352,13 @@ type Store interface {
 	// and identities; api_tokens they minted are retained (ON DELETE
 	// RESTRICT) so CI pipelines don't silently break on admin churn.
 	DeleteUser(ctx context.Context, id uuid.UUID) error
+
+	// DeleteUserGuarded is the transactional wrapper around DeleteUser
+	// that enforces the last-admin invariant atomically (audit finding
+	// H1). Returns ErrLastAdmin when the target is the only currently
+	// active admin. Implementations MUST hold a row-level lock on the
+	// active-admin set across the count + delete.
+	DeleteUserGuarded(ctx context.Context, id uuid.UUID) error
 
 	// CreateSession inserts a new session row.
 	CreateSession(ctx context.Context, in SessionInsert) error

@@ -1855,6 +1855,10 @@ paths:
         Merge-patch semantics. Setting `password` rehashes and forces
         `must_change_password=true`. Setting `disabled` to true revokes
         every active session for that user.
+
+        Refuses with 409 when the patch would leave the deployment with
+        zero active admins — i.e. demoting (`role` to non-admin) or
+        disabling (`disabled=true`) the only remaining active admin.
       operationId: updateUser
       security:
         - BearerAuth: [admin]
@@ -1880,6 +1884,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
     delete:
       tags: [admin]
       summary: Delete a user
@@ -1887,6 +1893,10 @@ paths:
         Cascades to the user's sessions and OIDC identities. API tokens
         the user minted are retained (ON DELETE RESTRICT) — revoke them
         explicitly first, or leave them active for the next admin.
+
+        Refuses with 409 when the target is the only remaining active
+        admin (the last-admin invariant), or when the caller would be
+        deleting their own account.
       operationId: deleteUser
       security:
         - BearerAuth: [admin]

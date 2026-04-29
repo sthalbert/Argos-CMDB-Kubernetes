@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +23,7 @@ import (
 	"github.com/sthalbert/argos/internal/auth"
 	"github.com/sthalbert/argos/internal/collector"
 	"github.com/sthalbert/argos/internal/eol"
+	"github.com/sthalbert/argos/internal/httputil"
 	"github.com/sthalbert/argos/internal/impact"
 	argmcp "github.com/sthalbert/argos/internal/mcp"
 	"github.com/sthalbert/argos/internal/metrics"
@@ -47,6 +49,9 @@ var (
 	errEncryptedCredentials   = errors.New("secrets master key missing but cloud_accounts rows carry encrypted credentials")
 	errIngestMissingTLSConfig = errors.New("ARGOS_INGEST_LISTEN_ADDR is set but ARGOS_INGEST_LISTEN_TLS_CERT, " +
 		"ARGOS_INGEST_LISTEN_TLS_KEY, or ARGOS_INGEST_LISTEN_CLIENT_CA_FILE is missing — see ADR-0016 §4")
+	errTransportPostureRefused = errors.New("ARGOS_REQUIRE_HTTPS=true but neither native TLS " +
+		"(ARGOS_PUBLIC_LISTEN_TLS_CERT + _KEY) nor a trusted-proxy + always-secure-cookie posture " +
+		"(ARGOS_TRUSTED_PROXIES non-empty AND ARGOS_SESSION_SECURE_COOKIE=always) is configured — see ADR-0017 §3")
 )
 
 func main() {
@@ -72,6 +77,21 @@ type runConfig struct {
 	// the DMZ ingest gateway (ADR-0016). When ingest.addr is empty the
 	// listener is not started and argosd behaves identically to today.
 	ingest ingestListenerConfig
+	// Public-listener TLS posture and proxy trust (ADR-0017). All four
+	// fields default to "off" so existing deployments are unchanged.
+	// publicTLSCert + publicTLSKey: opt argosd into native TLS on the
+	// public listener; both must be set together.
+	publicTLSCert string
+	publicTLSKey  string
+	// trustedProxies enumerates the immediate-peer CIDRs whose
+	// X-Forwarded-For and X-Forwarded-Proto headers argosd will honor.
+	// Empty (the default) means no peer is trusted — both headers are
+	// ignored unconditionally, which is the secure default.
+	trustedProxies []*net.IPNet
+	// requireHTTPS turns the §3 startup guard on. When true, argosd
+	// refuses to come up unless either native TLS is configured or a
+	// trusted-proxy + always-secure-cookie posture is set.
+	requireHTTPS bool
 }
 
 // ingestListenerConfig captures the env-var surface for the ADR-0016
@@ -85,6 +105,8 @@ type ingestListenerConfig struct {
 }
 
 // loadRunConfig reads and validates all configuration from the environment.
+//
+//nolint:gocyclo // complexity is structural: one branch per env var; refactoring adds indirection without clarity
 func loadRunConfig() (runConfig, error) {
 	dsn := os.Getenv("ARGOS_DATABASE_URL")
 	if dsn == "" {
@@ -112,8 +134,16 @@ func loadRunConfig() (runConfig, error) {
 	if err != nil {
 		return runConfig{}, err
 	}
+	trustedProxies, err := httputil.ParseTrustedProxies(os.Getenv("ARGOS_TRUSTED_PROXIES"))
+	if err != nil {
+		return runConfig{}, fmt.Errorf("parse ARGOS_TRUSTED_PROXIES: %w", err)
+	}
+	requireHTTPS, err := parseBoolEnv("ARGOS_REQUIRE_HTTPS", false)
+	if err != nil {
+		return runConfig{}, err
+	}
 
-	return runConfig{
+	cfg := runConfig{
 		addr:            envOr("ARGOS_ADDR", ":8080"),
 		dsn:             dsn,
 		cookiePolicy:    cookiePolicy,
@@ -121,7 +151,39 @@ func loadRunConfig() (runConfig, error) {
 		shutdownTimeout: shutdownTimeout,
 		autoMigrate:     autoMigrate,
 		ingest:          ingest,
-	}, nil
+		publicTLSCert:   os.Getenv("ARGOS_PUBLIC_LISTEN_TLS_CERT"),
+		publicTLSKey:    os.Getenv("ARGOS_PUBLIC_LISTEN_TLS_KEY"),
+		trustedProxies:  trustedProxies,
+		requireHTTPS:    requireHTTPS,
+	}
+	if err := checkTransportPosture(&cfg); err != nil {
+		return runConfig{}, err
+	}
+	return cfg, nil
+}
+
+// checkTransportPosture enforces the ADR-0017 §3 startup guard. Returns
+// nil when ARGOS_REQUIRE_HTTPS is off (legacy posture, allowed by default
+// for backwards compatibility and dev workflows), and otherwise refuses to
+// start unless one of the two safe deployment shapes is configured:
+//
+//   - native TLS on the public listener (publicTLSCert + publicTLSKey
+//     both set), or
+//   - trusted-proxy + always-secure-cookie (trustedProxies non-empty AND
+//     cookiePolicy = SecureAlways).
+//
+// This catches the pentest topology — direct-exposed plaintext :8080 with
+// no trust list — at boot rather than per-request.
+func checkTransportPosture(cfg *runConfig) error {
+	if !cfg.requireHTTPS {
+		return nil
+	}
+	nativeTLS := cfg.publicTLSCert != "" && cfg.publicTLSKey != ""
+	proxyShape := len(cfg.trustedProxies) > 0 && cfg.cookiePolicy == auth.SecureAlways
+	if nativeTLS || proxyShape {
+		return nil
+	}
+	return errTransportPostureRefused
 }
 
 // loadIngestListenerConfig reads the ARGOS_INGEST_LISTEN_* env vars. When
@@ -214,7 +276,10 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 	}
 	defer drainMCP()
 
-	srv := buildHTTPServer(&cfg, pg, oidcProvider, encrypter)
+	srv, err := buildHTTPServer(&cfg, pg, oidcProvider, encrypter)
+	if err != nil {
+		return fmt.Errorf("build public listener: %w", err)
+	}
 
 	// Optional mTLS-only ingest listener fronted by the DMZ gateway
 	// (ADR-0016). Started in parallel with the public listener and
@@ -287,7 +352,14 @@ func maybeInitOIDC(ctx context.Context, cfg *auth.OIDCConfig) (*auth.OIDCProvide
 }
 
 // buildHTTPServer wires all HTTP routes, middleware, and the server struct.
-func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvider, enc *secrets.Encrypter) *http.Server {
+//
+// When cfg.publicTLSCert + cfg.publicTLSKey are both set (ADR-0017 §1),
+// the returned server carries a TLS 1.3 config with hot certificate reload
+// via newCertReloader; serveAndShutdown then starts it with
+// ListenAndServeTLS. When either is unset, the listener stays plaintext —
+// the legacy posture, allowed for backward compatibility but refused at
+// boot when ARGOS_REQUIRE_HTTPS=true (see checkTransportPosture).
+func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvider, enc *secrets.Encrypter) (*http.Server, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
 	// SPA served unauthenticated under /ui/; the bundle is static and the
@@ -299,7 +371,7 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	// Settings endpoints — hand-written, gated on admin role internally.
 	// Inject "admin" scope into context so the auth middleware resolves
 	// the caller (it skips public routes that lack scope declarations).
-	settingsAuth := auth.Middleware(pg, cfg.cookiePolicy)
+	settingsAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
 	requireAdminScope := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			//nolint:staticcheck // matches oapi-codegen context key convention
@@ -321,7 +393,7 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-	impactAuth := auth.Middleware(pg, cfg.cookiePolicy)
+	impactAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
 	mux.Handle("GET /v1/impact/{entity_type}/{id}", requireReadScope(impactAuth(impact.HandleImpact(pg))))
 
 	// Cloud-accounts + virtual-machines (ADR-0015) — hand-written
@@ -336,14 +408,14 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 			})
 		}
 	}
-	cloudAuth := auth.Middleware(pg, cfg.cookiePolicy)
+	cloudAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
 	// Audit middleware for the hand-written routes — reads the caller
 	// from the request context (set by cloudAuth) and inserts a row
 	// into audit_events. Wrapping order: requireScope → cloudAuth →
 	// auditWrap → handler, so the audit layer always sees an
 	// authenticated caller. Mirrors the strict-server router below
 	// where AuditMiddleware sits inside AuthMiddleware in the chain.
-	auditWrap := api.AuditMiddleware(pg, "api")
+	auditWrap := api.AuditMiddleware(pg, "api", cfg.trustedProxies)
 
 	// Admin-side cloud-accounts.
 	mux.Handle("GET /v1/admin/cloud-accounts", requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleListCloudAccounts(pg)))))
@@ -390,8 +462,10 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 
 	loginLimiter := api.NewLoginRateLimiter()
 	verifyLimiter := api.NewVerifyRateLimiter()
+	apiServer := api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter, verifyLimiter)
+	apiServer.SetTrustedProxies(cfg.trustedProxies)
 	strict := api.NewStrictHandlerWithOptions(
-		api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter, verifyLimiter),
+		apiServer,
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
 		api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -411,8 +485,8 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 		// outermost so it resolves the caller before the audit layer reads
 		// it from the request context.
 		Middlewares: []api.MiddlewareFunc{
-			api.AuditMiddleware(pg, "api"),
-			api.AuthMiddleware(pg, cfg.cookiePolicy),
+			api.AuditMiddleware(pg, "api", cfg.trustedProxies),
+			api.AuthMiddleware(pg, cfg.cookiePolicy, cfg.trustedProxies),
 		},
 	})
 
@@ -423,14 +497,28 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	// listener separately.
 	publicHandler := blockIngestOnlyPaths(mux)
 
-	return &http.Server{
+	secureHandler := api.SecurityHeadersMiddleware(cfg.trustedProxies, cfg.requireHTTPS)(
+		http.MaxBytesHandler(publicHandler, 1<<20),
+	)
+	srv := &http.Server{
 		Addr:              cfg.addr,
-		Handler:           metrics.InstrumentHandler(api.SecurityHeadersMiddleware(http.MaxBytesHandler(publicHandler, 1<<20))),
+		Handler:           metrics.InstrumentHandler(secureHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+	if cfg.publicTLSCert != "" && cfg.publicTLSKey != "" {
+		getCert, err := newCertReloader(cfg.publicTLSCert, cfg.publicTLSKey)
+		if err != nil {
+			return nil, fmt.Errorf("load public listener cert: %w", err)
+		}
+		srv.TLSConfig = &tls.Config{
+			MinVersion:     tls.VersionTLS13,
+			GetCertificate: getCert,
+		}
+	}
+	return srv, nil
 }
 
 // blockIngestOnlyPaths 404s requests to paths that should never appear on
@@ -477,8 +565,10 @@ func buildIngestServer(
 
 	loginLimiter := api.NewLoginRateLimiter() // unused on ingest, but Server requires non-nil
 	verifyLimiter := api.NewVerifyRateLimiter()
+	ingestServer := api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter, verifyLimiter)
+	ingestServer.SetTrustedProxies(cfg.trustedProxies)
 	strict := api.NewStrictHandlerWithOptions(
-		api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter, verifyLimiter),
+		ingestServer,
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
 		api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -493,8 +583,8 @@ func buildIngestServer(
 	)
 	mux := api.NewIngestMux(api.IngestMuxConfig{
 		Server:          strict,
-		AuthMiddleware:  api.AuthMiddleware(pg, cfg.cookiePolicy),
-		AuditMiddleware: api.AuditMiddleware(pg, "ingest_gw"),
+		AuthMiddleware:  api.AuthMiddleware(pg, cfg.cookiePolicy, nil),
+		AuditMiddleware: api.AuditMiddleware(pg, "ingest_gw", cfg.trustedProxies),
 		CookiePolicy:    cfg.cookiePolicy,
 	})
 
@@ -510,7 +600,7 @@ func buildIngestServer(
 
 	return &http.Server{
 		Addr:              cfg.ingest.addr,
-		Handler:           metrics.InstrumentHandler(api.SecurityHeadersMiddleware(http.MaxBytesHandler(mux, 1<<20))),
+		Handler:           metrics.InstrumentHandler(api.SecurityHeadersMiddleware(nil, true)(http.MaxBytesHandler(mux, 1<<20))),
 		TLSConfig:         tlsCfg,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -613,11 +703,24 @@ func serveAndShutdown( //nolint:gocyclo // central shutdown dispatcher; flat sel
 ) error {
 	errCh := make(chan error, 2)
 	go func() {
+		mode := "plaintext"
+		if srv.TLSConfig != nil {
+			mode = "tls"
+		}
 		slog.Info("argosd listening",
 			slog.String("addr", srv.Addr),
 			slog.String("version", version),
+			slog.String("public_listener_mode", mode),
 		)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		// When TLSConfig is set the cert/key are sourced via
+		// GetCertificate, so the file paths passed here are ignored.
+		var err error
+		if srv.TLSConfig != nil {
+			err = srv.ListenAndServeTLS("", "")
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("public listener: %w", err)
 		}
 	}()
@@ -1064,7 +1167,7 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := mcpSrv.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := mcpSrv.Run(ctx); !errors.Is(err, context.Canceled) {
 			slog.Error("mcp server exited with error", slog.String("error", err.Error()))
 		}
 	}()

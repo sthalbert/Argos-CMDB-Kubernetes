@@ -2703,7 +2703,7 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 			},
 		},
 	)
-	h := AuditMiddleware(store, "api")(Handler(strict))
+	h := AuditMiddleware(store, "api", nil)(Handler(strict))
 
 	// Create a cluster with curated metadata.
 	env := "production"

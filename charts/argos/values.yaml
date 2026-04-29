@@ -22,8 +22,47 @@ argosd:
   shutdownTimeout: "15s"
   # -- First-install admin password. Empty = random (printed once in logs).
   bootstrapAdminPassword: ""
-  # -- Session cookie Secure flag: auto | always | never.
+  # -- Session cookie Secure flag: auto | always | never. Pin to "always"
+  #    when fronted by a TLS-terminating proxy (the default behind
+  #    ingress-nginx / Envoy / a cloud LB) so cookies never travel over
+  #    plaintext, even on a misconfigured request.
   sessionSecureCookie: "auto"
+
+  # -- Public-listener TLS posture (ADR-0017). Two valid postures:
+  #
+  #    1. Native TLS — argosd terminates TLS itself. Set tls.existingSecret
+  #       to a TLS-type Kubernetes Secret carrying tls.crt + tls.key; the
+  #       chart mounts it at /etc/argos/tls and passes the paths via
+  #       ARGOS_PUBLIC_LISTEN_TLS_CERT / _KEY.
+  #
+  #    2. Trusted proxy — argosd serves plain HTTP behind a TLS-terminating
+  #       ingress. Leave tls.existingSecret empty, set trustedProxies to
+  #       the ingress's CIDR(s), and pin sessionSecureCookie to "always".
+  #
+  #    requireHTTPS=true tells argosd to refuse to start unless one of the
+  #    two postures is configured — failing closed beats accidentally
+  #    serving credentials over plain HTTP.
+  tls:
+    # -- Name of an existing TLS Secret (kubernetes.io/tls) for native
+    #    TLS termination. Empty = serve plain HTTP (use a TLS-terminating
+    #    proxy in front).
+    existingSecret: ""
+    # -- Mount path inside the container for the TLS Secret. Pinned by
+    #    convention; rarely needs overriding.
+    mountPath: "/etc/argos/tls"
+
+  # -- Comma-separated CIDR list of TLS-terminating proxies whose
+  #    X-Forwarded-For / X-Forwarded-Proto headers argosd should honor
+  #    (ADR-0017). Empty = ignore both headers entirely (the secure
+  #    default). Configure when running behind ingress-nginx / Envoy /
+  #    a cloud LB so audit logs and rate-limit buckets see the real
+  #    client IP instead of the ingress pod's.
+  trustedProxies: ""
+
+  # -- When true, argosd refuses to start unless either tls.existingSecret
+  #    is set (native TLS) OR trustedProxies is non-empty AND
+  #    sessionSecureCookie is "always" (trusted-proxy posture).
+  requireHTTPS: false
 
 # -- Secret-encryption master key for cloud-account credentials (ADR-0015).
 # Required when the VM collector is in use; safe to leave empty otherwise.

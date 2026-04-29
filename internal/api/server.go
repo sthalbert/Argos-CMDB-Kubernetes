@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/argos/internal/auth"
+	"github.com/sthalbert/argos/internal/httputil"
 )
 
 var (
@@ -44,6 +47,12 @@ type Server struct {
 	oidc          *auth.OIDCProvider // nil when OIDC is not configured
 	loginLimiter  *LoginRateLimiter  // per-IP login rate limiter (ADR-0007 IMP-009)
 	verifyLimiter *VerifyRateLimiter // per-IP rate limit on the ingest verify endpoint (ADR-0016 §5)
+	// trustedProxies is the operator-supplied CIDR list whose
+	// X-Forwarded-For / X-Forwarded-Proto headers are honored
+	// (ADR-0017 §2). Empty/nil means no peer is trusted, which is the
+	// secure default; the existing pentest-reproducer test in
+	// internal/httputil/httputil_test.go documents the chosen behavior.
+	trustedProxies []*net.IPNet
 }
 
 // NewServer wires the handlers with a persistence backend and the build
@@ -68,6 +77,14 @@ func NewServer(
 		loginLimiter:  loginLimiter,
 		verifyLimiter: verifyLimiter,
 	}
+}
+
+// SetTrustedProxies installs the operator-supplied CIDR list at startup.
+// Pass nil or an empty slice to ignore X-Forwarded-* unconditionally —
+// the secure default. Argosd's main.go calls this once after parsing
+// ARGOS_TRUSTED_PROXIES; tests typically leave it unset.
+func (s *Server) SetTrustedProxies(p []*net.IPNet) {
+	s.trustedProxies = p
 }
 
 var _ StrictServerInterface = (*Server)(nil)
@@ -1395,4 +1412,16 @@ func (s *Server) ReconcilePersistentVolumeClaims(
 		return nil, fmt.Errorf("store: %w", err)
 	}
 	return ReconcilePersistentVolumeClaims200JSONResponse(ReconcileResult{Deleted: n}), nil
+}
+
+// clientIP returns the source IP for rate-limiting, audit logging and
+// session tracking. Wraps httputil.ClientIP, applying the server-scoped
+// trusted-proxy list. Returns the empty string when r.RemoteAddr is
+// unparseable, which the audit row treats as "unknown".
+func (s *Server) clientIP(r *http.Request) string {
+	ip := httputil.ClientIP(r, s.trustedProxies)
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
 }

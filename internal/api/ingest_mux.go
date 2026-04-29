@@ -76,7 +76,7 @@ type IngestMuxConfig struct {
 
 	// AuditMiddleware records non-GET requests with source="ingest_gw"
 	// (ADR-0016 §11). Configured by the caller (typically
-	// AuditMiddleware(pg, "ingest_gw")).
+	// AuditMiddleware(pg, "ingest_gw", trustedProxies)).
 	AuditMiddleware MiddlewareFunc
 
 	// Cookie policy is unused on this listener (no cookies traverse the

@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"net"
 	"net/http"
 	"time"
+
+	"github.com/sthalbert/argos/internal/httputil"
 )
 
 // SessionCookieName is the fixed cookie key both the API sets and the
@@ -17,9 +20,12 @@ const SessionCookieName = "argos_session"
 const SessionDuration = 8 * time.Hour
 
 // SecureCookiePolicy controls whether Set-Cookie carries the `Secure`
-// flag. `SecureAuto` defers to the request: HTTPS → secure, HTTP → not
-// (so dev against :8080 still works); `SecureAlways` / `SecureNever`
-// override either way.
+// flag. `SecureAuto` defers to the request shape gated through the
+// trusted-proxy list (ADR-0017 §3): native TLS or X-Forwarded-Proto from
+// a trusted peer flips Secure on; an attacker connecting directly with
+// a spoofed XFP cannot. `SecureAlways` / `SecureNever` override either
+// way — operators running fully behind TLS-terminating ingress should
+// pin to `SecureAlways`.
 type SecureCookiePolicy int
 
 // SecureCookiePolicy values control the Secure flag on session cookies.
@@ -30,10 +36,11 @@ const (
 )
 
 // SessionCookie builds the session cookie value with the flags required
-// by ADR-0007: HttpOnly, SameSite=Strict, Path=/. The Secure flag
-// depends on `policy`. The caller is responsible for writing it to the
-// response (via http.SetCookie or a typed response header).
-func SessionCookie(id string, expires time.Time, r *http.Request, policy SecureCookiePolicy) *http.Cookie {
+// by ADR-0007: HttpOnly, SameSite=Strict, Path=/. The Secure flag is
+// derived from `policy` and — for SecureAuto — the request's TLS posture
+// gated through `trustedProxies` (see ADR-0017). The caller is
+// responsible for writing it to the response.
+func SessionCookie(id string, expires time.Time, r *http.Request, policy SecureCookiePolicy, trustedProxies []*net.IPNet) *http.Cookie {
 	return &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    id,
@@ -42,21 +49,21 @@ func SessionCookie(id string, expires time.Time, r *http.Request, policy SecureC
 		MaxAge:   int(time.Until(expires).Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secureFlag(r, policy),
+		Secure:   secureFlag(r, policy, trustedProxies),
 	}
 }
 
 // SetSessionCookie writes the session cookie on the response with the
 // flags required by ADR-0007: HttpOnly, SameSite=Strict, Path=/.
-// The Secure flag depends on `policy`.
-func SetSessionCookie(w http.ResponseWriter, r *http.Request, id string, expires time.Time, policy SecureCookiePolicy) {
-	http.SetCookie(w, SessionCookie(id, expires, r, policy))
+// The Secure flag is derived from `policy` and `trustedProxies`.
+func SetSessionCookie(w http.ResponseWriter, r *http.Request, id string, expires time.Time, policy SecureCookiePolicy, trustedProxies []*net.IPNet) {
+	http.SetCookie(w, SessionCookie(id, expires, r, policy, trustedProxies))
 }
 
 // ClearSessionCookieValue builds a cookie that clears the session —
 // empty value, MaxAge=-1 so the browser drops it. The caller writes
 // it to the response.
-func ClearSessionCookieValue(r *http.Request, policy SecureCookiePolicy) *http.Cookie {
+func ClearSessionCookieValue(r *http.Request, policy SecureCookiePolicy, trustedProxies []*net.IPNet) *http.Cookie {
 	return &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
@@ -64,29 +71,27 @@ func ClearSessionCookieValue(r *http.Request, policy SecureCookiePolicy) *http.C
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secureFlag(r, policy),
+		Secure:   secureFlag(r, policy, trustedProxies),
 	}
 }
 
 // ClearSessionCookie overwrites the cookie with an empty value and
 // MaxAge=-1 so the browser drops it. Use on logout and whenever the
 // session row is gone server-side.
-func ClearSessionCookie(w http.ResponseWriter, r *http.Request, policy SecureCookiePolicy) {
-	http.SetCookie(w, ClearSessionCookieValue(r, policy))
+func ClearSessionCookie(w http.ResponseWriter, r *http.Request, policy SecureCookiePolicy, trustedProxies []*net.IPNet) {
+	http.SetCookie(w, ClearSessionCookieValue(r, policy, trustedProxies))
 }
 
-func secureFlag(r *http.Request, policy SecureCookiePolicy) bool {
+func secureFlag(r *http.Request, policy SecureCookiePolicy, trustedProxies []*net.IPNet) bool {
 	switch policy {
 	case SecureAlways:
 		return true
 	case SecureNever:
 		return false
 	default:
-		// Auto: if the incoming request arrived over TLS (or a proxy
-		// claims it did via X-Forwarded-Proto), set Secure.
-		if r.TLS != nil {
-			return true
-		}
-		return r.Header.Get("X-Forwarded-Proto") == "https"
+		// Auto: native TLS, or a TLS-terminating peer in the trust list
+		// that set X-Forwarded-Proto: https. With an empty trust list,
+		// X-Forwarded-Proto is ignored entirely (ADR-0017).
+		return httputil.IsHTTPS(r, trustedProxies)
 	}
 }
