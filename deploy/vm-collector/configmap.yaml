@@ -1,16 +1,16 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: argos-vm-collector-config
-  namespace: argos-system
+  name: longue-vue-vm-collector-config
+  namespace: longue-vue-system
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: vm-collector
 data:
   # The argosd endpoint the collector pushes to. Behind a gateway:
   # set the gateway URL with optional path prefix (LONGUE_VUE_SERVER_URL is
   # used as the base for every request).
-  LONGUE_VUE_SERVER_URL: "http://argos.cmdb.svc.cluster.local:8080"
+  LONGUE_VUE_SERVER_URL: "http://longue-vue.longue-vue-system.svc.cluster.local:8080"
 
   # The cloud_account this collector is bound to. Must match the name
   # used when issuing the vm-collector PAT.

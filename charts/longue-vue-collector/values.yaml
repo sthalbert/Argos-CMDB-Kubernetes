@@ -7,7 +7,7 @@
 #   - tokenSecret.existingSecret      (operator-supplied PAT secret)
 
 image:
-  repository: ghcr.io/sthalbert/argos-collector
+  repository: ghcr.io/sthalbert/longue-vue-collector
   # tag defaults to .Chart.AppVersion when empty.
   tag: ""
   pullPolicy: IfNotPresent

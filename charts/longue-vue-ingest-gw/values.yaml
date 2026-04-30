@@ -10,7 +10,7 @@
 #   - mtls.<mode>.<...>           (one of vault / secret / file)
 
 image:
-  repository: ghcr.io/argos/argos-ingest-gw
+  repository: ghcr.io/sthalbert/longue-vue-ingest-gw
   # tag defaults to .Chart.AppVersion when empty.
   tag: ""
   pullPolicy: IfNotPresent

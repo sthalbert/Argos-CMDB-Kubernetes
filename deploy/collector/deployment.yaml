@@ -2,10 +2,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: argos-collector
-  namespace: argos-system
+  name: longue-vue-collector
+  namespace: longue-vue-system
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: push-collector
 spec:
   replicas: 1
@@ -13,15 +13,15 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: argos
+      app.kubernetes.io/name: longue-vue
       app.kubernetes.io/component: push-collector
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: argos
+        app.kubernetes.io/name: longue-vue
         app.kubernetes.io/component: push-collector
     spec:
-      serviceAccountName: argos-collector
+      serviceAccountName: longue-vue-collector
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -30,8 +30,8 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: argos-collector
-          image: ghcr.io/sthalbert/argos-collector:latest
+        - name: longue-vue-collector
+          image: ghcr.io/sthalbert/longue-vue-collector:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: LONGUE_VUE_CLUSTER_NAME
@@ -45,7 +45,7 @@ spec:
               value: "true"
           envFrom:
             - secretRef:
-                name: argos-collector-credentials
+                name: longue-vue-collector-credentials
           resources:
             requests:
               cpu: 25m

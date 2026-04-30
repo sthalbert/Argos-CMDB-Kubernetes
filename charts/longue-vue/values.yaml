@@ -3,7 +3,7 @@ replicaCount: 1
 
 # -- Container image for argosd.
 image:
-  repository: ghcr.io/sthalbert/argos
+  repository: ghcr.io/sthalbert/longue-vue
   # -- Overrides the image tag. Defaults to the chart appVersion.
   tag: ""
   pullPolicy: IfNotPresent

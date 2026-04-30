@@ -1,5 +1,5 @@
 ---
-# argos-collector deployment for an air-gapped cluster behind an HTTP proxy.
+# longue-vue-collector deployment for an air-gapped cluster behind an HTTP proxy.
 #
 # Prerequisites:
 #   1. Cluster row exists in argosd:
@@ -8,15 +8,15 @@
 #      (or rely on auto-create on first tick — ADR-0011)
 #   2. PAT with `write` scope created in the argosd admin panel.
 #   3. Image mirrored into a registry reachable from the air-gapped cluster.
-#   4. Secret `argos-collector-credentials` applied with LONGUE_VUE_API_TOKEN
+#   4. Secret `longue-vue-collector-credentials` applied with LONGUE_VUE_API_TOKEN
 #      (see secret.example.yaml).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: argos-collector
-  namespace: argos-system
+  name: longue-vue-collector
+  namespace: longue-vue-system
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: push-collector
 spec:
   replicas: 1
@@ -24,15 +24,15 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: argos
+      app.kubernetes.io/name: longue-vue
       app.kubernetes.io/component: push-collector
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: argos
+        app.kubernetes.io/name: longue-vue
         app.kubernetes.io/component: push-collector
     spec:
-      serviceAccountName: argos-collector
+      serviceAccountName: longue-vue-collector
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -41,10 +41,10 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: argos-collector
+        - name: longue-vue-collector
           # Replace with the mirrored image inside your air-gapped registry,
-          # e.g. registry.zad-sandbox.numspot.internal/argos-collector:<tag>
-          image: ghcr.io/sthalbert/argos-collector:latest
+          # e.g. registry.zad-sandbox.numspot.internal/longue-vue-collector:<tag>
+          image: ghcr.io/sthalbert/longue-vue-collector:latest
           imagePullPolicy: IfNotPresent
           env:
             # --- argosd target ----------------------------------------------
@@ -61,7 +61,7 @@ spec:
               value: "true"
           envFrom:
             - secretRef:
-                name: argos-collector-credentials
+                name: longue-vue-collector-credentials
           resources:
             requests:
               cpu: 25m

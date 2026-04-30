@@ -1,10 +1,10 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: argos-vm-collector
-  namespace: argos-system
+  name: longue-vue-vm-collector
+  namespace: longue-vue-system
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: vm-collector
 # Egress allowlist for the vm-collector pod. Only:
 #   - argosd (in-cluster Service or external endpoint via gateway)
@@ -13,7 +13,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: argos
+      app.kubernetes.io/name: longue-vue
       app.kubernetes.io/component: vm-collector
   policyTypes:
     - Egress
@@ -35,8 +35,8 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: argos
-              app.kubernetes.io/component: argosd
+              app.kubernetes.io/name: longue-vue
+              app.kubernetes.io/component: daemon
       ports:
         - protocol: TCP
           port: 8080

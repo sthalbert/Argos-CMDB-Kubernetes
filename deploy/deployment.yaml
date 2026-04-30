@@ -2,10 +2,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: argosd
-  namespace: argos-system
+  name: longue-vue
+  namespace: longue-vue-system
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: daemon
 spec:
   # Single-writer assumption from ADR-0005: one argosd owns the collector
@@ -16,12 +16,12 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: argos
+      app.kubernetes.io/name: longue-vue
       app.kubernetes.io/component: daemon
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: argos
+        app.kubernetes.io/name: longue-vue
         app.kubernetes.io/component: daemon
       annotations:
         # Classic Prometheus pod-scrape annotations. Matches the default
@@ -32,7 +32,7 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
-      serviceAccountName: argos
+      serviceAccountName: longue-vue
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532   # matches distroless:nonroot
@@ -41,15 +41,15 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: argosd
+        - name: longue-vue
           # The Dockerfile PR builds but doesn't publish. For a first real-
           # cluster smoke test:
-          #   1. `make docker-build` -> produces argos:dev locally
+          #   1. `make docker-build` -> produces longue-vue:dev locally
           #   2. Load into the target cluster (e.g. `kind load docker-image
-          #      argos:dev` or `minikube image load argos:dev`)
-          #   3. Replace the image below with `argos:dev` or your own
+          #      longue-vue:dev` or `minikube image load longue-vue:dev`)
+          #   3. Replace the image below with `longue-vue:dev` or your own
           #      registry's tag
-          image: ghcr.io/sthalbert/argos:latest
+          image: ghcr.io/sthalbert/longue-vue:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -73,7 +73,7 @@ spec:
               value: "5m"
           envFrom:
             - secretRef:
-                name: argos-credentials
+                name: longue-vue-credentials
           readinessProbe:
             httpGet:
               path: /readyz

@@ -2,10 +2,10 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: argos
-  namespace: argos-system
+  name: longue-vue
+  namespace: longue-vue-system
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: collector
 
 ---
@@ -16,9 +16,9 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: argos-cluster-reader
+  name: longue-vue-cluster-reader
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
 rules:
   - apiGroups: [""]
     resources: ["nodes", "namespaces", "pods", "services", "persistentvolumes", "persistentvolumeclaims"]
@@ -34,14 +34,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: argos-cluster-reader
+  name: longue-vue-cluster-reader
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: argos-cluster-reader
+  name: longue-vue-cluster-reader
 subjects:
   - kind: ServiceAccount
-    name: argos
-    namespace: argos-system
+    name: longue-vue
+    namespace: longue-vue-system

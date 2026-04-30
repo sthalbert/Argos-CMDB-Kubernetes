@@ -16,9 +16,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - image: argos
+          - image: longue-vue
             dockerfile: Dockerfile
-          - image: argos-collector
+          - image: longue-vue-collector
             dockerfile: Dockerfile.collector
 
     steps:
