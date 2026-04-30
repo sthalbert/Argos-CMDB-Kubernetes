@@ -60,7 +60,7 @@ func main() {
 	metrics.SetBuildInfo(version)
 
 	if err := run(); err != nil {
-		slog.Error("argosd exited with error", slog.String("error", err.Error()))
+		slog.Error("longue-vue exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }
@@ -711,7 +711,7 @@ func serveAndShutdown( //nolint:gocyclo // central shutdown dispatcher; flat sel
 		if srv.TLSConfig != nil {
 			mode = "tls"
 		}
-		slog.Info("argosd listening",
+		slog.Info("longue-vue listening",
 			slog.String("addr", srv.Addr),
 			slog.String("version", version),
 			slog.String("public_listener_mode", mode),
@@ -730,7 +730,7 @@ func serveAndShutdown( //nolint:gocyclo // central shutdown dispatcher; flat sel
 	}()
 	if ingestSrv != nil {
 		go func() {
-			slog.Info("argosd ingest listener starting",
+			slog.Info("longue-vue ingest listener starting",
 				slog.String("addr", ingestSrv.Addr),
 				slog.String("version", version),
 			)
@@ -767,7 +767,7 @@ func serveAndShutdown( //nolint:gocyclo // central shutdown dispatcher; flat sel
 	if firstErr != nil {
 		return firstErr
 	}
-	slog.Info("argosd stopped cleanly")
+	slog.Info("longue-vue stopped cleanly")
 	return nil
 }
 
@@ -940,7 +940,7 @@ func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
 		source = "generated randomly; capture now — it won't be printed again"
 	}
 	slog.Warn("\n" + banner +
-		"\n  ARGOS FIRST-RUN BOOTSTRAP" +
+		"\n  LONGUE-VUE FIRST-RUN BOOTSTRAP" +
 		"\n  A default admin user has been created:" +
 		"\n    username: admin" +
 		"\n    password: " + password +

@@ -102,7 +102,7 @@ type Server struct {
 // get_impact_graph tool; pass nil if impact analysis is not needed.
 func NewServer(store Store, traverser *impact.Traverser, cfg Config) *Server {
 	mcpSrv := server.NewMCPServer(
-		"Argos CMDB",
+		"longue-vue CMDB",
 		"0.1.0",
 		server.WithToolCapabilities(true),
 	)

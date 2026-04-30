@@ -63,9 +63,9 @@ func TestCopyForwardableHeaders_StripIngressHeaders(t *testing.T) {
 	t.Parallel()
 	ingressOnly := []string{
 		"X-Real-Ip",
-		"X-Argos-Verified-Caller",
-		"X-Argos-Verified-Scope",
-		"X-Argos-Verified-User",
+		"X-Longue-Vue-Verified-Caller",
+		"X-Longue-Vue-Verified-Scope",
+		"X-Longue-Vue-Verified-User",
 	}
 	src := http.Header{}
 	for _, h := range ingressOnly {

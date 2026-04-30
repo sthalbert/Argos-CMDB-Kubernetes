@@ -15,7 +15,7 @@ import (
 // before the gateway forwards them. Two reasons:
 //
 //  1. RFC 7230 hop-by-hop headers must not be forwarded.
-//  2. X-Argos-Verified-* are reserved for argosd's own use; a malicious
+//  2. X-Longue-Vue-Verified-* are reserved for argosd's own use; a malicious
 //     collector that sneaks one of these in could trick a downstream
 //     listener into trusting a forged caller identity. The ingest
 //     listener doesn't actually trust those headers (it runs full
@@ -40,9 +40,9 @@ var (
 	}
 	stripIngressHeaders = map[string]struct{}{
 		"X-Real-Ip":               {},
-		"X-Argos-Verified-Caller": {},
-		"X-Argos-Verified-Scope":  {},
-		"X-Argos-Verified-User":   {},
+		"X-Longue-Vue-Verified-Caller": {},
+		"X-Longue-Vue-Verified-Scope":  {},
+		"X-Longue-Vue-Verified-User":   {},
 		// X-Forwarded-For is also stripped on ingress and replaced with
 		// the gateway's connection peer below. argosd's clientIP() trusts
 		// the leftmost XFF entry and writes it into audit_events.source_ip;

@@ -35,7 +35,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	if err := run(); err != nil {
-		slog.Error("argos-collector exited with error", slog.String("error", err.Error()))
+		slog.Error("longue-vue-collector exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }
@@ -92,7 +92,7 @@ func loadCollectorConfig() (collectorConfig, error) {
 }
 
 func run() error {
-	slog.Info("argos-collector starting", slog.String("version", version))
+	slog.Info("longue-vue-collector starting", slog.String("version", version))
 
 	cfg, err := loadCollectorConfig()
 	if err != nil {
@@ -125,7 +125,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	slog.Info("argos-collector running",
+	slog.Info("longue-vue-collector running",
 		slog.String("cluster_name", cfg.clusterName),
 		slog.String("server_url", cfg.serverURL),
 		slog.String("interval", cfg.interval.String()),
@@ -136,7 +136,7 @@ func run() error {
 		return fmt.Errorf("collector: %w", err)
 	}
 
-	slog.Info("argos-collector stopped cleanly")
+	slog.Info("longue-vue-collector stopped cleanly")
 	return nil
 }
 

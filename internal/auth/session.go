@@ -11,7 +11,7 @@ import (
 // SessionCookieName is the fixed cookie key both the API sets and the
 // SPA (same-origin, browser-managed) sends back. Keep stable — changing
 // it logs everyone out.
-const SessionCookieName = "argos_session"
+const SessionCookieName = "longue_vue_session"
 
 // SessionDuration is the sliding expiry window per ADR-0007 (8 hours).
 // Every authenticated request refreshes `last_used_at` and bumps

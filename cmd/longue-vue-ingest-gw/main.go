@@ -48,7 +48,7 @@ func main() {
 	ingestgw.SetBuildInfo(version, commit)
 
 	if err := run(); err != nil {
-		slog.Error("argos-ingest-gw exited with error", slog.String("error", err.Error()))
+		slog.Error("longue-vue-ingest-gw exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }
@@ -265,7 +265,7 @@ func serveAndShutdown(
 ) error {
 	errCh := make(chan error, 2)
 	go func() {
-		slog.Info("argos-ingest-gw listening",
+		slog.Info("longue-vue-ingest-gw listening",
 			slog.String("addr", main.Addr),
 			slog.String("version", version),
 		)
@@ -274,7 +274,7 @@ func serveAndShutdown(
 		}
 	}()
 	go func() {
-		slog.Info("argos-ingest-gw health/metrics listening",
+		slog.Info("longue-vue-ingest-gw health/metrics listening",
 			slog.String("addr", health.Addr))
 		if err := health.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("health listener: %w", err)
@@ -304,7 +304,7 @@ func serveAndShutdown(
 	if firstErr != nil {
 		return firstErr
 	}
-	slog.Info("argos-ingest-gw stopped cleanly")
+	slog.Info("longue-vue-ingest-gw stopped cleanly")
 	return nil
 }
 

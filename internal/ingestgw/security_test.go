@@ -107,7 +107,7 @@ func TestSecurity_AdminEndpointsBlocked(t *testing.T) {
 	}
 }
 
-// "Inject a trusted-caller header" — attacker sets X-Argos-Verified-* with a
+// "Inject a trusted-caller header" — attacker sets X-Longue-Vue-Verified-* with a
 // viewer token to try to escalate. The gateway must strip these before forwarding.
 func TestSecurity_TrustedCallerHeaderStripped(t *testing.T) {
 	t.Parallel()
@@ -143,9 +143,9 @@ func TestSecurity_TrustedCallerHeaderStripped(t *testing.T) {
 
 	// These are the headers an attacker might inject to try to forge a trusted identity.
 	sensitiveHeaders := []string{
-		"X-Argos-Verified-Caller",
-		"X-Argos-Verified-Scope",
-		"X-Argos-Verified-User",
+		"X-Longue-Vue-Verified-Caller",
+		"X-Longue-Vue-Verified-Scope",
+		"X-Longue-Vue-Verified-User",
 		"X-Real-Ip",
 	}
 

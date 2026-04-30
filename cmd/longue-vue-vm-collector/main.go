@@ -37,7 +37,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	if err := run(); err != nil {
-		slog.Error("argos-vm-collector exited with error", slog.String("error", err.Error()))
+		slog.Error("longue-vue-vm-collector exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }
@@ -113,7 +113,7 @@ func loadConfig() (runConfig, error) {
 }
 
 func run() error {
-	slog.Info("argos-vm-collector starting", slog.String("version", version))
+	slog.Info("longue-vue-vm-collector starting", slog.String("version", version))
 	vmcollector.SetBuildInfo(version)
 
 	cfg, err := loadConfig()
@@ -161,7 +161,7 @@ func run() error {
 	if err := coll.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("collector: %w", err)
 	}
-	slog.Info("argos-vm-collector stopped cleanly")
+	slog.Info("longue-vue-vm-collector stopped cleanly")
 	return nil
 }
 
@@ -177,9 +177,9 @@ func startMetricsServer(ctx context.Context, addr string) {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
-		slog.Info("argos-vm-collector: metrics listening", slog.String("addr", addr))
+		slog.Info("longue-vue-vm-collector: metrics listening", slog.String("addr", addr))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Warn("argos-vm-collector: metrics listener error", slog.Any("error", err))
+			slog.Warn("longue-vue-vm-collector: metrics listener error", slog.Any("error", err))
 		}
 	}()
 	go func() {
