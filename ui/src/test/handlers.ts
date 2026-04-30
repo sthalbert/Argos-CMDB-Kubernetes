@@ -25,7 +25,7 @@ export const handlers = [
 
   http.get('/v1/admin/tokens', () => HttpResponse.json(paged([fixtureToken]))),
   http.post('/v1/admin/tokens', () =>
-    HttpResponse.json({ ...fixtureToken, token: 'argos_pat_abcd1234_xxx' })),
+    HttpResponse.json({ ...fixtureToken, token: 'longue_vue_pat_abcd1234_xxx' })),
   http.delete('/v1/admin/tokens/:id', () => new HttpResponse(null, { status: 204 })),
 
   http.get('/v1/admin/sessions', () => HttpResponse.json(paged([fixtureSession]))),
@@ -45,7 +45,7 @@ export const handlers = [
   http.post('/v1/admin/cloud-accounts/:id/enable', () => new HttpResponse(null, { status: 204 })),
   http.delete('/v1/admin/cloud-accounts/:id', () => new HttpResponse(null, { status: 204 })),
   http.post('/v1/admin/cloud-accounts/:id/tokens', () =>
-    HttpResponse.json({ ...fixtureToken, bound_cloud_account_id: fixtureCloudAccount.id, token: 'argos_pat_abcd1234_yyy' })),
+    HttpResponse.json({ ...fixtureToken, bound_cloud_account_id: fixtureCloudAccount.id, token: 'longue_vue_pat_abcd1234_yyy' })),
 
   // --- CMDB lists ---
   http.get('/v1/clusters', () => HttpResponse.json(paged([fixtureCluster]))),

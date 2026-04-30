@@ -1,9 +1,9 @@
 {
-  "name": "argos-ui",
+  "name": "longue-vue-ui",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Argos CMDB web UI — audit views and curated asset metadata.",
+  "description": "longue-vue CMDB web UI — audit views and curated asset metadata.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

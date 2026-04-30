@@ -97,7 +97,7 @@ export const fixtureNode: Node = {
 
 const fixtureContainer: Container = {
   name: 'app',
-  image: 'ghcr.io/argos/app:1.2.3',
+  image: 'ghcr.io/longue-vue/app:1.2.3',
   image_id: 'sha256:abc123',
   init: false,
 };
@@ -299,7 +299,7 @@ export const fixtureUser: User = {
 export const fixtureToken: ApiToken = {
   id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
   name: 'collector',
-  prefix: 'argos_pa',
+  prefix: 'longue_vu',
   scopes: ['read', 'write'],
   created_by_user_id: fixtureUser.id,
   created_at: '2025-01-01T00:00:00Z',

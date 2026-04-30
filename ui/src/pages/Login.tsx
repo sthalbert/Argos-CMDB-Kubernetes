@@ -7,16 +7,16 @@ import { ClusterIcon } from '../icons';
 // session cookie server-side; we never see the cookie value in JS.
 //
 // OIDC button, when the backend reports oidc.enabled=true, takes the
-// browser to /v1/auth/oidc/authorize. argosd redirects to the IdP; the
+// browser to /v1/auth/oidc/authorize. longue-vue redirects to the IdP; the
 // IdP bounces back to /v1/auth/oidc/callback, which finishes the
 // exchange, mints a session cookie, and redirects to /ui/.
 
 const OIDC_ERROR_MESSAGES: Record<string, string> = {
   state_expired_or_unknown: 'Sign-in link expired or already used. Try again.',
   exchange_failed: 'The identity provider rejected the sign-in. Try again or contact an admin.',
-  user_lookup_failed: 'Could not load your user account. An admin should check argosd logs.',
-  session_create_failed: 'Could not create your session. An admin should check argosd logs.',
-  session_mint_failed: 'Could not mint a session id. An admin should check argosd logs.',
+  user_lookup_failed: 'Could not load your user account. An admin should check longue-vue logs.',
+  session_create_failed: 'Could not create your session. An admin should check longue-vue logs.',
+  session_mint_failed: 'Could not mint a session id. An admin should check longue-vue logs.',
 };
 
 export default function Login() {
@@ -84,13 +84,13 @@ export default function Login() {
       <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
         <ClusterIcon size={32} style={{ color: 'var(--accent)' }} />
         <div style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '0.02em', marginTop: '0.5rem' }}>
-          Argos CMDB
+          longue-vue CMDB
         </div>
       </div>
       <h2>Sign in</h2>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        First install? Read the <code>ARGOS FIRST-RUN BOOTSTRAP</code> banner
-        in the argosd startup log for the initial admin password.
+        First install? Read the <code>LONGUE-VUE FIRST-RUN BOOTSTRAP</code> banner
+        in the longue-vue startup log for the initial admin password.
       </p>
 
       {oidcErrorMessage && <div className="error">{oidcErrorMessage}</div>}

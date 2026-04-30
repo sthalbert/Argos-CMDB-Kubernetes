@@ -1,4 +1,4 @@
-// Thin fetch wrapper around the Argos REST API. Hand-written for v0 — a
+// Thin fetch wrapper around the longue-vue REST API. Hand-written for v0 — a
 // generated OpenAPI client can replace this when the surface grows.
 //
 // Auth per ADR-0007: humans use server-side sessions via an HttpOnly
