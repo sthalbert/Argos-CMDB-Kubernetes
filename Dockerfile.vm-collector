@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# argos-vm-collector container image (ADR-0015).
+# longue-vue-vm-collector container image (ADR-0015).
 # Two-stage: golang builder -> distroless static runtime. No UI stage needed.
 # Binary is static (CGO_ENABLED=0) and runs as non-root UID 65532.
 
@@ -29,12 +29,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
         -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o /out/argos-vm-collector \
-        ./cmd/argos-vm-collector
+        -o /out/longue-vue-vm-collector \
+        ./cmd/longue-vue-vm-collector
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /out/argos-vm-collector /argos-vm-collector
+COPY --from=build /out/longue-vue-vm-collector /longue-vue-vm-collector
 
 USER nonroot:nonroot
 
@@ -42,4 +42,4 @@ USER nonroot:nonroot
 # kubectl port-forward. Default ARGOS_VM_COLLECTOR_METRICS_ADDR=127.0.0.1:9090.
 EXPOSE 9090
 
-ENTRYPOINT ["/argos-vm-collector"]
+ENTRYPOINT ["/longue-vue-vm-collector"]
