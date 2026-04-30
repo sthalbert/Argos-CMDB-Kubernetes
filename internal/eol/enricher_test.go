@@ -444,6 +444,60 @@ func TestEnricherSkipsTerminatedVMs(t *testing.T) {
 	}
 }
 
+// TestEnricherMatchesMajorOnlyCycles covers products like postgresql
+// where endoflife.date publishes major-only cycles ("15", "16"). An
+// operator-declared version of "15" must match cycle "15" instead of
+// falling back to eol_status=unknown.
+func TestEnricherMatchesMajorOnlyCycles(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/postgresql.json" {
+			serveCycles(w, []Cycle{
+				{Cycle: "15", EOL: "2027-11-11", Latest: "15.10"},
+				{Cycle: "16", EOL: "2028-11-09", Latest: "16.6"},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	vmID := uuid.New()
+	store := &fakeStore{
+		eolEnabled: true,
+		vms: []api.VirtualMachine{
+			{
+				ID:   vmID,
+				Name: "pg-01",
+				Applications: []api.VMApplication{
+					{Product: "postgresql", Version: "15"},
+				},
+			},
+		},
+	}
+
+	enricher := NewEnricher(store, NewClient(srv.URL, 1*time.Hour, srv.Client()), 1*time.Hour, 90)
+	enricher.enrich(context.Background())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	raw, ok := store.vms[0].Annotations["argos.io/eol.postgresql"]
+	if !ok {
+		t.Fatal("expected argos.io/eol.postgresql annotation")
+	}
+	var parsed Annotation
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed.Cycle != "15" {
+		t.Errorf("cycle = %q, want %q", parsed.Cycle, "15")
+	}
+	if parsed.EOLStatus == StatusUnknown {
+		t.Errorf("eol_status = unknown for major-only match; want a real status")
+	}
+}
+
 func TestMergeAnnotation(t *testing.T) {
 	t.Parallel()
 

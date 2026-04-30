@@ -344,8 +344,8 @@ func (e *Enricher) resolveVMApplicationAnnotation(ctx context.Context, product, 
 		return nil, fmt.Errorf("get product %s: %w", product, err)
 	}
 
-	cycleKey := extractMajorMinor(version)
-	if cycleKey == "" {
+	candidates := extractCycleCandidates(version)
+	if len(candidates) == 0 {
 		return &Annotation{
 			Product:   product,
 			Cycle:     strings.TrimSpace(version),
@@ -354,40 +354,46 @@ func (e *Enricher) resolveVMApplicationAnnotation(ctx context.Context, product, 
 		}, nil
 	}
 
-	cycle := FindCycle(cycles, cycleKey)
-	if cycle == nil {
-		return &Annotation{
-			Product:   product,
-			Cycle:     cycleKey,
-			EOLStatus: StatusUnknown,
-			CheckedAt: time.Now().UTC().Format(time.RFC3339),
-		}, nil
+	for _, cycleKey := range candidates {
+		if cycle := FindCycle(cycles, cycleKey); cycle != nil {
+			return e.buildAnnotation(MatchResult{Product: product, Cycle: cycleKey}, cycle, cycles), nil
+		}
 	}
 
-	return e.buildAnnotation(MatchResult{Product: product, Cycle: cycleKey}, cycle, cycles), nil
+	return &Annotation{
+		Product:   product,
+		Cycle:     candidates[0],
+		EOLStatus: StatusUnknown,
+		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+	}, nil
 }
 
-// extractMajorMinor pulls a "X.Y" cycle string out of a free-form
-// operator-typed version. Strips a leading "v" and any "-suffix".
-// Returns "" when the input has no recognisable numeric major.minor.
-func extractMajorMinor(version string) string {
+// extractCycleCandidates derives endoflife.date cycle candidates from a
+// free-form operator-typed version, in priority order. Strips a leading
+// "v" and any "-suffix". Returns major.minor first when available, then
+// major alone — endoflife.date uses major.minor for some products
+// (vault: "1.15", kubernetes: "1.30") and major-only for others
+// (postgresql: "15", harbor: "2"), so we try the more specific match
+// first then fall back. Returns nil when the input has no recognisable
+// leading numeric component.
+func extractCycleCandidates(version string) []string {
 	v := strings.TrimSpace(version)
 	v = strings.TrimPrefix(v, "v")
 	v = strings.TrimPrefix(v, "V")
 	if v == "" {
-		return ""
+		return nil
 	}
 	if i := strings.IndexAny(v, "-+ "); i >= 0 {
 		v = v[:i]
 	}
 	parts := strings.Split(v, ".")
-	if len(parts) < 2 {
-		return ""
+	if len(parts) == 0 || !isNumeric(parts[0]) {
+		return nil
 	}
-	if !isNumeric(parts[0]) || !isNumeric(parts[1]) {
-		return ""
+	if len(parts) >= 2 && isNumeric(parts[1]) {
+		return []string{parts[0] + "." + parts[1], parts[0]}
 	}
-	return parts[0] + "." + parts[1]
+	return []string{parts[0]}
 }
 
 func isNumeric(s string) bool {
