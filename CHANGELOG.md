@@ -6,6 +6,44 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.12.2] — 2026-04-30
+
+Helm charts realigned on `appVersion 0.12.2` across the family
+(`argos` 0.15.2, `argos-collector` 0.1.2, `argos-ingest-gw` 0.1.3,
+`argos-vm-collector` 0.1.2). Two bug fixes against 0.12.1: the DMZ ingest
+gateway can actually verify tokens against argosd (a spec-level oversight
+made the verify endpoint reject every call from the gateway with 401),
+and EOL enrichment now matches major-only product cycles.
+
+### Fixed
+
+- **DMZ ingest gateway → argosd verify call always returned `401 missing
+  or invalid credentials`, blocking every forwarded write.** `POST
+  /v1/auth/verify` (ADR-0016 §5) is authenticated by the mTLS-only
+  listener handshake, not by an `Authorization` header — the gateway
+  sends the token to verify in the request body and never presents a
+  bearer credential of its own. The OpenAPI spec did not declare
+  `security: []` on the operation, so it inherited the document-wide
+  `BearerAuth + SessionCookie` requirement; the codegen wrapper then set
+  a non-nil empty `BearerAuthScopes` on the request context, and
+  `auth.Middleware` interpreted that as "auth required" and 401-rejected
+  every call before `VerifyToken` ran. The fix adds `security: []` to
+  the operation (matching the existing pattern on `/healthz`,
+  `/v1/auth/login`, and `/v1/auth/oidc/authorize`); `internal/api/` was
+  regenerated; a new regression test
+  `TestVerifyToken_PublicEndpoint_NoAuthHeader_Returns200` exercises the
+  real `auth.Middleware` and locks the contract. The listener-level
+  `RequireAndVerifyClientCert` is unchanged — mTLS remains the sole
+  authentication mechanism for the call.
+- **EOL enrichment fell through to `eol_status=unknown` for products
+  whose endoflife.date cycle key is a single major version
+  (e.g. `postgresql` `15`).** `extractMajorMinor` required at least two
+  numeric components, so a VM application declared as `postgresql`
+  version `15` never matched cycle `15` even though endoflife.date
+  exposes it. Replaced with `extractCycleCandidates` returning
+  `[major.minor, major]` in priority order; the resolver now retries
+  with the major-only candidate before stubbing the annotation.
+
 ## [0.12.1] — 2026-04-30
 
 Helm charts realigned on `appVersion 0.12.1` across the family

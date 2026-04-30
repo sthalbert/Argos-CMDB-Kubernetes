@@ -1756,6 +1756,15 @@ paths:
         budget as a backstop in case the gateway's verify cache is
         bypassed by a buggy build.
       operationId: verifyToken
+      # Authenticated by the listener's mTLS handshake (the ingest
+      # listener uses RequireAndVerifyClientCert), not by an
+      # Authorization header. The gateway sends the token to verify
+      # in the request body and never presents a bearer credential
+      # of its own. Override the global security block so the codegen
+      # wrapper does not require Bearer/Cookie at the application
+      # layer — without this, every call returns 401 from the auth
+      # middleware before reaching the handler.
+      security: []
       requestBody:
         required: true
         content:
