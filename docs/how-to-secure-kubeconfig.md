@@ -48,7 +48,7 @@ KUBECONFIG=/tmp/target-cluster.yaml kubectl get nodes
 ### Single cluster
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> create secret generic argos-kubeconfig \
+kubectl -n <LONGUE_VUE_NAMESPACE> create secret generic argos-kubeconfig \
   --from-file=target-cluster=/tmp/target-cluster.yaml
 ```
 
@@ -57,7 +57,7 @@ kubectl -n <ARGOS_NAMESPACE> create secret generic argos-kubeconfig \
 Add one `--from-file` per cluster. Each key becomes a file in the mounted volume:
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> create secret generic argos-kubeconfig \
+kubectl -n <LONGUE_VUE_NAMESPACE> create secret generic argos-kubeconfig \
   --from-file=cluster-a=/tmp/cluster-a.yaml \
   --from-file=cluster-b=/tmp/cluster-b.yaml \
   --from-file=cluster-c=/tmp/cluster-c.yaml
@@ -68,7 +68,7 @@ kubectl -n <ARGOS_NAMESPACE> create secret generic argos-kubeconfig \
 Kubernetes `create secret` fails if the Secret already exists. Use the dry-run + apply pattern:
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> create secret generic argos-kubeconfig \
+kubectl -n <LONGUE_VUE_NAMESPACE> create secret generic argos-kubeconfig \
   --from-file=cluster-a=/tmp/cluster-a.yaml \
   --from-file=cluster-b=/tmp/cluster-b.yaml \
   --dry-run=client -o yaml | kubectl apply -f -
@@ -109,7 +109,7 @@ To also catalogue the cluster Argos runs on (via its ServiceAccount), add an ent
 Then deploy:
 
 ```sh
-helm upgrade argos charts/argos -n <ARGOS_NAMESPACE> -f values.yaml
+helm upgrade argos charts/argos -n <LONGUE_VUE_NAMESPACE> -f values.yaml
 ```
 
 ### Kustomize
@@ -123,7 +123,7 @@ spec:
       containers:
         - name: argosd
           env:
-            - name: ARGOS_COLLECTOR_CLUSTERS
+            - name: LONGUE_VUE_COLLECTOR_CLUSTERS
               value: |
                 [
                   {"name":"cluster-a","kubeconfig":"/etc/argos/kubeconfigs/cluster-a"},
@@ -152,16 +152,16 @@ kubectl apply -k deploy/
 Confirm no kubeconfig content or path appears in environment variables:
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> get pod -l app.kubernetes.io/name=argos \
+kubectl -n <LONGUE_VUE_NAMESPACE> get pod -l app.kubernetes.io/name=argos \
   -o jsonpath='{.items[0].spec.containers[0].env}' | jq .
 ```
 
-The output should contain `ARGOS_COLLECTOR_CLUSTERS` (with file paths only) but no `ARGOS_KUBECONFIG` key.
+The output should contain `LONGUE_VUE_COLLECTOR_CLUSTERS` (with file paths only) but no `LONGUE_VUE_KUBECONFIG` key.
 
 ### Check the volume is mounted
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> get pod -l app.kubernetes.io/name=argos \
+kubectl -n <LONGUE_VUE_NAMESPACE> get pod -l app.kubernetes.io/name=argos \
   -o jsonpath='{.items[0].spec.containers[0].volumeMounts}' | jq .
 ```
 
@@ -170,7 +170,7 @@ Expect a `kubeconfigs` mount at `/etc/argos/kubeconfigs` with `readOnly: true`.
 ### Check the collector logs
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> logs -l app.kubernetes.io/name=argos --tail=50 | grep -i cluster
+kubectl -n <LONGUE_VUE_NAMESPACE> logs -l app.kubernetes.io/name=argos --tail=50 | grep -i cluster
 ```
 
 You should see successful poll entries for each configured cluster within one collector interval (default 5 minutes).
@@ -179,8 +179,8 @@ You should see successful poll entries for each configured cluster within one co
 
 | Anti-pattern | Risk |
 |---|---|
-| `ARGOS_KUBECONFIG` env var with a file path | Path visible in pod spec to anyone with pod-read RBAC |
-| `ARGOS_KUBECONFIG` env var with kubeconfig content | Full credentials exposed in pod spec |
+| `LONGUE_VUE_KUBECONFIG` env var with a file path | Path visible in pod spec to anyone with pod-read RBAC |
+| `LONGUE_VUE_KUBECONFIG` env var with kubeconfig content | Full credentials exposed in pod spec |
 | Kubeconfig files committed to Git | Credentials in history forever, even after removal |
 | Real cluster names in committed manifests | Leaks internal topology (zone names, environments, cluster roles) |
 | `stringData` Secrets committed to Git | Plaintext credentials in version control |

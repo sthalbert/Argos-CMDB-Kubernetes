@@ -324,7 +324,7 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/change-pass
 
 **`POST /v1/auth/verify` — token verification (DMZ ingest gateway, ADR-0016 §5):**
 
-This endpoint is served **only on argosd's mTLS ingest listener** (`:8443` when `ARGOS_INGEST_LISTEN_ADDR` is set). It is not reachable on argosd's public `:8080` listener. The caller must present a valid mTLS client certificate — there is no `Authorization` header on the verify call itself. The ingest gateway uses this endpoint to verify collector PATs before forwarding requests.
+This endpoint is served **only on argosd's mTLS ingest listener** (`:8443` when `LONGUE_VUE_INGEST_LISTEN_ADDR` is set). It is not reachable on argosd's public `:8080` listener. The caller must present a valid mTLS client certificate — there is no `Authorization` header on the verify call itself. The ingest gateway uses this endpoint to verify collector PATs before forwarding requests.
 
 Request body:
 
@@ -615,7 +615,7 @@ curl -sS -b /tmp/argos.cookies -X PATCH \
 # 204 No Content
 ```
 
-The SK is encrypted with AES-256-GCM under `ARGOS_SECRETS_MASTER_KEY` before it touches the database.
+The SK is encrypted with AES-256-GCM under `LONGUE_VUE_SECRETS_MASTER_KEY` before it touches the database.
 
 **Mint a collector token (admin):**
 

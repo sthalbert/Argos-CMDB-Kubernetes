@@ -99,11 +99,11 @@ Response (SK never returned):
 ### Option B — collector-first (hybrid)
 
 1. Issue a `vm-collector` PAT bound to a not-yet-registered account name (see [Issue a collector token](#issue-a-collector-token)).
-2. Deploy `argos-vm-collector` with `ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod` (see [vm-collector guide](vm-collector.md)).
+2. Deploy `argos-vm-collector` with `LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME=acme-prod` (see [vm-collector guide](vm-collector.md)).
 3. The collector calls `POST /v1/cloud-accounts` and creates the placeholder row.
 4. The admin home banner lights up: **1 cloud account pending credentials**.
 5. Admin opens **Admin > Cloud Accounts**, finds the 🔴 row, clicks **Set credentials**, and enters AK/SK.
-6. The collector picks up the credentials within `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH` (default 1 hour) and starts ingesting.
+6. The collector picks up the credentials within `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH` (default 1 hour) and starts ingesting.
 
 This option is convenient when the operator deploying the collector is not the same person as the admin holding the cloud-provider credentials.
 
@@ -124,7 +124,7 @@ Credentials are write-only from the admin endpoints — the SK is never returned
 4. Enter the new AK and SK. The SK field is `<input type="password">` and never displayed back.
 5. Click **Save**.
 
-The status transitions to `active` immediately. The collector picks up the new SK on its next credential-refresh tick (default 1 hour, configurable via `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`).
+The status transitions to `active` immediately. The collector picks up the new SK on its next credential-refresh tick (default 1 hour, configurable via `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH`).
 
 **API equivalent:**
 
@@ -140,7 +140,7 @@ curl -sS -b /tmp/argos.cookies -X PATCH \
 
 Response: `204 No Content`.
 
-The SK is encrypted with AES-256-GCM using the master key from `ARGOS_SECRETS_MASTER_KEY` before it touches the database. The plaintext is never logged, never returned by `GET /v1/admin/cloud-accounts/{id}`, and never appears in audit-log payloads.
+The SK is encrypted with AES-256-GCM using the master key from `LONGUE_VUE_SECRETS_MASTER_KEY` before it touches the database. The plaintext is never logged, never returned by `GET /v1/admin/cloud-accounts/{id}`, and never appears in audit-log payloads.
 
 ## Issue a collector token
 
@@ -179,7 +179,7 @@ Response (token shown once):
 }
 ```
 
-Pass the `token` value to the collector as `ARGOS_API_TOKEN`. See the [vm-collector guide](vm-collector.md) for deployment.
+Pass the `token` value to the collector as `LONGUE_VUE_API_TOKEN`. See the [vm-collector guide](vm-collector.md) for deployment.
 
 If you ever need to revoke a token (rotation, suspected leak, decommission), do it from **Admin > Tokens** — the bound account context is informational only, the revoke flow is the same as for any PAT.
 
@@ -228,7 +228,7 @@ The audit log retains the deletion event with the actor, timestamp, and the list
 
 ## Master-key backup
 
-> **Critical.** Losing `ARGOS_SECRETS_MASTER_KEY` means every encrypted SK in the database becomes unrecoverable. Argosd will start, but it cannot decrypt any account's credentials. You will need to **re-enter every SK by hand** through the admin UI. There is no recovery path. Treat the master key with the same care as a database backup encryption key.
+> **Critical.** Losing `LONGUE_VUE_SECRETS_MASTER_KEY` means every encrypted SK in the database becomes unrecoverable. Argosd will start, but it cannot decrypt any account's credentials. You will need to **re-enter every SK by hand** through the admin UI. There is no recovery path. Treat the master key with the same care as a database backup encryption key.
 
 ### Generate a master key
 
@@ -236,7 +236,7 @@ The audit log retains the deletion event with the actor, timestamp, and the list
 openssl rand -base64 32
 ```
 
-This produces a 32-byte (256-bit) key encoded as base64. Set it as `ARGOS_SECRETS_MASTER_KEY` on the argosd Deployment — never commit it to git, never put it in `values.yaml`, always deliver it via a Kubernetes Secret or your secret manager of choice.
+This produces a 32-byte (256-bit) key encoded as base64. Set it as `LONGUE_VUE_SECRETS_MASTER_KEY` on the argosd Deployment — never commit it to git, never put it in `values.yaml`, always deliver it via a Kubernetes Secret or your secret manager of choice.
 
 ### Verify the right key is loaded
 
@@ -263,7 +263,7 @@ The master key is **separate from your database backup**. Standard practice:
 If the master key is lost and unrecoverable:
 
 1. Generate a new master key.
-2. Set it as `ARGOS_SECRETS_MASTER_KEY`.
+2. Set it as `LONGUE_VUE_SECRETS_MASTER_KEY`.
 3. Restart argosd.
 4. Open **Admin > Cloud Accounts**. Every account will still exist with its name, region, owner, etc., but `secret_key_kid` will reference the old (lost) key.
 5. For each account, click **Rotate credentials** and re-enter the AK and SK from the cloud-provider console.
@@ -310,7 +310,7 @@ Future providers will get their own row in this table. The collector never calls
 ## See also
 
 - [vm-collector — operator guide](vm-collector.md) — deploying the binary that consumes these credentials.
-- [Configuration reference](configuration.md) — `ARGOS_SECRETS_MASTER_KEY` and the full vm-collector env-var table.
+- [Configuration reference](configuration.md) — `LONGUE_VUE_SECRETS_MASTER_KEY` and the full vm-collector env-var table.
 - [API reference — cloud accounts and virtual machines](api-reference.md) — endpoint catalogue.
 - [ADR-0015](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) — design rationale.
 - [ADR-0007](adr/adr-0007-auth-and-rbac.md) — token / scope / role model that the `vm-collector` scope plugs into.

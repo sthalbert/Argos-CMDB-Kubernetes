@@ -86,7 +86,7 @@ The UI must present a confirmation dialog before calling `DELETE /v1/clusters/{i
 ### Negative
 
 - **NEG-001**: The pre-deletion snapshot requires counting children across multiple tables before the DELETE executes. For very large clusters (thousands of pods), the count queries add latency to the delete call. Acceptable for a rare, admin-only operation.
-- **NEG-002**: No undo. Once deleted, recovery requires re-collecting the cluster (re-add it to `ARGOS_COLLECTOR_CLUSTERS` and wait for the next poll tick). Curated metadata (owner, criticality, notes, runbook_url, annotations) is permanently lost.
+- **NEG-002**: No undo. Once deleted, recovery requires re-collecting the cluster (re-add it to `LONGUE_VUE_COLLECTOR_CLUSTERS` and wait for the next poll tick). Curated metadata (owner, criticality, notes, runbook_url, annotations) is permanently lost.
 - **NEG-003**: UI confirmation is bypassable via direct API call. This is by design (automation use-case), but means a mistyped `curl` from an admin can still drop a cluster.
 
 ### Neutral

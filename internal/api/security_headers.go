@@ -16,7 +16,7 @@ import (
 // X-Forwarded-Proto is ignored entirely so an attacker connecting directly
 // can never spoof "https" and steer the trust posture of the response.
 //
-// `forceHSTS` reflects the operator's ARGOS_REQUIRE_HTTPS=true declaration
+// `forceHSTS` reflects the operator's LONGUE_VUE_REQUIRE_HTTPS=true declaration
 // that the deployment is HTTPS-only. When set, HSTS is emitted on every
 // response regardless of the per-request shape — a browser that ever lands
 // on the public hostname is told never to downgrade, even if a stray plain

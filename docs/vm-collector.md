@@ -23,7 +23,7 @@ Argosd performs the canonical dedup against the `nodes` table server-side: any V
 1. **argosd is running** and reachable over HTTPS (directly or through a gateway).
 2. **A `vm-collector` PAT bound to the target account** has been issued. See [Issue a collector token](cloud-accounts.md#issue-a-collector-token).
 3. **The cloud account exists in argosd** — either pre-registered with credentials, or you are using the [hybrid onboarding flow](cloud-accounts.md#option-b--collector-first-hybrid) where the collector creates the placeholder.
-4. **`ARGOS_SECRETS_MASTER_KEY` is set on argosd** so credentials can be encrypted at rest. See [master-key backup](cloud-accounts.md#master-key-backup).
+4. **`LONGUE_VUE_SECRETS_MASTER_KEY` is set on argosd** so credentials can be encrypted at rest. See [master-key backup](cloud-accounts.md#master-key-backup).
 
 ## Configuration
 
@@ -33,36 +33,36 @@ All configuration is via environment variables.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARGOS_SERVER_URL` | yes | -- | argosd base URL. Example: `https://argos.internal:8080`. Supports a path prefix for gateway deployments: `https://gateway:443/argos`. |
-| `ARGOS_API_TOKEN` | yes | -- | Bearer PAT with `vm-collector` scope, bound to the target cloud account. Format: `argos_pat_<prefix>_<suffix>`. |
+| `LONGUE_VUE_SERVER_URL` | yes | -- | argosd base URL. Example: `https://argos.internal:8080`. Supports a path prefix for gateway deployments: `https://gateway:443/argos`. |
+| `LONGUE_VUE_API_TOKEN` | yes | -- | Bearer PAT with `vm-collector` scope, bound to the target cloud account. Format: `argos_pat_<prefix>_<suffix>`. |
 
 ### Cloud account identity
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARGOS_VM_COLLECTOR_PROVIDER` | no | `outscale` | Cloud provider. Only `outscale` is supported in v1. |
-| `ARGOS_VM_COLLECTOR_ACCOUNT_NAME` | yes | -- | Cloud account name. Must match `cloud_accounts.name` in argosd. The collector self-registers a placeholder if the account does not yet exist. |
-| `ARGOS_VM_COLLECTOR_REGION` | yes | -- | Cloud region. Example: `eu-west-2`. |
-| `ARGOS_VM_COLLECTOR_PROVIDER_ENDPOINT_URL` | no | provider default | Override the cloud-provider API endpoint. Useful for sovereign-cloud regions or in-network mirrors. |
+| `LONGUE_VUE_VM_COLLECTOR_PROVIDER` | no | `outscale` | Cloud provider. Only `outscale` is supported in v1. |
+| `LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME` | yes | -- | Cloud account name. Must match `cloud_accounts.name` in argosd. The collector self-registers a placeholder if the account does not yet exist. |
+| `LONGUE_VUE_VM_COLLECTOR_REGION` | yes | -- | Cloud region. Example: `eu-west-2`. |
+| `LONGUE_VUE_VM_COLLECTOR_PROVIDER_ENDPOINT_URL` | no | provider default | Override the cloud-provider API endpoint. Useful for sovereign-cloud regions or in-network mirrors. |
 
 ### Behaviour
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARGOS_VM_COLLECTOR_INTERVAL` | no | `5m` | Time between polling ticks. Accepts Go duration syntax (`30s`, `5m`, `1h`). |
-| `ARGOS_VM_COLLECTOR_FETCH_TIMEOUT` | no | `30s` | Per-tick timeout for cloud-provider API calls. |
-| `ARGOS_VM_COLLECTOR_RECONCILE` | no | `true` | Call `POST /v1/virtual-machines/reconcile` after each tick to soft-delete VMs that disappeared. |
-| `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH` | no | `1h` | How often to re-fetch credentials from argosd. Lower this if you rotate AK/SK frequently. |
-| `ARGOS_VM_COLLECTOR_METRICS_ADDR` | no | `127.0.0.1:9090` | Listen address for the `/metrics` endpoint. **Set to `0.0.0.0:9090` when running in Kubernetes** so the kubelet can reach the liveness probe. |
+| `LONGUE_VUE_VM_COLLECTOR_INTERVAL` | no | `5m` | Time between polling ticks. Accepts Go duration syntax (`30s`, `5m`, `1h`). |
+| `LONGUE_VUE_VM_COLLECTOR_FETCH_TIMEOUT` | no | `30s` | Per-tick timeout for cloud-provider API calls. |
+| `LONGUE_VUE_VM_COLLECTOR_RECONCILE` | no | `true` | Call `POST /v1/virtual-machines/reconcile` after each tick to soft-delete VMs that disappeared. |
+| `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH` | no | `1h` | How often to re-fetch credentials from argosd. Lower this if you rotate AK/SK frequently. |
+| `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR` | no | `127.0.0.1:9090` | Listen address for the `/metrics` endpoint. **Set to `0.0.0.0:9090` when running in Kubernetes** so the kubelet can reach the liveness probe. |
 
 ### TLS and gateway
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARGOS_CA_CERT` | no | system CA pool | Path to a PEM-encoded CA certificate for verifying the argosd (or gateway) TLS certificate. Required when argosd uses a private CA. |
-| `ARGOS_CLIENT_CERT` | no | -- | Path to a PEM-encoded client certificate for mTLS to a gateway. |
-| `ARGOS_CLIENT_KEY` | no | -- | Path to a PEM-encoded client private key for mTLS. Required when `ARGOS_CLIENT_CERT` is set. |
-| `ARGOS_EXTRA_HEADERS` | no | -- | Comma-separated `key=value` pairs injected into every outbound HTTP request to argosd. Useful for gateway routing or tenant identification. Example: `X-Tenant-Id=acme-prod,X-Route-Key=argos`. |
+| `LONGUE_VUE_CA_CERT` | no | system CA pool | Path to a PEM-encoded CA certificate for verifying the argosd (or gateway) TLS certificate. Required when argosd uses a private CA. |
+| `LONGUE_VUE_CLIENT_CERT` | no | -- | Path to a PEM-encoded client certificate for mTLS to a gateway. |
+| `LONGUE_VUE_CLIENT_KEY` | no | -- | Path to a PEM-encoded client private key for mTLS. Required when `LONGUE_VUE_CLIENT_CERT` is set. |
+| `LONGUE_VUE_EXTRA_HEADERS` | no | -- | Comma-separated `key=value` pairs injected into every outbound HTTP request to argosd. Useful for gateway routing or tenant identification. Example: `X-Tenant-Id=acme-prod,X-Route-Key=argos`. |
 
 ### Proxy
 
@@ -76,7 +76,7 @@ The collector honours the standard Go proxy environment variables:
 
 ### What is *not* configurable
 
-There is **no `ARGOS_AK` or `ARGOS_SK` env var**. AK/SK live exclusively in argosd's `cloud_accounts` table and are fetched at runtime. This is deliberate — see [ADR-0015 §4](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) for the rationale.
+There is **no `LONGUE_VUE_AK` or `LONGUE_VUE_SK` env var**. AK/SK live exclusively in argosd's `cloud_accounts` table and are fetched at runtime. This is deliberate — see [ADR-0015 §4](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) for the rationale.
 
 ## Deployment recipes
 
@@ -89,7 +89,7 @@ Per ADR-0018, the VM collector ships with a first-class Helm chart at `charts/ar
 # 2. Stash it in a Kubernetes Secret out-of-band — the chart never templates plaintext PATs.
 kubectl create namespace argos-vm-collector
 kubectl -n argos-vm-collector create secret generic argos-vm-collector-credentials \
-  --from-literal=ARGOS_API_TOKEN='argos_pat_3f9c1e7a_5N2pKdQ...'
+  --from-literal=LONGUE_VUE_API_TOKEN='argos_pat_3f9c1e7a_5N2pKdQ...'
 
 # 3. Install the chart.
 helm install acme-prod charts/argos-vm-collector \
@@ -104,7 +104,7 @@ kubectl -n argos-vm-collector rollout status deployment/acme-prod-argos-vm-colle
 kubectl -n argos-vm-collector logs deployment/acme-prod-argos-vm-collector -f
 ```
 
-The chart wires the standard hardening defaults (UID 65532, `runAsNonRoot:true`, `readOnlyRootFilesystem`, drop ALL capabilities, seccomp `RuntimeDefault`) and disables `automountServiceAccountToken` — the collector never calls the Kubernetes API. `ARGOS_VM_COLLECTOR_METRICS_ADDR` is automatically set to `0.0.0.0:9090` so the metrics Service / ServiceMonitor can scrape it.
+The chart wires the standard hardening defaults (UID 65532, `runAsNonRoot:true`, `readOnlyRootFilesystem`, drop ALL capabilities, seccomp `RuntimeDefault`) and disables `automountServiceAccountToken` — the collector never calls the Kubernetes API. `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR` is automatically set to `0.0.0.0:9090` so the metrics Service / ServiceMonitor can scrape it.
 
 Multi-account = N releases — one per cloud account. The chart is intentionally scoped narrow.
 
@@ -151,9 +151,9 @@ Reference manifests live in `deploy/vm-collector/`. Positioned as a quick-start 
 # 1. Mint the collector PAT in the Argos UI (Admin > Cloud Accounts > Issue collector token).
 # 2. Stash it in a Kubernetes Secret.
 kubectl -n argos-system create secret generic argos-vm-collector-token \
-  --from-literal=ARGOS_API_TOKEN='argos_pat_3f9c1e7a_5N2pKdQ...'
+  --from-literal=LONGUE_VUE_API_TOKEN='argos_pat_3f9c1e7a_5N2pKdQ...'
 
-# 3. Edit deploy/vm-collector/configmap.yaml — set ARGOS_SERVER_URL, ARGOS_VM_COLLECTOR_ACCOUNT_NAME, ARGOS_VM_COLLECTOR_REGION.
+# 3. Edit deploy/vm-collector/configmap.yaml — set LONGUE_VUE_SERVER_URL, LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME, LONGUE_VUE_VM_COLLECTOR_REGION.
 # 4. Apply.
 kubectl apply -k deploy/vm-collector/
 
@@ -164,11 +164,11 @@ kubectl -n argos-system logs -l app.kubernetes.io/component=vm-collector -f
 The Kustomize bundle ships:
 
 - `Deployment` (replicas: 1) running `argos-vm-collector`.
-- `Secret` carrying `ARGOS_API_TOKEN`.
+- `Secret` carrying `LONGUE_VUE_API_TOKEN`.
 - `ConfigMap` for non-secret env vars.
 - Egress `NetworkPolicy` allowing HTTPS to the argosd endpoint and the cloud-provider API only.
 
-> **Important:** when running in Kubernetes, set `ARGOS_VM_COLLECTOR_METRICS_ADDR=0.0.0.0:9090` so the kubelet can reach the liveness probe. The default (`127.0.0.1:9090`) is fine for systemd / docker but rejects external scrapes.
+> **Important:** when running in Kubernetes, set `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR=0.0.0.0:9090` so the kubelet can reach the liveness probe. The default (`127.0.0.1:9090`) is fine for systemd / docker but rejects external scrapes.
 
 ### Bare VM with systemd
 
@@ -190,12 +190,12 @@ Restart=on-failure
 RestartSec=10s
 
 # Environment
-Environment="ARGOS_SERVER_URL=https://argos.internal:8080"
+Environment="LONGUE_VUE_SERVER_URL=https://argos.internal:8080"
 EnvironmentFile=/etc/argos/vm-collector.env
-Environment="ARGOS_VM_COLLECTOR_PROVIDER=outscale"
-Environment="ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod"
-Environment="ARGOS_VM_COLLECTOR_REGION=eu-west-2"
-Environment="ARGOS_VM_COLLECTOR_INTERVAL=5m"
+Environment="LONGUE_VUE_VM_COLLECTOR_PROVIDER=outscale"
+Environment="LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME=acme-prod"
+Environment="LONGUE_VUE_VM_COLLECTOR_REGION=eu-west-2"
+Environment="LONGUE_VUE_VM_COLLECTOR_INTERVAL=5m"
 
 # Hardening
 NoNewPrivileges=true
@@ -215,7 +215,7 @@ Stash the PAT in a root-only file:
 ```sh
 sudo install -m 0600 -o root -g root /dev/null /etc/argos/vm-collector.env
 sudo tee /etc/argos/vm-collector.env >/dev/null <<'EOF'
-ARGOS_API_TOKEN=argos_pat_3f9c1e7a_5N2pKdQ...
+LONGUE_VUE_API_TOKEN=argos_pat_3f9c1e7a_5N2pKdQ...
 EOF
 
 sudo systemctl daemon-reload
@@ -229,14 +229,14 @@ Quick smoke test or one-off catalogue from a workstation:
 
 ```sh
 docker run --rm \
-  -e ARGOS_SERVER_URL=https://argos.internal:8080 \
-  -e ARGOS_API_TOKEN=argos_pat_3f9c1e7a_5N2pKdQ... \
-  -e ARGOS_VM_COLLECTOR_PROVIDER=outscale \
-  -e ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod \
-  -e ARGOS_VM_COLLECTOR_REGION=eu-west-2 \
-  -e ARGOS_VM_COLLECTOR_INTERVAL=1m \
+  -e LONGUE_VUE_SERVER_URL=https://argos.internal:8080 \
+  -e LONGUE_VUE_API_TOKEN=argos_pat_3f9c1e7a_5N2pKdQ... \
+  -e LONGUE_VUE_VM_COLLECTOR_PROVIDER=outscale \
+  -e LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME=acme-prod \
+  -e LONGUE_VUE_VM_COLLECTOR_REGION=eu-west-2 \
+  -e LONGUE_VUE_VM_COLLECTOR_INTERVAL=1m \
   -p 9090:9090 \
-  -e ARGOS_VM_COLLECTOR_METRICS_ADDR=0.0.0.0:9090 \
+  -e LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR=0.0.0.0:9090 \
   argos-vm-collector:dev
 ```
 
@@ -264,7 +264,7 @@ If a gateway exposes argosd under a sub-path, include the prefix in the server U
 
 ```yaml
 env:
-  - name: ARGOS_SERVER_URL
+  - name: LONGUE_VUE_SERVER_URL
     value: "https://gateway.zad.internal:443/argos"
 ```
 
@@ -274,7 +274,7 @@ The collector prepends this base path to every API request (`/argos/v1/cloud-acc
 
 ```yaml
 env:
-  - name: ARGOS_EXTRA_HEADERS
+  - name: LONGUE_VUE_EXTRA_HEADERS
     value: "X-Tenant-Id=acme-prod,X-Route-Key=argos"
 ```
 
@@ -282,11 +282,11 @@ env:
 
 ```yaml
 env:
-  - name: ARGOS_CA_CERT
+  - name: LONGUE_VUE_CA_CERT
     value: "/etc/argos/tls/ca.pem"
-  - name: ARGOS_CLIENT_CERT
+  - name: LONGUE_VUE_CLIENT_CERT
     value: "/etc/argos/tls/client.crt"
-  - name: ARGOS_CLIENT_KEY
+  - name: LONGUE_VUE_CLIENT_KEY
     value: "/etc/argos/tls/client.key"
 volumes:
   - name: tls
@@ -306,7 +306,7 @@ The mTLS material applies only to the argosd connection. Cloud-provider authenti
 
 The admin has not yet entered AK/SK for this account. Open **Admin > Cloud Accounts**, find the row in `pending_credentials` status, and set credentials. The collector retries every credential-refresh interval (default 1 hour) — if you don't want to wait, restart the collector after entering credentials.
 
-If the account does not exist at all, verify `ARGOS_VM_COLLECTOR_ACCOUNT_NAME` matches the registered name exactly (case-sensitive). The collector should self-register a placeholder on first contact; if it doesn't, check the PAT scope and account binding.
+If the account does not exist at all, verify `LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME` matches the registered name exactly (case-sensitive). The collector should self-register a placeholder on first contact; if it doesn't, check the PAT scope and account binding.
 
 ### `outscale ReadVms 422` (or similar provider-side error)
 
@@ -314,15 +314,15 @@ Usually means the AK/SK or region is wrong. Verify in the cloud-provider console
 
 - The AK/SK pair is active and not rotated.
 - The user behind the AK has permission to call `ReadVms` (or the equivalent on other providers).
-- `ARGOS_VM_COLLECTOR_REGION` matches a region the AK is authorised for.
+- `LONGUE_VUE_VM_COLLECTOR_REGION` matches a region the AK is authorised for.
 
 Rotate the credentials in **Admin > Cloud Accounts > Rotate credentials** if the issue is on the AK/SK side.
 
 ### `token bound to a different cloud account`
 
-The PAT was issued for cloud account A but the collector is configured with `ARGOS_VM_COLLECTOR_ACCOUNT_NAME=B`. Each `vm-collector` PAT is bound to exactly one account at issuance — there is no way to retarget it.
+The PAT was issued for cloud account A but the collector is configured with `LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME=B`. Each `vm-collector` PAT is bound to exactly one account at issuance — there is no way to retarget it.
 
-Mint a new PAT bound to account B (see [Issue a collector token](cloud-accounts.md#issue-a-collector-token)) and update `ARGOS_API_TOKEN`.
+Mint a new PAT bound to account B (see [Issue a collector token](cloud-accounts.md#issue-a-collector-token)) and update `LONGUE_VUE_API_TOKEN`.
 
 ### `409 Conflict` / `already_inventoried_as_kubernetes_node`
 
@@ -330,13 +330,13 @@ This is **not an error** — it is the deduplication flow. The VM with that ID i
 
 ### Liveness probe loop / metrics not reachable
 
-The default `ARGOS_VM_COLLECTOR_METRICS_ADDR` is `127.0.0.1:9090` — fine for systemd and `docker run`, but the kubelet cannot reach `127.0.0.1:9090` inside the pod's network namespace.
+The default `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR` is `127.0.0.1:9090` — fine for systemd and `docker run`, but the kubelet cannot reach `127.0.0.1:9090` inside the pod's network namespace.
 
 When deploying in Kubernetes, set:
 
 ```yaml
 env:
-  - name: ARGOS_VM_COLLECTOR_METRICS_ADDR
+  - name: LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR
     value: "0.0.0.0:9090"
 ```
 
@@ -345,7 +345,7 @@ The reference Kustomize manifest (`deploy/vm-collector/configmap.yaml`) sets thi
 ### `401 Unauthorized` from argosd
 
 - The PAT is invalid, expired, or revoked. Check **Admin > Tokens** in the argosd UI.
-- The `Authorization: Bearer` header is malformed. Verify `ARGOS_API_TOKEN` starts with `argos_pat_`.
+- The `Authorization: Bearer` header is malformed. Verify `LONGUE_VUE_API_TOKEN` starts with `argos_pat_`.
 
 ### `403 Forbidden` from `GET /credentials`
 
@@ -354,20 +354,20 @@ The reference Kustomize manifest (`deploy/vm-collector/configmap.yaml`) sets thi
 
 ### TLS certificate errors
 
-- The argosd (or gateway) TLS certificate is signed by a private CA. Set `ARGOS_CA_CERT` to the CA PEM file.
-- For mTLS, ensure both `ARGOS_CLIENT_CERT` and `ARGOS_CLIENT_KEY` are set and the files are mounted.
+- The argosd (or gateway) TLS certificate is signed by a private CA. Set `LONGUE_VUE_CA_CERT` to the CA PEM file.
+- For mTLS, ensure both `LONGUE_VUE_CLIENT_CERT` and `LONGUE_VUE_CLIENT_KEY` are set and the files are mounted.
 
 ### No data appears in the UI
 
 - Wait for at least one polling interval (default 5 minutes).
 - Check collector logs for upsert errors.
-- Verify `ARGOS_VM_COLLECTOR_ACCOUNT_NAME` is correct — a typo creates a different placeholder account.
+- Verify `LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME` is correct — a typo creates a different placeholder account.
 - Confirm the cloud account is `active` (not `pending_credentials` or `disabled`) in the admin UI.
 - Confirm there are actually non-Kubernetes VMs in the account. If every VM is a kube worker, every one will be deduplicated and the `virtual_machines` list will legitimately be empty. Check the `argos_vm_collector_vms_skipped_kubernetes_total` metric.
 
 ## Observability
 
-The collector exposes Prometheus metrics on `ARGOS_VM_COLLECTOR_METRICS_ADDR` (default `127.0.0.1:9090`):
+The collector exposes Prometheus metrics on `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR` (default `127.0.0.1:9090`):
 
 | Metric | Type | Labels | Meaning |
 |--------|------|--------|---------|
@@ -398,7 +398,7 @@ Argosd itself exposes complementary metrics — `argos_cloud_accounts_pending_cr
 ## See also
 
 - [Cloud accounts — admin guide](cloud-accounts.md) — register accounts, set credentials, master-key backup.
-- [Configuration reference](configuration.md) — full env-var table for the collector and `ARGOS_SECRETS_MASTER_KEY` on argosd.
+- [Configuration reference](configuration.md) — full env-var table for the collector and `LONGUE_VUE_SECRETS_MASTER_KEY` on argosd.
 - [API reference — cloud accounts and virtual machines](api-reference.md).
 - [ADR-0015](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) — design rationale, dedup logic, alternatives considered.
 - [ADR-0009](adr/adr-0009-push-collector-for-airgapped-clusters.md) — the push-collector pattern this binary mirrors.

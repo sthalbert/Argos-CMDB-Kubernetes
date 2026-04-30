@@ -58,8 +58,8 @@ cp deploy/secrets.example.yaml /tmp/argos-credentials.yaml
 
 Edit `/tmp/argos-credentials.yaml` and set at minimum:
 
-- `ARGOS_DATABASE_URL` -- your PostgreSQL DSN.
-- `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` -- (optional) a known password for the first admin. If omitted, argosd generates one and prints it to the startup log.
+- `LONGUE_VUE_DATABASE_URL` -- your PostgreSQL DSN.
+- `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` -- (optional) a known password for the first admin. If omitted, argosd generates one and prints it to the startup log.
 
 ```bash
 kubectl apply -f /tmp/argos-credentials.yaml
@@ -87,7 +87,7 @@ WARN  ========================================================================
       ARGOS FIRST-RUN BOOTSTRAP
       A default admin user has been created:
         username: admin
-        password: <16 random chars, or your ARGOS_BOOTSTRAP_ADMIN_PASSWORD>
+        password: <16 random chars, or your LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD>
         source:   generated randomly; capture now -- it won't be printed again
       This account MUST rotate its password on first login.
       ========================================================================
@@ -115,7 +115,7 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/clusters \
   -d '{"name":"in-cluster","display_name":"Self","environment":"production"}'
 ```
 
-The `name` value must match `ARGOS_CLUSTER_NAME` in the Deployment env vars (default: `in-cluster`).
+The `name` value must match `LONGUE_VUE_CLUSTER_NAME` in the Deployment env vars (default: `in-cluster`).
 
 On the next collector tick (default: 60 seconds), nodes, namespaces, pods, workloads, services, ingresses, PVs, and PVCs populate.
 
@@ -148,13 +148,13 @@ containers:
         readOnly: true
 ```
 
-### 3. Switch to ARGOS_COLLECTOR_CLUSTERS
+### 3. Switch to LONGUE_VUE_COLLECTOR_CLUSTERS
 
-Replace `ARGOS_CLUSTER_NAME` in the Deployment env with:
+Replace `LONGUE_VUE_CLUSTER_NAME` in the Deployment env with:
 
 ```yaml
 env:
-  - name: ARGOS_COLLECTOR_CLUSTERS
+  - name: LONGUE_VUE_COLLECTOR_CLUSTERS
     value: |
       [
         {"name":"prod","kubeconfig":"/etc/argos/kubeconfigs/prod.yaml"},
@@ -197,13 +197,13 @@ To let users federate from your Identity Provider:
 
 ```yaml
 stringData:
-  ARGOS_OIDC_ISSUER: "https://idp.example.com/realms/argos"
-  ARGOS_OIDC_CLIENT_ID: "argos"
-  ARGOS_OIDC_CLIENT_SECRET: "your-client-secret"
-  ARGOS_OIDC_REDIRECT_URL: "https://argos.example.com/v1/auth/oidc/callback"
+  LONGUE_VUE_OIDC_ISSUER: "https://idp.example.com/realms/argos"
+  LONGUE_VUE_OIDC_CLIENT_ID: "argos"
+  LONGUE_VUE_OIDC_CLIENT_SECRET: "your-client-secret"
+  LONGUE_VUE_OIDC_REDIRECT_URL: "https://argos.example.com/v1/auth/oidc/callback"
   # Optional:
-  ARGOS_OIDC_LABEL: "Sign in with Keycloak"
-  ARGOS_OIDC_SCOPES: "openid,email,profile"
+  LONGUE_VUE_OIDC_LABEL: "Sign in with Keycloak"
+  LONGUE_VUE_OIDC_SCOPES: "openid,email,profile"
 ```
 
 3. Restart argosd. It fetches the issuer's discovery document on boot and fails loudly if unreachable.

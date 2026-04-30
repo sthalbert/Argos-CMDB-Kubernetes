@@ -231,7 +231,7 @@ CREATE TABLE cloud_accounts (
 ### 4. Credential storage — encrypted at rest, fetched by the collector
 
 - **AK is plaintext.** It is a public identifier (it appears in request signatures and isn't independently authoritative).
-- **SK is encrypted with AES-256-GCM.** Master key from `ARGOS_SECRETS_MASTER_KEY` env var (32 bytes, base64-encoded). The AAD is the row UUID — a database backup-restore cannot move a SK from one row to another.
+- **SK is encrypted with AES-256-GCM.** Master key from `LONGUE_VUE_SECRETS_MASTER_KEY` env var (32 bytes, base64-encoded). The AAD is the row UUID — a database backup-restore cannot move a SK from one row to another.
 - **Master-key handling:** required only when `cloud_accounts` contains at least one row with non-NULL `secret_key_encrypted`. Argosd refuses to start with such rows present and no master key. A master-key fingerprint (first 8 chars of SHA-256) is logged at startup so operators can confirm the right key is loaded. The master key is never logged, returned, or surfaced in the UI.
 - **Key id (`secret_key_kid`)** stored on every row so a future rotation ADR can introduce a multi-key scheme without a schema change.
 - **Plaintext SK is never returned by the regular admin UI endpoints.** `GET /v1/admin/cloud-accounts/{id}` returns AK and metadata only. SK is write-only — set on `POST` / `PATCH` / `PATCH /credentials`, never read back through admin endpoints.
@@ -284,11 +284,11 @@ Onboarding flow:
 
 1. **Operator deploys `argos-vm-collector`** with:
    ```
-   ARGOS_SERVER_URL=https://argos.internal:8080
-   ARGOS_API_TOKEN=argos_pat_xxxx_yyyy        (vm-collector scope, bound to account name)
-   ARGOS_VM_COLLECTOR_PROVIDER=outscale
-   ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod
-   ARGOS_VM_COLLECTOR_REGION=eu-west-2
+   LONGUE_VUE_SERVER_URL=https://argos.internal:8080
+   LONGUE_VUE_API_TOKEN=argos_pat_xxxx_yyyy        (vm-collector scope, bound to account name)
+   LONGUE_VUE_VM_COLLECTOR_PROVIDER=outscale
+   LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME=acme-prod
+   LONGUE_VUE_VM_COLLECTOR_REGION=eu-west-2
    ```
 2. **Collector boots.** Calls `GET /v1/cloud-accounts/by-name/acme-prod/credentials`.
 3. **First contact** — argosd has no row with that name:
@@ -298,7 +298,7 @@ Onboarding flow:
    - Collector logs `cloud account "acme-prod" registered, awaiting admin to provide credentials` and waits.
 4. **Admin sees the placeholder.** The admin UI surfaces the row prominently: 🔴 `acme-prod (pending credentials)`. Admin clicks → form → enters AK + SK → POST `/v1/admin/cloud-accounts/{id}/credentials` (admin scope). Argosd encrypts the SK, stores it, transitions row to `status = 'active'`.
 5. **Collector retries.** Next interval, `GET .../credentials` returns the pair. Collector starts polling Outscale.
-6. **Steady state.** Collector posts VMs every interval, reconciles, updates `last_seen_at` via `PATCH /status`. Admin can rotate the SK at any time via `PATCH /credentials`; the collector picks up the new SK on the next periodic refresh (every hour by default; configurable via `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`).
+6. **Steady state.** Collector posts VMs every interval, reconciles, updates `last_seen_at` via `PATCH /status`. Admin can rotate the SK at any time via `PATCH /credentials`; the collector picks up the new SK on the next periodic refresh (every hour by default; configurable via `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH`).
 
 The status field has four values:
 
@@ -426,25 +426,25 @@ A new SVG icon (server/tower glyph) is added for the Virtual Machines nav entry,
 
 | Env var                       | Purpose                                                                  | Default                |
 |-------------------------------|--------------------------------------------------------------------------|------------------------|
-| `ARGOS_SECRETS_MASTER_KEY`    | Base64-encoded 32-byte AES-256 master key for SK envelope encryption     | (required if accounts) |
+| `LONGUE_VUE_SECRETS_MASTER_KEY`    | Base64-encoded 32-byte AES-256 master key for SK envelope encryption     | (required if accounts) |
 
 **On `argos-vm-collector`:**
 
 | Env var                                  | Purpose                                              | Default          |
 |------------------------------------------|------------------------------------------------------|------------------|
-| `ARGOS_SERVER_URL`                       | argosd base URL (gateway-aware path prefix supported)| (required)       |
-| `ARGOS_API_TOKEN`                        | Bearer PAT with `vm-collector` scope                 | (required)       |
-| `ARGOS_VM_COLLECTOR_PROVIDER`            | Cloud provider (only `outscale` in v1)               | `outscale`       |
-| `ARGOS_VM_COLLECTOR_ACCOUNT_NAME`        | Cloud account name (matches cloud_accounts.name)     | (required)       |
-| `ARGOS_VM_COLLECTOR_REGION`              | Cloud region                                         | (required)       |
-| `ARGOS_VM_COLLECTOR_INTERVAL`            | Tick interval                                        | `5m`             |
-| `ARGOS_VM_COLLECTOR_FETCH_TIMEOUT`       | Per-tick context timeout                             | `30s`            |
-| `ARGOS_VM_COLLECTOR_RECONCILE`           | Whether to call `/reconcile` after each tick         | `true`           |
-| `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`  | How often to refetch creds (rotation pickup)         | `1h`             |
-| `ARGOS_CA_CERT`                          | Custom CA for argosd TLS                             | (system)         |
-| `ARGOS_CLIENT_CERT`                      | Client cert for mTLS to argosd / gateway             | (none)           |
-| `ARGOS_CLIENT_KEY`                       | Client key for mTLS                                  | (none)           |
-| `ARGOS_EXTRA_HEADERS`                    | Extra HTTP headers (`k=v,k=v`) for gateway routing   | (none)           |
+| `LONGUE_VUE_SERVER_URL`                       | argosd base URL (gateway-aware path prefix supported)| (required)       |
+| `LONGUE_VUE_API_TOKEN`                        | Bearer PAT with `vm-collector` scope                 | (required)       |
+| `LONGUE_VUE_VM_COLLECTOR_PROVIDER`            | Cloud provider (only `outscale` in v1)               | `outscale`       |
+| `LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME`        | Cloud account name (matches cloud_accounts.name)     | (required)       |
+| `LONGUE_VUE_VM_COLLECTOR_REGION`              | Cloud region                                         | (required)       |
+| `LONGUE_VUE_VM_COLLECTOR_INTERVAL`            | Tick interval                                        | `5m`             |
+| `LONGUE_VUE_VM_COLLECTOR_FETCH_TIMEOUT`       | Per-tick context timeout                             | `30s`            |
+| `LONGUE_VUE_VM_COLLECTOR_RECONCILE`           | Whether to call `/reconcile` after each tick         | `true`           |
+| `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH`  | How often to refetch creds (rotation pickup)         | `1h`             |
+| `LONGUE_VUE_CA_CERT`                          | Custom CA for argosd TLS                             | (system)         |
+| `LONGUE_VUE_CLIENT_CERT`                      | Client cert for mTLS to argosd / gateway             | (none)           |
+| `LONGUE_VUE_CLIENT_KEY`                       | Client key for mTLS                                  | (none)           |
+| `LONGUE_VUE_EXTRA_HEADERS`                    | Extra HTTP headers (`k=v,k=v`) for gateway routing   | (none)           |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`| Standard Go-honoured proxy vars                       | (env)            |
 
 **There is no AK/SK env var on the collector.** Credentials live exclusively in argosd's `cloud_accounts` table.
@@ -454,7 +454,7 @@ A new SVG icon (server/tower glyph) is added for the Virtual Machines nav entry,
 A new directory `deploy/vm-collector/` ships reference Kustomize manifests:
 
 - `Deployment` (replicas: 1) running `argos-vm-collector`
-- `Secret` carrying `ARGOS_API_TOKEN` (the PAT)
+- `Secret` carrying `LONGUE_VUE_API_TOKEN` (the PAT)
 - Egress NetworkPolicy allowing HTTPS to the argosd endpoint and to the cloud-provider API endpoint only
 - A `ConfigMap` for non-secret env vars
 
@@ -479,7 +479,7 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
 
 ### Negative
 
-- **NEG-001** Master-key handling is a new failure mode. Loss of `ARGOS_SECRETS_MASTER_KEY` means every stored SK is unrecoverable — operators must re-enter every account's SK. Mitigation: documented backup procedure for the master key (separate from the database backup), startup banner showing the master-key fingerprint, planned future ADR (`FUT-001`) for KMS integration so the master key never lives in an env var on prod.
+- **NEG-001** Master-key handling is a new failure mode. Loss of `LONGUE_VUE_SECRETS_MASTER_KEY` means every stored SK is unrecoverable — operators must re-enter every account's SK. Mitigation: documented backup procedure for the master key (separate from the database backup), startup banner showing the master-key fingerprint, planned future ADR (`FUT-001`) for KMS integration so the master key never lives in an env var on prod.
 - **NEG-002** No agent-based guest-OS information in v1. `kernel_version` and `operating_system` are empty for every VM until a separate agent track lands. The EOL enricher is therefore a no-op for VMs in v1.
 - **NEG-003** A second binary to build, release, and version. Mitigated by sharing `internal/vmcollector` — the polling logic is compiled once, consumed by both the static-build artefact and the integration tests in `argosd`.
 - **NEG-004** The `virtual_machines` table is unbounded by tombstone retention. After several years of churn, the table accumulates terminated rows. A retention policy is a follow-up (`FUT-006`).
@@ -525,7 +525,7 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
 - **ALT-013** **Description**: Operator must tag every platform VM with `argos.io/platform=true`; collector ingests only tagged VMs.
 - **ALT-014** **Rejection Reason**: Operators don't tag their existing VMs with argos-specific tags and can't reasonably be asked to retag a fleet. The VM-ID dedup against `nodes.provider_id` is sufficient: every VM that isn't a kube node IS a platform VM by definition. The `argos.io/ignore=true` opt-out remains as an escape hatch (read by argos, set by operators if they want to exclude something).
 
-### Collector-side `ARGOS_VM_COLLECTOR_ROLE_TAG` env var
+### Collector-side `LONGUE_VUE_VM_COLLECTOR_ROLE_TAG` env var
 
 - **ALT-015** **Description**: Make the role-derivation tag (default `ansible_group`) configurable per collector deployment.
 - **ALT-016** **Rejection Reason**: YAGNI. There is one operator, one convention. If a future provider needs a different tag, the right place for that knob is a column on `cloud_accounts` (per-account, not per-deployment), not a collector env var. The Outscale provider hardcodes `ansible_group`.
@@ -551,7 +551,7 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
   - `00023_create_cloud_accounts.sql` — `cloud_accounts` table with status / encryption columns / curated metadata.
   - `00024_create_virtual_machines.sql` — `virtual_machines` table with full schema from §2.
   - No `settings` toggle migration: the VM collector's "enabled" state is purely "is the binary deployed?". There is no goroutine inside argosd to enable/disable.
-- **IMP-002** New package `internal/secrets/` with an `Encrypter` interface and a single AES-256-GCM impl. Master key parsed from `ARGOS_SECRETS_MASTER_KEY` (base64 → 32 bytes; reject other lengths at startup). Encrypter is constructed once in `main.go` and passed into the cloud-accounts handlers and the credential-read handler. Covered by unit tests with NIST known-answer vectors and round-trip property tests including AAD mismatch.
+- **IMP-002** New package `internal/secrets/` with an `Encrypter` interface and a single AES-256-GCM impl. Master key parsed from `LONGUE_VUE_SECRETS_MASTER_KEY` (base64 → 32 bytes; reject other lengths at startup). Encrypter is constructed once in `main.go` and passed into the cloud-accounts handlers and the credential-read handler. Covered by unit tests with NIST known-answer vectors and round-trip property tests including AAD mismatch.
 - **IMP-003** New package `internal/vmcollector/` shared between the collector binary and argosd's tests:
   - `provider/provider.go` — `Provider` interface, `VM` struct.
   - `provider/outscale.go` — Outscale impl using `github.com/outscale/osc-sdk-go/v2`. Maps `osc.Vm` → `provider.VM`. Canonical state mapping for `vm.State`. Instance-type → CPU/memory parser for known TINA families. Tags flattened from `[]ResourceTag` to `map[string]string`. Hardcoded `ansible_group` as the role-tag key.
@@ -599,7 +599,7 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
   - Migration `00025_add_token_bound_cloud_account.sql` adds the column.
 - **IMP-009** Prometheus metrics:
   - argosd: `argos_cloud_accounts_total{status}`, `argos_cloud_accounts_pending_credentials` (gauge), `argos_virtual_machines_total{cloud_account, terminated}`, `argos_credentials_reads_total{cloud_account}`.
-  - collector binary: `argos_vm_collector_ticks_total{status}`, `argos_vm_collector_tick_duration_seconds`, `argos_vm_collector_vms_observed`, `argos_vm_collector_vms_skipped_kubernetes`, `argos_vm_collector_credential_refreshes_total{result}`, `argos_vm_collector_last_success_timestamp_seconds`. Exposed on a localhost-only `/metrics` listener (port from `ARGOS_VM_COLLECTOR_METRICS_ADDR`, default `127.0.0.1:9090`).
+  - collector binary: `argos_vm_collector_ticks_total{status}`, `argos_vm_collector_tick_duration_seconds`, `argos_vm_collector_vms_observed`, `argos_vm_collector_vms_skipped_kubernetes`, `argos_vm_collector_credential_refreshes_total{result}`, `argos_vm_collector_last_success_timestamp_seconds`. Exposed on a localhost-only `/metrics` listener (port from `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR`, default `127.0.0.1:9090`).
 - **IMP-010** UI work (`ui/src/`):
   - New routes: `/ui/virtual-machines`, `/ui/virtual-machines/:id`, `/ui/admin/cloud-accounts`, `/ui/admin/cloud-accounts/new`, `/ui/admin/cloud-accounts/:id`.
   - New nav entry "Virtual Machines" under the existing inventory section, with a new SVG icon (server/tower glyph distinct from the Node icon). Update `ui/src/icons.tsx`.
@@ -628,7 +628,7 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
 - **IMP-014** Documentation deliverables (Phase 5 of the workflow):
   - New `docs/cloud-accounts.md` — admin guide: how to register an account, what cloud-provider permissions the AK needs, hybrid-onboarding flow, rotation, master-key backup.
   - New `docs/vm-collector.md` — operator guide: deploying `argos-vm-collector`, env-var reference, gateway/proxy/mTLS configuration, troubleshooting.
-  - `docs/configuration.md` — add `ARGOS_SECRETS_MASTER_KEY` and the collector-binary env vars.
+  - `docs/configuration.md` — add `LONGUE_VUE_SECRETS_MASTER_KEY` and the collector-binary env vars.
   - `docs/api-reference.md` — new endpoints with scope annotations.
   - `CLAUDE.md` — new architecture notes for `internal/secrets/`, `internal/vmcollector/`, `cmd/argos-vm-collector/`, the `cloud_accounts` and `virtual_machines` tables, the dedup logic, the `vm-collector` scope, the hybrid-onboarding flow.
   - `README.md` — feature list update, ADR index entry, docs table entry, two-binary topology diagram.

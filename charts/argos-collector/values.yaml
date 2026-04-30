@@ -37,10 +37,10 @@ clusterName: ""
 # tokens to keep plaintext PATs out of Helm release state.
 #
 #   kubectl create secret generic argos-collector-credentials \
-#     --namespace <ns> --from-literal=ARGOS_API_TOKEN=argos_pat_...
+#     --namespace <ns> --from-literal=LONGUE_VUE_API_TOKEN=argos_pat_...
 tokenSecret:
   existingSecret: ""
-  tokenKey: ARGOS_API_TOKEN
+  tokenKey: LONGUE_VUE_API_TOKEN
 
 # ── Kubernetes API access ─────────────────────────────────────────────
 # in-cluster (default): use the projected ServiceAccount token; the chart
@@ -70,7 +70,7 @@ argosTLS:
   # gateway's server certificate when not signed by a public CA.
   caSecret: ""
   caKey: ca.crt
-  # Comma-separated key=value list passed as ARGOS_EXTRA_HEADERS. Used by
+  # Comma-separated key=value list passed as LONGUE_VUE_EXTRA_HEADERS. Used by
   # the DMZ gateway's X-Argos-* injection-defence wiring.
   extraHeaders: ""
 

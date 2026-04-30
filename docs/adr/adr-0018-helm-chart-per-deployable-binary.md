@@ -87,8 +87,8 @@ Both charts expose the same shape for the parts that match. The keys mirror exis
 | `imagePullSecrets`             | `[]`                                     | For private registries                                            |
 | `replicaCount`                 | `1` (collector) / `1` (vm-collector)     | Both are single-instance per scope; HA is a follow-up             |
 | `serverURL`                    | `""` (required)                          | argosd or DMZ gateway URL — fails install if empty                |
-| `tokenSecret.existingSecret`   | `""` (required)                          | Kubernetes Secret carrying `ARGOS_API_TOKEN`                      |
-| `tokenSecret.tokenKey`         | `ARGOS_API_TOKEN`                        | Override if the operator named the secret key differently         |
+| `tokenSecret.existingSecret`   | `""` (required)                          | Kubernetes Secret carrying `LONGUE_VUE_API_TOKEN`                      |
+| `tokenSecret.tokenKey`         | `LONGUE_VUE_API_TOKEN`                        | Override if the operator named the secret key differently         |
 | `argosTLS.existingSecret`      | `""`                                     | Optional client cert for mTLS (DMZ gateway shape — ADR-0016)      |
 | `argosTLS.caSecret`            | `""`                                     | Optional CA bundle for verifying argosd/gateway                   |
 | `argosTLS.extraHeaders`        | `""`                                     | Optional `X-Argos-*` headers (gateway → argosd injection defence) |
@@ -105,9 +105,9 @@ Both charts expose the same shape for the parts that match. The keys mirror exis
 
 | Key                              | Default      | Purpose                                                                 |
 |----------------------------------|--------------|-------------------------------------------------------------------------|
-| `clusterName`                    | (required)   | Sent as `ARGOS_CLUSTER_NAME` — the cluster's CMDB row name              |
-| `interval`                       | `5m`         | `ARGOS_COLLECTOR_INTERVAL`                                              |
-| `reconcile`                      | `true`       | `ARGOS_COLLECTOR_RECONCILE` — required for ANSSI cartography fidelity   |
+| `clusterName`                    | (required)   | Sent as `LONGUE_VUE_CLUSTER_NAME` — the cluster's CMDB row name              |
+| `interval`                       | `5m`         | `LONGUE_VUE_COLLECTOR_INTERVAL`                                              |
+| `reconcile`                      | `true`       | `LONGUE_VUE_COLLECTOR_RECONCILE` — required for ANSSI cartography fidelity   |
 | `kubeconfig.mode`                | `in-cluster` | `in-cluster` (default), `secret` (mount a kubeconfig from a Secret)     |
 | `kubeconfig.existingSecret`      | `""`         | Required when `kubeconfig.mode=secret`                                  |
 | `rbac.create`                    | `true`       | When `false`, the chart does not create the ClusterRole/Binding         |
@@ -119,13 +119,13 @@ The ClusterRole carries the **same `list`-only permissions** as today's `deploy/
 
 | Key                       | Default         | Purpose                                                          |
 |---------------------------|-----------------|------------------------------------------------------------------|
-| `accountName`             | (required)      | `ARGOS_VM_COLLECTOR_ACCOUNT_NAME` — must match the `cloud_accounts.name` row |
-| `provider`                | `outscale`      | `ARGOS_VM_COLLECTOR_PROVIDER` — only `outscale` today (ADR-0015) |
-| `region`                  | (required)      | `ARGOS_VM_COLLECTOR_REGION`                                      |
-| `interval`                | `15m`           | `ARGOS_VM_COLLECTOR_INTERVAL`                                    |
-| `fetchTimeout`            | `2m`            | `ARGOS_VM_COLLECTOR_FETCH_TIMEOUT`                               |
-| `reconcile`               | `true`          | `ARGOS_VM_COLLECTOR_RECONCILE`                                   |
-| `credentialRefresh`       | `1h`            | `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`                          |
+| `accountName`             | (required)      | `LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME` — must match the `cloud_accounts.name` row |
+| `provider`                | `outscale`      | `LONGUE_VUE_VM_COLLECTOR_PROVIDER` — only `outscale` today (ADR-0015) |
+| `region`                  | (required)      | `LONGUE_VUE_VM_COLLECTOR_REGION`                                      |
+| `interval`                | `15m`           | `LONGUE_VUE_VM_COLLECTOR_INTERVAL`                                    |
+| `fetchTimeout`            | `2m`            | `LONGUE_VUE_VM_COLLECTOR_FETCH_TIMEOUT`                               |
+| `reconcile`               | `true`          | `LONGUE_VUE_VM_COLLECTOR_RECONCILE`                                   |
+| `credentialRefresh`       | `1h`            | `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH`                          |
 | `networkPolicy.cloudAPICIDRs` | `[]`        | Egress allow list when `networkPolicy.enabled=true`              |
 
 The vm-collector chart's NOTES.txt prints a copy-paste hint for "install one release per cloud account":

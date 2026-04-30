@@ -26,7 +26,7 @@ One deployment per cloud account. To inventory three Outscale accounts, deploy t
 
 ## Prerequisites
 
-1. **argosd** is deployed and reachable from the collector. argosd has `ARGOS_SECRETS_MASTER_KEY` configured (it MUST, otherwise the credentials-fetch endpoint returns 503).
+1. **argosd** is deployed and reachable from the collector. argosd has `LONGUE_VUE_SECRETS_MASTER_KEY` configured (it MUST, otherwise the credentials-fetch endpoint returns 503).
 2. **Admin pre-registers the cloud account** in the argosd UI:
    - Go to **Admin > Cloud Accounts > Add account**.
    - Pick the provider (e.g. `outscale`), enter a name (e.g. `acme-prod`) and region (e.g. `eu-west-2`).
@@ -55,7 +55,7 @@ The collector will:
 
 1. Boot, fetch credentials from argosd via `GET /v1/cloud-accounts/by-name/{name}/credentials`.
 2. If the account is in `pending_credentials`, log a warning and retry on the next interval.
-3. Once credentials are available, poll the cloud-provider API every `ARGOS_VM_COLLECTOR_INTERVAL` (default 5 minutes).
+3. Once credentials are available, poll the cloud-provider API every `LONGUE_VUE_VM_COLLECTOR_INTERVAL` (default 5 minutes).
 4. Upsert each non-Kubernetes VM via `POST /v1/virtual-machines`.
 5. Reconcile (soft-delete) VMs that disappeared from the listing.
 6. Update the cloud_account heartbeat (`last_seen_at`) on each successful tick.
@@ -73,10 +73,10 @@ The shipped `networkpolicy.yaml` allows TCP 443 to any destination since Kuberne
 
 The collector is gateway-transparent (mirrors ADR-0009 §7):
 
-- `ARGOS_SERVER_URL` accepts a path prefix (e.g. `https://gw.internal/argos`).
-- `ARGOS_CA_CERT` for custom server-side CA.
-- `ARGOS_CLIENT_CERT` + `ARGOS_CLIENT_KEY` for mTLS to the gateway.
-- `ARGOS_EXTRA_HEADERS=X-Tenant-Id=zad-prod,X-Route-Key=argos` for header-based gateway routing.
+- `LONGUE_VUE_SERVER_URL` accepts a path prefix (e.g. `https://gw.internal/argos`).
+- `LONGUE_VUE_CA_CERT` for custom server-side CA.
+- `LONGUE_VUE_CLIENT_CERT` + `LONGUE_VUE_CLIENT_KEY` for mTLS to the gateway.
+- `LONGUE_VUE_EXTRA_HEADERS=X-Tenant-Id=zad-prod,X-Route-Key=argos` for header-based gateway routing.
 - `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` (Go's standard env vars).
 
 Add these to the ConfigMap or Secret as appropriate.
@@ -85,7 +85,7 @@ Add these to the ConfigMap or Secret as appropriate.
 
 `/metrics` is exposed on `127.0.0.1:9090` inside the pod (localhost only by default). The deployment manifests don't ship a `Service` — Prometheus operators typically scrape via a sidecar or the `prometheus.io/scrape` annotation pattern; adapt to your monitoring stack.
 
-Set `ARGOS_VM_COLLECTOR_METRICS_ADDR=""` in the ConfigMap to disable the listener entirely.
+Set `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR=""` in the ConfigMap to disable the listener entirely.
 
 ## References
 

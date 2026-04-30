@@ -26,7 +26,7 @@ The same friction applies to the push collector (ADR-0009): the air-gapped clust
 
 **The collector auto-creates a minimal cluster record when `GetClusterByName` returns `ErrNotFound`.**
 
-The auto-created record carries only the `name` field (matching `ARGOS_CLUSTER_NAME` or the entry in `ARGOS_COLLECTOR_CLUSTERS`). All curated-metadata columns (`display_name`, `environment`, `owner`, `criticality`, `notes`, `runbook_url`, `annotations`) remain at their zero values. The collector then proceeds with its normal ingestion tick.
+The auto-created record carries only the `name` field (matching `LONGUE_VUE_CLUSTER_NAME` or the entry in `LONGUE_VUE_COLLECTOR_CLUSTERS`). All curated-metadata columns (`display_name`, `environment`, `owner`, `criticality`, `notes`, `runbook_url`, `annotations`) remain at their zero values. The collector then proceeds with its normal ingestion tick.
 
 This applies to both the pull collector (embedded in argosd) and the push collector (`argos-collector`), which calls `CreateCluster` through the API client.
 
@@ -43,7 +43,7 @@ This applies to both the pull collector (embedded in argosd) and the push collec
 ### Negative
 
 - **NEG-001**: Auto-created clusters have empty metadata until an operator fills it in. This is a data-quality trade-off: the CMDB has the cluster immediately, but without curated context. Mitigated by the UI surfacing empty fields as prompts ("No environment set — edit to add").
-- **NEG-002**: A typo in `ARGOS_CLUSTER_NAME` silently creates a new cluster row instead of failing. Operators must verify cluster names after first deployment.
+- **NEG-002**: A typo in `LONGUE_VUE_CLUSTER_NAME` silently creates a new cluster row instead of failing. Operators must verify cluster names after first deployment.
 
 ## References
 

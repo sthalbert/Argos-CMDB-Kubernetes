@@ -47,7 +47,7 @@ kind load docker-image argos:dev --name <your-kind-cluster>
 # 1. Credentials (database only; auth tokens are issued by an admin in
 #    the UI now, not injected via env vars — per ADR-0007).
 cp deploy/secrets.example.yaml /tmp/argos-credentials.yaml
-# ...edit /tmp/argos-credentials.yaml — set ARGOS_DATABASE_URL...
+# ...edit /tmp/argos-credentials.yaml — set LONGUE_VUE_DATABASE_URL...
 kubectl apply -f /tmp/argos-credentials.yaml
 
 # 2. Everything else.
@@ -74,13 +74,13 @@ WARN  ========================================================================
       ========================================================================
 ```
 
-For a predictable password, set `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` on the
+For a predictable password, set `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` on the
 Deployment before the first start. It's only consulted when no admin
 user exists yet — safe to leave set across restarts.
 
 ### Optional: enable OIDC sign-in
 
-Set the `ARGOS_OIDC_*` variables in `secrets.example.yaml` to let users
+Set the `LONGUE_VUE_OIDC_*` variables in `secrets.example.yaml` to let users
 federate from your IdP instead of (or alongside) local passwords. The
 local `admin` bootstrap still happens — OIDC is additive, not a
 replacement — so you always have a break-glass login.
@@ -90,9 +90,9 @@ What the operator needs to do:
 1. Register argosd as an application at the IdP. Redirect URI
    must be `https://<argos-host>/v1/auth/oidc/callback`; grant types:
    `authorization_code`; request `openid email profile` scopes.
-2. Fill in `ARGOS_OIDC_ISSUER`, `ARGOS_OIDC_CLIENT_ID`,
-   `ARGOS_OIDC_CLIENT_SECRET`, `ARGOS_OIDC_REDIRECT_URL` in the Secret.
-   Optional: `ARGOS_OIDC_LABEL` (button text), `ARGOS_OIDC_SCOPES`.
+2. Fill in `LONGUE_VUE_OIDC_ISSUER`, `LONGUE_VUE_OIDC_CLIENT_ID`,
+   `LONGUE_VUE_OIDC_CLIENT_SECRET`, `LONGUE_VUE_OIDC_REDIRECT_URL` in the Secret.
+   Optional: `LONGUE_VUE_OIDC_LABEL` (button text), `LONGUE_VUE_OIDC_SCOPES`.
 3. Restart argosd. On boot it fetches the issuer's discovery document
    and fails loudly if unreachable — misconfiguration surfaces at
    startup, not on a user's first login attempt.
@@ -236,11 +236,11 @@ To catalogue multiple clusters from a single argosd (per ADR-0005):
            readOnly: true
    ```
 
-3. Replace `ARGOS_CLUSTER_NAME` in `deployment.yaml` with `ARGOS_COLLECTOR_CLUSTERS` pointing at each mounted path:
+3. Replace `LONGUE_VUE_CLUSTER_NAME` in `deployment.yaml` with `LONGUE_VUE_COLLECTOR_CLUSTERS` pointing at each mounted path:
 
    ```yaml
    env:
-     - name: ARGOS_COLLECTOR_CLUSTERS
+     - name: LONGUE_VUE_COLLECTOR_CLUSTERS
        value: |
          [
            {"name":"prod","kubeconfig":"/etc/argos/kubeconfigs/prod.yaml"},

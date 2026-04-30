@@ -219,15 +219,15 @@ the public-listener TLS posture and proxy-trust contract introduced here.
 ### Security
 
 - **Native TLS termination on the public listener** (ADR-0017 §4) —
-  argosd can now serve HTTPS directly when `ARGOS_PUBLIC_LISTEN_TLS_CERT`
-  and `ARGOS_PUBLIC_LISTEN_TLS_KEY` are set. Cert + key are loaded at
+  argosd can now serve HTTPS directly when `LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT`
+  and `LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY` are set. Cert + key are loaded at
   startup, hot-reloaded via fsnotify on file change (works with cert-manager,
   Vault Agent atomic-rename, manual file writes), and pinned to TLS 1.3 with
   session tickets disabled. Refuses to start on parse error rather than
   falling through to plain HTTP.
 - **Trust-aware Secure cookie + HSTS + client IP resolution** (ADR-0017 §5)
   — `X-Forwarded-For` and `X-Forwarded-Proto` are honored only when the
-  immediate TCP peer's IP falls inside `ARGOS_TRUSTED_PROXIES` (a
+  immediate TCP peer's IP falls inside `LONGUE_VUE_TRUSTED_PROXIES` (a
   comma-separated CIDR list). Empty list = ignore both headers entirely
   (the secure default). Fixes AUTH-VULN-04: a remote client sending
   `X-Forwarded-For: <victim-ip>` could previously bypass per-IP rate
@@ -236,10 +236,10 @@ the public-listener TLS posture and proxy-trust contract introduced here.
   XFP header. Fixes AUTH-VULN-03: HSTS is emitted only over a verified
   HTTPS request, with a force-emit override for operators declaring the
   full deployment HTTPS-only.
-- **Startup posture guard** (ADR-0017 §7) — `ARGOS_REQUIRE_HTTPS=true`
+- **Startup posture guard** (ADR-0017 §7) — `LONGUE_VUE_REQUIRE_HTTPS=true`
   refuses to boot unless either native TLS is configured (cert + key
-  present) or both `ARGOS_TRUSTED_PROXIES` is non-empty AND
-  `ARGOS_SESSION_SECURE_COOKIE=always`. Fails closed: "warn and serve
+  present) or both `LONGUE_VUE_TRUSTED_PROXIES` is non-empty AND
+  `LONGUE_VUE_SESSION_SECURE_COOKIE=always`. Fails closed: "warn and serve
   plain HTTP" is not an option once the operator has declared the
   deployment HTTPS-only.
 - **Last-admin invariant guard on `DELETE /v1/admin/users/{id}` and
@@ -266,7 +266,7 @@ the public-listener TLS posture and proxy-trust contract introduced here.
   rather than a shared package.
 - **Helm chart `argosd.tls` block** — `existingSecret` references a
   `kubernetes.io/tls` Secret; the chart mounts it at
-  `/etc/argos/tls` and wires `ARGOS_PUBLIC_LISTEN_TLS_CERT/_KEY`
+  `/etc/argos/tls` and wires `LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT/_KEY`
   automatically.
 - **Helm chart `argosd.trustedProxies` and `argosd.requireHTTPS`** —
   surface the new env vars so operators don't have to reach for
@@ -293,12 +293,12 @@ No DB migration. Two operational changes:
 
 1. **If you run argosd behind a TLS-terminating reverse proxy** (the
    common pattern: ingress-nginx, Envoy, a cloud LB), set
-   `ARGOS_TRUSTED_PROXIES` to the proxy's CIDR(s) and pin
-   `ARGOS_SESSION_SECURE_COOKIE=always`. Without trust, the upgrade
+   `LONGUE_VUE_TRUSTED_PROXIES` to the proxy's CIDR(s) and pin
+   `LONGUE_VUE_SESSION_SECURE_COOKIE=always`. Without trust, the upgrade
    silently downgrades cookie security and rate-limit accuracy — the
    defaults are the safest possible state, not the most useful.
 
-2. **If you want HSTS / require HTTPS**, set `ARGOS_REQUIRE_HTTPS=true`.
+2. **If you want HSTS / require HTTPS**, set `LONGUE_VUE_REQUIRE_HTTPS=true`.
    The pod will refuse to start unless one of the two postures (native
    TLS or trusted-proxy + SecureAlways) is present — failing closed
    beats accidentally serving credentials over plain HTTP.
@@ -335,14 +335,14 @@ the collector no longer needs a read-before-write at startup.
   (suggested alerts shipped as values block). NetworkPolicy restricts
   egress to argosd's ingest port only (plus Vault CIDRs in `vault` mode).
 - **mTLS-only ingest listener on argosd** (ADR-0016 §3) — a second
-  `*http.Server` starts when `ARGOS_INGEST_LISTEN_ADDR` is set (disabled
+  `*http.Server` starts when `LONGUE_VUE_INGEST_LISTEN_ADDR` is set (disabled
   when empty; existing deployments unaffected). The listener requires
   `RequireAndVerifyClientCert` (TLS 1.3 floor, session tickets disabled)
   and is wired by `api.NewIngestMux`, which registers exactly 19 routes:
   the 18 collector writes plus `POST /v1/auth/verify`. New env vars:
-  `ARGOS_INGEST_LISTEN_ADDR`, `ARGOS_INGEST_LISTEN_TLS_CERT`,
-  `ARGOS_INGEST_LISTEN_TLS_KEY`, `ARGOS_INGEST_LISTEN_CLIENT_CA_FILE`,
-  `ARGOS_INGEST_LISTEN_CLIENT_CN_ALLOW`.
+  `LONGUE_VUE_INGEST_LISTEN_ADDR`, `LONGUE_VUE_INGEST_LISTEN_TLS_CERT`,
+  `LONGUE_VUE_INGEST_LISTEN_TLS_KEY`, `LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE`,
+  `LONGUE_VUE_INGEST_LISTEN_CLIENT_CN_ALLOW`.
 - **`POST /v1/auth/verify`** (ADR-0016 §5) — internal-only endpoint
   registered exclusively on the mTLS-only ingest listener (not on `:8080`).
   The gateway calls it to short-circuit invalid tokens before forwarding
@@ -387,7 +387,7 @@ the collector no longer needs a read-before-write at startup.
 ### Migration
 
 Migration `00027_audit_events_source.sql` adds a nullable `source` column
-to `audit_events`. The `ARGOS_AUTO_MIGRATE=true` default applies it on
+to `audit_events`. The `LONGUE_VUE_AUTO_MIGRATE=true` default applies it on
 startup. Rows inserted by the previous version carry a NULL source; queries
 treat NULL as `"api"` for backwards compatibility.
 
@@ -443,7 +443,7 @@ binary.
   preset is selected.
 - **Master-key envelope encryption** (ADR-0015 §4 / IMP-002) — new
   package `internal/secrets/`. AES-256-GCM with the master key from
-  `ARGOS_SECRETS_MASTER_KEY` (base64-encoded 32 bytes; rejected at
+  `LONGUE_VUE_SECRETS_MASTER_KEY` (base64-encoded 32 bytes; rejected at
   startup on any other length). AAD bound to the row UUID so a
   database backup-restore cannot move a ciphertext between rows.
   Master-key fingerprint (first 8 hex chars of SHA-256) logged at
@@ -499,7 +499,7 @@ binary.
   red "pending credentials" banner in the UI, pastes AK/SK, the
   collector picks them up on the next refresh tick. Hot AK/SK
   rotation works the same way: PATCH `/credentials`, collector picks
-  up the new SK within `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`
+  up the new SK within `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH`
   (default 1 h).
 - **Virtual Machines and Cloud Accounts UI pages** (ADR-0015 §10) —
   `/ui/virtual-machines` list + detail (mirrors Node detail layout
@@ -564,9 +564,9 @@ binary.
 
 Migrations `00023` / `00024` / `00025` are additive (the schema for
 new tables, plus a nullable column on `tokens`); the
-`ARGOS_AUTO_MIGRATE=true` default applies them on startup. Existing
+`LONGUE_VUE_AUTO_MIGRATE=true` default applies them on startup. Existing
 deployments without any `cloud_accounts` row do not need
-`ARGOS_SECRETS_MASTER_KEY`; argosd only refuses to start when the
+`LONGUE_VUE_SECRETS_MASTER_KEY`; argosd only refuses to start when the
 table contains an encrypted SK and the env var is unset.
 
 The Helm chart bumps to `0.12.0` / appVersion `0.10.0`. The new
@@ -682,7 +682,7 @@ Patch release on top of `v0.1.0` "Canopus". Adds the first two steps of
 the ADR-0008 asset-management rollout (curated metadata on Namespace
 and Node, including `hardware_model`) and fixes three UUID-instead-of-
 name rendering bugs on detail pages. Schema is additive only; `v0.1.0`
-→ `v0.1.1` is a straight `ARGOS_AUTO_MIGRATE=true` bump, no data
+→ `v0.1.1` is a straight `LONGUE_VUE_AUTO_MIGRATE=true` bump, no data
 migration required.
 
 ### Added
@@ -742,10 +742,10 @@ JSONB defaults to `{}`. No data rewrite, no downtime.
 ### Upgrading
 
 ```bash
-# From v0.1.0. Keep your existing ARGOS_BOOTSTRAP_ADMIN_PASSWORD — the
+# From v0.1.0. Keep your existing LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD — the
 # bootstrap only fires when no admin exists, so it's a no-op here.
 make build VERSION=0.1.1
-# Point at the same DSN as v0.1.0; ARGOS_AUTO_MIGRATE=true (default)
+# Point at the same DSN as v0.1.0; LONGUE_VUE_AUTO_MIGRATE=true (default)
 # applies 00019 + 00020 on startup.
 ./bin/argosd
 ```
@@ -786,7 +786,7 @@ navigation marker.
   on one table, discriminated by `kind`).
 - **ADR-0004** — Ingress layer classification.
 - **ADR-0005** — Multi-cluster collector topology
-  (`ARGOS_COLLECTOR_CLUSTERS`).
+  (`LONGUE_VUE_COLLECTOR_CLUSTERS`).
 - **ADR-0006** — Web UI bundled into argosd; curated-metadata columns.
 - **ADR-0007** — Auth & RBAC (sessions + OIDC + bearer tokens).
 
@@ -824,12 +824,12 @@ navigation marker.
 - Polling-based; each tick refreshes the API-server version and lists
   every catalogued kind cluster-wide. Default 5 minute interval,
   configurable.
-- Reconciliation (`ARGOS_COLLECTOR_RECONCILE=true`, default on) deletes
+- Reconciliation (`LONGUE_VUE_COLLECTOR_RECONCILE=true`, default on) deletes
   rows that disappear from the live listing so the CMDB mirrors
   ground truth — required for ANSSI cartography fidelity. Runs only
   after a successful list so a transient Kubernetes error never wipes
   the store.
-- Multi-cluster via `ARGOS_COLLECTOR_CLUSTERS` (JSON array of
+- Multi-cluster via `LONGUE_VUE_COLLECTOR_CLUSTERS` (JSON array of
   `{name, kubeconfig}` tuples); legacy single-cluster env vars still
   work. Empty kubeconfig falls back to in-cluster config.
 - Exposes Prometheus counters and last-poll gauges per
@@ -848,7 +848,7 @@ navigation marker.
   argon2id-hashed at rest, 8-char prefix for O(1) lookup, plaintext
   shown once at creation (GitHub-PAT pattern). Minted in the admin UI.
 - **First-run bootstrap**: creates a single `admin` user when none
-  exists; password comes from `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` or a
+  exists; password comes from `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` or a
   random 16-char string printed once to the startup log. Forced
   rotation on first login.
 - Role → scope mapping: `admin` carries everything, `editor` =

@@ -35,7 +35,7 @@ podDisruptionBudget:
 
 # ── Upstream argosd configuration ──────────────────────────────────────
 # upstream.url MUST point at argosd's mTLS-only ingest listener
-# (ARGOS_INGEST_LISTEN_ADDR), NOT the public listener. Typically a
+# (LONGUE_VUE_INGEST_LISTEN_ADDR), NOT the public listener. Typically a
 # ClusterIP service in the trusted-zone namespace.
 upstream:
   url: ""                   # required: e.g. https://argosd-ingest.argos.svc.cluster.local:8443

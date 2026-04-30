@@ -1744,7 +1744,7 @@ paths:
         argosd's side.
 
         **This endpoint is served only on argosd's mTLS-only ingest
-        listener** (enabled via `ARGOS_INGEST_LISTEN_ADDR`). Argosd's
+        listener** (enabled via `LONGUE_VUE_INGEST_LISTEN_ADDR`). Argosd's
         public listener does not register it. The mTLS handshake is the
         sole authentication mechanism for this call — there is no
         Authorization header on the request itself; the client cert
@@ -3893,7 +3893,7 @@ components:
               type: string
               description: |
                 Button label on the login page, e.g. "Sign in with
-                Okta". Controlled by `ARGOS_OIDC_LABEL`.
+                Okta". Controlled by `LONGUE_VUE_OIDC_LABEL`.
 
     LoginRequest:
       description: Username + password, both required.

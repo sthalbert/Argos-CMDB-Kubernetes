@@ -34,32 +34,32 @@ spec:
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
-            - name: ARGOS_SERVER_URL
+            - name: LONGUE_VUE_SERVER_URL
               value: {{ required "serverURL is required" .Values.serverURL | quote }}
-            - name: ARGOS_CLUSTER_NAME
+            - name: LONGUE_VUE_CLUSTER_NAME
               value: {{ required "clusterName is required" .Values.clusterName | quote }}
-            - name: ARGOS_COLLECTOR_INTERVAL
+            - name: LONGUE_VUE_COLLECTOR_INTERVAL
               value: {{ .Values.interval | quote }}
-            - name: ARGOS_COLLECTOR_FETCH_TIMEOUT
+            - name: LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT
               value: {{ .Values.fetchTimeout | quote }}
-            - name: ARGOS_COLLECTOR_RECONCILE
+            - name: LONGUE_VUE_COLLECTOR_RECONCILE
               value: {{ .Values.reconcile | quote }}
             {{- if eq .Values.kubeconfig.mode "secret" }}
-            - name: ARGOS_KUBECONFIG
+            - name: LONGUE_VUE_KUBECONFIG
               value: {{ .Values.kubeconfig.mountPath | quote }}
             {{- end }}
             {{- if .Values.argosTLS.caSecret }}
-            - name: ARGOS_CA_CERT
+            - name: LONGUE_VUE_CA_CERT
               value: /etc/argos-collector/argos-ca/{{ .Values.argosTLS.caKey }}
             {{- end }}
             {{- if .Values.argosTLS.existingSecret }}
-            - name: ARGOS_CLIENT_CERT
+            - name: LONGUE_VUE_CLIENT_CERT
               value: /etc/argos-collector/argos-tls/tls.crt
-            - name: ARGOS_CLIENT_KEY
+            - name: LONGUE_VUE_CLIENT_KEY
               value: /etc/argos-collector/argos-tls/tls.key
             {{- end }}
             {{- if .Values.argosTLS.extraHeaders }}
-            - name: ARGOS_EXTRA_HEADERS
+            - name: LONGUE_VUE_EXTRA_HEADERS
               value: {{ .Values.argosTLS.extraHeaders | quote }}
             {{- end }}
             {{- if .Values.proxy.httpsProxy }}

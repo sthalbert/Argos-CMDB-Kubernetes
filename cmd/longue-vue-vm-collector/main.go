@@ -25,10 +25,10 @@ var version = "dev"
 
 // Sentinel errors for required env vars.
 var (
-	errServerURLRequired   = errors.New("ARGOS_SERVER_URL is required")
-	errAPITokenRequired    = errors.New("ARGOS_API_TOKEN is required")
-	errAccountNameRequired = errors.New("ARGOS_VM_COLLECTOR_ACCOUNT_NAME is required")
-	errRegionRequired      = errors.New("ARGOS_VM_COLLECTOR_REGION is required")
+	errServerURLRequired   = errors.New("LONGUE_VUE_SERVER_URL is required")
+	errAPITokenRequired    = errors.New("LONGUE_VUE_API_TOKEN is required")
+	errAccountNameRequired = errors.New("LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME is required")
+	errRegionRequired      = errors.New("LONGUE_VUE_VM_COLLECTOR_REGION is required")
 	errUnknownProvider     = errors.New("unknown provider")
 )
 
@@ -62,23 +62,23 @@ type runConfig struct {
 
 func loadConfig() (runConfig, error) {
 	cfg := runConfig{
-		serverURL:    os.Getenv("ARGOS_SERVER_URL"),
-		token:        os.Getenv("ARGOS_API_TOKEN"),
-		providerName: envOr("ARGOS_VM_COLLECTOR_PROVIDER", "outscale"),
-		accountName:  os.Getenv("ARGOS_VM_COLLECTOR_ACCOUNT_NAME"),
-		region:       os.Getenv("ARGOS_VM_COLLECTOR_REGION"),
-		caCert:       os.Getenv("ARGOS_CA_CERT"),
-		clientCert:   os.Getenv("ARGOS_CLIENT_CERT"),
-		clientKey:    os.Getenv("ARGOS_CLIENT_KEY"),
-		extraHeaders: parseExtraHeaders(os.Getenv("ARGOS_EXTRA_HEADERS")),
+		serverURL:    os.Getenv("LONGUE_VUE_SERVER_URL"),
+		token:        os.Getenv("LONGUE_VUE_API_TOKEN"),
+		providerName: envOr("LONGUE_VUE_VM_COLLECTOR_PROVIDER", "outscale"),
+		accountName:  os.Getenv("LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME"),
+		region:       os.Getenv("LONGUE_VUE_VM_COLLECTOR_REGION"),
+		caCert:       os.Getenv("LONGUE_VUE_CA_CERT"),
+		clientCert:   os.Getenv("LONGUE_VUE_CLIENT_CERT"),
+		clientKey:    os.Getenv("LONGUE_VUE_CLIENT_KEY"),
+		extraHeaders: parseExtraHeaders(os.Getenv("LONGUE_VUE_EXTRA_HEADERS")),
 		// Default 0.0.0.0 so the Kubernetes liveness probe (which runs
 		// from outside the pod, against the pod IP) can reach it. The
 		// pod IP itself is the network boundary — no Service exposes
 		// this port externally unless the operator explicitly creates
 		// one. Operators running the binary on bare VMs can override
 		// to 127.0.0.1:9090 if they want strict localhost binding.
-		metricsAddr:      envOr("ARGOS_VM_COLLECTOR_METRICS_ADDR", "0.0.0.0:9090"),
-		providerEndpoint: os.Getenv("ARGOS_VM_COLLECTOR_PROVIDER_ENDPOINT_URL"),
+		metricsAddr:      envOr("LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR", "0.0.0.0:9090"),
+		providerEndpoint: os.Getenv("LONGUE_VUE_VM_COLLECTOR_PROVIDER_ENDPOINT_URL"),
 	}
 	if cfg.serverURL == "" {
 		return runConfig{}, errServerURLRequired
@@ -93,19 +93,19 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, errRegionRequired
 	}
 	var err error
-	cfg.interval, err = parseDurationEnv("ARGOS_VM_COLLECTOR_INTERVAL", 5*time.Minute)
+	cfg.interval, err = parseDurationEnv("LONGUE_VUE_VM_COLLECTOR_INTERVAL", 5*time.Minute)
 	if err != nil {
 		return runConfig{}, err
 	}
-	cfg.fetchTimeout, err = parseDurationEnv("ARGOS_VM_COLLECTOR_FETCH_TIMEOUT", 30*time.Second)
+	cfg.fetchTimeout, err = parseDurationEnv("LONGUE_VUE_VM_COLLECTOR_FETCH_TIMEOUT", 30*time.Second)
 	if err != nil {
 		return runConfig{}, err
 	}
-	cfg.reconcile, err = parseBoolEnv("ARGOS_VM_COLLECTOR_RECONCILE", true)
+	cfg.reconcile, err = parseBoolEnv("LONGUE_VUE_VM_COLLECTOR_RECONCILE", true)
 	if err != nil {
 		return runConfig{}, err
 	}
-	cfg.credentialRefresh, err = parseDurationEnv("ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH", time.Hour)
+	cfg.credentialRefresh, err = parseDurationEnv("LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH", time.Hour)
 	if err != nil {
 		return runConfig{}, err
 	}
@@ -153,7 +153,7 @@ func run() error {
 
 	// Optional /metrics listener — localhost-only by default to avoid
 	// exposing collector internals on a public interface. Set
-	// ARGOS_VM_COLLECTOR_METRICS_ADDR="" to disable.
+	// LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR="" to disable.
 	if cfg.metricsAddr != "" {
 		startMetricsServer(ctx, cfg.metricsAddr)
 	}

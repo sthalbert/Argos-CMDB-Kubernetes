@@ -11,9 +11,9 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestLoadCollectorConfig_AllRequired(t *testing.T) {
-	t.Setenv("ARGOS_SERVER_URL", "https://argos.test:8080")
-	t.Setenv("ARGOS_API_TOKEN", "argos_pat_xxxx_yyyy")
-	t.Setenv("ARGOS_CLUSTER_NAME", "test-cluster")
+	t.Setenv("LONGUE_VUE_SERVER_URL", "https://argos.test:8080")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "argos_pat_xxxx_yyyy")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "test-cluster")
 
 	cfg, err := loadCollectorConfig()
 	if err != nil {
@@ -40,9 +40,9 @@ func TestLoadCollectorConfig_AllRequired(t *testing.T) {
 }
 
 func TestLoadCollectorConfig_MissingServerURL(t *testing.T) {
-	t.Setenv("ARGOS_SERVER_URL", "")
-	t.Setenv("ARGOS_API_TOKEN", "tok")
-	t.Setenv("ARGOS_CLUSTER_NAME", "c")
+	t.Setenv("LONGUE_VUE_SERVER_URL", "")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "tok")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "c")
 
 	_, err := loadCollectorConfig()
 	if !errors.Is(err, errServerURLRequired) {
@@ -51,9 +51,9 @@ func TestLoadCollectorConfig_MissingServerURL(t *testing.T) {
 }
 
 func TestLoadCollectorConfig_MissingAPIToken(t *testing.T) {
-	t.Setenv("ARGOS_SERVER_URL", "https://x")
-	t.Setenv("ARGOS_API_TOKEN", "")
-	t.Setenv("ARGOS_CLUSTER_NAME", "c")
+	t.Setenv("LONGUE_VUE_SERVER_URL", "https://x")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "c")
 
 	_, err := loadCollectorConfig()
 	if !errors.Is(err, errAPITokenRequired) {
@@ -62,9 +62,9 @@ func TestLoadCollectorConfig_MissingAPIToken(t *testing.T) {
 }
 
 func TestLoadCollectorConfig_MissingClusterName(t *testing.T) {
-	t.Setenv("ARGOS_SERVER_URL", "https://x")
-	t.Setenv("ARGOS_API_TOKEN", "tok")
-	t.Setenv("ARGOS_CLUSTER_NAME", "")
+	t.Setenv("LONGUE_VUE_SERVER_URL", "https://x")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "tok")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "")
 
 	_, err := loadCollectorConfig()
 	if !errors.Is(err, errClusterNameRequired) {
@@ -73,13 +73,13 @@ func TestLoadCollectorConfig_MissingClusterName(t *testing.T) {
 }
 
 func TestLoadCollectorConfig_CustomValues(t *testing.T) {
-	t.Setenv("ARGOS_SERVER_URL", "https://gw:443/argos")
-	t.Setenv("ARGOS_API_TOKEN", "tok")
-	t.Setenv("ARGOS_CLUSTER_NAME", "zad-prod")
-	t.Setenv("ARGOS_KUBECONFIG", "/etc/kube/config")
-	t.Setenv("ARGOS_COLLECTOR_INTERVAL", "30s")
-	t.Setenv("ARGOS_COLLECTOR_FETCH_TIMEOUT", "1m")
-	t.Setenv("ARGOS_COLLECTOR_RECONCILE", "false")
+	t.Setenv("LONGUE_VUE_SERVER_URL", "https://gw:443/argos")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "tok")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "zad-prod")
+	t.Setenv("LONGUE_VUE_KUBECONFIG", "/etc/kube/config")
+	t.Setenv("LONGUE_VUE_COLLECTOR_INTERVAL", "30s")
+	t.Setenv("LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT", "1m")
+	t.Setenv("LONGUE_VUE_COLLECTOR_RECONCILE", "false")
 
 	cfg, err := loadCollectorConfig()
 	if err != nil {
@@ -100,10 +100,10 @@ func TestLoadCollectorConfig_CustomValues(t *testing.T) {
 }
 
 func TestLoadCollectorConfig_InvalidInterval(t *testing.T) {
-	t.Setenv("ARGOS_SERVER_URL", "https://x")
-	t.Setenv("ARGOS_API_TOKEN", "tok")
-	t.Setenv("ARGOS_CLUSTER_NAME", "c")
-	t.Setenv("ARGOS_COLLECTOR_INTERVAL", "not-a-duration")
+	t.Setenv("LONGUE_VUE_SERVER_URL", "https://x")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "tok")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "c")
+	t.Setenv("LONGUE_VUE_COLLECTOR_INTERVAL", "not-a-duration")
 
 	_, err := loadCollectorConfig()
 	if err == nil {
@@ -112,10 +112,10 @@ func TestLoadCollectorConfig_InvalidInterval(t *testing.T) {
 }
 
 func TestLoadCollectorConfig_InvalidReconcile(t *testing.T) {
-	t.Setenv("ARGOS_SERVER_URL", "https://x")
-	t.Setenv("ARGOS_API_TOKEN", "tok")
-	t.Setenv("ARGOS_CLUSTER_NAME", "c")
-	t.Setenv("ARGOS_COLLECTOR_RECONCILE", "not-a-bool")
+	t.Setenv("LONGUE_VUE_SERVER_URL", "https://x")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "tok")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "c")
+	t.Setenv("LONGUE_VUE_COLLECTOR_RECONCILE", "not-a-bool")
 
 	_, err := loadCollectorConfig()
 	if err == nil {

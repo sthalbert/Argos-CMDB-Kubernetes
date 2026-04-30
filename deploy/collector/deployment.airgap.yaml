@@ -1,4 +1,15 @@
 ---
+# argos-collector deployment for an air-gapped cluster behind an HTTP proxy.
+#
+# Prerequisites:
+#   1. Cluster row exists in argosd:
+#        POST https://inventory.tooling.cloudgouv-eu-west-1.numspot.internal/v1/clusters
+#        {"name":"<LONGUE_VUE_CLUSTER_NAME>"}
+#      (or rely on auto-create on first tick — ADR-0011)
+#   2. PAT with `write` scope created in the argosd admin panel.
+#   3. Image mirrored into a registry reachable from the air-gapped cluster.
+#   4. Secret `argos-collector-credentials` applied with LONGUE_VUE_API_TOKEN
+#      (see secret.example.yaml).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,12 +42,17 @@ spec:
           type: RuntimeDefault
       containers:
         - name: argos-collector
+          # Replace with the mirrored image inside your air-gapped registry,
+          # e.g. registry.zad-sandbox.numspot.internal/argos-collector:<tag>
           image: ghcr.io/sthalbert/argos-collector:latest
           imagePullPolicy: IfNotPresent
           env:
+            # --- argosd target ----------------------------------------------
+            - name: LONGUE_VUE_SERVER_URL
+              value: "https://inventory.tooling.cloudgouv-eu-west-1.numspot.internal"
             - name: LONGUE_VUE_CLUSTER_NAME
-              value: in-cluster
-            # Empty = in-cluster ServiceAccount credentials.
+              value: zad-sandbox
+            # Empty = use in-cluster ServiceAccount.
             - name: LONGUE_VUE_KUBECONFIG
               value: ""
             - name: LONGUE_VUE_COLLECTOR_INTERVAL

@@ -35,8 +35,8 @@ make build-noui    # no Node/npm required; /ui/ returns 404
 ### Start argosd
 
 ```bash
-ARGOS_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
-  ARGOS_BOOTSTRAP_ADMIN_PASSWORD="local-dev-passphrase" \
+LONGUE_VUE_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
+  LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="local-dev-passphrase" \
   ./bin/argosd
 ```
 
@@ -51,8 +51,8 @@ make docker-build    # tags argos:dev
 
 docker run --rm \
   --network host \
-  -e ARGOS_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
-  -e ARGOS_BOOTSTRAP_ADMIN_PASSWORD="local-dev-passphrase" \
+  -e LONGUE_VUE_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
+  -e LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="local-dev-passphrase" \
   argos:dev
 ```
 
@@ -61,8 +61,8 @@ On macOS, replace `--network host` with `-p 8080:8080` and use `host.docker.inte
 ```bash
 docker run --rm \
   -p 8080:8080 \
-  -e ARGOS_DATABASE_URL="postgres://postgres:argos@host.docker.internal:5432/argos?sslmode=disable" \
-  -e ARGOS_BOOTSTRAP_ADMIN_PASSWORD="local-dev-passphrase" \
+  -e LONGUE_VUE_DATABASE_URL="postgres://postgres:argos@host.docker.internal:5432/argos?sslmode=disable" \
+  -e LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="local-dev-passphrase" \
   argos:dev
 ```
 
@@ -81,7 +81,7 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
   -d '{"name":"seed","scopes":["read","write","delete"]}'
 
 # 2. Run the seed script with the token.
-ARGOS_URL=http://localhost:8080 ARGOS_TOKEN=argos_pat_... ./scripts/seed-demo.sh
+LONGUE_VUE_URL=http://localhost:8080 LONGUE_VUE_TOKEN=argos_pat_... ./scripts/seed-demo.sh
 ```
 
 The script creates two clusters (prod, staging) with namespaces, workloads, pods, services, and a MetalLB-style ingress. Re-runnable after a `TRUNCATE clusters CASCADE` in PostgreSQL.
@@ -101,8 +101,8 @@ For iterative development, run argosd and the Vite dev server in parallel for ho
 ### Terminal 1 -- argosd
 
 ```bash
-ARGOS_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
-  ARGOS_BOOTSTRAP_ADMIN_PASSWORD="local-dev-passphrase" \
+LONGUE_VUE_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
+  LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="local-dev-passphrase" \
   ./bin/argosd
 ```
 

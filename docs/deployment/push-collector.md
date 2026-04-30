@@ -21,7 +21,7 @@ Both modes coexist. An environment can mix pulled and pushed clusters -- the CMD
      -H 'Content-Type: application/json' \
      -d '{"name":"zad-prod","display_name":"ZAD Production","environment":"production"}'
    ```
-   The `name` must match `ARGOS_CLUSTER_NAME` in the collector config.
+   The `name` must match `LONGUE_VUE_CLUSTER_NAME` in the collector config.
 3. **A PAT with `write` scope** is minted in the argosd admin panel:
    ```bash
    curl -sS -b /tmp/argos.cookies -X POST https://argos.internal:8080/v1/admin/tokens \
@@ -50,7 +50,7 @@ The chart never templates plaintext PATs into release state. Create the Secret o
 kubectl create namespace argos-collector
 kubectl create secret generic argos-collector-credentials \
   --namespace argos-collector \
-  --from-literal=ARGOS_API_TOKEN="argos_pat_xxxxxxxx_yyyyyyyyyyyyyyyyyyyyyyyy"
+  --from-literal=LONGUE_VUE_API_TOKEN="argos_pat_xxxxxxxx_yyyyyyyyyyyyyyyyyyyyyyyy"
 ```
 
 ### 2. Install the chart
@@ -112,8 +112,8 @@ Edit `/tmp/argos-collector-secret.yaml`:
 
 ```yaml
 stringData:
-  ARGOS_SERVER_URL: "https://argos.internal:8080"
-  ARGOS_API_TOKEN: "argos_pat_xxxxxxxx_yyyyyyyyyyyyyyyyyyyyyyyy"
+  LONGUE_VUE_SERVER_URL: "https://argos.internal:8080"
+  LONGUE_VUE_API_TOKEN: "argos_pat_xxxxxxxx_yyyyyyyyyyyyyyyyyyyyyyyy"
 ```
 
 Apply it:
@@ -126,8 +126,8 @@ kubectl apply -f /tmp/argos-collector-secret.yaml
 
 Edit `deploy/collector/deployment.yaml` if needed:
 
-- Set `ARGOS_CLUSTER_NAME` to match the cluster name registered in argosd.
-- Adjust `ARGOS_COLLECTOR_INTERVAL` (default: `5m`).
+- Set `LONGUE_VUE_CLUSTER_NAME` to match the cluster name registered in argosd.
+- Adjust `LONGUE_VUE_COLLECTOR_INTERVAL` (default: `5m`).
 - Update the `image:` field to point to your registry.
 
 ### 3. Apply
@@ -156,11 +156,11 @@ Key variables for the push collector:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ARGOS_SERVER_URL` | yes | argosd base URL. |
-| `ARGOS_API_TOKEN` | yes | PAT with `write` scope. |
-| `ARGOS_CLUSTER_NAME` | yes | Name of this cluster. Auto-created if it doesn't exist (ADR-0011). |
-| `ARGOS_COLLECTOR_INTERVAL` | no | Polling interval (default `5m`). |
-| `ARGOS_COLLECTOR_RECONCILE` | no | Delete stale rows (default `true`). |
+| `LONGUE_VUE_SERVER_URL` | yes | argosd base URL. |
+| `LONGUE_VUE_API_TOKEN` | yes | PAT with `write` scope. |
+| `LONGUE_VUE_CLUSTER_NAME` | yes | Name of this cluster. Auto-created if it doesn't exist (ADR-0011). |
+| `LONGUE_VUE_COLLECTOR_INTERVAL` | no | Polling interval (default `5m`). |
+| `LONGUE_VUE_COLLECTOR_RECONCILE` | no | Delete stale rows (default `true`). |
 
 ## Gateway and proxy support
 
@@ -186,7 +186,7 @@ If a gateway (Envoy, HAProxy, Nginx) exposes argosd under a sub-path, include th
 
 ```yaml
 env:
-  - name: ARGOS_SERVER_URL
+  - name: LONGUE_VUE_SERVER_URL
     value: "https://gateway.zad.internal:443/argos"
 ```
 
@@ -198,7 +198,7 @@ Some gateways require extra headers for routing or tenant identification:
 
 ```yaml
 env:
-  - name: ARGOS_EXTRA_HEADERS
+  - name: LONGUE_VUE_EXTRA_HEADERS
     value: "X-Tenant-Id=zad-prod,X-Route-Key=argos"
 ```
 
@@ -208,11 +208,11 @@ When the gateway requires client-certificate authentication:
 
 ```yaml
 env:
-  - name: ARGOS_CA_CERT
+  - name: LONGUE_VUE_CA_CERT
     value: "/etc/argos/tls/ca.pem"
-  - name: ARGOS_CLIENT_CERT
+  - name: LONGUE_VUE_CLIENT_CERT
     value: "/etc/argos/tls/client.crt"
-  - name: ARGOS_CLIENT_KEY
+  - name: LONGUE_VUE_CLIENT_KEY
     value: "/etc/argos/tls/client.key"
 ```
 
@@ -246,7 +246,7 @@ No write access to Kubernetes. The collector is read-only.
 ### 401 Unauthorized
 
 - The PAT is invalid, expired, or revoked. Check the argosd admin panel under Tokens.
-- The `Authorization: Bearer` header is malformed. Verify `ARGOS_API_TOKEN` starts with `argos_pat_`.
+- The `Authorization: Bearer` header is malformed. Verify `LONGUE_VUE_API_TOKEN` starts with `argos_pat_`.
 
 ### 404 on upsert calls
 
@@ -263,8 +263,8 @@ No write access to Kubernetes. The collector is read-only.
 
 ### TLS certificate errors
 
-- The argosd (or gateway) TLS certificate is signed by a private CA. Set `ARGOS_CA_CERT` to the CA PEM file.
-- For mTLS, ensure both `ARGOS_CLIENT_CERT` and `ARGOS_CLIENT_KEY` are set and the files are mounted.
+- The argosd (or gateway) TLS certificate is signed by a private CA. Set `LONGUE_VUE_CA_CERT` to the CA PEM file.
+- For mTLS, ensure both `LONGUE_VUE_CLIENT_CERT` and `LONGUE_VUE_CLIENT_KEY` are set and the files are mounted.
 
 ### 503 from gateway
 
@@ -275,4 +275,4 @@ No write access to Kubernetes. The collector is read-only.
 
 - Wait for at least one full polling interval.
 - Check collector logs for upsert errors.
-- Verify `ARGOS_CLUSTER_NAME` is correct — a typo silently creates a new cluster record (ADR-0011 NEG-002).
+- Verify `LONGUE_VUE_CLUSTER_NAME` is correct — a typo silently creates a new cluster record (ADR-0011 NEG-002).

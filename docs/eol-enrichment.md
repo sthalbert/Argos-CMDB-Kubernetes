@@ -27,7 +27,7 @@ The enricher picks up the change on its next tick (default: every 2 minutes). No
 
 To disable it again, click **Disable** on the same card.
 
-> **Alternative: env var.** Setting `ARGOS_EOL_ENABLED=true` on the argosd Deployment seeds the database setting to `true` on startup. The UI toggle overrides it at runtime. See [Configuration](configuration.md) for all env vars.
+> **Alternative: env var.** Setting `LONGUE_VUE_EOL_ENABLED=true` on the argosd Deployment seeds the database setting to `true` on startup. The UI toggle overrides it at runtime. See [Configuration](configuration.md) for all env vars.
 
 ## Use the EOL inventory
 
@@ -143,10 +143,10 @@ The enricher behaviour is tuned with environment variables on the argosd Deploym
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ARGOS_EOL_ENABLED` | -- | Seeds the `eol_enabled` database setting on startup. The UI toggle overrides it at runtime. |
-| `ARGOS_EOL_INTERVAL` | `2m` | Time between enrichment ticks. |
-| `ARGOS_EOL_APPROACHING_DAYS` | `90` | Number of days before EOL to flag as "approaching". |
-| `ARGOS_EOL_BASE_URL` | `https://endoflife.date` | Base URL for the endoflife.date API. Override to point at an internal mirror in air-gapped environments. |
+| `LONGUE_VUE_EOL_ENABLED` | -- | Seeds the `eol_enabled` database setting on startup. The UI toggle overrides it at runtime. |
+| `LONGUE_VUE_EOL_INTERVAL` | `2m` | Time between enrichment ticks. |
+| `LONGUE_VUE_EOL_APPROACHING_DAYS` | `90` | Number of days before EOL to flag as "approaching". |
+| `LONGUE_VUE_EOL_BASE_URL` | `https://endoflife.date` | Base URL for the endoflife.date API. Override to point at an internal mirror in air-gapped environments. |
 
 ## Monitoring
 
@@ -169,7 +169,7 @@ time() - argos_eol_last_run_timestamp_seconds > 600
 The enricher makes outbound HTTPS requests to `endoflife.date`. In environments where this is not possible:
 
 1. Set up an internal mirror of the endoflife.date API (the project publishes its data as JSON files).
-2. Set `ARGOS_EOL_BASE_URL` to the mirror URL.
+2. Set `LONGUE_VUE_EOL_BASE_URL` to the mirror URL.
 3. Standard proxy environment variables (`HTTPS_PROXY`, `NO_PROXY`) are honored by Go's HTTP client.
 
 ## Limitations
@@ -177,4 +177,4 @@ The enricher makes outbound HTTPS requests to `endoflife.date`. In environments 
 - **Container images are not matched.** Image tags are unstructured (`nginx:1.25-alpine`, `myapp:latest`) and matching them to endoflife.date products would require a registry-aware parser. This is planned for a future version.
 - **VM application data is operator-curated.** The enricher annotates whatever version was last written to the `applications` field. If a VM's Vault version is upgraded without updating Argos, the EOL annotation reflects the old version. The `added_at` timestamp on each application entry is shown in the UI to help spot stale records. An in-guest agent for automatic discovery is planned for a future version.
 - **Data accuracy depends on endoflife.date.** The project is community-maintained. Verify critical EOL decisions against vendor documentation.
-- **A typo in `ARGOS_CLUSTER_NAME` creates a new cluster.** The auto-created cluster will be enriched, but with the wrong name. Verify cluster names after first deployment.
+- **A typo in `LONGUE_VUE_CLUSTER_NAME` creates a new cluster.** The auto-created cluster will be enriched, but with the wrong name. Verify cluster names after first deployment.

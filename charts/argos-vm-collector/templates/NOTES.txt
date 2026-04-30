@@ -26,7 +26,7 @@ PAT secret before the collector pod starts pushing, e.g.:
 
   kubectl create secret generic argos-vm-collector-credentials \
     --namespace {{ .Release.Namespace }} \
-    --from-literal=ARGOS_API_TOKEN=argos_pat_...
+    --from-literal=LONGUE_VUE_API_TOKEN=argos_pat_...
 
 The PAT must use the `vm-collector` token preset and be bound to the
 cloud account `{{ .Values.account.name }}` at issuance.

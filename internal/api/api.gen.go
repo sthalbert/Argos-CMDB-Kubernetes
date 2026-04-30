@@ -388,7 +388,7 @@ type AuthConfig struct {
 		Enabled bool `json:"enabled"`
 
 		// Label Button label on the login page, e.g. "Sign in with
-		// Okta". Controlled by `ARGOS_OIDC_LABEL`.
+		// Okta". Controlled by `LONGUE_VUE_OIDC_LABEL`.
 		Label *string `json:"label,omitempty"`
 	} `json:"oidc"`
 }

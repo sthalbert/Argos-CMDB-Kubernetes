@@ -119,13 +119,13 @@ The enricher never deletes CMDB entities — it only annotates. A failed endofli
 ### Configuration
 
 ```
-ARGOS_EOL_ENABLED=true                    # default: false
-ARGOS_EOL_INTERVAL=24h                    # default: 24h
-ARGOS_EOL_APPROACHING_DAYS=90             # default: 90
-ARGOS_EOL_BASE_URL=https://endoflife.date # default; override for mirror/proxy
+LONGUE_VUE_EOL_ENABLED=true                    # default: false
+LONGUE_VUE_EOL_INTERVAL=24h                    # default: 24h
+LONGUE_VUE_EOL_APPROACHING_DAYS=90             # default: 90
+LONGUE_VUE_EOL_BASE_URL=https://endoflife.date # default; override for mirror/proxy
 ```
 
-Disabled by default so the feature is opt-in. When `ARGOS_EOL_ENABLED=false`, no goroutine is started, no outbound HTTP calls are made.
+Disabled by default so the feature is opt-in. When `LONGUE_VUE_EOL_ENABLED=false`, no goroutine is started, no outbound HTTP calls are made.
 
 ### API surface
 
@@ -160,7 +160,7 @@ The push collector (`argos-collector`) does **not** run the enricher. Enrichment
 
 ### Negative
 
-- **NEG-001**: argosd makes outbound HTTPS calls to `endoflife.date`. In strict-egress environments, operators must allowlist the domain or configure `ARGOS_EOL_BASE_URL` to point to an internal mirror.
+- **NEG-001**: argosd makes outbound HTTPS calls to `endoflife.date`. In strict-egress environments, operators must allowlist the domain or configure `LONGUE_VUE_EOL_BASE_URL` to point to an internal mirror.
 - **NEG-002**: endoflife.date is community-maintained. Data accuracy depends on upstream contributors. Mitigated by `checked_at` timestamps and the ability to override annotations manually via `PATCH`.
 - **NEG-003**: Version extraction from free-text fields (`os_image`, `container_runtime_version`) is heuristic. Edge cases (custom OS images, non-standard version strings) may produce `unknown` status. The parser must be conservative — `unknown` is better than a wrong match.
 - **NEG-004**: The annotation payload increases the JSON size of entity responses. For nodes with 3-4 matched products, this adds ~1 KB per node — negligible at expected scale.
@@ -214,7 +214,7 @@ Column renames for clarity: "Cycle" → **Version**, "Cycle Latest" → **Patch*
 - **IMP-001**: Create `internal/eol/` package. Core types: `Product`, `Cycle`, `Status` enum, `Annotation` struct. `Enricher` struct with `Run(ctx)` method (same pattern as `collector.Collector`).
 - **IMP-002**: Create `internal/eol/endoflife/` sub-package: HTTP client for endoflife.date API with in-memory product cache, configurable base URL, timeout, and `http.Client` injection for testing.
 - **IMP-003**: Create `internal/eol/matcher/` sub-package: version extraction and product-matching logic. Start with `KubernetesVersionMatcher`, `ContainerRuntimeMatcher`, `OSImageMatcher`, `KernelMatcher`. Each implements a `Match(fieldValue string) (product, cycle string, ok bool)` interface. Unit-test with real-world `os_image` and `container_runtime_version` strings from diverse clusters.
-- **IMP-004**: Wire the enricher in `cmd/argosd/main.go` behind `ARGOS_EOL_ENABLED`. Start after the store is ready, stop on context cancellation (same as collector goroutines).
+- **IMP-004**: Wire the enricher in `cmd/argosd/main.go` behind `LONGUE_VUE_EOL_ENABLED`. Start after the store is ready, stop on context cancellation (same as collector goroutines).
 - **IMP-005**: Add Prometheus metrics: `argos_eol_enrichments_total{product, status}`, `argos_eol_errors_total{product, phase}`, `argos_eol_last_run_timestamp_seconds`.
 - **IMP-006**: UI: add EOL badges to cluster detail and node detail pages. Read from `annotations["argos.io/eol.*"]`.
 - **IMP-007**: Tests: unit tests for matchers, integration test that starts the enricher against a fake HTTP server returning canned endoflife.date responses and verifies annotations land in the store.

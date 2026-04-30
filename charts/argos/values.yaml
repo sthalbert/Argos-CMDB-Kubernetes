@@ -33,7 +33,7 @@ argosd:
   #    1. Native TLS — argosd terminates TLS itself. Set tls.existingSecret
   #       to a TLS-type Kubernetes Secret carrying tls.crt + tls.key; the
   #       chart mounts it at /etc/argos/tls and passes the paths via
-  #       ARGOS_PUBLIC_LISTEN_TLS_CERT / _KEY.
+  #       LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT / _KEY.
   #
   #    2. Trusted proxy — argosd serves plain HTTP behind a TLS-terminating
   #       ingress. Leave tls.existingSecret empty, set trustedProxies to
@@ -76,7 +76,7 @@ secrets:
   # -- Inline base64 master key. Mutually exclusive with existingSecret.
   masterKey: ""
   # -- Reference an existing Secret carrying the key under
-  #    `ARGOS_SECRETS_MASTER_KEY`. Use this in production to keep the key
+  #    `LONGUE_VUE_SECRETS_MASTER_KEY`. Use this in production to keep the key
   #    out of values.yaml / GitOps repos.
   existingSecret: ""
 
@@ -153,7 +153,7 @@ externalDatabase:
   url: ""
 
 # -- Use an existing Secret for credentials instead of the chart-generated one.
-# The Secret must contain ARGOS_DATABASE_URL (and optionally other ARGOS_* keys).
+# The Secret must contain LONGUE_VUE_DATABASE_URL (and optionally other LONGUE_VUE_* keys).
 existingSecret: ""
 
 # -- MCP server (Model Context Protocol for AI agents).

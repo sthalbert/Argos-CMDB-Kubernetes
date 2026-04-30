@@ -133,30 +133,30 @@ The push collector must work transparently behind such intermediaries:
   `NO_PROXY` environment variables. Go's `net/http` default transport
   already reads these — no custom code needed, just document it.
 - **Envoy / API gateway as a reverse proxy in front of argosd**: the
-  collector only sees the gateway's URL. `ARGOS_SERVER_URL` points to
+  collector only sees the gateway's URL. `LONGUE_VUE_SERVER_URL` points to
   the gateway (e.g. `https://gateway.zad.internal:443/argos`). The
   gateway routes to argosd based on path prefix or SNI. The collector
   is unaware of the hop — it sends standard REST+Bearer requests.
 - **Path prefix rewrite**: if the gateway exposes argosd under a
   sub-path (e.g. `/argos/v1/…` instead of `/v1/…`), the collector
-  supports `ARGOS_SERVER_URL=https://gw:443/argos` and prepends the
+  supports `LONGUE_VUE_SERVER_URL=https://gw:443/argos` and prepends the
   base path to every request. The `apiclient` strips or joins trailing
   slashes so operators don't have to worry about them.
 - **Custom headers**: some gateways require extra headers for routing
   or tenant identification (e.g. `X-Tenant-Id`, `X-Route-Key`).
-  `ARGOS_EXTRA_HEADERS` accepts a comma-separated `key=value` list
+  `LONGUE_VUE_EXTRA_HEADERS` accepts a comma-separated `key=value` list
   injected into every outbound request:
   ```
-  ARGOS_EXTRA_HEADERS=X-Tenant-Id=zad-prod,X-Route-Key=argos
+  LONGUE_VUE_EXTRA_HEADERS=X-Tenant-Id=zad-prod,X-Route-Key=argos
   ```
 - **mTLS to the gateway**: when the gateway requires client-certificate
   authentication (common in zero-trust ZAD architectures), the
   collector loads a client cert + key from:
   ```
-  ARGOS_CLIENT_CERT=/etc/argos/tls/client.crt
-  ARGOS_CLIENT_KEY=/etc/argos/tls/client.key
+  LONGUE_VUE_CLIENT_CERT=/etc/argos/tls/client.crt
+  LONGUE_VUE_CLIENT_KEY=/etc/argos/tls/client.key
   ```
-  Combined with `ARGOS_CA_CERT` for the server-side CA, this gives
+  Combined with `LONGUE_VUE_CA_CERT` for the server-side CA, this gives
   full mTLS between the collector and the gateway.
 
 The design principle is: the collector speaks plain HTTPS with bearer
@@ -168,21 +168,21 @@ above cover the edge cases where the gateway imposes constraints
 ### Configuration
 
 ```
-ARGOS_MODE=push                       # "pull" (default/argosd) or "push"
-ARGOS_SERVER_URL=https://argos.internal:8080
-ARGOS_API_TOKEN=argos_pat_xxxx_yyyy
-ARGOS_CLUSTER_NAME=zad-prod
-ARGOS_KUBECONFIG=""                   # empty = in-cluster
-ARGOS_COLLECTOR_INTERVAL=5m
-ARGOS_COLLECTOR_RECONCILE=true
-ARGOS_CA_CERT=                        # optional: custom CA for server TLS
-ARGOS_CLIENT_CERT=                    # optional: client cert for mTLS
-ARGOS_CLIENT_KEY=                     # optional: client key for mTLS
-ARGOS_EXTRA_HEADERS=                  # optional: extra HTTP headers (k=v,…)
+LONGUE_VUE_MODE=push                       # "pull" (default/argosd) or "push"
+LONGUE_VUE_SERVER_URL=https://argos.internal:8080
+LONGUE_VUE_API_TOKEN=argos_pat_xxxx_yyyy
+LONGUE_VUE_CLUSTER_NAME=zad-prod
+LONGUE_VUE_KUBECONFIG=""                   # empty = in-cluster
+LONGUE_VUE_COLLECTOR_INTERVAL=5m
+LONGUE_VUE_COLLECTOR_RECONCILE=true
+LONGUE_VUE_CA_CERT=                        # optional: custom CA for server TLS
+LONGUE_VUE_CLIENT_CERT=                    # optional: client cert for mTLS
+LONGUE_VUE_CLIENT_KEY=                     # optional: client key for mTLS
+LONGUE_VUE_EXTRA_HEADERS=                  # optional: extra HTTP headers (k=v,…)
 # Standard HTTPS_PROXY / HTTP_PROXY / NO_PROXY honoured by Go's net/http
 ```
 
-The push collector does not need `ARGOS_DATABASE_URL` — it never talks
+The push collector does not need `LONGUE_VUE_DATABASE_URL` — it never talks
 to PostgreSQL. It does not serve HTTP. It is a pure client.
 
 ### Deployment
@@ -192,7 +192,7 @@ the air-gapped cluster, with:
 
 - A `ServiceAccount` + `ClusterRole` granting read-only list access to
   the Kubernetes API (same RBAC as the pull collector).
-- A `Secret` carrying `ARGOS_API_TOKEN`.
+- A `Secret` carrying `LONGUE_VUE_API_TOKEN`.
 - Egress network policy allowing HTTPS to the argosd endpoint only.
 
 The push collector auto-creates the cluster record on first contact if
@@ -250,7 +250,7 @@ N calls. Out of scope for v1.
   prevent cross-cluster data loss.
 - **NEG-004**: The push collector must trust argosd's (or the gateway's)
   TLS certificate. In air-gapped environments, the CA chain may need to
-  be explicitly mounted. Configuration: `ARGOS_CA_CERT=/path/to/ca.pem`.
+  be explicitly mounted. Configuration: `LONGUE_VUE_CA_CERT=/path/to/ca.pem`.
 - **NEG-005**: When a gateway sits between the collector and argosd,
   error diagnostics become harder — a 503 may come from the gateway,
   not argosd. The `apiclient` must log the full response status and
@@ -299,11 +299,11 @@ N calls. Out of scope for v1.
   HTTP-backed `cmdbStore`. Use `net/http` with `Authorization: Bearer`
   header. Retry transient 5xx with exponential backoff (3 attempts max).
   On 401/403, log and stop (token revoked or misconfigured). Build the
-  `http.Transport` with: custom CA pool (`ARGOS_CA_CERT`), client
-  certificate (`ARGOS_CLIENT_CERT` + `ARGOS_CLIENT_KEY`) for mTLS,
+  `http.Transport` with: custom CA pool (`LONGUE_VUE_CA_CERT`), client
+  certificate (`LONGUE_VUE_CLIENT_CERT` + `LONGUE_VUE_CLIENT_KEY`) for mTLS,
   and standard proxy env var support (Go default). Inject extra headers
-  from `ARGOS_EXTRA_HEADERS` into every request. Prepend the base path
-  from `ARGOS_SERVER_URL` to every endpoint path.
+  from `LONGUE_VUE_EXTRA_HEADERS` into every request. Prepend the base path
+  from `LONGUE_VUE_SERVER_URL` to every endpoint path.
 - **IMP-003**: Add `POST /v1/<resource>/reconcile` endpoints to
   `api/openapi/openapi.yaml` and implement handlers in
   `internal/api/server.go`. Each handler calls the existing

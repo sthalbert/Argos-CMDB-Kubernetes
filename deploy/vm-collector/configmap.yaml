@@ -8,27 +8,27 @@ metadata:
     app.kubernetes.io/component: vm-collector
 data:
   # The argosd endpoint the collector pushes to. Behind a gateway:
-  # set the gateway URL with optional path prefix (ARGOS_SERVER_URL is
+  # set the gateway URL with optional path prefix (LONGUE_VUE_SERVER_URL is
   # used as the base for every request).
-  ARGOS_SERVER_URL: "http://argos.cmdb.svc.cluster.local:8080"
+  LONGUE_VUE_SERVER_URL: "http://argos.cmdb.svc.cluster.local:8080"
 
   # The cloud_account this collector is bound to. Must match the name
   # used when issuing the vm-collector PAT.
-  ARGOS_VM_COLLECTOR_PROVIDER: "outscale"
-  ARGOS_VM_COLLECTOR_ACCOUNT_NAME: "outscale-vm-collector"
-  ARGOS_VM_COLLECTOR_REGION: "eu-west-2"
+  LONGUE_VUE_VM_COLLECTOR_PROVIDER: "outscale"
+  LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME: "outscale-vm-collector"
+  LONGUE_VUE_VM_COLLECTOR_REGION: "eu-west-2"
 
   # Tick cadence and timeouts.
-  ARGOS_VM_COLLECTOR_INTERVAL: "5m"
-  ARGOS_VM_COLLECTOR_FETCH_TIMEOUT: "30s"
-  ARGOS_VM_COLLECTOR_RECONCILE: "true"
+  LONGUE_VUE_VM_COLLECTOR_INTERVAL: "5m"
+  LONGUE_VUE_VM_COLLECTOR_FETCH_TIMEOUT: "30s"
+  LONGUE_VUE_VM_COLLECTOR_RECONCILE: "true"
 
   # How often to refetch credentials from argosd. Lets admin AK/SK
   # rotation propagate without a redeploy.
-  ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH: "1h"
+  LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH: "1h"
 
   # Metrics listener bound to all pod interfaces — the pod IP is the
   # network boundary in Kubernetes, and the deployment's livenessProbe
   # tcpSocket:9090 needs to reach this from outside the container.
   # No Service exposes this port externally. Empty string = disabled.
-  ARGOS_VM_COLLECTOR_METRICS_ADDR: "0.0.0.0:9090"
+  LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR: "0.0.0.0:9090"

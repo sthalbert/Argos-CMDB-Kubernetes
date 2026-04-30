@@ -111,7 +111,7 @@ The rename touches every layer:
 - Binary names (`argosd` → `longue-vue`, plus the three collectors / gateway)
 - Helm chart names and labels
 - Docker image names (`ghcr.io/sthalbert/argos*` → `ghcr.io/sthalbert/longue-vue*`)
-- Environment variables (`ARGOS_*` → `LONGUE_VUE_*`)
+- Environment variables (`LONGUE_VUE_*` → `LONGUE_VUE_*`)
 - Prometheus metric namespace (`argos_*` → `longue_vue_*`)
 - Kubernetes annotation domain (`argos.io/*` → `longue-vue.io/*`)
 - Session cookie (`argos_session` → `longue_vue_session`)
@@ -391,30 +391,30 @@ git -c commit.gpgsign=false commit -m "refactor(cmd): rename binary directories 
 
 ---
 
-## Phase 3 — Environment variables ARGOS_* → LONGUE_VUE_*
+## Phase 3 — Environment variables LONGUE_VUE_* → LONGUE_VUE_*
 
 ### Task 3.1: Rewrite env var references in Go source
 
-**Files:** every `.go` file referencing `ARGOS_` (~50 files including main.go for each binary, tests, configuration parsing).
+**Files:** every `.go` file referencing `LONGUE_VUE_` (~50 files including main.go for each binary, tests, configuration parsing).
 
 - [ ] **Step 1: Discover the impacted Go files**
 
 ```bash
-grep -rln 'ARGOS_' --include='*.go' . | tee /tmp/longuevue-go-env-files.txt | wc -l
+grep -rln 'LONGUE_VUE_' --include='*.go' . | tee /tmp/longuevue-go-env-files.txt | wc -l
 ```
 
 Note the count.
 
-- [ ] **Step 2: Replace `ARGOS_` with `LONGUE_VUE_` in those files**
+- [ ] **Step 2: Replace `LONGUE_VUE_` with `LONGUE_VUE_` in those files**
 
 ```bash
-xargs -a /tmp/longuevue-go-env-files.txt sed -i '' 's/ARGOS_/LONGUE_VUE_/g'
+xargs -a /tmp/longuevue-go-env-files.txt sed -i '' 's/LONGUE_VUE_/LONGUE_VUE_/g'
 ```
 
-- [ ] **Step 3: Verify no remaining ARGOS_ in Go**
+- [ ] **Step 3: Verify no remaining LONGUE_VUE_ in Go**
 
 ```bash
-grep -rn 'ARGOS_' --include='*.go' . || echo "OK"
+grep -rn 'LONGUE_VUE_' --include='*.go' . || echo "OK"
 ```
 
 Expected: `OK`.
@@ -430,18 +430,18 @@ Expected: clean build, all tests pass. (PAT-verification tests for legacy prefix
 
 ### Task 3.2: Rewrite env var references in charts/values.yaml
 
-**Files:** every `charts/*/values.yaml` and any `charts/*/templates/*.yaml` referencing `ARGOS_*`.
+**Files:** every `charts/*/values.yaml` and any `charts/*/templates/*.yaml` referencing `LONGUE_VUE_*`.
 
 - [ ] **Step 1: Replace in charts**
 
 ```bash
-grep -rln 'ARGOS_' charts/ | xargs sed -i '' 's/ARGOS_/LONGUE_VUE_/g'
+grep -rln 'LONGUE_VUE_' charts/ | xargs sed -i '' 's/LONGUE_VUE_/LONGUE_VUE_/g'
 ```
 
 - [ ] **Step 2: Verify**
 
 ```bash
-grep -rn 'ARGOS_' charts/ || echo "OK"
+grep -rn 'LONGUE_VUE_' charts/ || echo "OK"
 ```
 
 Expected: `OK`.
@@ -461,25 +461,25 @@ Expected: each lints cleanly. (We haven't yet renamed the chart `name:` field �
 
 **Files:**
 - Modify: `scripts/seed-demo.sh`
-- Modify: every `docs/**/*.md` containing `ARGOS_`
-- Modify: `README.md`, `CHANGELOG.md` if they contain `ARGOS_`
+- Modify: every `docs/**/*.md` containing `LONGUE_VUE_`
+- Modify: `README.md`, `CHANGELOG.md` if they contain `LONGUE_VUE_`
 
 - [ ] **Step 1: Scripts**
 
 ```bash
-grep -rln 'ARGOS_' scripts/ | xargs sed -i '' 's/ARGOS_/LONGUE_VUE_/g'
+grep -rln 'LONGUE_VUE_' scripts/ | xargs sed -i '' 's/LONGUE_VUE_/LONGUE_VUE_/g'
 ```
 
 - [ ] **Step 2: Docs**
 
 ```bash
-grep -rln 'ARGOS_' docs/ README.md CHANGELOG.md 2>/dev/null | xargs sed -i '' 's/ARGOS_/LONGUE_VUE_/g'
+grep -rln 'LONGUE_VUE_' docs/ README.md CHANGELOG.md 2>/dev/null | xargs sed -i '' 's/LONGUE_VUE_/LONGUE_VUE_/g'
 ```
 
-- [ ] **Step 3: Verify zero remaining `ARGOS_` anywhere**
+- [ ] **Step 3: Verify zero remaining `LONGUE_VUE_` anywhere**
 
 ```bash
-grep -rn 'ARGOS_' . --include='*.go' --include='*.yaml' --include='*.yml' --include='*.md' --include='*.sh' || echo "OK"
+grep -rn 'LONGUE_VUE_' . --include='*.go' --include='*.yaml' --include='*.yml' --include='*.md' --include='*.sh' || echo "OK"
 ```
 
 Expected: `OK`.
@@ -498,7 +498,7 @@ Expected: all tests pass (including the integration tests if `PGX_TEST_DATABASE`
 
 ```bash
 git -c commit.gpgsign=false add -A
-git -c commit.gpgsign=false commit -m "refactor(config): rename ARGOS_ env vars to LONGUE_VUE_"
+git -c commit.gpgsign=false commit -m "refactor(config): rename LONGUE_VUE_ env vars to LONGUE_VUE_"
 ```
 
 ---
@@ -1330,7 +1330,7 @@ grep -rln 'app.kubernetes.io/name:[[:space:]]*argos\|app.kubernetes.io/part-of:[
 grep -rn '\bargos\b' charts/
 ```
 
-Review the results. Anything that's a label, selector, configmap key, or release reference should be renamed. Anything that's an env var (`ARGOS_*`) was already renamed in Phase 3 and shouldn't appear here.
+Review the results. Anything that's a label, selector, configmap key, or release reference should be renamed. Anything that's an env var (`LONGUE_VUE_*`) was already renamed in Phase 3 and shouldn't appear here.
 
 - [ ] **Step 3: Helm lint each chart**
 
@@ -1432,7 +1432,7 @@ sed -i '' \
 grep -rn 'argos\|Argos' .github/
 ```
 
-Review the output. Any job names, secret names (`ARGOS_*`), or comments still referencing argos should be renamed. Secrets in GitHub UI must be renamed manually after merge — note this in the PR description.
+Review the output. Any job names, secret names (`LONGUE_VUE_*`), or comments still referencing argos should be renamed. Secrets in GitHub UI must be renamed manually after merge — note this in the PR description.
 
 ### Task 9.4: Update deploy/ Kustomize manifests
 
@@ -1707,7 +1707,7 @@ grep -rn 'argos' --include='*.md' . | grep -v 'docs/adr/adr-0020' | grep -v 'doc
 - [ ] **Step 2: Review every result**
 
 Each line is a manual decision:
-- Is it a code example (`ARGOS_X` or `argos_pat_x`)? Should be `LONGUE_VUE_X` or `longue_vue_pat_x` after Phase 3 / 5 — check if Phase 3 missed it.
+- Is it a code example (`LONGUE_VUE_X` or `argos_pat_x`)? Should be `LONGUE_VUE_X` or `longue_vue_pat_x` after Phase 3 / 5 — check if Phase 3 missed it.
 - Is it historical context (e.g., describing the legacy PAT prefix in ADR-0020)? Leave it.
 - Is it a dropped reference (e.g., a TODO comment)? Decide case by case.
 
@@ -1870,7 +1870,7 @@ gh pr create \
 ## Breaking changes (intentional)
 - Helm release names: must redeploy with new chart names (`longue-vue`, `longue-vue-collector`, `longue-vue-vm-collector`, `longue-vue-ingest-gw`).
 - Docker images: pull from `ghcr.io/sthalbert/longue-vue*`.
-- Environment variables: `ARGOS_*` → `LONGUE_VUE_*`.
+- Environment variables: `LONGUE_VUE_*` → `LONGUE_VUE_*`.
 - Prometheus metrics: `argos_*` → `longue_vue_*`. Update Grafana dashboards and Prometheus rules.
 - Annotation domain: `argos.io/*` → `longue-vue.io/*`. Operator-curated tags on K8s resources must be re-applied.
 - Session cookie: existing sessions are invalidated on first request after deploy (8-hour sliding expiry restarts).
@@ -1891,7 +1891,7 @@ gh pr create \
 
 ## Operator follow-ups (after merge)
 - Rename the GitHub repo `sthalbert/Argos` → `sthalbert/longue-vue` (auto-redirect handles old URLs).
-- Update GitHub Actions secret names (`ARGOS_*` → `LONGUE_VUE_*`).
+- Update GitHub Actions secret names (`LONGUE_VUE_*` → `LONGUE_VUE_*`).
 - Re-apply any operator-curated `longue-vue.io/ignore` tags on platform VMs / K8s resources.
 - Update Grafana dashboards and Prometheus rules to reference `longue_vue_*` metrics.
 EOF
@@ -1914,7 +1914,7 @@ For each numbered category from the original 18-category cartography, confirm a 
 |---|----------|-----------|
 | 1 | Go module path | Task 1.1, 1.2 |
 | 2 | Binary names | Task 2.1, 2.2, 2.3 |
-| 3 | Env vars `ARGOS_*` | Task 3.1, 3.2, 3.3 |
+| 3 | Env vars `LONGUE_VUE_*` | Task 3.1, 3.2, 3.3 |
 | 4 | PAT prefix | Task 5.1–5.6 (with TDD) |
 | 5 | Annotations `argos.io/*` | Task 6.1–6.6 (incl. migration 00029) |
 | 6 | Helm charts | Task 8.1–8.4 |

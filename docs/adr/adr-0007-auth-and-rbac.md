@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Context
 
-Argos today has exactly one auth primitive: bearer tokens declared through `ARGOS_API_TOKEN` / `ARGOS_API_TOKENS` environment variables, each carrying a `name` and a set of scopes (`read` / `write` / `delete` / `admin`). Scope enforcement is wired into every operation through `BearerAuth` middleware and the OpenAPI `security` blocks.
+Argos today has exactly one auth primitive: bearer tokens declared through `LONGUE_VUE_API_TOKEN` / `LONGUE_VUE_API_TOKENS` environment variables, each carrying a `name` and a set of scopes (`read` / `write` / `delete` / `admin`). Scope enforcement is wired into every operation through `BearerAuth` middleware and the OpenAPI `security` blocks.
 
 That works for machine callers and for one solo developer. It breaks down now that three new features are on the roadmap:
 
@@ -45,7 +45,7 @@ Adopt a **dual-path auth model** with a unified downstream:
 
 **OIDC.**
 - Parallel login path, not a replacement. An argosd instance can have OIDC configured, local-only, or both simultaneously.
-- Config via env vars: `ARGOS_OIDC_ISSUER`, `ARGOS_OIDC_CLIENT_ID`, `ARGOS_OIDC_CLIENT_SECRET`, `ARGOS_OIDC_REDIRECT_URL`, `ARGOS_OIDC_SCOPES` (default `openid email profile`).
+- Config via env vars: `LONGUE_VUE_OIDC_ISSUER`, `LONGUE_VUE_OIDC_CLIENT_ID`, `LONGUE_VUE_OIDC_CLIENT_SECRET`, `LONGUE_VUE_OIDC_REDIRECT_URL`, `LONGUE_VUE_OIDC_SCOPES` (default `openid email profile`).
 - Standard authorization-code flow with PKCE. State cookie gets HttpOnly + SameSite=Lax (Lax so the IdP's redirect works; Strict is fine for all other cookies).
 - `user_identities` table links local users to external identities: `(issuer, subject) → user_id`. First successful OIDC login creates a shadow local user keyed on the stable `sub` claim; subsequent logins match on `(issuer, sub)`.
 - First-login role: **`viewer`**. Not claim-driven — the IdP is trusted for identity, not authorization. Admins promote manually after first login. A future enhancement can map a named OIDC group claim to a role via config.
@@ -76,13 +76,13 @@ Fixed-role shape is deliberate v1; granular RBAC (per-namespace, per-kind, custo
 
 **First-install bootstrap.**
 - When argosd starts and finds **zero users** in the database, it creates a single admin user named `admin`.
-- If `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` is set, that's used as the password.
+- If `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` is set, that's used as the password.
 - Otherwise, a cryptographically random 16-character password is generated and printed **once** to the startup log at WARN level, wrapped in a visible banner so it can't be missed in `kubectl logs`.
 - The user is flagged `must_change_password=true`. The UI blocks every endpoint except the password-change form until the password is rotated.
 - Idempotent: on subsequent starts the block is skipped entirely (it keys on "zero users", not on the env var).
 
 **Env-var token path is cut in the same PR.**
-- `ARGOS_API_TOKEN` and `ARGOS_API_TOKENS` are **removed**. argosd refuses to start if either is set, with an error message pointing at the admin panel. No shim, no deprecation warning window — per explicit direction, clean cut.
+- `LONGUE_VUE_API_TOKEN` and `LONGUE_VUE_API_TOKENS` are **removed**. argosd refuses to start if either is set, with an error message pointing at the admin panel. No shim, no deprecation warning window — per explicit direction, clean cut.
 - Operators rotating from v0 to v1 read the bootstrap admin password from the startup log, log in, rotate it, create tokens in the admin UI, and update their Deployments / CI to inject those tokens.
 
 **Unchanged.**
@@ -167,7 +167,7 @@ Fixed-role shape is deliberate v1; granular RBAC (per-namespace, per-kind, custo
 - **IMP-005**: First-run bootstrap runs in `cmd/argosd/main.go` before `http.ListenAndServe`. If `COUNT(*) FROM users WHERE role='admin' AND disabled_at IS NULL` is zero: determine password (env or random), argon2id-hash, insert user, log the banner. The check uses a single-statement transaction to avoid a race under horizontal scaling (two argosd replicas booting simultaneously — harmless, one INSERT wins on the unique username index).
 - **IMP-006**: OIDC library: `github.com/coreos/go-oidc/v3` + `golang.org/x/oauth2`. Issuer URL validated on argosd startup; invalid issuer → fatal so misconfiguration surfaces early.
 - **IMP-007**: UI changes: replace the token-paste login with a form that has (a) username/password inputs always, (b) a "Sign in with <IdP>" button when `/v1/auth/me?probe` reports OIDC configured. Add admin panel at `/ui/admin/` with Users / Tokens / Sessions tabs. Hide admin nav entries for non-admins via `/v1/auth/me` role.
-- **IMP-008**: Cookie security: `Secure` set when `ARGOS_ADDR` implies TLS or when `X-Forwarded-Proto: https` is received (configurable via `ARGOS_SESSION_SECURE_COOKIE=true|false|auto`, default `auto`). Plain HTTP in dev still works.
+- **IMP-008**: Cookie security: `Secure` set when `LONGUE_VUE_ADDR` implies TLS or when `X-Forwarded-Proto: https` is received (configurable via `LONGUE_VUE_SESSION_SECURE_COOKIE=true|false|auto`, default `auto`). Plain HTTP in dev still works.
 - **IMP-009**: Rate-limit the login endpoint at 5 requests / minute per source IP (sliding window, in-memory is fine at current scale; Postgres-backed if we ever run N replicas). Lockout is **not** added — opens a DOS vector where any internet-accessible argosd can have its admin locked out by anyone.
 - **IMP-010**: Tests: fake OIDC provider using `httptest` so the callback flow can be exercised in CI without a real IdP. PG integration tests for session lifecycle + token hash lookup. Golden test for the bootstrap banner output (operators grep for the exact string).
 - **IMP-011**: CLAUDE.md + README updates: new "Auth" section documenting local / OIDC / bootstrap. `deploy/README.md` gets a step 2.5 ("read the admin password from the log, rotate it") inserted into the install walkthrough.

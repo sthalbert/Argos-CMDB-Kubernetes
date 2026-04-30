@@ -6,25 +6,25 @@
 #
 # Per ADR-0007, argosd no longer accepts env-var bearer tokens. This script
 # picks one of two auth paths:
-#   - ARGOS_TOKEN=<argos_pat_...>  — use an admin-minted machine token.
-#   - ARGOS_USER + ARGOS_PASSWORD  — log in as a human and ride the
-#     session cookie. Defaults: admin / $ARGOS_BOOTSTRAP_ADMIN_PASSWORD
+#   - LONGUE_VUE_TOKEN=<argos_pat_...>  — use an admin-minted machine token.
+#   - LONGUE_VUE_USER + LONGUE_VUE_PASSWORD  — log in as a human and ride the
+#     session cookie. Defaults: admin / $LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD
 #     if you set it on argosd (matches the local-dev pattern in README).
 set -euo pipefail
 
-BASE="${ARGOS_BASE:-http://localhost:8080}"
+BASE="${LONGUE_VUE_BASE:-http://localhost:8080}"
 CT="Content-Type: application/json"
 COOKIE_JAR="${COOKIE_JAR:-/tmp/argos-seed.cookies}"
 
-if [ -n "${ARGOS_TOKEN:-}" ]; then
-    AUTH_ARGS=(-H "Authorization: Bearer ${ARGOS_TOKEN}")
+if [ -n "${LONGUE_VUE_TOKEN:-}" ]; then
+    AUTH_ARGS=(-H "Authorization: Bearer ${LONGUE_VUE_TOKEN}")
 else
     # Session login.
     rm -f "$COOKIE_JAR"
-    USER="${ARGOS_USER:-admin}"
-    PASS="${ARGOS_PASSWORD:-${ARGOS_BOOTSTRAP_ADMIN_PASSWORD:-}}"
+    USER="${LONGUE_VUE_USER:-admin}"
+    PASS="${LONGUE_VUE_PASSWORD:-${LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD:-}}"
     if [ -z "$PASS" ]; then
-        echo "ARGOS_PASSWORD (or ARGOS_BOOTSTRAP_ADMIN_PASSWORD) must be set" >&2
+        echo "LONGUE_VUE_PASSWORD (or LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD) must be set" >&2
         exit 2
     fi
     STATUS=$(curl -sS -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' \

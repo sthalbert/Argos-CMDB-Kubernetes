@@ -41,7 +41,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 
 **Process topology:** a single argosd process runs a `Collector` goroutine per target cluster. Each goroutine owns its own `KubeClient` (kubeconfig + clientset), its own ticker, its own per-tick `poll()` cycle. All write through the shared `Store`. All anchor on the root `signal.NotifyContext` so SIGINT / SIGTERM drains every collector before the HTTP server shuts down.
 
-**Configuration:** a new env var `ARGOS_COLLECTOR_CLUSTERS` accepts a JSON array:
+**Configuration:** a new env var `LONGUE_VUE_COLLECTOR_CLUSTERS` accepts a JSON array:
 
 ```json
 [
@@ -55,7 +55,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 - `kubeconfig` is a filesystem path. An empty string means "use in-cluster config" (argosd's own ServiceAccount) — useful when argosd is deployed inside one of the target clusters.
 - Names must be unique within the list; `loadCollectorClusters` validates.
 
-**Backward compatibility:** the existing single-cluster vars (`ARGOS_CLUSTER_NAME`, `ARGOS_KUBECONFIG`) remain supported as a shortcut. Precedence when both sets are set: `ARGOS_COLLECTOR_CLUSTERS` wins; operators explicitly migrating to multi-cluster stop setting the single-cluster vars.
+**Backward compatibility:** the existing single-cluster vars (`LONGUE_VUE_CLUSTER_NAME`, `LONGUE_VUE_KUBECONFIG`) remain supported as a shortcut. Precedence when both sets are set: `LONGUE_VUE_COLLECTOR_CLUSTERS` wins; operators explicitly migrating to multi-cluster stop setting the single-cluster vars.
 
 **Concurrency:** each cluster's `Collector.Run(ctx)` is its own goroutine. Failures in one cluster (unreachable API, transient timeout) log and continue; other clusters' ticks are unaffected. Per-tick operations inside a single cluster remain sequential (as today).
 
@@ -63,7 +63,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 
 **Per-cluster reconciliation isolation:** already correct by construction. Every `Delete*NotIn` call is scoped to a `cluster_id` (for cluster-scoped kinds) or `namespace_id` (for namespace-scoped kinds). Two collectors writing in parallel never delete each other's rows.
 
-**Interval / fetchTimeout:** continue to be single global values (`ARGOS_COLLECTOR_INTERVAL`, `ARGOS_COLLECTOR_FETCH_TIMEOUT`), applied identically to every per-cluster collector. Per-cluster overrides can be added later if experience shows big clusters need slower ticks — out of scope here.
+**Interval / fetchTimeout:** continue to be single global values (`LONGUE_VUE_COLLECTOR_INTERVAL`, `LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT`), applied identically to every per-cluster collector. Per-cluster overrides can be added later if experience shows big clusters need slower ticks — out of scope here.
 
 ## Consequences
 
@@ -73,7 +73,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 - **POS-002**: No data-model churn — every table is already keyed by cluster. Only the collector grows N-way.
 - **POS-003**: Failure isolation is natural: each goroutine's poll is independent; a dead control plane in one cluster doesn't stall the others.
 - **POS-004**: The push model (agent-per-cluster) stays available as a future option via the existing REST API + scoped tokens. When Argos needs horizontal scaling, or when network policy forbids outbound connections from a central argosd to every cluster, that path opens without redesigning data storage.
-- **POS-005**: `ARGOS_COLLECTOR_CLUSTERS` JSON mirrors `ARGOS_API_TOKENS` in shape; operators already know this pattern.
+- **POS-005**: `LONGUE_VUE_COLLECTOR_CLUSTERS` JSON mirrors `LONGUE_VUE_API_TOKENS` in shape; operators already know this pattern.
 - **POS-006**: Single-cluster env vars keep working. No migration pressure on the current dev setup.
 
 ### Negative
@@ -81,7 +81,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 - **NEG-001**: All target-cluster credentials live in one Pod (mounted Secret with N kubeconfigs). A compromise of that Pod exposes every catalogued cluster. The push model would avoid this — each cluster's agent only sees its own cluster. Accepted as a v1 trade-off; mitigations: read-only RBAC per kubeconfig, Secret encryption at rest in the backing etcd.
 - **NEG-002**: One process, one Go runtime, one PG pool. At tens-of-clusters scale the single-process ceiling is real. Mitigation path is clear (agent model), but we commit to raising the ceiling only when observed.
 - **NEG-003**: Per-cluster interval / timeout is global. A Raspberry-Pi-sized staging cluster and a large prod cluster are polled on the same cadence. Not a blocker, but noted as a known limitation.
-- **NEG-004**: `ARGOS_COLLECTOR_CLUSTERS` JSON gets unwieldy past ~5 entries. A config-file form (YAML / TOML) is a natural follow-up when that threshold is hit.
+- **NEG-004**: `LONGUE_VUE_COLLECTOR_CLUSTERS` JSON gets unwieldy past ~5 entries. A config-file form (YAML / TOML) is a natural follow-up when that threshold is hit.
 
 ## Alternatives Considered
 
@@ -98,7 +98,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 ### Filesystem-based config directory
 
 - **ALT-005**: **Description**: Point at `/etc/argos/clusters/` and treat every `*.yaml` file as one kubeconfig; the filename (or the kubeconfig's `current-context`) becomes the cluster name.
-- **ALT-006**: **Rejection Reason**: Less explicit than declaring `{name, kubeconfig}` tuples — filename-to-cluster-name is implicit convention that breaks for clusters whose CMDB name doesn't match their kubeconfig filename. JSON env var is heavier to edit but unambiguous. A `ARGOS_COLLECTOR_CONFIG=/path/to/file.yaml` option can be added later without breaking the env-var shape.
+- **ALT-006**: **Rejection Reason**: Less explicit than declaring `{name, kubeconfig}` tuples — filename-to-cluster-name is implicit convention that breaks for clusters whose CMDB name doesn't match their kubeconfig filename. JSON env var is heavier to edit but unambiguous. A `LONGUE_VUE_COLLECTOR_CONFIG=/path/to/file.yaml` option can be added later without breaking the env-var shape.
 
 ### Collector auto-registers the Cluster row
 
@@ -107,12 +107,12 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
 
 ### Per-cluster interval / timeout overrides in v1
 
-- **ALT-009**: **Description**: Let each entry in `ARGOS_COLLECTOR_CLUSTERS` override `interval` / `fetch_timeout` individually.
+- **ALT-009**: **Description**: Let each entry in `LONGUE_VUE_COLLECTOR_CLUSTERS` override `interval` / `fetch_timeout` individually.
 - **ALT-010**: **Rejection Reason**: Premature. The operational shape we have (one global interval) hasn't yet produced a real pain point. Adding override fields costs nothing at the JSON level later when we need them.
 
 ## Implementation Notes
 
-- **IMP-001**: Add `ARGOS_COLLECTOR_CLUSTERS` parsing in `cmd/argosd/main.go`: accept JSON, validate non-empty `name`, unique names, non-negative count, fall through to `ARGOS_CLUSTER_NAME` / `ARGOS_KUBECONFIG` when the new var is absent.
+- **IMP-001**: Add `LONGUE_VUE_COLLECTOR_CLUSTERS` parsing in `cmd/argosd/main.go`: accept JSON, validate non-empty `name`, unique names, non-negative count, fall through to `LONGUE_VUE_CLUSTER_NAME` / `LONGUE_VUE_KUBECONFIG` when the new var is absent.
 - **IMP-002**: Replace the single `maybeStartCollector(ctx, store)` with a `startCollectors(ctx, store, clusters)` helper that loops, builds one `KubeClient` + `Collector` per entry, and launches `coll.Run(ctx)` in its own goroutine. Use a `sync.WaitGroup` so `main.run` can wait for every collector to exit before returning — the HTTP server's graceful shutdown already has a bounded window; the WG lets shutdown block on collector drain too.
 - **IMP-003**: `collector.Collector` is unchanged structurally — the struct already owns one cluster's identity. The only change is N instances of it instead of one.
 - **IMP-004**: Logging: every `slog.*` call inside the collector already tags `cluster_name`, so multi-cluster logs are already greppable. Double-check no new call site drops the tag.
@@ -120,7 +120,7 @@ This ADR decides how one or more Kubernetes clusters are polled into a single Ar
   - A unit test for the new config parser (JSON valid / invalid / empty-name / duplicate-name / fallback to single-cluster vars).
   - A collector test that runs two `Collector`s in parallel against two `fakeSource`s + a shared `fakeStore`, verifies reconciliation remains isolated per `cluster_id`.
 - **IMP-006**: Deployment example (separate PR): update the `deploy/` manifests (from the Dockerfile follow-up) to show a Secret with multiple kubeconfigs and the matching env var, plus an explanatory README covering RBAC minimums per kubeconfig.
-- **IMP-007**: `CLAUDE.md` architecture note: update the collector paragraph from "single cluster via kubeconfig" to "one collector goroutine per entry in `ARGOS_COLLECTOR_CLUSTERS` (JSON); shared store, independent ticks".
+- **IMP-007**: `CLAUDE.md` architecture note: update the collector paragraph from "single cluster via kubeconfig" to "one collector goroutine per entry in `LONGUE_VUE_COLLECTOR_CLUSTERS` (JSON); shared store, independent ticks".
 - **IMP-008**: Keep the JSON schema minimal: `{name, kubeconfig}` only. Additional per-cluster fields (custom interval, custom auth mode) are additive — leave the struct open for extension.
 
 ## References

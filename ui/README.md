@@ -42,7 +42,7 @@ scope and rationale.
 make ui-install
 
 # 2. Terminal A — start argosd (API + embedded production bundle):
-ARGOS_DATABASE_URL=postgres://... ARGOS_API_TOKEN=dev ./bin/argosd
+LONGUE_VUE_DATABASE_URL=postgres://... LONGUE_VUE_API_TOKEN=dev ./bin/argosd
 
 # 3. Terminal B — Vite dev server with HMR, proxies /v1 /healthz /metrics -> :8080:
 make ui-dev

@@ -1,7 +1,7 @@
 -- +goose Up
 -- Cloud accounts (ADR-0015) — one row per (cloud provider, account credentials).
 -- Stores AK plaintext (a public identifier) and SK ciphertext (AES-256-GCM with
--- master key from ARGOS_SECRETS_MASTER_KEY, AAD bound to the row id).
+-- master key from LONGUE_VUE_SECRETS_MASTER_KEY, AAD bound to the row id).
 --
 -- Status workflow:
 --   pending_credentials → admin has not yet supplied AK/SK

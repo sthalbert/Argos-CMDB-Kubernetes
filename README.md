@@ -46,8 +46,8 @@ docker run -d --rm --name argos-pg \
   -p 5432:5432 postgres:16-alpine
 
 make ui-build && make build
-ARGOS_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
-  ARGOS_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login" \
+LONGUE_VUE_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
+  LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login" \
   ./bin/argosd
 # Open http://localhost:8080/ and sign in as admin
 ```

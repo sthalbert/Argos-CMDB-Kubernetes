@@ -82,7 +82,7 @@ func NewServer(
 // SetTrustedProxies installs the operator-supplied CIDR list at startup.
 // Pass nil or an empty slice to ignore X-Forwarded-* unconditionally —
 // the secure default. Argosd's main.go calls this once after parsing
-// ARGOS_TRUSTED_PROXIES; tests typically leave it unset.
+// LONGUE_VUE_TRUSTED_PROXIES; tests typically leave it unset.
 func (s *Server) SetTrustedProxies(p []*net.IPNet) {
 	s.trustedProxies = p
 }

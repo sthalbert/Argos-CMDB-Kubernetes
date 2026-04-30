@@ -34,7 +34,7 @@ argos-collector  ──HTTPS──► Envoy/WAF ──► argos-ingest-gw ──
 
 ## Step 1 — Enable the ingest listener on argosd
 
-argosd starts a second mTLS-only listener when `ARGOS_INGEST_LISTEN_ADDR` is set. The existing `:8080` listener is unaffected.
+argosd starts a second mTLS-only listener when `LONGUE_VUE_INGEST_LISTEN_ADDR` is set. The existing `:8080` listener is unaffected.
 
 You need three files:
 
@@ -45,7 +45,7 @@ You need three files:
 Create a Kubernetes Secret with those files:
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> create secret generic argosd-ingest-tls \
+kubectl -n <LONGUE_VUE_NAMESPACE> create secret generic argosd-ingest-tls \
   --from-file=tls.crt=./server.crt \
   --from-file=tls.key=./server.key \
   --from-file=client-ca.crt=./ca.crt
@@ -67,7 +67,7 @@ ingestListener:
 ```
 
 ```sh
-helm upgrade argos charts/argos -n <ARGOS_NAMESPACE> -f values.yaml
+helm upgrade argos charts/argos -n <LONGUE_VUE_NAMESPACE> -f values.yaml
 ```
 
 ### Kustomize / raw env vars
@@ -76,16 +76,16 @@ If you manage argosd without Helm, set these environment variables and mount the
 
 ```yaml
 env:
-  - name: ARGOS_INGEST_LISTEN_ADDR
+  - name: LONGUE_VUE_INGEST_LISTEN_ADDR
     value: ":8443"
-  - name: ARGOS_INGEST_LISTEN_TLS_CERT
+  - name: LONGUE_VUE_INGEST_LISTEN_TLS_CERT
     value: /etc/argos/ingest-tls/tls.crt
-  - name: ARGOS_INGEST_LISTEN_TLS_KEY
+  - name: LONGUE_VUE_INGEST_LISTEN_TLS_KEY
     value: /etc/argos/ingest-tls/tls.key
-  - name: ARGOS_INGEST_LISTEN_CLIENT_CA_FILE
+  - name: LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE
     value: /etc/argos/ingest-tls/client-ca.crt
   # Optional: restrict accepted client CN
-  - name: ARGOS_INGEST_LISTEN_CLIENT_CN_ALLOW
+  - name: LONGUE_VUE_INGEST_LISTEN_CLIENT_CN_ALLOW
     value: "argos-ingest-gw"
 volumeMounts:
   - name: ingest-tls
@@ -100,14 +100,14 @@ volumes:
 Verify argosd started the ingest listener by checking its logs:
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> logs -l app.kubernetes.io/name=argos --tail=20 | grep ingest
+kubectl -n <LONGUE_VUE_NAMESPACE> logs -l app.kubernetes.io/name=argos --tail=20 | grep ingest
 # Expect: INFO ingest listener started addr=:8443
 ```
 
 Also expose port 8443 on the argosd Service so the gateway pod can reach it:
 
 ```sh
-kubectl -n <ARGOS_NAMESPACE> patch service argos --type=json \
+kubectl -n <LONGUE_VUE_NAMESPACE> patch service argos --type=json \
   -p='[{"op":"add","path":"/spec/ports/-","value":{"name":"ingest","port":8443,"targetPort":8443,"protocol":"TCP"}}]'
 ```
 
@@ -152,7 +152,7 @@ Minimal `values.yaml`:
 
 ```yaml
 upstream:
-  url: "https://argosd-ingest.<ARGOS_NAMESPACE>.svc.cluster.local:8443"
+  url: "https://argosd-ingest.<LONGUE_VUE_NAMESPACE>.svc.cluster.local:8443"
   caBundle: |
     -----BEGIN CERTIFICATE-----
     <your internal CA PEM>
@@ -213,7 +213,7 @@ Minimal `values.yaml`:
 
 ```yaml
 upstream:
-  url: "https://argosd-ingest.<ARGOS_NAMESPACE>.svc.cluster.local:8443"
+  url: "https://argosd-ingest.<LONGUE_VUE_NAMESPACE>.svc.cluster.local:8443"
   caBundle: |
     -----BEGIN CERTIFICATE-----
     <your internal CA PEM>
@@ -242,7 +242,7 @@ For development environments or edge cases where neither Vault nor cert-manager 
 
 ```yaml
 upstream:
-  url: "https://argosd-ingest.<ARGOS_NAMESPACE>.svc.cluster.local:8443"
+  url: "https://argosd-ingest.<LONGUE_VUE_NAMESPACE>.svc.cluster.local:8443"
   caBundle: |
     -----BEGIN CERTIFICATE-----
     <your internal CA PEM>
@@ -255,7 +255,7 @@ listener:
 mtls:
   mode: file
   # Cert files must be mounted at the default paths below, or override via
-  # ARGOS_INGEST_GW_CLIENT_CERT_FILE / ARGOS_INGEST_GW_CLIENT_KEY_FILE.
+  # LONGUE_VUE_INGEST_GW_CLIENT_CERT_FILE / LONGUE_VUE_INGEST_GW_CLIENT_KEY_FILE.
 ```
 
 > **Note:** file mode gives you full responsibility for cert rotation. The gateway hot-reloads when files change, but nothing drives the rotation. Use this mode only for local dev or in environments with a bespoke secret-distribution mechanism.
@@ -318,12 +318,12 @@ Ensure Envoy sets `X-Forwarded-For` on each forwarded request (this is the defau
 Configure `argos-collector` (or `argos-vm-collector`) with the gateway's public hostname rather than argosd's URL:
 
 ```sh
-ARGOS_SERVER_URL=https://ingest.argos.example.com/
-ARGOS_API_TOKEN=<the editor PAT minted in Step 2>
-ARGOS_CA_CERT=/etc/argos/ca.crt   # CA that signed the gateway's server cert
+LONGUE_VUE_SERVER_URL=https://ingest.argos.example.com/
+LONGUE_VUE_API_TOKEN=<the editor PAT minted in Step 2>
+LONGUE_VUE_CA_CERT=/etc/argos/ca.crt   # CA that signed the gateway's server cert
 ```
 
-If the gateway's server cert is signed by your internal CA (not a public CA), mount the CA bundle and set `ARGOS_CA_CERT` pointing to it:
+If the gateway's server cert is signed by your internal CA (not a public CA), mount the CA bundle and set `LONGUE_VUE_CA_CERT` pointing to it:
 
 ```yaml
 # Helm values overlay for argos-collector
@@ -380,20 +380,20 @@ Rows that came through the gateway have `"source": "ingest_gw"` in the audit eve
 
 The gateway cannot reach argosd's ingest listener. Check:
 
-1. The argosd Service exposes port 8443 (`kubectl -n <ARGOS_NAMESPACE> get svc argos -o yaml`).
+1. The argosd Service exposes port 8443 (`kubectl -n <LONGUE_VUE_NAMESPACE> get svc argos -o yaml`).
 2. A NetworkPolicy in either namespace is not blocking the gateway's egress to argosd port 8443.
 3. argosd's ingest listener actually started — check argosd logs for `ingest listener started addr=:8443`.
 
 ```sh
 kubectl -n <DMZ_NAMESPACE> exec -it <gateway-pod> -- \
-  wget -qO- --no-check-certificate https://argosd-ingest.<ARGOS_NAMESPACE>.svc.cluster.local:8443/healthz
+  wget -qO- --no-check-certificate https://argosd-ingest.<LONGUE_VUE_NAMESPACE>.svc.cluster.local:8443/healthz
 ```
 
 ### 401 returned to collectors
 
 The token is missing, malformed, or revoked. Check:
 
-- The PAT is correctly set in the collector's `ARGOS_API_TOKEN`.
+- The PAT is correctly set in the collector's `LONGUE_VUE_API_TOKEN`.
 - The token still appears in argosd's admin panel at `/ui/admin/tokens` (not revoked).
 - argosd's audit log shows the token prefix and the rejection reason.
 
@@ -416,10 +416,10 @@ Possible `reason` label values:
 
 | Reason | Cause |
 |--------|-------|
-| `bad_ca` | Gateway cert not signed by the CA in `ARGOS_INGEST_LISTEN_CLIENT_CA_FILE`. |
+| `bad_ca` | Gateway cert not signed by the CA in `LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE`. |
 | `expired` | Gateway cert has passed its `Not After` date. |
-| `cn_not_allowed` | Gateway cert's Subject CN is not in `ARGOS_INGEST_LISTEN_CLIENT_CN_ALLOW`. Remove the env var or add the CN. |
-| `none_provided` | Gateway connected without a client cert. Check that `ARGOS_INGEST_GW_CLIENT_CERT_FILE` and `ARGOS_INGEST_GW_CLIENT_KEY_FILE` are correctly mounted. |
+| `cn_not_allowed` | Gateway cert's Subject CN is not in `LONGUE_VUE_INGEST_LISTEN_CLIENT_CN_ALLOW`. Remove the env var or add the CN. |
+| `none_provided` | Gateway connected without a client cert. Check that `LONGUE_VUE_INGEST_GW_CLIENT_CERT_FILE` and `LONGUE_VUE_INGEST_GW_CLIENT_KEY_FILE` are correctly mounted. |
 
 ### Cert renewal failing
 

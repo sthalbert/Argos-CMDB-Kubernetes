@@ -17,7 +17,7 @@ import (
 func TestServerClientIP_PentestReproducer(t *testing.T) {
 	srv := NewServer("test", nil, auth.SecureNever, nil, NewLoginRateLimiter(), NewVerifyRateLimiter())
 	// No trusted proxies set; this is the secure default — and what
-	// every existing deployment ships as until ARGOS_TRUSTED_PROXIES is
+	// every existing deployment ships as until LONGUE_VUE_TRUSTED_PROXIES is
 	// configured.
 
 	for _, fakeXFF := range []string{"10.0.0.99", "10.0.0.100", "203.0.113.7"} {

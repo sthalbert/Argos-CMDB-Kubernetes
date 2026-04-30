@@ -12,7 +12,7 @@ The MCP server is **disabled by default**. An admin enables it from the UI:
 
 The server checks the setting on every tool call. No pod restart is required to enable or disable it.
 
-> **Alternative: env var.** Setting `ARGOS_MCP_ENABLED=true` on the argosd Deployment seeds the database setting to `true` on startup. The UI toggle overrides it at runtime.
+> **Alternative: env var.** Setting `LONGUE_VUE_MCP_ENABLED=true` on the argosd Deployment seeds the database setting to `true` on startup. The UI toggle overrides it at runtime.
 
 ## Connect from Claude Code
 
@@ -44,7 +44,7 @@ http://<argosd-host>:8090/sse
 
 Set the HTTP header `Authorization: Bearer argos_pat_<prefix>_<suffix>` on the connection. The token must have at least `read` scope.
 
-For the **stdio** transport (local agent on the same machine), set `ARGOS_MCP_TRANSPORT=stdio` and provide the token via `ARGOS_MCP_TOKEN`.
+For the **stdio** transport (local agent on the same machine), set `LONGUE_VUE_MCP_TRANSPORT=stdio` and provide the token via `LONGUE_VUE_MCP_TOKEN`.
 
 ## Available tools
 
@@ -76,10 +76,10 @@ All tools are read-only. List tools return up to 1000 items (silently truncated 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ARGOS_MCP_ENABLED` | -- | Seeds the `mcp_enabled` database setting on startup. The UI toggle overrides it at runtime. |
-| `ARGOS_MCP_TRANSPORT` | `sse` | MCP transport: `sse` or `stdio`. |
-| `ARGOS_MCP_ADDR` | `:8090` | Listen address for the SSE transport. Ignored when transport is `stdio`. |
-| `ARGOS_MCP_TOKEN` | -- | PAT for stdio transport authentication. Required when transport is `stdio`. |
+| `LONGUE_VUE_MCP_ENABLED` | -- | Seeds the `mcp_enabled` database setting on startup. The UI toggle overrides it at runtime. |
+| `LONGUE_VUE_MCP_TRANSPORT` | `sse` | MCP transport: `sse` or `stdio`. |
+| `LONGUE_VUE_MCP_ADDR` | `:8090` | Listen address for the SSE transport. Ignored when transport is `stdio`. |
+| `LONGUE_VUE_MCP_TOKEN` | -- | PAT for stdio transport authentication. Required when transport is `stdio`. |
 
 ## Monitoring
 

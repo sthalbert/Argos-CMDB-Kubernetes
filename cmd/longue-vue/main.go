@@ -37,21 +37,21 @@ var version = "dev"
 
 // Sentinel errors for configuration validation.
 var (
-	errDatabaseURLRequired     = errors.New("ARGOS_DATABASE_URL is required")
-	errLegacyTokensUnsupported = errors.New("ARGOS_API_TOKEN / ARGOS_API_TOKENS are no longer supported; " +
+	errDatabaseURLRequired     = errors.New("LONGUE_VUE_DATABASE_URL is required")
+	errLegacyTokensUnsupported = errors.New("LONGUE_VUE_API_TOKEN / LONGUE_VUE_API_TOKENS are no longer supported; " +
 		"the bootstrap admin password is printed in the startup log on first run, " +
 		"and machine tokens are issued in the admin panel — see ADR-0007")
-	errCollectorClustersEmpty = errors.New("ARGOS_COLLECTOR_CLUSTERS is empty")
-	errClusterNameRequired    = errors.New("ARGOS_COLLECTOR_CLUSTERS entry: name is required")
-	errDuplicateClusterName   = errors.New("ARGOS_COLLECTOR_CLUSTERS entry: duplicate name")
-	errNoCollectorClusters    = errors.New("ARGOS_COLLECTOR_CLUSTERS or ARGOS_CLUSTER_NAME must be set when ARGOS_COLLECTOR_ENABLED=true")
-	errInvalidCookiePolicy    = errors.New("ARGOS_SESSION_SECURE_COOKIE must be auto / always / never")
+	errCollectorClustersEmpty = errors.New("LONGUE_VUE_COLLECTOR_CLUSTERS is empty")
+	errClusterNameRequired    = errors.New("LONGUE_VUE_COLLECTOR_CLUSTERS entry: name is required")
+	errDuplicateClusterName   = errors.New("LONGUE_VUE_COLLECTOR_CLUSTERS entry: duplicate name")
+	errNoCollectorClusters    = errors.New("LONGUE_VUE_COLLECTOR_CLUSTERS or LONGUE_VUE_CLUSTER_NAME must be set when LONGUE_VUE_COLLECTOR_ENABLED=true")
+	errInvalidCookiePolicy    = errors.New("LONGUE_VUE_SESSION_SECURE_COOKIE must be auto / always / never")
 	errEncryptedCredentials   = errors.New("secrets master key missing but cloud_accounts rows carry encrypted credentials")
-	errIngestMissingTLSConfig = errors.New("ARGOS_INGEST_LISTEN_ADDR is set but ARGOS_INGEST_LISTEN_TLS_CERT, " +
-		"ARGOS_INGEST_LISTEN_TLS_KEY, or ARGOS_INGEST_LISTEN_CLIENT_CA_FILE is missing — see ADR-0016 §4")
-	errTransportPostureRefused = errors.New("ARGOS_REQUIRE_HTTPS=true but neither native TLS " +
-		"(ARGOS_PUBLIC_LISTEN_TLS_CERT + _KEY) nor a trusted-proxy + always-secure-cookie posture " +
-		"(ARGOS_TRUSTED_PROXIES non-empty AND ARGOS_SESSION_SECURE_COOKIE=always) is configured — see ADR-0017 §3")
+	errIngestMissingTLSConfig = errors.New("LONGUE_VUE_INGEST_LISTEN_ADDR is set but LONGUE_VUE_INGEST_LISTEN_TLS_CERT, " +
+		"LONGUE_VUE_INGEST_LISTEN_TLS_KEY, or LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE is missing — see ADR-0016 §4")
+	errTransportPostureRefused = errors.New("LONGUE_VUE_REQUIRE_HTTPS=true but neither native TLS " +
+		"(LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT + _KEY) nor a trusted-proxy + always-secure-cookie posture " +
+		"(LONGUE_VUE_TRUSTED_PROXIES non-empty AND LONGUE_VUE_SESSION_SECURE_COOKIE=always) is configured — see ADR-0017 §3")
 )
 
 func main() {
@@ -108,25 +108,25 @@ type ingestListenerConfig struct {
 //
 //nolint:gocyclo // complexity is structural: one branch per env var; refactoring adds indirection without clarity
 func loadRunConfig() (runConfig, error) {
-	dsn := os.Getenv("ARGOS_DATABASE_URL")
+	dsn := os.Getenv("LONGUE_VUE_DATABASE_URL")
 	if dsn == "" {
 		return runConfig{}, errDatabaseURLRequired
 	}
 	// Per ADR-0007: env-var token bootstrap is removed. Fail loudly so
 	// operators migrating from v0 know to read the admin password from
 	// the startup log instead.
-	if os.Getenv("ARGOS_API_TOKEN") != "" || os.Getenv("ARGOS_API_TOKENS") != "" {
+	if os.Getenv("LONGUE_VUE_API_TOKEN") != "" || os.Getenv("LONGUE_VUE_API_TOKENS") != "" {
 		return runConfig{}, errLegacyTokensUnsupported
 	}
 	cookiePolicy, err := parseCookiePolicy()
 	if err != nil {
 		return runConfig{}, err
 	}
-	shutdownTimeout, err := parseDurationEnv("ARGOS_SHUTDOWN_TIMEOUT", 15*time.Second)
+	shutdownTimeout, err := parseDurationEnv("LONGUE_VUE_SHUTDOWN_TIMEOUT", 15*time.Second)
 	if err != nil {
 		return runConfig{}, err
 	}
-	autoMigrate, err := parseBoolEnv("ARGOS_AUTO_MIGRATE", true)
+	autoMigrate, err := parseBoolEnv("LONGUE_VUE_AUTO_MIGRATE", true)
 	if err != nil {
 		return runConfig{}, err
 	}
@@ -134,25 +134,25 @@ func loadRunConfig() (runConfig, error) {
 	if err != nil {
 		return runConfig{}, err
 	}
-	trustedProxies, err := httputil.ParseTrustedProxies(os.Getenv("ARGOS_TRUSTED_PROXIES"))
+	trustedProxies, err := httputil.ParseTrustedProxies(os.Getenv("LONGUE_VUE_TRUSTED_PROXIES"))
 	if err != nil {
-		return runConfig{}, fmt.Errorf("parse ARGOS_TRUSTED_PROXIES: %w", err)
+		return runConfig{}, fmt.Errorf("parse LONGUE_VUE_TRUSTED_PROXIES: %w", err)
 	}
-	requireHTTPS, err := parseBoolEnv("ARGOS_REQUIRE_HTTPS", false)
+	requireHTTPS, err := parseBoolEnv("LONGUE_VUE_REQUIRE_HTTPS", false)
 	if err != nil {
 		return runConfig{}, err
 	}
 
 	cfg := runConfig{
-		addr:            envOr("ARGOS_ADDR", ":8080"),
+		addr:            envOr("LONGUE_VUE_ADDR", ":8080"),
 		dsn:             dsn,
 		cookiePolicy:    cookiePolicy,
 		oidcCfg:         loadOIDCConfig(),
 		shutdownTimeout: shutdownTimeout,
 		autoMigrate:     autoMigrate,
 		ingest:          ingest,
-		publicTLSCert:   os.Getenv("ARGOS_PUBLIC_LISTEN_TLS_CERT"),
-		publicTLSKey:    os.Getenv("ARGOS_PUBLIC_LISTEN_TLS_KEY"),
+		publicTLSCert:   os.Getenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT"),
+		publicTLSKey:    os.Getenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY"),
 		trustedProxies:  trustedProxies,
 		requireHTTPS:    requireHTTPS,
 	}
@@ -163,7 +163,7 @@ func loadRunConfig() (runConfig, error) {
 }
 
 // checkTransportPosture enforces the ADR-0017 §3 startup guard. Returns
-// nil when ARGOS_REQUIRE_HTTPS is off (legacy posture, allowed by default
+// nil when LONGUE_VUE_REQUIRE_HTTPS is off (legacy posture, allowed by default
 // for backwards compatibility and dev workflows), and otherwise refuses to
 // start unless one of the two safe deployment shapes is configured:
 //
@@ -186,21 +186,21 @@ func checkTransportPosture(cfg *runConfig) error {
 	return errTransportPostureRefused
 }
 
-// loadIngestListenerConfig reads the ARGOS_INGEST_LISTEN_* env vars. When
-// ARGOS_INGEST_LISTEN_ADDR is empty the listener is disabled; otherwise
+// loadIngestListenerConfig reads the LONGUE_VUE_INGEST_LISTEN_* env vars. When
+// LONGUE_VUE_INGEST_LISTEN_ADDR is empty the listener is disabled; otherwise
 // the cert + key + CA paths are required so misconfiguration fails at boot.
 func loadIngestListenerConfig() (ingestListenerConfig, error) {
-	addr := os.Getenv("ARGOS_INGEST_LISTEN_ADDR")
+	addr := os.Getenv("LONGUE_VUE_INGEST_LISTEN_ADDR")
 	if addr == "" {
 		return ingestListenerConfig{}, nil
 	}
-	cert := os.Getenv("ARGOS_INGEST_LISTEN_TLS_CERT")
-	key := os.Getenv("ARGOS_INGEST_LISTEN_TLS_KEY")
-	clientCA := os.Getenv("ARGOS_INGEST_LISTEN_CLIENT_CA_FILE")
+	cert := os.Getenv("LONGUE_VUE_INGEST_LISTEN_TLS_CERT")
+	key := os.Getenv("LONGUE_VUE_INGEST_LISTEN_TLS_KEY")
+	clientCA := os.Getenv("LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE")
 	if cert == "" || key == "" || clientCA == "" {
 		return ingestListenerConfig{}, errIngestMissingTLSConfig
 	}
-	cns := splitCSV(os.Getenv("ARGOS_INGEST_LISTEN_CLIENT_CN_ALLOW"))
+	cns := splitCSV(os.Getenv("LONGUE_VUE_INGEST_LISTEN_CLIENT_CN_ALLOW"))
 	return ingestListenerConfig{
 		addr:         addr,
 		tlsCertFile:  cert,
@@ -318,7 +318,7 @@ func initSecretsEncrypter(ctx context.Context, pg *store.PG) (*secrets.Encrypter
 	if count > 0 {
 		return nil, fmt.Errorf("%w: %d row(s) require %s", errEncryptedCredentials, count, secrets.MasterKeyEnvVar)
 	}
-	slog.Warn("secrets master key not configured; VM collector features disabled until ARGOS_SECRETS_MASTER_KEY is set")
+	slog.Warn("secrets master key not configured; VM collector features disabled until LONGUE_VUE_SECRETS_MASTER_KEY is set")
 	return nil, nil //nolint:nilnil // nil encrypter is the intentional "disabled" sentinel; callers check for nil before use
 }
 
@@ -358,7 +358,7 @@ func maybeInitOIDC(ctx context.Context, cfg *auth.OIDCConfig) (*auth.OIDCProvide
 // via newCertReloader; serveAndShutdown then starts it with
 // ListenAndServeTLS. When either is unset, the listener stays plaintext —
 // the legacy posture, allowed for backward compatibility but refused at
-// boot when ARGOS_REQUIRE_HTTPS=true (see checkTransportPosture).
+// boot when LONGUE_VUE_REQUIRE_HTTPS=true (see checkTransportPosture).
 func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvider, enc *secrets.Encrypter) (*http.Server, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
@@ -771,7 +771,7 @@ func serveAndShutdown( //nolint:gocyclo // central shutdown dispatcher; flat sel
 	return nil
 }
 
-// collectorClusterConfig is one entry in ARGOS_COLLECTOR_CLUSTERS.
+// collectorClusterConfig is one entry in LONGUE_VUE_COLLECTOR_CLUSTERS.
 // Kubeconfig may be empty to mean "use in-cluster config" (typically when
 // argosd runs inside one of the target clusters).
 type collectorClusterConfig struct {
@@ -781,16 +781,16 @@ type collectorClusterConfig struct {
 
 // loadCollectorClusters resolves the list of target clusters from env per
 // ADR-0005. Precedence:
-//   - ARGOS_COLLECTOR_CLUSTERS (JSON array of {name, kubeconfig}): primary.
-//   - ARGOS_CLUSTER_NAME + ARGOS_KUBECONFIG: legacy single-cluster shortcut.
+//   - LONGUE_VUE_COLLECTOR_CLUSTERS (JSON array of {name, kubeconfig}): primary.
+//   - LONGUE_VUE_CLUSTER_NAME + LONGUE_VUE_KUBECONFIG: legacy single-cluster shortcut.
 //
 // Returns an error if neither form is set or if the JSON is malformed / has
 // empty or duplicate names.
 func loadCollectorClusters() ([]collectorClusterConfig, error) {
-	if raw := os.Getenv("ARGOS_COLLECTOR_CLUSTERS"); raw != "" {
+	if raw := os.Getenv("LONGUE_VUE_COLLECTOR_CLUSTERS"); raw != "" {
 		var parsed []collectorClusterConfig
 		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-			return nil, fmt.Errorf("parse ARGOS_COLLECTOR_CLUSTERS: %w", err)
+			return nil, fmt.Errorf("parse LONGUE_VUE_COLLECTOR_CLUSTERS: %w", err)
 		}
 		if len(parsed) == 0 {
 			return nil, errCollectorClustersEmpty
@@ -798,20 +798,20 @@ func loadCollectorClusters() ([]collectorClusterConfig, error) {
 		seen := make(map[string]struct{}, len(parsed))
 		for i, c := range parsed {
 			if c.Name == "" {
-				return nil, fmt.Errorf("ARGOS_COLLECTOR_CLUSTERS[%d]: %w", i, errClusterNameRequired)
+				return nil, fmt.Errorf("LONGUE_VUE_COLLECTOR_CLUSTERS[%d]: %w", i, errClusterNameRequired)
 			}
 			if _, dup := seen[c.Name]; dup {
-				return nil, fmt.Errorf("ARGOS_COLLECTOR_CLUSTERS[%d] %q: %w", i, c.Name, errDuplicateClusterName)
+				return nil, fmt.Errorf("LONGUE_VUE_COLLECTOR_CLUSTERS[%d] %q: %w", i, c.Name, errDuplicateClusterName)
 			}
 			seen[c.Name] = struct{}{}
 		}
 		return parsed, nil
 	}
 
-	if name := os.Getenv("ARGOS_CLUSTER_NAME"); name != "" {
+	if name := os.Getenv("LONGUE_VUE_CLUSTER_NAME"); name != "" {
 		return []collectorClusterConfig{{
 			Name:       name,
-			Kubeconfig: os.Getenv("ARGOS_KUBECONFIG"),
+			Kubeconfig: os.Getenv("LONGUE_VUE_KUBECONFIG"),
 		}}, nil
 	}
 
@@ -827,15 +827,15 @@ type collectorEnvConfig struct {
 
 // loadCollectorEnvConfig reads collector-specific env vars.
 func loadCollectorEnvConfig() (collectorEnvConfig, error) {
-	interval, err := parseDurationEnv("ARGOS_COLLECTOR_INTERVAL", 5*time.Minute)
+	interval, err := parseDurationEnv("LONGUE_VUE_COLLECTOR_INTERVAL", 5*time.Minute)
 	if err != nil {
 		return collectorEnvConfig{}, err
 	}
-	fetchTimeout, err := parseDurationEnv("ARGOS_COLLECTOR_FETCH_TIMEOUT", 10*time.Second)
+	fetchTimeout, err := parseDurationEnv("LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT", 10*time.Second)
 	if err != nil {
 		return collectorEnvConfig{}, err
 	}
-	reconcile, err := parseBoolEnv("ARGOS_COLLECTOR_RECONCILE", true)
+	reconcile, err := parseBoolEnv("LONGUE_VUE_COLLECTOR_RECONCILE", true)
 	if err != nil {
 		return collectorEnvConfig{}, err
 	}
@@ -847,12 +847,12 @@ func loadCollectorEnvConfig() (collectorEnvConfig, error) {
 }
 
 // maybeStartCollectors spawns one Kubernetes collector goroutine per entry
-// in ARGOS_COLLECTOR_CLUSTERS (or per the legacy single-cluster env vars)
-// when ARGOS_COLLECTOR_ENABLED is truthy. Returns a drain function the
+// in LONGUE_VUE_COLLECTOR_CLUSTERS (or per the legacy single-cluster env vars)
+// when LONGUE_VUE_COLLECTOR_ENABLED is truthy. Returns a drain function the
 // caller defers so main.run blocks on collector shutdown before returning.
 // When the collector is disabled the drain is a no-op.
 func maybeStartCollectors(ctx context.Context, s api.Store) (func(), error) {
-	enabled, err := parseBoolEnv("ARGOS_COLLECTOR_ENABLED", false)
+	enabled, err := parseBoolEnv("LONGUE_VUE_COLLECTOR_ENABLED", false)
 	if err != nil {
 		return nil, err
 	}
@@ -896,7 +896,7 @@ func maybeStartCollectors(ctx context.Context, s api.Store) (func(), error) {
 // the database. Runs on every start; idempotent once an admin is present.
 //
 // Password sources, in order:
-//   - ARGOS_BOOTSTRAP_ADMIN_PASSWORD env var — operators who want a
+//   - LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD env var — operators who want a
 //     predictable password they control;
 //   - otherwise, a fresh 16-char random printed once at WARN level with
 //     a loud banner so it can't be missed in kubectl logs.
@@ -912,7 +912,7 @@ func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
 		return nil
 	}
 
-	password := os.Getenv("ARGOS_BOOTSTRAP_ADMIN_PASSWORD")
+	password := os.Getenv("LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD")
 	fromEnv := password != ""
 	if !fromEnv {
 		password, err = auth.RandomSecret(12)
@@ -935,7 +935,7 @@ func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
 	}
 
 	banner := strings.Repeat("=", 72)
-	source := "ARGOS_BOOTSTRAP_ADMIN_PASSWORD"
+	source := "LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD"
 	if !fromEnv {
 		source = "generated randomly; capture now — it won't be printed again"
 	}
@@ -950,18 +950,18 @@ func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
 	return nil
 }
 
-// loadOIDCConfig reads the ARGOS_OIDC_* env vars. Returns a zero-value
+// loadOIDCConfig reads the LONGUE_VUE_OIDC_* env vars. Returns a zero-value
 // config (Issuer == "") when OIDC is not configured; NewOIDCProvider
 // treats that as "disabled". Validation happens in NewOIDCProvider.
 func loadOIDCConfig() auth.OIDCConfig {
 	cfg := auth.OIDCConfig{
-		Issuer:       os.Getenv("ARGOS_OIDC_ISSUER"),
-		ClientID:     os.Getenv("ARGOS_OIDC_CLIENT_ID"),
-		ClientSecret: os.Getenv("ARGOS_OIDC_CLIENT_SECRET"),
-		RedirectURL:  os.Getenv("ARGOS_OIDC_REDIRECT_URL"),
-		Label:        os.Getenv("ARGOS_OIDC_LABEL"),
+		Issuer:       os.Getenv("LONGUE_VUE_OIDC_ISSUER"),
+		ClientID:     os.Getenv("LONGUE_VUE_OIDC_CLIENT_ID"),
+		ClientSecret: os.Getenv("LONGUE_VUE_OIDC_CLIENT_SECRET"),
+		RedirectURL:  os.Getenv("LONGUE_VUE_OIDC_REDIRECT_URL"),
+		Label:        os.Getenv("LONGUE_VUE_OIDC_LABEL"),
 	}
-	if raw := os.Getenv("ARGOS_OIDC_SCOPES"); raw != "" {
+	if raw := os.Getenv("LONGUE_VUE_OIDC_SCOPES"); raw != "" {
 		parts := strings.Split(raw, ",")
 		cfg.Scopes = make([]string, 0, len(parts))
 		for _, p := range parts {
@@ -974,7 +974,7 @@ func loadOIDCConfig() auth.OIDCConfig {
 }
 
 func parseCookiePolicy() (auth.SecureCookiePolicy, error) {
-	switch strings.ToLower(envOr("ARGOS_SESSION_SECURE_COOKIE", "auto")) {
+	switch strings.ToLower(envOr("LONGUE_VUE_SESSION_SECURE_COOKIE", "auto")) {
 	case "auto":
 		return auth.SecureAuto, nil
 	case "always", "true", "yes":
@@ -1032,29 +1032,29 @@ func parseIntEnv(key string, fallback int) (int, error) {
 // maybeStartEOLEnricher spawns the EOL enrichment goroutine (ADR-0012).
 // The goroutine always starts; actual enrichment is gated by the
 // `eol_enabled` setting in the database (toggled by admins via the UI).
-// ARGOS_EOL_ENABLED seeds the DB setting on first boot when present.
+// LONGUE_VUE_EOL_ENABLED seeds the DB setting on first boot when present.
 // Returns a drain function the caller defers.
 func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 	// Seed the DB setting from env var when explicitly set.
-	if envVal := os.Getenv("ARGOS_EOL_ENABLED"); envVal != "" {
+	if envVal := os.Getenv("LONGUE_VUE_EOL_ENABLED"); envVal != "" {
 		enabled, err := strconv.ParseBool(envVal)
 		if err != nil {
-			return nil, fmt.Errorf("parse ARGOS_EOL_ENABLED=%q: %w", envVal, err)
+			return nil, fmt.Errorf("parse LONGUE_VUE_EOL_ENABLED=%q: %w", envVal, err)
 		}
 		if _, err := s.UpdateSettings(ctx, api.SettingsPatch{EOLEnabled: &enabled}); err != nil {
 			slog.Warn("eol enricher: failed to seed settings from env", slog.Any("error", err))
 		}
 	}
 
-	interval, err := parseDurationEnv("ARGOS_EOL_INTERVAL", 2*time.Minute)
+	interval, err := parseDurationEnv("LONGUE_VUE_EOL_INTERVAL", 2*time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	approachingDays, err := parseIntEnv("ARGOS_EOL_APPROACHING_DAYS", 90)
+	approachingDays, err := parseIntEnv("LONGUE_VUE_EOL_APPROACHING_DAYS", 90)
 	if err != nil {
 		return nil, err
 	}
-	baseURL := envOr("ARGOS_EOL_BASE_URL", "https://endoflife.date")
+	baseURL := envOr("LONGUE_VUE_EOL_BASE_URL", "https://endoflife.date")
 
 	client := eol.NewClient(baseURL, interval, nil)
 	enricher := eol.NewEnricher(s, client, interval, approachingDays)
@@ -1080,23 +1080,23 @@ func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 // maybeStartMCPServer spawns the MCP server goroutine (ADR-0014).
 // The goroutine always starts; tool calls are gated by the `mcp_enabled`
 // setting in the database (toggled by admins via the UI).
-// ARGOS_MCP_ENABLED seeds the DB setting on first boot when present.
+// LONGUE_VUE_MCP_ENABLED seeds the DB setting on first boot when present.
 //
 //nolint:gocyclo,gocognit // auth setup + env parsing + goroutine lifecycle is inherently branchy.
 func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
-	if envVal := os.Getenv("ARGOS_MCP_ENABLED"); envVal != "" {
+	if envVal := os.Getenv("LONGUE_VUE_MCP_ENABLED"); envVal != "" {
 		enabled, err := strconv.ParseBool(envVal)
 		if err != nil {
-			return nil, fmt.Errorf("parse ARGOS_MCP_ENABLED=%q: %w", envVal, err)
+			return nil, fmt.Errorf("parse LONGUE_VUE_MCP_ENABLED=%q: %w", envVal, err)
 		}
 		if _, err := s.UpdateSettings(ctx, api.SettingsPatch{MCPEnabled: &enabled}); err != nil {
 			slog.Warn("mcp server: failed to seed settings from env", slog.Any("error", err))
 		}
 	}
 
-	transport := envOr("ARGOS_MCP_TRANSPORT", "sse")
-	addr := envOr("ARGOS_MCP_ADDR", ":8090")
-	token := os.Getenv("ARGOS_MCP_TOKEN")
+	transport := envOr("LONGUE_VUE_MCP_TRANSPORT", "sse")
+	addr := envOr("LONGUE_VUE_MCP_ADDR", ":8090")
+	token := os.Getenv("LONGUE_VUE_MCP_TOKEN")
 
 	// For SSE transport, validate bearer tokens on every tool call using
 	// the same auth store that the REST API uses.

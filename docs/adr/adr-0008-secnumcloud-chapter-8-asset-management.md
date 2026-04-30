@@ -292,7 +292,7 @@ and implemented as a follow-up PR series:
   vulnerability state is sourced from Dependency-Track keyed on those
   references. Optionally link out to a configured Dependency-Track
   instance from container rows in the UI — no new data model, just a
-  URL template in config (e.g. `ARGOS_DEPTRACK_PROJECT_URL`).
+  URL template in config (e.g. `LONGUE_VUE_DEPTRACK_PROJECT_URL`).
 
 - **IMP-007**: **Reporting queries**: once DICT columns land, the UI
   gets a cartography "heat-map" view at `/ui/admin/classification`

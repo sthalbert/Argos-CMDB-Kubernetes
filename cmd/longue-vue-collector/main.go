@@ -25,9 +25,9 @@ var version = "dev"
 
 // Sentinel errors for required environment variables.
 var (
-	errServerURLRequired   = errors.New("ARGOS_SERVER_URL is required")
-	errAPITokenRequired    = errors.New("ARGOS_API_TOKEN is required")
-	errClusterNameRequired = errors.New("ARGOS_CLUSTER_NAME is required")
+	errServerURLRequired   = errors.New("LONGUE_VUE_SERVER_URL is required")
+	errAPITokenRequired    = errors.New("LONGUE_VUE_API_TOKEN is required")
+	errClusterNameRequired = errors.New("LONGUE_VUE_CLUSTER_NAME is required")
 )
 
 func main() {
@@ -54,28 +54,28 @@ type collectorConfig struct {
 // loadCollectorConfig reads and validates all environment variables needed
 // by the push-mode collector.
 func loadCollectorConfig() (collectorConfig, error) {
-	serverURL := os.Getenv("ARGOS_SERVER_URL")
+	serverURL := os.Getenv("LONGUE_VUE_SERVER_URL")
 	if serverURL == "" {
 		return collectorConfig{}, errServerURLRequired
 	}
-	token := os.Getenv("ARGOS_API_TOKEN")
+	token := os.Getenv("LONGUE_VUE_API_TOKEN")
 	if token == "" {
 		return collectorConfig{}, errAPITokenRequired
 	}
-	clusterName := os.Getenv("ARGOS_CLUSTER_NAME")
+	clusterName := os.Getenv("LONGUE_VUE_CLUSTER_NAME")
 	if clusterName == "" {
 		return collectorConfig{}, errClusterNameRequired
 	}
 
-	interval, err := parseDurationEnv("ARGOS_COLLECTOR_INTERVAL", 5*time.Minute)
+	interval, err := parseDurationEnv("LONGUE_VUE_COLLECTOR_INTERVAL", 5*time.Minute)
 	if err != nil {
 		return collectorConfig{}, err
 	}
-	fetchTimeout, err := parseDurationEnv("ARGOS_COLLECTOR_FETCH_TIMEOUT", 30*time.Second)
+	fetchTimeout, err := parseDurationEnv("LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT", 30*time.Second)
 	if err != nil {
 		return collectorConfig{}, err
 	}
-	reconcile, err := parseBoolEnv("ARGOS_COLLECTOR_RECONCILE", true)
+	reconcile, err := parseBoolEnv("LONGUE_VUE_COLLECTOR_RECONCILE", true)
 	if err != nil {
 		return collectorConfig{}, err
 	}
@@ -84,7 +84,7 @@ func loadCollectorConfig() (collectorConfig, error) {
 		serverURL:    serverURL,
 		token:        token,
 		clusterName:  clusterName,
-		kubeconfig:   os.Getenv("ARGOS_KUBECONFIG"),
+		kubeconfig:   os.Getenv("LONGUE_VUE_KUBECONFIG"),
 		interval:     interval,
 		fetchTimeout: fetchTimeout,
 		reconcile:    reconcile,
@@ -103,10 +103,10 @@ func run() error {
 	apiStore, err := apiclient.NewStore(apiclient.Config{
 		ServerURL:    cfg.serverURL,
 		Token:        cfg.token,
-		CACert:       os.Getenv("ARGOS_CA_CERT"),
-		ClientCert:   os.Getenv("ARGOS_CLIENT_CERT"),
-		ClientKey:    os.Getenv("ARGOS_CLIENT_KEY"),
-		ExtraHeaders: parseExtraHeaders(os.Getenv("ARGOS_EXTRA_HEADERS")),
+		CACert:       os.Getenv("LONGUE_VUE_CA_CERT"),
+		ClientCert:   os.Getenv("LONGUE_VUE_CLIENT_CERT"),
+		ClientKey:    os.Getenv("LONGUE_VUE_CLIENT_KEY"),
+		ExtraHeaders: parseExtraHeaders(os.Getenv("LONGUE_VUE_EXTRA_HEADERS")),
 	})
 	if err != nil {
 		return fmt.Errorf("init api client: %w", err)

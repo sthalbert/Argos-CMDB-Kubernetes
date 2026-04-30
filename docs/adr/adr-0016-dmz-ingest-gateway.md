@@ -117,7 +117,7 @@ The allowlist is the security boundary: a security review can read it as a singl
 
 ### 3. Argosd ingest listener
 
-A second `http.Server` started by `cmd/argosd/main.go` when `ARGOS_INGEST_LISTEN_ADDR` is set. Same process, separate listener, separate mux:
+A second `http.Server` started by `cmd/argosd/main.go` when `LONGUE_VUE_INGEST_LISTEN_ADDR` is set. Same process, separate listener, separate mux:
 
 ```go
 ingestMux := api.NewIngestMux(server)   // registers exactly the 18 writes + verify
@@ -139,7 +139,7 @@ The ingest mux registers exactly **19** routes: the 18 writes from §2 plus `POS
 1. The `audit_events.source` column distinguishes `ingest_gw` from `api`, so operators can answer "what came through the DMZ" vs "what came from inside" with a single query.
 2. The body scrubber learns to redact the `token` field on `POST /v1/auth/verify` so the audit log never contains a full PAT.
 
-When `ARGOS_INGEST_LISTEN_ADDR` is empty, none of this listener's machinery starts and argosd behaves identically to today. Existing deployments are unaffected.
+When `LONGUE_VUE_INGEST_LISTEN_ADDR` is empty, none of this listener's machinery starts and argosd behaves identically to today. Existing deployments are unaffected.
 
 ### 4. mTLS client identity (cert-source-agnostic)
 
@@ -153,7 +153,7 @@ The gateway is mTLS-required outbound. The cert source is operator-selectable; t
 
 **The gateway code only knows about two paths**: `--tls-cert-file` and `--tls-key-file`, defaulting to `/etc/argos-ingest-gw/tls/tls.crt` and `/etc/argos-ingest-gw/tls/tls.key`. An `fsnotify` watcher on the directory invalidates an `atomic.Pointer[tls.Certificate]` used by `tls.Config.GetClientCertificate`. **Hot-reload, no pod restart, no matter who wrote the file.** A Prometheus counter increments on each successful reload; a separate counter increments on reload failures so renewal regressions are visible before the cert actually expires.
 
-Argosd's CA trust is orthogonal: a `--client-ca-file` (or `ARGOS_INGEST_LISTEN_CLIENT_CA_FILE`) points at whichever CA bundle signs the gateway's cert — Vault PKI intermediate, an internal CA, cert-manager's `ClusterIssuer`, etc. argosd does not care about the gateway's cert source.
+Argosd's CA trust is orthogonal: a `--client-ca-file` (or `LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE`) points at whichever CA bundle signs the gateway's cert — Vault PKI intermediate, an internal CA, cert-manager's `ClusterIssuer`, etc. argosd does not care about the gateway's cert source.
 
 **Recommended (but not required) Vault PKI configuration:**
 
@@ -165,7 +165,7 @@ Argosd's CA trust is orthogonal: a `--client-ca-file` (or `ARGOS_INGEST_LISTEN_C
 
 Argosd-side cert validation (defense in depth on top of "signed by `--client-ca-file`"):
 
-1. **CN allowlist** (`ARGOS_INGEST_LISTEN_CLIENT_CN_ALLOW`, optional) — comma-separated allowed Subject CNs. When set, e.g. `argos-ingest-gw`, blocks any other cert the same CA might be issuing.
+1. **CN allowlist** (`LONGUE_VUE_INGEST_LISTEN_CLIENT_CN_ALLOW`, optional) — comma-separated allowed Subject CNs. When set, e.g. `argos-ingest-gw`, blocks any other cert the same CA might be issuing.
 2. **Cert expiry** — Go's stdlib enforces this; argosd re-checks in a `VerifyPeerCertificate` callback so the failure mode lands as a structured `argos_ingest_listener_client_cert_failures_total{reason="expired"}` increment instead of an opaque handshake reset.
 3. **No SAN-IP / SAN-DNS check** — the gateway dials argosd, never the reverse; argosd does not care what name the gateway thinks it has.
 
@@ -309,38 +309,38 @@ Buffering was considered (see Alternatives) and rejected. A stateless DMZ compon
 
 ### 9. Configuration surface
 
-Gateway env vars (all `ARGOS_INGEST_GW_*`):
+Gateway env vars (all `LONGUE_VUE_INGEST_GW_*`):
 
 | Var | Required | Default | Purpose |
 |---|---|---|---|
-| `ARGOS_INGEST_GW_LISTEN_ADDR` | no | `:8443` | Ingest listener bind |
-| `ARGOS_INGEST_GW_LISTEN_TLS_CERT` | yes | — | Server cert presented to Envoy |
-| `ARGOS_INGEST_GW_LISTEN_TLS_KEY` | yes | — | Server key |
-| `ARGOS_INGEST_GW_HEALTH_ADDR` | no | `:9090` | Health/metrics, no TLS, pod-IP only |
-| `ARGOS_INGEST_GW_UPSTREAM_URL` | yes | — | e.g. `https://argosd-ingest.argos.svc.cluster.local:8443` |
-| `ARGOS_INGEST_GW_UPSTREAM_HOST` | no | host from URL | `Host:` rewrite target |
-| `ARGOS_INGEST_GW_UPSTREAM_TIMEOUT` | no | `30s` | Per-request upstream timeout |
-| `ARGOS_INGEST_GW_UPSTREAM_CA_FILE` | yes | — | CA bundle to verify argosd's cert |
-| `ARGOS_INGEST_GW_CLIENT_CERT_FILE` | yes | `/etc/argos-ingest-gw/tls/tls.crt` | mTLS client cert (vault/secret/file all converge) |
-| `ARGOS_INGEST_GW_CLIENT_KEY_FILE` | yes | `/etc/argos-ingest-gw/tls/tls.key` | mTLS client key |
-| `ARGOS_INGEST_GW_CACHE_TTL` | no | `60s` | Positive cache TTL |
-| `ARGOS_INGEST_GW_CACHE_NEGATIVE_TTL` | no | `10s` | Negative cache TTL |
-| `ARGOS_INGEST_GW_CACHE_MAX_ENTRIES` | no | `10000` | LRU cap |
-| `ARGOS_INGEST_GW_MAX_BODY_BYTES` | no | `10485760` (10 MiB) | Per-request body cap |
-| `ARGOS_INGEST_GW_LOG_LEVEL` | no | `info` | `debug`/`info`/`warn`/`error` |
-| `ARGOS_INGEST_GW_SHUTDOWN_TIMEOUT` | no | `30s` | Graceful drain on SIGTERM |
+| `LONGUE_VUE_INGEST_GW_LISTEN_ADDR` | no | `:8443` | Ingest listener bind |
+| `LONGUE_VUE_INGEST_GW_LISTEN_TLS_CERT` | yes | — | Server cert presented to Envoy |
+| `LONGUE_VUE_INGEST_GW_LISTEN_TLS_KEY` | yes | — | Server key |
+| `LONGUE_VUE_INGEST_GW_HEALTH_ADDR` | no | `:9090` | Health/metrics, no TLS, pod-IP only |
+| `LONGUE_VUE_INGEST_GW_UPSTREAM_URL` | yes | — | e.g. `https://argosd-ingest.argos.svc.cluster.local:8443` |
+| `LONGUE_VUE_INGEST_GW_UPSTREAM_HOST` | no | host from URL | `Host:` rewrite target |
+| `LONGUE_VUE_INGEST_GW_UPSTREAM_TIMEOUT` | no | `30s` | Per-request upstream timeout |
+| `LONGUE_VUE_INGEST_GW_UPSTREAM_CA_FILE` | yes | — | CA bundle to verify argosd's cert |
+| `LONGUE_VUE_INGEST_GW_CLIENT_CERT_FILE` | yes | `/etc/argos-ingest-gw/tls/tls.crt` | mTLS client cert (vault/secret/file all converge) |
+| `LONGUE_VUE_INGEST_GW_CLIENT_KEY_FILE` | yes | `/etc/argos-ingest-gw/tls/tls.key` | mTLS client key |
+| `LONGUE_VUE_INGEST_GW_CACHE_TTL` | no | `60s` | Positive cache TTL |
+| `LONGUE_VUE_INGEST_GW_CACHE_NEGATIVE_TTL` | no | `10s` | Negative cache TTL |
+| `LONGUE_VUE_INGEST_GW_CACHE_MAX_ENTRIES` | no | `10000` | LRU cap |
+| `LONGUE_VUE_INGEST_GW_MAX_BODY_BYTES` | no | `10485760` (10 MiB) | Per-request body cap |
+| `LONGUE_VUE_INGEST_GW_LOG_LEVEL` | no | `info` | `debug`/`info`/`warn`/`error` |
+| `LONGUE_VUE_INGEST_GW_SHUTDOWN_TIMEOUT` | no | `30s` | Graceful drain on SIGTERM |
 
-Argosd env vars (all `ARGOS_INGEST_LISTEN_*`):
+Argosd env vars (all `LONGUE_VUE_INGEST_LISTEN_*`):
 
 | Var | Required | Default | Purpose |
 |---|---|---|---|
-| `ARGOS_INGEST_LISTEN_ADDR` | no | empty (disabled) | Enables the new mTLS-only ingest listener when set |
-| `ARGOS_INGEST_LISTEN_TLS_CERT` | when ingest enabled | — | Server cert for the ingest listener |
-| `ARGOS_INGEST_LISTEN_TLS_KEY` | when ingest enabled | — | Server key |
-| `ARGOS_INGEST_LISTEN_CLIENT_CA_FILE` | when ingest enabled | — | CA bundle that signs accepted client certs |
-| `ARGOS_INGEST_LISTEN_CLIENT_CN_ALLOW` | no | empty (any CN) | Comma-separated allowed Subject CNs |
+| `LONGUE_VUE_INGEST_LISTEN_ADDR` | no | empty (disabled) | Enables the new mTLS-only ingest listener when set |
+| `LONGUE_VUE_INGEST_LISTEN_TLS_CERT` | when ingest enabled | — | Server cert for the ingest listener |
+| `LONGUE_VUE_INGEST_LISTEN_TLS_KEY` | when ingest enabled | — | Server key |
+| `LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE` | when ingest enabled | — | CA bundle that signs accepted client certs |
+| `LONGUE_VUE_INGEST_LISTEN_CLIENT_CN_ALLOW` | no | empty (any CN) | Comma-separated allowed Subject CNs |
 
-When `ARGOS_INGEST_LISTEN_ADDR` is empty, none of the new listener machinery starts. Existing deployments are unaffected; the gateway is opt-in per deployment.
+When `LONGUE_VUE_INGEST_LISTEN_ADDR` is empty, none of the new listener machinery starts. Existing deployments are unaffected; the gateway is opt-in per deployment.
 
 ### 10. Helm chart layout
 
@@ -595,7 +595,7 @@ Considered: 5-minute, 100 MiB on-disk spool that the gateway drains when argosd 
 Suggested phasing:
 
 1. **Argosd refactor** (smallest, lands first): make `POST /v1/clusters` idempotent on `name`, drop the GET from `argos-collector`. Triggers the OpenAPI validation test from the feature-workflow skill. No new binary, no new chart — just a regression-safe API change that benefits every deployment.
-2. **Argosd ingest listener + verify endpoint**: add `internal/api/ingest_mux.go`, `POST /v1/auth/verify`, the new env vars, the `audit_events.source` extension, and the body scrubber for the `token` field. Listener is gated on `ARGOS_INGEST_LISTEN_ADDR`; existing deployments unaffected. Tests: per §test-strategy.
+2. **Argosd ingest listener + verify endpoint**: add `internal/api/ingest_mux.go`, `POST /v1/auth/verify`, the new env vars, the `audit_events.source` extension, and the body scrubber for the `token` field. Listener is gated on `LONGUE_VUE_INGEST_LISTEN_ADDR`; existing deployments unaffected. Tests: per §test-strategy.
 3. **Gateway binary**: `cmd/argos-ingest-gw/`, `internal/ingestgw/{allowlist,cache,verify_client,proxy,tls_reload,metrics}`. Distroless image via `Dockerfile.ingest-gw`. Unit tests exhaust the allowlist negatives.
 4. **Helm chart `argos-ingest-gw`**: three TLS modes (vault/secret/file), NetworkPolicy, PDB, optional ServiceMonitor + PrometheusRule. README walks through Vault-PKI setup, cert-manager setup, and manual-cert setup.
 5. **Integration tests**: build-tagged `integration`, run against a real Postgres + real argosd + real gateway with a self-signed CA.

@@ -58,18 +58,18 @@ spec:
           env:
             # Register *this* cluster under this name. The Cluster row must
             # be pre-POSTed to /v1/clusters; see README.
-            - name: ARGOS_CLUSTER_NAME
+            - name: LONGUE_VUE_CLUSTER_NAME
               value: in-cluster
-            # Empty ARGOS_KUBECONFIG -> use the pod's in-cluster
+            # Empty LONGUE_VUE_KUBECONFIG -> use the pod's in-cluster
             # ServiceAccount credentials. Bound to the ClusterRole in
             # rbac.yaml.
-            - name: ARGOS_KUBECONFIG
+            - name: LONGUE_VUE_KUBECONFIG
               value: ""
-            - name: ARGOS_COLLECTOR_ENABLED
+            - name: LONGUE_VUE_COLLECTOR_ENABLED
               value: "true"
-            - name: ARGOS_COLLECTOR_RECONCILE
+            - name: LONGUE_VUE_COLLECTOR_RECONCILE
               value: "true"
-            - name: ARGOS_COLLECTOR_INTERVAL
+            - name: LONGUE_VUE_COLLECTOR_INTERVAL
               value: "5m"
           envFrom:
             - secretRef:

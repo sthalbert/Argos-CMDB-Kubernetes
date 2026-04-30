@@ -40,8 +40,8 @@ The MCP server supports two transports:
 
 | Transport | Use case | Configuration |
 |-----------|----------|---------------|
-| **stdio** | Local AI agents (Claude Code, Copilot) running on the same machine or connected via SSH | Default when `ARGOS_MCP_TRANSPORT=stdio` |
-| **SSE** (Server-Sent Events over HTTP) | Remote AI agents connecting over the network | `ARGOS_MCP_TRANSPORT=sse` on a separate port (`ARGOS_MCP_ADDR`, default `:8090`) |
+| **stdio** | Local AI agents (Claude Code, Copilot) running on the same machine or connected via SSH | Default when `LONGUE_VUE_MCP_TRANSPORT=stdio` |
+| **SSE** (Server-Sent Events over HTTP) | Remote AI agents connecting over the network | `LONGUE_VUE_MCP_TRANSPORT=sse` on a separate port (`LONGUE_VUE_MCP_ADDR`, default `:8090`) |
 
 SSE transport reuses the existing bearer token auth middleware. stdio transport inherits the caller's identity from the environment (the operator who launched the AI agent is responsible for the token).
 
@@ -83,7 +83,7 @@ MCP resources expose static/slow-changing reference data:
 ### Authentication
 
 - **SSE transport**: The MCP client sends `Authorization: Bearer argos_pat_...` in the HTTP headers. The existing auth middleware validates the token and extracts scopes. All MCP tools require `read` scope.
-- **stdio transport**: The token is passed via `ARGOS_MCP_TOKEN` environment variable. The server validates it on startup and uses its scopes for all subsequent tool calls.
+- **stdio transport**: The token is passed via `LONGUE_VUE_MCP_TOKEN` environment variable. The server validates it on startup and uses its scopes for all subsequent tool calls.
 
 No new auth mechanism is introduced. The existing PAT system (ADR-0007) covers both human and AI callers.
 
@@ -114,10 +114,10 @@ The MCP server is a separate goroutine in argosd (same pattern as the collector 
 ### Configuration
 
 ```
-ARGOS_MCP_ENABLED=true                  # seeds the DB setting on startup (default: false)
-ARGOS_MCP_TRANSPORT=sse                 # default: stdio
-ARGOS_MCP_ADDR=:8090                    # default: :8090 (SSE only)
-ARGOS_MCP_TOKEN=argos_pat_...           # required for stdio transport
+LONGUE_VUE_MCP_ENABLED=true                  # seeds the DB setting on startup (default: false)
+LONGUE_VUE_MCP_TRANSPORT=sse                 # default: stdio
+LONGUE_VUE_MCP_ADDR=:8090                    # default: :8090 (SSE only)
+LONGUE_VUE_MCP_TOKEN=argos_pat_...           # required for stdio transport
 ```
 
 Disabled by default so existing deployments are unaffected.
@@ -126,7 +126,7 @@ Disabled by default so existing deployments are unaffected.
 
 The MCP server is controlled at runtime via the `mcp_enabled` setting in the `settings` table — the same single-row table used by the EOL enricher toggle (`eol_enabled`). Admins toggle it from **Admin > Settings** in the web UI without restarting argosd.
 
-- `ARGOS_MCP_ENABLED` env var **seeds** the database setting on startup (same semantics as `ARGOS_EOL_ENABLED`). The admin UI overrides it at runtime.
+- `LONGUE_VUE_MCP_ENABLED` env var **seeds** the database setting on startup (same semantics as `LONGUE_VUE_EOL_ENABLED`). The admin UI overrides it at runtime.
 - When disabled via the admin panel, the MCP server rejects all tool calls with an error ("MCP server is disabled by administrator") but keeps the listener alive — no restart needed to re-enable.
 - `GET /v1/admin/settings` and `PATCH /v1/admin/settings` are extended with the `mcp_enabled` field alongside the existing `eol_enabled`.
 - The settings table migration adds `mcp_enabled BOOLEAN NOT NULL DEFAULT FALSE`.
@@ -179,7 +179,7 @@ This gives admins full control: enable MCP for a demo, disable it after an audit
 - **IMP-001**: Create `internal/mcp/` package. `Server` struct with `Run(ctx)` method (same pattern as collector and EOL enricher). Uses the existing `api.Store` interface.
 - **IMP-002**: Add `github.com/mark3labs/mcp-go` (or `github.com/anthropics/mcp-go` if available) to `go.mod` for MCP protocol handling.
 - **IMP-003**: Each tool is a function registered with the MCP server. Tool implementations are thin wrappers around existing store methods.
-- **IMP-004**: Wire the MCP server in `cmd/argosd/main.go` behind `ARGOS_MCP_ENABLED`. Start after the store is ready, stop on context cancellation.
+- **IMP-004**: Wire the MCP server in `cmd/argosd/main.go` behind `LONGUE_VUE_MCP_ENABLED`. Start after the store is ready, stop on context cancellation.
 - **IMP-005**: Add Prometheus metrics: `argos_mcp_tool_calls_total{tool}`, `argos_mcp_tool_duration_seconds{tool}`.
 - **IMP-006**: Tests: unit tests for each tool with a fake store, integration test that starts the MCP server and calls tools via the SDK client.
 

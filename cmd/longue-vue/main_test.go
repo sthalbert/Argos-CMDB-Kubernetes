@@ -11,12 +11,12 @@ import (
 )
 
 func TestLoadCollectorClustersJSONPrecedence(t *testing.T) {
-	// Having both ARGOS_COLLECTOR_CLUSTERS and the legacy single-cluster vars
+	// Having both LONGUE_VUE_COLLECTOR_CLUSTERS and the legacy single-cluster vars
 	// set, the JSON must win so the operator's migration to multi-cluster
 	// doesn't get silently shadowed by stale single-cluster env vars.
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", `[{"name":"prod","kubeconfig":"/etc/kube/prod.yaml"}]`)
-	t.Setenv("ARGOS_CLUSTER_NAME", "legacy")
-	t.Setenv("ARGOS_KUBECONFIG", "/etc/kube/legacy.yaml")
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", `[{"name":"prod","kubeconfig":"/etc/kube/prod.yaml"}]`)
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "legacy")
+	t.Setenv("LONGUE_VUE_KUBECONFIG", "/etc/kube/legacy.yaml")
 
 	got, err := loadCollectorClusters()
 	if err != nil {
@@ -28,9 +28,9 @@ func TestLoadCollectorClustersJSONPrecedence(t *testing.T) {
 }
 
 func TestLoadCollectorClustersLegacyFallback(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", "")
-	t.Setenv("ARGOS_CLUSTER_NAME", "dev")
-	t.Setenv("ARGOS_KUBECONFIG", "/home/me/.kube/config")
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", "")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "dev")
+	t.Setenv("LONGUE_VUE_KUBECONFIG", "/home/me/.kube/config")
 
 	got, err := loadCollectorClusters()
 	if err != nil {
@@ -42,10 +42,10 @@ func TestLoadCollectorClustersLegacyFallback(t *testing.T) {
 }
 
 func TestLoadCollectorClustersLegacyFallbackEmptyKubeconfig(t *testing.T) {
-	// Empty ARGOS_KUBECONFIG is legal — it means "use in-cluster config".
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", "")
-	t.Setenv("ARGOS_CLUSTER_NAME", "in-cluster")
-	t.Setenv("ARGOS_KUBECONFIG", "")
+	// Empty LONGUE_VUE_KUBECONFIG is legal — it means "use in-cluster config".
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", "")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "in-cluster")
+	t.Setenv("LONGUE_VUE_KUBECONFIG", "")
 
 	got, err := loadCollectorClusters()
 	if err != nil {
@@ -57,9 +57,9 @@ func TestLoadCollectorClustersLegacyFallbackEmptyKubeconfig(t *testing.T) {
 }
 
 func TestLoadCollectorClustersNoEnv(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", "")
-	t.Setenv("ARGOS_CLUSTER_NAME", "")
-	t.Setenv("ARGOS_KUBECONFIG", "")
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", "")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "")
+	t.Setenv("LONGUE_VUE_KUBECONFIG", "")
 
 	if _, err := loadCollectorClusters(); err == nil {
 		t.Fatal("expected an error when no cluster env is set")
@@ -67,7 +67,7 @@ func TestLoadCollectorClustersNoEnv(t *testing.T) {
 }
 
 func TestLoadCollectorClustersMultiCluster(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", `[
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", `[
 		{"name":"prod","kubeconfig":"/etc/kube/prod.yaml"},
 		{"name":"staging","kubeconfig":"/etc/kube/staging.yaml"},
 		{"name":"in-cluster","kubeconfig":""}
@@ -86,7 +86,7 @@ func TestLoadCollectorClustersMultiCluster(t *testing.T) {
 }
 
 func TestLoadCollectorClustersMalformedJSON(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", `[{"name":"prod"`) // truncated
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", `[{"name":"prod"`) // truncated
 
 	if _, err := loadCollectorClusters(); err == nil {
 		t.Fatal("expected parse error")
@@ -94,8 +94,8 @@ func TestLoadCollectorClustersMalformedJSON(t *testing.T) {
 }
 
 func TestLoadCollectorClustersEmptyJSONArray(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", `[]`)
-	t.Setenv("ARGOS_CLUSTER_NAME", "legacy") // legacy must not be used: JSON presence wins even if empty.
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", `[]`)
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "legacy") // legacy must not be used: JSON presence wins even if empty.
 
 	if _, err := loadCollectorClusters(); err == nil {
 		t.Fatal("expected error on empty JSON array")
@@ -103,7 +103,7 @@ func TestLoadCollectorClustersEmptyJSONArray(t *testing.T) {
 }
 
 func TestLoadCollectorClustersEmptyName(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", `[{"name":"","kubeconfig":"/x"}]`)
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", `[{"name":"","kubeconfig":"/x"}]`)
 
 	if _, err := loadCollectorClusters(); err == nil {
 		t.Fatal("expected error on empty cluster name")
@@ -111,7 +111,7 @@ func TestLoadCollectorClustersEmptyName(t *testing.T) {
 }
 
 func TestLoadCollectorClustersDuplicateName(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_CLUSTERS", `[
+	t.Setenv("LONGUE_VUE_COLLECTOR_CLUSTERS", `[
 		{"name":"prod","kubeconfig":"/a"},
 		{"name":"prod","kubeconfig":"/b"}
 	]`)
@@ -127,19 +127,19 @@ func TestLoadCollectorClustersDuplicateName(t *testing.T) {
 
 func setMinimalRunEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("ARGOS_DATABASE_URL", "postgres://argos:argos@localhost:5432/argos")
-	t.Setenv("ARGOS_API_TOKEN", "")
-	t.Setenv("ARGOS_API_TOKENS", "")
-	t.Setenv("ARGOS_SESSION_SECURE_COOKIE", "")
-	t.Setenv("ARGOS_SHUTDOWN_TIMEOUT", "")
-	t.Setenv("ARGOS_AUTO_MIGRATE", "")
-	t.Setenv("ARGOS_ADDR", "")
-	t.Setenv("ARGOS_OIDC_ISSUER", "")
+	t.Setenv("LONGUE_VUE_DATABASE_URL", "postgres://argos:argos@localhost:5432/argos")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "")
+	t.Setenv("LONGUE_VUE_API_TOKENS", "")
+	t.Setenv("LONGUE_VUE_SESSION_SECURE_COOKIE", "")
+	t.Setenv("LONGUE_VUE_SHUTDOWN_TIMEOUT", "")
+	t.Setenv("LONGUE_VUE_AUTO_MIGRATE", "")
+	t.Setenv("LONGUE_VUE_ADDR", "")
+	t.Setenv("LONGUE_VUE_OIDC_ISSUER", "")
 	// ADR-0017 — public-listener TLS posture and proxy trust.
-	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_CERT", "")
-	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_KEY", "")
-	t.Setenv("ARGOS_TRUSTED_PROXIES", "")
-	t.Setenv("ARGOS_REQUIRE_HTTPS", "")
+	t.Setenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT", "")
+	t.Setenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY", "")
+	t.Setenv("LONGUE_VUE_TRUSTED_PROXIES", "")
+	t.Setenv("LONGUE_VUE_REQUIRE_HTTPS", "")
 }
 
 func TestLoadRunConfig_Defaults(t *testing.T) {
@@ -167,7 +167,7 @@ func TestLoadRunConfig_Defaults(t *testing.T) {
 }
 
 func TestLoadRunConfig_MissingDSN(t *testing.T) {
-	t.Setenv("ARGOS_DATABASE_URL", "")
+	t.Setenv("LONGUE_VUE_DATABASE_URL", "")
 
 	_, err := loadRunConfig()
 	if !errors.Is(err, errDatabaseURLRequired) {
@@ -177,7 +177,7 @@ func TestLoadRunConfig_MissingDSN(t *testing.T) {
 
 func TestLoadRunConfig_LegacyTokenRejected(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_API_TOKEN", "old-token")
+	t.Setenv("LONGUE_VUE_API_TOKEN", "old-token")
 
 	_, err := loadRunConfig()
 	if !errors.Is(err, errLegacyTokensUnsupported) {
@@ -187,7 +187,7 @@ func TestLoadRunConfig_LegacyTokenRejected(t *testing.T) {
 
 func TestLoadRunConfig_LegacyTokensRejected(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_API_TOKENS", "tok1,tok2")
+	t.Setenv("LONGUE_VUE_API_TOKENS", "tok1,tok2")
 
 	_, err := loadRunConfig()
 	if !errors.Is(err, errLegacyTokensUnsupported) {
@@ -197,10 +197,10 @@ func TestLoadRunConfig_LegacyTokensRejected(t *testing.T) {
 
 func TestLoadRunConfig_CustomValues(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_ADDR", ":9090")
-	t.Setenv("ARGOS_SHUTDOWN_TIMEOUT", "30s")
-	t.Setenv("ARGOS_AUTO_MIGRATE", "false")
-	t.Setenv("ARGOS_SESSION_SECURE_COOKIE", "always")
+	t.Setenv("LONGUE_VUE_ADDR", ":9090")
+	t.Setenv("LONGUE_VUE_SHUTDOWN_TIMEOUT", "30s")
+	t.Setenv("LONGUE_VUE_AUTO_MIGRATE", "false")
+	t.Setenv("LONGUE_VUE_SESSION_SECURE_COOKIE", "always")
 
 	cfg, err := loadRunConfig()
 	if err != nil {
@@ -222,7 +222,7 @@ func TestLoadRunConfig_CustomValues(t *testing.T) {
 
 func TestLoadRunConfig_InvalidShutdownTimeout(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_SHUTDOWN_TIMEOUT", "nope")
+	t.Setenv("LONGUE_VUE_SHUTDOWN_TIMEOUT", "nope")
 
 	_, err := loadRunConfig()
 	if err == nil {
@@ -232,7 +232,7 @@ func TestLoadRunConfig_InvalidShutdownTimeout(t *testing.T) {
 
 func TestLoadRunConfig_InvalidAutoMigrate(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_AUTO_MIGRATE", "nope")
+	t.Setenv("LONGUE_VUE_AUTO_MIGRATE", "nope")
 
 	_, err := loadRunConfig()
 	if err == nil {
@@ -261,7 +261,7 @@ func TestParseCookiePolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.env, func(t *testing.T) {
-			t.Setenv("ARGOS_SESSION_SECURE_COOKIE", tt.env)
+			t.Setenv("LONGUE_VUE_SESSION_SECURE_COOKIE", tt.env)
 			got, err := parseCookiePolicy()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -274,7 +274,7 @@ func TestParseCookiePolicy(t *testing.T) {
 }
 
 func TestParseCookiePolicy_Invalid(t *testing.T) {
-	t.Setenv("ARGOS_SESSION_SECURE_COOKIE", "maybe")
+	t.Setenv("LONGUE_VUE_SESSION_SECURE_COOKIE", "maybe")
 	_, err := parseCookiePolicy()
 	if !errors.Is(err, errInvalidCookiePolicy) {
 		t.Errorf("want errInvalidCookiePolicy, got %v", err)
@@ -286,7 +286,7 @@ func TestParseCookiePolicy_Invalid(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoadOIDCConfig_Empty(t *testing.T) {
-	t.Setenv("ARGOS_OIDC_ISSUER", "")
+	t.Setenv("LONGUE_VUE_OIDC_ISSUER", "")
 	cfg := loadOIDCConfig()
 	if cfg.Issuer != "" {
 		t.Errorf("want empty issuer, got %q", cfg.Issuer)
@@ -294,12 +294,12 @@ func TestLoadOIDCConfig_Empty(t *testing.T) {
 }
 
 func TestLoadOIDCConfig_Full(t *testing.T) {
-	t.Setenv("ARGOS_OIDC_ISSUER", "https://idp.example.com")
-	t.Setenv("ARGOS_OIDC_CLIENT_ID", "argos")
-	t.Setenv("ARGOS_OIDC_CLIENT_SECRET", "s3cret")
-	t.Setenv("ARGOS_OIDC_REDIRECT_URL", "https://argos.example.com/v1/auth/oidc/callback")
-	t.Setenv("ARGOS_OIDC_SCOPES", "openid, email , profile")
-	t.Setenv("ARGOS_OIDC_LABEL", "Corp SSO")
+	t.Setenv("LONGUE_VUE_OIDC_ISSUER", "https://idp.example.com")
+	t.Setenv("LONGUE_VUE_OIDC_CLIENT_ID", "argos")
+	t.Setenv("LONGUE_VUE_OIDC_CLIENT_SECRET", "s3cret")
+	t.Setenv("LONGUE_VUE_OIDC_REDIRECT_URL", "https://argos.example.com/v1/auth/oidc/callback")
+	t.Setenv("LONGUE_VUE_OIDC_SCOPES", "openid, email , profile")
+	t.Setenv("LONGUE_VUE_OIDC_LABEL", "Corp SSO")
 
 	cfg := loadOIDCConfig()
 	if cfg.Issuer != "https://idp.example.com" {
@@ -327,9 +327,9 @@ func TestLoadOIDCConfig_Full(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoadCollectorEnvConfig_Defaults(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_INTERVAL", "")
-	t.Setenv("ARGOS_COLLECTOR_FETCH_TIMEOUT", "")
-	t.Setenv("ARGOS_COLLECTOR_RECONCILE", "")
+	t.Setenv("LONGUE_VUE_COLLECTOR_INTERVAL", "")
+	t.Setenv("LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT", "")
+	t.Setenv("LONGUE_VUE_COLLECTOR_RECONCILE", "")
 
 	cfg, err := loadCollectorEnvConfig()
 	if err != nil {
@@ -347,9 +347,9 @@ func TestLoadCollectorEnvConfig_Defaults(t *testing.T) {
 }
 
 func TestLoadCollectorEnvConfig_Custom(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_INTERVAL", "30s")
-	t.Setenv("ARGOS_COLLECTOR_FETCH_TIMEOUT", "1m")
-	t.Setenv("ARGOS_COLLECTOR_RECONCILE", "false")
+	t.Setenv("LONGUE_VUE_COLLECTOR_INTERVAL", "30s")
+	t.Setenv("LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT", "1m")
+	t.Setenv("LONGUE_VUE_COLLECTOR_RECONCILE", "false")
 
 	cfg, err := loadCollectorEnvConfig()
 	if err != nil {
@@ -367,9 +367,9 @@ func TestLoadCollectorEnvConfig_Custom(t *testing.T) {
 }
 
 func TestLoadCollectorEnvConfig_InvalidInterval(t *testing.T) {
-	t.Setenv("ARGOS_COLLECTOR_INTERVAL", "bad")
-	t.Setenv("ARGOS_COLLECTOR_FETCH_TIMEOUT", "")
-	t.Setenv("ARGOS_COLLECTOR_RECONCILE", "")
+	t.Setenv("LONGUE_VUE_COLLECTOR_INTERVAL", "bad")
+	t.Setenv("LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT", "")
+	t.Setenv("LONGUE_VUE_COLLECTOR_RECONCILE", "")
 
 	_, err := loadCollectorEnvConfig()
 	if err == nil {
@@ -575,8 +575,8 @@ func TestCheckTransportPosture_NativeTLSWinsOverProxyBranch(t *testing.T) {
 
 func TestLoadRunConfig_PublicTLSPaths(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_CERT", "/tls/tls.crt")
-	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_KEY", "/tls/tls.key")
+	t.Setenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT", "/tls/tls.crt")
+	t.Setenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY", "/tls/tls.key")
 
 	cfg, err := loadRunConfig()
 	if err != nil {
@@ -592,7 +592,7 @@ func TestLoadRunConfig_PublicTLSPaths(t *testing.T) {
 
 func TestLoadRunConfig_TrustedProxiesParsed(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_TRUSTED_PROXIES", "10.0.0.0/8, 192.168.0.0/16")
+	t.Setenv("LONGUE_VUE_TRUSTED_PROXIES", "10.0.0.0/8, 192.168.0.0/16")
 
 	cfg, err := loadRunConfig()
 	if err != nil {
@@ -605,7 +605,7 @@ func TestLoadRunConfig_TrustedProxiesParsed(t *testing.T) {
 
 func TestLoadRunConfig_TrustedProxiesInvalidCIDR(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_TRUSTED_PROXIES", "not-a-cidr")
+	t.Setenv("LONGUE_VUE_TRUSTED_PROXIES", "not-a-cidr")
 
 	if _, err := loadRunConfig(); err == nil {
 		t.Fatal("expected error on invalid CIDR")
@@ -628,7 +628,7 @@ func TestLoadRunConfig_RequireHTTPSGuardRefuses(t *testing.T) {
 	// requireHTTPS=true with no other transport config — the pentest
 	// reproducer; loadRunConfig must refuse before the daemon starts.
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_REQUIRE_HTTPS", "true")
+	t.Setenv("LONGUE_VUE_REQUIRE_HTTPS", "true")
 
 	_, err := loadRunConfig()
 	if !errors.Is(err, errTransportPostureRefused) {
@@ -638,9 +638,9 @@ func TestLoadRunConfig_RequireHTTPSGuardRefuses(t *testing.T) {
 
 func TestLoadRunConfig_RequireHTTPSAcceptsNativeTLS(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_REQUIRE_HTTPS", "true")
-	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_CERT", "/tls/tls.crt")
-	t.Setenv("ARGOS_PUBLIC_LISTEN_TLS_KEY", "/tls/tls.key")
+	t.Setenv("LONGUE_VUE_REQUIRE_HTTPS", "true")
+	t.Setenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT", "/tls/tls.crt")
+	t.Setenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY", "/tls/tls.key")
 
 	if _, err := loadRunConfig(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -649,9 +649,9 @@ func TestLoadRunConfig_RequireHTTPSAcceptsNativeTLS(t *testing.T) {
 
 func TestLoadRunConfig_RequireHTTPSAcceptsProxiesPlusSecureAlways(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_REQUIRE_HTTPS", "true")
-	t.Setenv("ARGOS_TRUSTED_PROXIES", "10.0.0.0/8")
-	t.Setenv("ARGOS_SESSION_SECURE_COOKIE", "always")
+	t.Setenv("LONGUE_VUE_REQUIRE_HTTPS", "true")
+	t.Setenv("LONGUE_VUE_TRUSTED_PROXIES", "10.0.0.0/8")
+	t.Setenv("LONGUE_VUE_SESSION_SECURE_COOKIE", "always")
 
 	if _, err := loadRunConfig(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -660,9 +660,9 @@ func TestLoadRunConfig_RequireHTTPSAcceptsProxiesPlusSecureAlways(t *testing.T) 
 
 func TestLoadRunConfig_InvalidRequireHTTPS(t *testing.T) {
 	setMinimalRunEnv(t)
-	t.Setenv("ARGOS_REQUIRE_HTTPS", "nope")
+	t.Setenv("LONGUE_VUE_REQUIRE_HTTPS", "nope")
 
 	if _, err := loadRunConfig(); err == nil {
-		t.Fatal("expected error on invalid ARGOS_REQUIRE_HTTPS")
+		t.Fatal("expected error on invalid LONGUE_VUE_REQUIRE_HTTPS")
 	}
 }

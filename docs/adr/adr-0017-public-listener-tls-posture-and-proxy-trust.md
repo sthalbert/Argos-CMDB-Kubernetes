@@ -24,13 +24,13 @@ A penetration test against an argosd deployment on 2026-04-28 found four exploit
 
 The existing transport-related primitives are already partially correct:
 
-- `SecureCookiePolicy` (`internal/auth/session.go:23`) supports `auto`, `always`, `never` via `ARGOS_SESSION_SECURE_COOKIE`, and `secureFlag` already returns `true` when `r.TLS != nil` or `X-Forwarded-Proto: https`.
+- `SecureCookiePolicy` (`internal/auth/session.go:23`) supports `auto`, `always`, `never` via `LONGUE_VUE_SESSION_SECURE_COOKIE`, and `secureFlag` already returns `true` when `r.TLS != nil` or `X-Forwarded-Proto: https`.
 - `SecurityHeadersMiddleware` already emits HSTS, just with the same TLS-presence condition.
 - The DMZ ingest listener (ADR-0016, `cmd/argosd/main.go:452-535`) already runs TLS 1.3 with hot certificate reload via `internal/ingestgw/tls_reload.go`.
 
 The code is shaped correctly for "argosd behind a TLS terminator" but the project ships no opinionated guidance to operators about which deployment shapes are acceptable, refuses nothing at startup, and trusts every peer's headers equally. The pentest deployment was direct-exposed on `:8080` with no proxy, no TLS, and default `auto` cookie policy — the worst case all three vulnerabilities target.
 
-This ADR also covers the proxy-trust gap behind AUTH-VULN-04 because the fix shares a configuration surface (`ARGOS_TRUSTED_PROXIES`) and a code path (`clientIP()` and a sibling `isHTTPS()`) with the TLS-posture work. Splitting them into two ADRs would force the same trusted-proxy primitive to be designed twice.
+This ADR also covers the proxy-trust gap behind AUTH-VULN-04 because the fix shares a configuration surface (`LONGUE_VUE_TRUSTED_PROXIES`) and a code path (`clientIP()` and a sibling `isHTTPS()`) with the TLS-posture work. Splitting them into two ADRs would force the same trusted-proxy primitive to be designed twice.
 
 It does **not** cover the missing last-admin invariant guard called out in the same pentest (AUTHZ-VULN-01, -02). That is a defect against the existing authz model — the `CountActiveAdmins()` helper exists in the store but the delete and patch handlers don't call it — not an architectural change. The fix lands in the same delivery branch as a bug fix without an ADR.
 
@@ -44,8 +44,8 @@ Two new env vars opt argosd into TLS termination on its public listener:
 
 | Variable | Purpose |
 |---|---|
-| `ARGOS_PUBLIC_LISTEN_TLS_CERT` | Path to PEM-encoded server certificate. |
-| `ARGOS_PUBLIC_LISTEN_TLS_KEY` | Path to PEM-encoded private key. |
+| `LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT` | Path to PEM-encoded server certificate. |
+| `LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY` | Path to PEM-encoded private key. |
 
 When both are set, `cmd/argosd/main.go` switches the public listener from `srv.ListenAndServe()` to `srv.ListenAndServeTLS("", "")` with a `tls.Config` that:
 
@@ -59,7 +59,7 @@ When either variable is unset, the listener stays plain HTTP exactly as today. *
 A new env var declares which immediate peers are allowed to speak `X-Forwarded-For` and `X-Forwarded-Proto`:
 
 ```
-ARGOS_TRUSTED_PROXIES = "10.0.0.0/8,192.168.0.0/16,fd00::/8"
+LONGUE_VUE_TRUSTED_PROXIES = "10.0.0.0/8,192.168.0.0/16,fd00::/8"
 ```
 
 The value is a comma-separated CIDR list. Empty (the default) means **no peer is trusted**: XFF and XFP are ignored unconditionally. Both `127.0.0.1/32` and `::1/128` are NOT implicitly trusted — operators that want to allow a co-located proxy must list the loopback explicitly.
@@ -82,25 +82,25 @@ func IsHTTPS(r *http.Request, trusted []*net.IPNet) bool
 
 `ClientIP` replaces the package-private `clientIP()` in `internal/api/auth_handlers.go:928`. `IsHTTPS` is consumed by `internal/api/security_headers.go` (HSTS emission) and `internal/auth/session.go:78` (`secureFlag` in `SecureAuto` mode). Single source of truth, no inline duplications of the trust check.
 
-### 3. `ARGOS_REQUIRE_HTTPS` startup guard
+### 3. `LONGUE_VUE_REQUIRE_HTTPS` startup guard
 
 A third new env var forces a production posture:
 
 ```
-ARGOS_REQUIRE_HTTPS = true   # default: false
+LONGUE_VUE_REQUIRE_HTTPS = true   # default: false
 ```
 
 When `true`, argosd refuses to start unless **at least one** of the following holds:
 
-- `ARGOS_PUBLIC_LISTEN_TLS_CERT` and `_KEY` are both set (native TLS), **or**
-- `ARGOS_TRUSTED_PROXIES` is non-empty **and** `ARGOS_SESSION_SECURE_COOKIE=always`.
+- `LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT` and `_KEY` are both set (native TLS), **or**
+- `LONGUE_VUE_TRUSTED_PROXIES` is non-empty **and** `LONGUE_VUE_SESSION_SECURE_COOKIE=always`.
 
 The first branch covers airgap / k3s / "I have no ingress controller" deployments. The second branch covers the standard Kubernetes-Ingress shape, where a TLS terminator (nginx-ingress, Envoy, ALB) already exists and `X-Forwarded-Proto: https` will arrive — but only if the operator has explicitly listed the proxy CIDR.
 
 When the guard is on and either branch is satisfied:
 
 - HSTS emits **unconditionally** on every response. The trust check still gates whether the request itself is "HTTPS" for cookie purposes, but HSTS is a forward-looking policy directed at the browser; emitting it on a stripped HTTP response is harmless per the HSTS spec (browsers ignore it) and protective the next time the same browser visits over HTTPS.
-- The session cookie's `Secure` flag is forced on regardless of the per-request `IsHTTPS` outcome. This is equivalent to `ARGOS_SESSION_SECURE_COOKIE=always` and is what the second branch of the guard already requires.
+- The session cookie's `Secure` flag is forced on regardless of the per-request `IsHTTPS` outcome. This is equivalent to `LONGUE_VUE_SESSION_SECURE_COOKIE=always` and is what the second branch of the guard already requires.
 
 When the guard is off (the default), behavior is exactly today's: HSTS conditional on `IsHTTPS`, cookie policy obeyed as configured. Dev workflows (`make ui-dev`, local `:8080`) keep working.
 
@@ -108,12 +108,12 @@ When the guard is off (the default), behavior is exactly today's: HSTS condition
 
 | Variable | Default | Purpose | Affects |
 |---|---|---|---|
-| `ARGOS_PUBLIC_LISTEN_TLS_CERT` | unset | Server cert path. Both this and `_KEY` must be set together. | §1 |
-| `ARGOS_PUBLIC_LISTEN_TLS_KEY` | unset | Server key path. | §1 |
-| `ARGOS_TRUSTED_PROXIES` | unset | Comma-separated CIDR list. | §2 |
-| `ARGOS_REQUIRE_HTTPS` | `false` | Enforce production transport posture. | §3 |
+| `LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT` | unset | Server cert path. Both this and `_KEY` must be set together. | §1 |
+| `LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY` | unset | Server key path. | §1 |
+| `LONGUE_VUE_TRUSTED_PROXIES` | unset | Comma-separated CIDR list. | §2 |
+| `LONGUE_VUE_REQUIRE_HTTPS` | `false` | Enforce production transport posture. | §3 |
 
-The existing `ARGOS_SESSION_SECURE_COOKIE` (`auto` / `always` / `never`) is unchanged in behavior but participates in the §3 guard. The existing `ARGOS_ADDR` is unchanged — it's the address argosd binds; the new `_TLS_CERT/_KEY` decide whether that bind is plaintext or TLS.
+The existing `LONGUE_VUE_SESSION_SECURE_COOKIE` (`auto` / `always` / `never`) is unchanged in behavior but participates in the §3 guard. The existing `LONGUE_VUE_ADDR` is unchanged — it's the address argosd binds; the new `_TLS_CERT/_KEY` decide whether that bind is plaintext or TLS.
 
 ### 5. Per-vulnerability mapping
 
@@ -139,10 +139,10 @@ The existing `ARGOS_SESSION_SECURE_COOKIE` (`auto` / `always` / `never`) is unch
 
 Every new behavior is opt-in. With all four new env vars unset:
 
-- Public listener stays plaintext HTTP on `ARGOS_ADDR`.
-- `clientIP()` (now `httputil.ClientIP` with an empty trust list) returns `r.RemoteAddr` minus port — XFF is **ignored**, which is a behavior change from "trust XFF unconditionally" but is the *secure* default and is also the behavior pentest reports want. Operators who today deploy behind an Ingress and rely on XFF reaching argosd's audit log must add their proxy CIDR to `ARGOS_TRUSTED_PROXIES` to keep that behavior — this is documented as an upgrade note in the CHANGELOG.
+- Public listener stays plaintext HTTP on `LONGUE_VUE_ADDR`.
+- `clientIP()` (now `httputil.ClientIP` with an empty trust list) returns `r.RemoteAddr` minus port — XFF is **ignored**, which is a behavior change from "trust XFF unconditionally" but is the *secure* default and is also the behavior pentest reports want. Operators who today deploy behind an Ingress and rely on XFF reaching argosd's audit log must add their proxy CIDR to `LONGUE_VUE_TRUSTED_PROXIES` to keep that behavior — this is documented as an upgrade note in the CHANGELOG.
 - HSTS still emits when `r.TLS != nil` (so a deployment that already runs argosd behind a real terminator with mTLS-pass-through keeps emitting HSTS).
-- Cookie `Secure` flag still follows `ARGOS_SESSION_SECURE_COOKIE` (default `auto`).
+- Cookie `Secure` flag still follows `LONGUE_VUE_SESSION_SECURE_COOKIE` (default `auto`).
 - Startup never fails on transport configuration.
 
 The CHANGELOG entry for this feature carries a **prominent "behavior change" note** about XFF: the previous default of "trust XFF from any peer" is gone, and operators who relied on it for source-IP audit logging must declare their proxy CIDRs.
@@ -152,8 +152,8 @@ The CHANGELOG entry for this feature carries a **prominent "behavior change" not
 The fix is targeted at the four pentest findings; out of scope:
 
 - **A trusted-proxy that forwards attacker headers without sanitizing.** A misconfigured nginx that passes `X-Forwarded-For: <attacker>, <real-client>` is treated as authoritative because the peer (nginx) is trusted. This is the standard semantics — fixing it is the proxy operator's job, not argosd's. The CIDR list is the trust boundary; configure it carefully.
-- **Direct-internet exposure with `ARGOS_REQUIRE_HTTPS=false`.** The guard is opt-in; operators can still ship the pentest topology if they explicitly want to. The README and docs/configuration.md make `ARGOS_REQUIRE_HTTPS=true` the recommended production setting; the SecNumCloud-aligned deployment path requires it.
-- **TLS termination at a proxy without `X-Forwarded-Proto`.** If the proxy terminates TLS but doesn't set `X-Forwarded-Proto: https`, `IsHTTPS` returns `false`, HSTS doesn't emit, `Secure` cookie is not forced. The §3 guard's second branch insists on `ARGOS_SESSION_SECURE_COOKIE=always` precisely to make this case safe, but operators still need a proxy that sets the header for HSTS to work. Documented.
+- **Direct-internet exposure with `LONGUE_VUE_REQUIRE_HTTPS=false`.** The guard is opt-in; operators can still ship the pentest topology if they explicitly want to. The README and docs/configuration.md make `LONGUE_VUE_REQUIRE_HTTPS=true` the recommended production setting; the SecNumCloud-aligned deployment path requires it.
+- **TLS termination at a proxy without `X-Forwarded-Proto`.** If the proxy terminates TLS but doesn't set `X-Forwarded-Proto: https`, `IsHTTPS` returns `false`, HSTS doesn't emit, `Secure` cookie is not forced. The §3 guard's second branch insists on `LONGUE_VUE_SESSION_SECURE_COOKIE=always` precisely to make this case safe, but operators still need a proxy that sets the header for HSTS to work. Documented.
 
 ### 9. Observability
 
@@ -181,36 +181,36 @@ The startup-guard refusal path emits a clear error to stderr citing the variable
 - All four pentest findings (AUTH-VULN-01 through -04) close on a single ADR-driven delivery.
 - One trusted-proxy primitive serves XFF and XFP — operators learn it once and it applies everywhere headers are read from peers.
 - Native TLS as a first-class option unblocks airgap / minimal-cluster deployments that don't have an ingress controller in front.
-- The `ARGOS_REQUIRE_HTTPS=true` guard turns a runtime vulnerability into a deploy-time error, which is what SecNumCloud audits want to see.
+- The `LONGUE_VUE_REQUIRE_HTTPS=true` guard turns a runtime vulnerability into a deploy-time error, which is what SecNumCloud audits want to see.
 
 ### Negative
 
-- XFF default-off is a behavior change for deployments that relied on argosd seeing the real client IP through an Ingress without `ARGOS_TRUSTED_PROXIES` being set. Audit logs on those deployments will start recording the proxy IP until operators add their CIDRs. Documented as an upgrade note; not silent.
+- XFF default-off is a behavior change for deployments that relied on argosd seeing the real client IP through an Ingress without `LONGUE_VUE_TRUSTED_PROXIES` being set. Audit logs on those deployments will start recording the proxy IP until operators add their CIDRs. Documented as an upgrade note; not silent.
 
 ### Neutral
 
-- The four env vars are additive; nothing is removed. `ARGOS_SESSION_SECURE_COOKIE`'s three values are unchanged.
+- The four env vars are additive; nothing is removed. `LONGUE_VUE_SESSION_SECURE_COOKIE`'s three values are unchanged.
 - No database migration. No OpenAPI change. No Helm-chart breaking change (all new keys default to no-op).
 
 ## Alternatives Considered
 
 ### Native TLS only, drop the trusted-proxy story
 
-Force every operator to terminate TLS on argosd's listener and never trust peer headers at all. **Rejected** — this breaks the default Kubernetes Ingress model where a controller terminates TLS and forwards plain HTTP with `X-Forwarded-Proto: https`. Operators would have to terminate TLS twice (at the Ingress and at argosd) or run argosd with `hostNetwork: true`. The trusted-proxy story is well-trodden ground in every modern web framework; cutting it would surprise operators who reasonably expect `ARGOS_TRUSTED_PROXIES` to exist.
+Force every operator to terminate TLS on argosd's listener and never trust peer headers at all. **Rejected** — this breaks the default Kubernetes Ingress model where a controller terminates TLS and forwards plain HTTP with `X-Forwarded-Proto: https`. Operators would have to terminate TLS twice (at the Ingress and at argosd) or run argosd with `hostNetwork: true`. The trusted-proxy story is well-trodden ground in every modern web framework; cutting it would surprise operators who reasonably expect `LONGUE_VUE_TRUSTED_PROXIES` to exist.
 
 ### Trusted-proxy story only, keep plaintext listener
 
-Argue that TLS termination is always the proxy's job and ship the XFF / XFP fix without `ARGOS_PUBLIC_LISTEN_TLS_CERT`. **Rejected** — this leaves airgap and "I have no ingress" deployments with no first-class secure-by-default option. The DMZ ingest listener already proves the pattern (`internal/ingestgw/tls_reload.go`) and the marginal complexity of reusing it on the public listener is small.
+Argue that TLS termination is always the proxy's job and ship the XFF / XFP fix without `LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT`. **Rejected** — this leaves airgap and "I have no ingress" deployments with no first-class secure-by-default option. The DMZ ingest listener already proves the pattern (`internal/ingestgw/tls_reload.go`) and the marginal complexity of reusing it on the public listener is small.
 
-### `ARGOS_REQUIRE_HTTPS` strict mode that refuses any non-TLS startup
+### `LONGUE_VUE_REQUIRE_HTTPS` strict mode that refuses any non-TLS startup
 
 Make the guard a single boolean: native TLS required, no trusted-proxy escape hatch. **Rejected** — operators with a perfectly-secure ingress termination shouldn't be forced to also terminate TLS at argosd. The two-branch guard (native TLS OR trusted-proxy + always-secure-cookie) is the minimum that captures both deployment shapes safely.
 
 ### Separate ADRs for TLS posture and XFF rate-limit fix
 
-**Rejected** — both fixes share `ARGOS_TRUSTED_PROXIES` and the new `internal/httputil/` package. Splitting forces the same primitive to be designed twice, in slightly different ways, by reviewers reading two separate ADRs.
+**Rejected** — both fixes share `LONGUE_VUE_TRUSTED_PROXIES` and the new `internal/httputil/` package. Splitting forces the same primitive to be designed twice, in slightly different ways, by reviewers reading two separate ADRs.
 
-### Add `ARGOS_REQUIRE_HTTPS=true` as the default
+### Add `LONGUE_VUE_REQUIRE_HTTPS=true` as the default
 
 Tempting from a SecNumCloud posture standpoint, but **rejected for this release** — it would break every existing dev and demo deployment that uses `make ui-dev` or `localhost:8080`. The CHANGELOG carries a deprecation-style notice that the default will flip in a future major version, giving operators a release cycle to opt in.
 
@@ -231,8 +231,8 @@ Some implementations only allow XFF when the peer is the *single* known proxy an
 
 ## Future work
 
-- Flip `ARGOS_REQUIRE_HTTPS=true` to be the default in a future major release; deprecate the `false` path.
-- Consider adding `ARGOS_PUBLIC_LISTEN_CLIENT_CA_FILE` to support optional client-cert auth on the public listener for the highest-tier SecNumCloud customers, paralleling the ingest listener's mTLS posture.
+- Flip `LONGUE_VUE_REQUIRE_HTTPS=true` to be the default in a future major release; deprecate the `false` path.
+- Consider adding `LONGUE_VUE_PUBLIC_LISTEN_CLIENT_CA_FILE` to support optional client-cert auth on the public listener for the highest-tier SecNumCloud customers, paralleling the ingest listener's mTLS posture.
 - Investigate whether the rate limiter should also burst-limit on (`username`, time-window) tuples in addition to source IP, so that even a correctly-trusted origin can't password-spray a single account. This is an additional defense layer; not strictly needed once §2 closes the IP-bypass route.
 
 ## References

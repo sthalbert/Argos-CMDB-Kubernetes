@@ -39,42 +39,42 @@ spec:
               protocol: TCP
           {{- end }}
           env:
-            - name: ARGOS_SERVER_URL
+            - name: LONGUE_VUE_SERVER_URL
               value: {{ required "serverURL is required" .Values.serverURL | quote }}
-            - name: ARGOS_VM_COLLECTOR_PROVIDER
+            - name: LONGUE_VUE_VM_COLLECTOR_PROVIDER
               value: {{ .Values.account.provider | quote }}
-            - name: ARGOS_VM_COLLECTOR_ACCOUNT_NAME
+            - name: LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME
               value: {{ required "account.name is required" .Values.account.name | quote }}
-            - name: ARGOS_VM_COLLECTOR_REGION
+            - name: LONGUE_VUE_VM_COLLECTOR_REGION
               value: {{ required "account.region is required" .Values.account.region | quote }}
             {{- if .Values.account.providerEndpoint }}
-            - name: ARGOS_VM_COLLECTOR_PROVIDER_ENDPOINT_URL
+            - name: LONGUE_VUE_VM_COLLECTOR_PROVIDER_ENDPOINT_URL
               value: {{ .Values.account.providerEndpoint | quote }}
             {{- end }}
-            - name: ARGOS_VM_COLLECTOR_INTERVAL
+            - name: LONGUE_VUE_VM_COLLECTOR_INTERVAL
               value: {{ .Values.interval | quote }}
-            - name: ARGOS_VM_COLLECTOR_FETCH_TIMEOUT
+            - name: LONGUE_VUE_VM_COLLECTOR_FETCH_TIMEOUT
               value: {{ .Values.fetchTimeout | quote }}
-            - name: ARGOS_VM_COLLECTOR_RECONCILE
+            - name: LONGUE_VUE_VM_COLLECTOR_RECONCILE
               value: {{ .Values.reconcile | quote }}
-            - name: ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH
+            - name: LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH
               value: {{ .Values.credentialRefresh | quote }}
             {{- if .Values.metrics.enabled }}
-            - name: ARGOS_VM_COLLECTOR_METRICS_ADDR
+            - name: LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR
               value: "0.0.0.0:{{ .Values.metrics.port }}"
             {{- end }}
             {{- if .Values.argosTLS.caSecret }}
-            - name: ARGOS_CA_CERT
+            - name: LONGUE_VUE_CA_CERT
               value: /etc/argos-vm-collector/argos-ca/{{ .Values.argosTLS.caKey }}
             {{- end }}
             {{- if .Values.argosTLS.existingSecret }}
-            - name: ARGOS_CLIENT_CERT
+            - name: LONGUE_VUE_CLIENT_CERT
               value: /etc/argos-vm-collector/argos-tls/tls.crt
-            - name: ARGOS_CLIENT_KEY
+            - name: LONGUE_VUE_CLIENT_KEY
               value: /etc/argos-vm-collector/argos-tls/tls.key
             {{- end }}
             {{- if .Values.argosTLS.extraHeaders }}
-            - name: ARGOS_EXTRA_HEADERS
+            - name: LONGUE_VUE_EXTRA_HEADERS
               value: {{ .Values.argosTLS.extraHeaders | quote }}
             {{- end }}
             {{- if .Values.proxy.httpsProxy }}

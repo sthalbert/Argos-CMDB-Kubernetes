@@ -48,7 +48,7 @@ Scope requirements per endpoint group:
 
 On first startup with an empty database, argosd creates a single `admin` user:
 
-- If `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` is set, it uses that value.
+- If `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` is set, it uses that value.
 - Otherwise, it generates a random 16-character password and prints it **once** to the startup log inside a banner.
 
 The bootstrap admin has `must_change_password=true`, which blocks every API endpoint except `/v1/auth/change-password` until the password is rotated. `/healthz`, `/readyz`, and `/metrics` remain accessible.
@@ -94,10 +94,10 @@ OIDC is optional. When enabled, a "Sign in with ..." button appears on the login
 
 2. Configure argosd (see [Configuration](configuration.md) for all variables):
    ```bash
-   ARGOS_OIDC_ISSUER="https://idp.example.com/realms/argos"
-   ARGOS_OIDC_CLIENT_ID="argos"
-   ARGOS_OIDC_CLIENT_SECRET="your-secret"
-   ARGOS_OIDC_REDIRECT_URL="https://argos.example.com/v1/auth/oidc/callback"
+   LONGUE_VUE_OIDC_ISSUER="https://idp.example.com/realms/argos"
+   LONGUE_VUE_OIDC_CLIENT_ID="argos"
+   LONGUE_VUE_OIDC_CLIENT_SECRET="your-secret"
+   LONGUE_VUE_OIDC_REDIRECT_URL="https://argos.example.com/v1/auth/oidc/callback"
    ```
 
 3. Restart argosd. It fetches the issuer's OpenID Connect discovery document on boot and fails fatally if unreachable.
@@ -200,7 +200,7 @@ Changing the password clears the flag and invalidates all other active sessions 
 
 - Sessions are server-side, stored in the database.
 - The `argos_session` cookie is `HttpOnly` + `SameSite=Strict` with an 8-hour sliding expiry.
-- The `Secure` flag is controlled by `ARGOS_SESSION_SECURE_COOKIE` (default: `auto`).
+- The `Secure` flag is controlled by `LONGUE_VUE_SESSION_SECURE_COOKIE` (default: `auto`).
 
 ### Viewing and revoking sessions
 

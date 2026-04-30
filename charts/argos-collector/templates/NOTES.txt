@@ -23,7 +23,7 @@ before the collector pod starts pushing, e.g.:
 
   kubectl create secret generic argos-collector-credentials \
     --namespace {{ .Release.Namespace }} \
-    --from-literal=ARGOS_API_TOKEN=argos_pat_...
+    --from-literal=LONGUE_VUE_API_TOKEN=argos_pat_...
 {{- end }}
 
 See ADR-0009 (push-mode collector) and ADR-0016 (DMZ ingest gateway) for

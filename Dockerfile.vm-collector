@@ -39,7 +39,7 @@ COPY --from=build /out/longue-vue-vm-collector /longue-vue-vm-collector
 USER nonroot:nonroot
 
 # Localhost metrics listener — Prometheus scrape via sidecar or
-# kubectl port-forward. Default ARGOS_VM_COLLECTOR_METRICS_ADDR=127.0.0.1:9090.
+# kubectl port-forward. Default LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR=127.0.0.1:9090.
 EXPOSE 9090
 
 ENTRYPOINT ["/longue-vue-vm-collector"]

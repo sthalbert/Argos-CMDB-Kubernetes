@@ -88,7 +88,7 @@ On each tick (default: 60 seconds), the collector:
 
 ### Reconciliation
 
-When `ARGOS_COLLECTOR_RECONCILE=true` (default), after each successful listing the collector deletes rows that disappeared from the live Kubernetes listing:
+When `LONGUE_VUE_COLLECTOR_RECONCILE=true` (default), after each successful listing the collector deletes rows that disappeared from the live Kubernetes listing:
 
 - **Cluster-scoped**: nodes and PVs reconcile against `(cluster_id, name)`.
 - **Namespace-scoped**: pods, services, ingresses, PVCs reconcile per namespace against `(namespace_id, name)`.
@@ -98,7 +98,7 @@ Reconciliation only runs after a successful list. A transient Kubernetes API err
 
 ### Multi-cluster
 
-Configured via `ARGOS_COLLECTOR_CLUSTERS` (JSON array of `{name, kubeconfig}` tuples). One goroutine per entry, all sharing the store. The legacy `ARGOS_CLUSTER_NAME` + `ARGOS_KUBECONFIG` works as a single-cluster shortcut.
+Configured via `LONGUE_VUE_COLLECTOR_CLUSTERS` (JSON array of `{name, kubeconfig}` tuples). One goroutine per entry, all sharing the store. The legacy `LONGUE_VUE_CLUSTER_NAME` + `LONGUE_VUE_KUBECONFIG` works as a single-cluster shortcut.
 
 ## Push collector
 
@@ -180,7 +180,7 @@ Argos uses PostgreSQL 14+ with `pgx/v5` for connection pooling. JSONB columns st
 
 ### Migrations
 
-SQL migrations are embedded in the binary via `migrations/embed.go` and run by `goose` on startup (when `ARGOS_AUTO_MIGRATE=true`, the default). Migrations are timestamped and forward-only.
+SQL migrations are embedded in the binary via `migrations/embed.go` and run by `goose` on startup (when `LONGUE_VUE_AUTO_MIGRATE=true`, the default). Migrations are timestamped and forward-only.
 
 ### Pagination
 

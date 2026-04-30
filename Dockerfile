@@ -67,7 +67,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 # Copy the binary to /. Distroless has no shell; the container runs longue-vue directly.
 COPY --from=build /out/longue-vue /longue-vue
 
-# Default HTTP port (overridable via ARGOS_ADDR).
+# Default HTTP port (overridable via LONGUE_VUE_ADDR).
 EXPOSE 8080
 
 # distroless:nonroot provides UID/GID 65532.

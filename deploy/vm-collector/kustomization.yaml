@@ -5,7 +5,7 @@ kind: Kustomization
 # account (ADR-0015). One Deployment per cloud account.
 #
 # Prerequisites:
-#   1. argosd is reachable and has ARGOS_SECRETS_MASTER_KEY configured.
+#   1. argosd is reachable and has LONGUE_VUE_SECRETS_MASTER_KEY configured.
 #   2. An admin pre-registers the cloud_account in the argosd UI
 #      (Admin > Cloud Accounts > Add account) — name + region; AK/SK
 #      can be filled in now or after the collector starts.
@@ -14,8 +14,8 @@ kind: Kustomization
 #
 # Usage:
 #   1. Copy secret.example.yaml -> secret.yaml, paste the PAT into it.
-#   2. Edit configmap.yaml — set ARGOS_SERVER_URL, ARGOS_VM_COLLECTOR_ACCOUNT_NAME,
-#      ARGOS_VM_COLLECTOR_REGION.
+#   2. Edit configmap.yaml — set LONGUE_VUE_SERVER_URL, LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME,
+#      LONGUE_VUE_VM_COLLECTOR_REGION.
 #   3. kubectl apply -f deploy/vm-collector/secret.yaml
 #   4. kubectl apply -k deploy/vm-collector/
 

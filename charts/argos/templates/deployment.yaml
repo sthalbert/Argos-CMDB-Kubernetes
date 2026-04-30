@@ -48,54 +48,54 @@ spec:
               protocol: TCP
             {{- end }}
           env:
-            - name: ARGOS_ADDR
+            - name: LONGUE_VUE_ADDR
               value: {{ .Values.argosd.addr | quote }}
-            - name: ARGOS_AUTO_MIGRATE
+            - name: LONGUE_VUE_AUTO_MIGRATE
               value: {{ .Values.argosd.autoMigrate | quote }}
-            - name: ARGOS_SHUTDOWN_TIMEOUT
+            - name: LONGUE_VUE_SHUTDOWN_TIMEOUT
               value: {{ .Values.argosd.shutdownTimeout | quote }}
-            - name: ARGOS_SESSION_SECURE_COOKIE
+            - name: LONGUE_VUE_SESSION_SECURE_COOKIE
               value: {{ .Values.argosd.sessionSecureCookie | quote }}
             {{- if .Values.argosd.tls.existingSecret }}
-            - name: ARGOS_PUBLIC_LISTEN_TLS_CERT
+            - name: LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT
               value: {{ printf "%s/tls.crt" .Values.argosd.tls.mountPath | quote }}
-            - name: ARGOS_PUBLIC_LISTEN_TLS_KEY
+            - name: LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY
               value: {{ printf "%s/tls.key" .Values.argosd.tls.mountPath | quote }}
             {{- end }}
             {{- if .Values.argosd.trustedProxies }}
-            - name: ARGOS_TRUSTED_PROXIES
+            - name: LONGUE_VUE_TRUSTED_PROXIES
               value: {{ .Values.argosd.trustedProxies | quote }}
             {{- end }}
             {{- if .Values.argosd.requireHTTPS }}
-            - name: ARGOS_REQUIRE_HTTPS
+            - name: LONGUE_VUE_REQUIRE_HTTPS
               value: "true"
             {{- end }}
             {{- if .Values.collector.enabled }}
-            - name: ARGOS_COLLECTOR_ENABLED
+            - name: LONGUE_VUE_COLLECTOR_ENABLED
               value: "true"
-            - name: ARGOS_COLLECTOR_RECONCILE
+            - name: LONGUE_VUE_COLLECTOR_RECONCILE
               value: {{ .Values.collector.reconcile | quote }}
-            - name: ARGOS_COLLECTOR_INTERVAL
+            - name: LONGUE_VUE_COLLECTOR_INTERVAL
               value: {{ .Values.collector.interval | quote }}
-            - name: ARGOS_COLLECTOR_FETCH_TIMEOUT
+            - name: LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT
               value: {{ .Values.collector.fetchTimeout | quote }}
             {{- if .Values.collector.clusters }}
-            - name: ARGOS_COLLECTOR_CLUSTERS
+            - name: LONGUE_VUE_COLLECTOR_CLUSTERS
               value: {{ .Values.collector.clusters | toJson | quote }}
             {{- else }}
-            - name: ARGOS_CLUSTER_NAME
+            - name: LONGUE_VUE_CLUSTER_NAME
               value: {{ .Values.collector.clusterName | quote }}
             {{- end }}
             {{- end }}
             {{- if .Values.mcp.enabled }}
-            - name: ARGOS_MCP_ENABLED
+            - name: LONGUE_VUE_MCP_ENABLED
               value: "true"
-            - name: ARGOS_MCP_TRANSPORT
+            - name: LONGUE_VUE_MCP_TRANSPORT
               value: {{ .Values.mcp.transport | quote }}
-            - name: ARGOS_MCP_ADDR
+            - name: LONGUE_VUE_MCP_ADDR
               value: {{ .Values.mcp.addr | quote }}
             {{- if .Values.mcp.token }}
-            - name: ARGOS_MCP_TOKEN
+            - name: LONGUE_VUE_MCP_TOKEN
               value: {{ .Values.mcp.token | quote }}
             {{- end }}
             {{- end }}

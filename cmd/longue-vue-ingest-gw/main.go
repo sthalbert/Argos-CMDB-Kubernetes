@@ -5,7 +5,7 @@
 // routes and never exposes any read or admin endpoint.
 //
 // Configuration is purely via environment variables — no config file, no
-// CLI flags. See ARGOS_INGEST_GW_* vars below. Refusal to start on
+// CLI flags. See LONGUE_VUE_INGEST_GW_* vars below. Refusal to start on
 // missing required vars is intentional; misconfiguration must surface at
 // boot, not as cryptic 500s per request.
 package main
@@ -36,10 +36,10 @@ var (
 // Sentinel errors for env-var validation. Loud at boot beats subtle at
 // request time.
 var (
-	errMissingUpstreamURL   = errors.New("ARGOS_INGEST_GW_UPSTREAM_URL is required")
-	errMissingClientCert    = errors.New("ARGOS_INGEST_GW_CLIENT_CERT_FILE / _CLIENT_KEY_FILE are required")
-	errMissingUpstreamCA    = errors.New("ARGOS_INGEST_GW_UPSTREAM_CA_FILE is required")
-	errMissingListenerCerts = errors.New("ARGOS_INGEST_GW_LISTEN_TLS_CERT / _LISTEN_TLS_KEY are required")
+	errMissingUpstreamURL   = errors.New("LONGUE_VUE_INGEST_GW_UPSTREAM_URL is required")
+	errMissingClientCert    = errors.New("LONGUE_VUE_INGEST_GW_CLIENT_CERT_FILE / _CLIENT_KEY_FILE are required")
+	errMissingUpstreamCA    = errors.New("LONGUE_VUE_INGEST_GW_UPSTREAM_CA_FILE is required")
+	errMissingListenerCerts = errors.New("LONGUE_VUE_INGEST_GW_LISTEN_TLS_CERT / _LISTEN_TLS_KEY are required")
 )
 
 func main() {
@@ -79,16 +79,16 @@ type runConfig struct {
 
 func loadConfig() (runConfig, error) { //nolint:gocyclo // env-var validation; flat structure is clearer than factored helpers
 	cfg := runConfig{
-		listenAddr:     envOr("ARGOS_INGEST_GW_LISTEN_ADDR", ":8443"),
-		listenCertFile: os.Getenv("ARGOS_INGEST_GW_LISTEN_TLS_CERT"),
-		listenKeyFile:  os.Getenv("ARGOS_INGEST_GW_LISTEN_TLS_KEY"),
-		healthAddr:     envOr("ARGOS_INGEST_GW_HEALTH_ADDR", ":9090"),
-		upstreamURL:    os.Getenv("ARGOS_INGEST_GW_UPSTREAM_URL"),
-		upstreamHost:   os.Getenv("ARGOS_INGEST_GW_UPSTREAM_HOST"),
-		upstreamCAFile: os.Getenv("ARGOS_INGEST_GW_UPSTREAM_CA_FILE"),
-		clientCertFile: envOr("ARGOS_INGEST_GW_CLIENT_CERT_FILE", "/etc/argos-ingest-gw/tls/tls.crt"),
-		clientKeyFile:  envOr("ARGOS_INGEST_GW_CLIENT_KEY_FILE", "/etc/argos-ingest-gw/tls/tls.key"),
-		requiredScope:  envOr("ARGOS_INGEST_GW_REQUIRED_SCOPE", "write"),
+		listenAddr:     envOr("LONGUE_VUE_INGEST_GW_LISTEN_ADDR", ":8443"),
+		listenCertFile: os.Getenv("LONGUE_VUE_INGEST_GW_LISTEN_TLS_CERT"),
+		listenKeyFile:  os.Getenv("LONGUE_VUE_INGEST_GW_LISTEN_TLS_KEY"),
+		healthAddr:     envOr("LONGUE_VUE_INGEST_GW_HEALTH_ADDR", ":9090"),
+		upstreamURL:    os.Getenv("LONGUE_VUE_INGEST_GW_UPSTREAM_URL"),
+		upstreamHost:   os.Getenv("LONGUE_VUE_INGEST_GW_UPSTREAM_HOST"),
+		upstreamCAFile: os.Getenv("LONGUE_VUE_INGEST_GW_UPSTREAM_CA_FILE"),
+		clientCertFile: envOr("LONGUE_VUE_INGEST_GW_CLIENT_CERT_FILE", "/etc/argos-ingest-gw/tls/tls.crt"),
+		clientKeyFile:  envOr("LONGUE_VUE_INGEST_GW_CLIENT_KEY_FILE", "/etc/argos-ingest-gw/tls/tls.key"),
+		requiredScope:  envOr("LONGUE_VUE_INGEST_GW_REQUIRED_SCOPE", "write"),
 	}
 
 	if cfg.upstreamURL == "" {
@@ -105,27 +105,27 @@ func loadConfig() (runConfig, error) { //nolint:gocyclo // env-var validation; f
 	}
 
 	var err error
-	cfg.upstreamTimeout, err = parseDurationEnv("ARGOS_INGEST_GW_UPSTREAM_TIMEOUT", 30*time.Second)
+	cfg.upstreamTimeout, err = parseDurationEnv("LONGUE_VUE_INGEST_GW_UPSTREAM_TIMEOUT", 30*time.Second)
 	if err != nil {
 		return runConfig{}, err
 	}
-	cfg.cacheTTL, err = parseDurationEnv("ARGOS_INGEST_GW_CACHE_TTL", 60*time.Second)
+	cfg.cacheTTL, err = parseDurationEnv("LONGUE_VUE_INGEST_GW_CACHE_TTL", 60*time.Second)
 	if err != nil {
 		return runConfig{}, err
 	}
-	cfg.cacheNegativeTTL, err = parseDurationEnv("ARGOS_INGEST_GW_CACHE_NEGATIVE_TTL", 10*time.Second)
+	cfg.cacheNegativeTTL, err = parseDurationEnv("LONGUE_VUE_INGEST_GW_CACHE_NEGATIVE_TTL", 10*time.Second)
 	if err != nil {
 		return runConfig{}, err
 	}
-	cfg.cacheMaxEntries, err = parseIntEnv("ARGOS_INGEST_GW_CACHE_MAX_ENTRIES", 10000)
+	cfg.cacheMaxEntries, err = parseIntEnv("LONGUE_VUE_INGEST_GW_CACHE_MAX_ENTRIES", 10000)
 	if err != nil {
 		return runConfig{}, err
 	}
-	cfg.maxBodyBytes, err = parseInt64Env("ARGOS_INGEST_GW_MAX_BODY_BYTES", 10*1024*1024) // 10 MiB
+	cfg.maxBodyBytes, err = parseInt64Env("LONGUE_VUE_INGEST_GW_MAX_BODY_BYTES", 10*1024*1024) // 10 MiB
 	if err != nil {
 		return runConfig{}, err
 	}
-	cfg.shutdownTimeout, err = parseDurationEnv("ARGOS_INGEST_GW_SHUTDOWN_TIMEOUT", 30*time.Second)
+	cfg.shutdownTimeout, err = parseDurationEnv("LONGUE_VUE_INGEST_GW_SHUTDOWN_TIMEOUT", 30*time.Second)
 	if err != nil {
 		return runConfig{}, err
 	}

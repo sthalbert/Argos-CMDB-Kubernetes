@@ -256,7 +256,7 @@ Filters compose with the existing region / cloud-account / power-state dropdowns
 
 ### 6. Configuration
 
-No new env vars on argosd. The enricher's existing `ARGOS_EOL_*` variables (interval, approaching-days, base URL, enabled) and the runtime `eol_enabled` setting toggle apply identically — the new VM pass runs in the same goroutine, gated by the same flag. The collector binaries (`argos-collector`, `argos-vm-collector`) are unchanged.
+No new env vars on argosd. The enricher's existing `LONGUE_VUE_EOL_*` variables (interval, approaching-days, base URL, enabled) and the runtime `eol_enabled` setting toggle apply identically — the new VM pass runs in the same goroutine, gated by the same flag. The collector binaries (`argos-collector`, `argos-vm-collector`) are unchanged.
 
 ### 7. Metrics
 

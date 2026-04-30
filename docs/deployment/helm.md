@@ -59,7 +59,7 @@ helm install argos charts/argos \
   --set postgresql.enabled=false
 ```
 
-Your Secret must contain at least `ARGOS_DATABASE_URL`. It can also include `ARGOS_BOOTSTRAP_ADMIN_PASSWORD`, `ARGOS_OIDC_*` variables, or any other `ARGOS_*` key.
+Your Secret must contain at least `LONGUE_VUE_DATABASE_URL`. It can also include `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD`, `LONGUE_VUE_OIDC_*` variables, or any other `LONGUE_VUE_*` key.
 
 ## Enable the collector
 

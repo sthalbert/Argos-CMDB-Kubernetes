@@ -35,8 +35,8 @@ make ui-install    # first time only -- installs npm deps
 make ui-build      # produces ui/dist/ for embedding
 make build         # produces bin/argosd
 
-ARGOS_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
-  ARGOS_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login" \
+LONGUE_VUE_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
+  LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login" \
   ./bin/argosd
 ```
 
@@ -71,7 +71,7 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
   -d '{"name":"seed","scopes":["read","write","delete"]}'
 # Copy the "token" value from the response.
 
-ARGOS_URL=http://localhost:8080 ARGOS_TOKEN=argos_pat_... ./scripts/seed-demo.sh
+LONGUE_VUE_URL=http://localhost:8080 LONGUE_VUE_TOKEN=argos_pat_... ./scripts/seed-demo.sh
 ```
 
 Refresh the UI -- you should see clusters, namespaces, workloads, pods, services, and ingresses.
@@ -92,8 +92,8 @@ make build
 Point argosd at any PostgreSQL 14+ instance:
 
 ```bash
-export ARGOS_DATABASE_URL="postgres://user:pass@pg-host:5432/argos?sslmode=require"
-export ARGOS_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login"
+export LONGUE_VUE_DATABASE_URL="postgres://user:pass@pg-host:5432/argos?sslmode=require"
+export LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login"
 ./bin/argosd
 ```
 
@@ -154,20 +154,20 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/clusters \
   -d '{"name":"my-cluster","display_name":"My Cluster","environment":"dev"}'
 ```
 
-The `name` field must match the `ARGOS_CLUSTER_NAME` (or the `name` in `ARGOS_COLLECTOR_CLUSTERS`) that the collector uses.
+The `name` field must match the `LONGUE_VUE_CLUSTER_NAME` (or the `name` in `LONGUE_VUE_COLLECTOR_CLUSTERS`) that the collector uses.
 
 ### Enable the pull collector
 
 Add these environment variables when starting argosd:
 
 ```bash
-ARGOS_COLLECTOR_ENABLED=true \
-ARGOS_CLUSTER_NAME=my-cluster \
-ARGOS_DATABASE_URL="postgres://..." \
+LONGUE_VUE_COLLECTOR_ENABLED=true \
+LONGUE_VUE_CLUSTER_NAME=my-cluster \
+LONGUE_VUE_DATABASE_URL="postgres://..." \
   ./bin/argosd
 ```
 
-This uses the in-cluster ServiceAccount by default. For remote clusters, mount kubeconfig files from a Kubernetes Secret and use `ARGOS_COLLECTOR_CLUSTERS` — see [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md).
+This uses the in-cluster ServiceAccount by default. For remote clusters, mount kubeconfig files from a Kubernetes Secret and use `LONGUE_VUE_COLLECTOR_CLUSTERS` — see [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md).
 
 On the next tick (default: 60 seconds) the collector populates nodes, namespaces, pods, workloads, services, ingresses, persistent volumes, and PVCs.
 
