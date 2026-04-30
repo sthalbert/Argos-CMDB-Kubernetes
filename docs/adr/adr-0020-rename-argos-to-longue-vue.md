@@ -1,6 +1,19 @@
+---
+title: "ADR-0020: Rename product Argos to longue-vue"
+status: "Accepted"
+date: "2026-04-30"
+authors: "Steve ALBERT"
+tags: ["architecture", "decision", "rename", "branding", "secnumcloud"]
+supersedes: ""
+superseded_by: ""
+---
+
 # ADR-0020 — Rename product "Argos" to "longue-vue"
 
-- **Status:** Accepted
+## Status
+
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
+
 - **Date:** 2026-04-30
 - **Supersedes:** none
 - **Superseded by:** none
@@ -84,6 +97,26 @@ The product name in the body of historical ADRs is replaced. The decisions
 themselves are unchanged. This ADR is the single source of truth for the
 rename history.
 
+## Alternatives Considered
+
+1. **Keep "Argos" indefinitely.** Rejected: the product review committed to
+   the rebrand for external go-to-market reasons, and renaming costs grow
+   linearly with the user base.
+
+2. **Run dual-name compatibility for every surface (env vars, metrics,
+   annotations, cookies, headers).** Rejected: the operational burden of
+   maintaining N legacy aliases forever is high, and the only surface where
+   the legacy name is *uncomputable* from external state is the PAT verifier
+   (existing tokens are hashed and cannot be reissued without disrupting
+   every collector deployment). Every other surface can be reconfigured
+   during a coordinated chart upgrade. ADR §2 keeps the legacy alias only
+   where it is operationally necessary.
+
+3. **Renaming the GitHub repo without redirect.** Not chosen: GitHub
+   provides automatic redirects on repo rename, so the operator-side rename
+   is a single click with no broken-link consequence. Documented as a
+   manual follow-up step in the PR body.
+
 ## Consequences
 
 - **Positive:** consistent naming end-to-end; no permanent dual-name confusion
@@ -91,9 +124,11 @@ rename history.
 - **Negative:** all in-flight feature branches must be rebased after the merge
   (mechanical conflict on imports / env vars / strings).
 - **Risk:** the PAT dual-prefix logic must have explicit test coverage so it
-  doesn't silently break during a future refactor. See §6 below.
+  doesn't silently break during a future refactor. The required tests
+  (`TestParseToken_AcceptsBothSchemes` and `TestMintToken_UsesNewSchemeOnly`)
+  are specified in Phase 5 Task 5.2 of the implementation plan.
 
-## Implementation references
+## Implementation Notes
 
 - Plan: `docs/superpowers/plans/2026-04-30-rename-argos-to-longue-vue.md`
 - Migration: `migrations/00029_strip_argos_io_annotations.sql`
