@@ -208,6 +208,58 @@ func mintAndStoreTokenWithAccount(t *testing.T, store Store, tokenName string, s
 	return minted.Plaintext
 }
 
+// TestVerifyToken_PublicEndpoint_NoAuthHeader_Returns200 locks in the
+// ADR-0016 §5 contract: /v1/auth/verify is authenticated by the listener's
+// mTLS handshake, NOT by an Authorization header. The DMZ ingest gateway
+// sends the token to verify in the request body and never presents a
+// bearer credential of its own. Wrapping with the real auth.Middleware
+// must therefore let an Authorization-header-less request through to the
+// VerifyToken handler — anything else (e.g. a 401 from the middleware
+// because the operation inherits the global "BearerAuth required" block)
+// is the bug fixed by adding `security: []` to the operation in the spec.
+func TestVerifyToken_PublicEndpoint_NoAuthHeader_Returns200(t *testing.T) {
+	t.Parallel()
+	store := newMemStore()
+	plaintext := mintAndStoreToken(t, store, "gateway-test", []string{auth.ScopeWrite})
+
+	srv := NewServer("test", store, auth.SecureNever, nil, NewLoginRateLimiter(), nil)
+	strict := NewStrictHandlerWithOptions(
+		srv,
+		[]StrictMiddlewareFunc{InjectRequestMiddleware},
+		StrictHTTPServerOptions{
+			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			},
+			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			},
+		},
+	)
+	// The real auth.Middleware — not a no-op. This is what argosd runs in
+	// production on the ingest listener.
+	realAuth := MiddlewareFunc(auth.Middleware(store, auth.SecureNever, nil))
+	h := NewIngestMux(IngestMuxConfig{
+		Server:          strict,
+		AuthMiddleware:  realAuth,
+		AuditMiddleware: func(next http.Handler) http.Handler { return next },
+	})
+
+	body := `{"token":"` + plaintext + `"}`
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/auth/verify", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// Deliberately NO Authorization header — auth is the listener-level
+	// mTLS handshake (which httptest doesn't simulate; it doesn't need to,
+	// because the spec's `security: []` declares the endpoint public to
+	// the application-layer middleware).
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (the verify endpoint must be public to the auth middleware)\nbody: %s",
+			rr.Code, rr.Body.String())
+	}
+}
+
 func TestVerifyToken_RateLimited_Returns401(t *testing.T) {
 	t.Parallel()
 	store := newMemStore()
