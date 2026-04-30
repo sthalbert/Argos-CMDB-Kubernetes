@@ -9,7 +9,7 @@ VM_COLLECTOR_BINARY := argos-vm-collector
 IMAGE_NAME ?= argos
 IMAGE_TAG  ?= dev
 
-.PHONY: all build build-noui build-collector build-vm-collector generate test test-one vet lint fmt tidy check clean docker-build docker-build-collector docker-build-vm-collector docker-build-ingest-gw ui-install ui-build ui-dev ui-check
+.PHONY: all build build-noui build-collector build-vm-collector generate test test-one vet lint fmt tidy check clean docker-build docker-build-collector docker-build-vm-collector docker-build-ingest-gw ui-install ui-build ui-dev ui-check ui-test
 
 all: build
 
@@ -43,6 +43,9 @@ ui-dev:
 
 ui-check:
 	cd ui && npm run typecheck
+
+ui-test:
+	cd ui && npm test
 
 generate:
 	go generate ./...
@@ -93,7 +96,7 @@ fmt:
 tidy:
 	go mod tidy
 
-check: fmt vet lint test
+check: fmt vet lint test ui-test
 
 clean:
 	rm -rf $(BIN_DIR)
