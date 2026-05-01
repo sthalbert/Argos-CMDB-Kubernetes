@@ -50,13 +50,13 @@ spec:
             {{- end }}
             {{- if .Values.argosTLS.caSecret }}
             - name: LONGUE_VUE_CA_CERT
-              value: /etc/argos-collector/argos-ca/{{ .Values.argosTLS.caKey }}
+              value: /etc/longue-vue-collector/tls-ca/{{ .Values.argosTLS.caKey }}
             {{- end }}
             {{- if .Values.argosTLS.existingSecret }}
             - name: LONGUE_VUE_CLIENT_CERT
-              value: /etc/argos-collector/argos-tls/tls.crt
+              value: /etc/longue-vue-collector/tls/tls.crt
             - name: LONGUE_VUE_CLIENT_KEY
-              value: /etc/argos-collector/argos-tls/tls.key
+              value: /etc/longue-vue-collector/tls/tls.key
             {{- end }}
             {{- if .Values.argosTLS.extraHeaders }}
             - name: LONGUE_VUE_EXTRA_HEADERS
@@ -88,13 +88,13 @@ spec:
               readOnly: true
             {{- end }}
             {{- if .Values.argosTLS.existingSecret }}
-            - name: argos-tls
-              mountPath: /etc/argos-collector/argos-tls
+            - name: lv-tls
+              mountPath: /etc/longue-vue-collector/tls
               readOnly: true
             {{- end }}
             {{- if .Values.argosTLS.caSecret }}
-            - name: argos-ca
-              mountPath: /etc/argos-collector/argos-ca
+            - name: lv-ca
+              mountPath: /etc/longue-vue-collector/tls-ca
               readOnly: true
             {{- end }}
             {{- with .Values.extraVolumeMounts }}
@@ -109,12 +109,12 @@ spec:
             secretName: {{ required "kubeconfig.existingSecret is required when kubeconfig.mode=secret" .Values.kubeconfig.existingSecret | quote }}
         {{- end }}
         {{- if .Values.argosTLS.existingSecret }}
-        - name: argos-tls
+        - name: lv-tls
           secret:
             secretName: {{ .Values.argosTLS.existingSecret | quote }}
         {{- end }}
         {{- if .Values.argosTLS.caSecret }}
-        - name: argos-ca
+        - name: lv-ca
           {{- if hasPrefix "configmap:" .Values.argosTLS.caSecret }}
           configMap:
             name: {{ trimPrefix "configmap:" .Values.argosTLS.caSecret | quote }}

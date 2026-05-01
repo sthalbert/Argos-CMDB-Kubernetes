@@ -341,7 +341,7 @@ func TestEnricherEnrichesVirtualMachineApplications(t *testing.T) { //nolint:goc
 
 	vmID := uuid.New()
 	customAnn := map[string]string{
-		"team":                  "platform",
+		"team":                       "platform",
 		"longue-vue.io/eol.obsolete": `{"product":"obsolete","eol_status":"eol"}`,
 	}
 	vault := "vault-prod-01"

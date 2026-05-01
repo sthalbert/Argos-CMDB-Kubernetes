@@ -299,7 +299,7 @@ export const fixtureUser: User = {
 export const fixtureToken: ApiToken = {
   id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
   name: 'collector',
-  prefix: 'longue_vu',
+  prefix: 'a1b2c3d4',
   scopes: ['read', 'write'],
   created_by_user_id: fixtureUser.id,
   created_at: '2025-01-01T00:00:00Z',

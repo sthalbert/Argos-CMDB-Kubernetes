@@ -39,7 +39,7 @@ func validateRunbookURL(raw *string) error {
 	return nil
 }
 
-// Server implements StrictServerInterface for the Argos REST API.
+// Server implements StrictServerInterface for the longue-vue REST API.
 type Server struct {
 	version       string
 	store         Store
@@ -81,7 +81,7 @@ func NewServer(
 
 // SetTrustedProxies installs the operator-supplied CIDR list at startup.
 // Pass nil or an empty slice to ignore X-Forwarded-* unconditionally —
-// the secure default. Argosd's main.go calls this once after parsing
+// the secure default. longue-vue's main.go calls this once after parsing
 // LONGUE_VUE_TRUSTED_PROXIES; tests typically leave it unset.
 func (s *Server) SetTrustedProxies(p []*net.IPNet) {
 	s.trustedProxies = p

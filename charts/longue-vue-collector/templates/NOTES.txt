@@ -10,7 +10,7 @@ Verify the rollout:
   kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "longue-vue-collector.fullname" . }}
   kubectl -n {{ .Release.Namespace }} logs deployment/{{ include "longue-vue-collector.fullname" . }} --tail=50
 
-The cluster row appears in argosd within one polling interval. Confirm it
+The cluster row appears in longue-vue within one polling interval. Confirm it
 landed:
 
   curl -H "Authorization: Bearer <admin-pat>" \
@@ -23,7 +23,7 @@ before the collector pod starts pushing, e.g.:
 
   kubectl create secret generic longue-vue-collector-credentials \
     --namespace {{ .Release.Namespace }} \
-    --from-literal=LONGUE_VUE_API_TOKEN=argos_pat_...
+    --from-literal=LONGUE_VUE_API_TOKEN=lv_pat_...
 {{- end }}
 
 See ADR-0009 (push-mode collector) and ADR-0016 (DMZ ingest gateway) for

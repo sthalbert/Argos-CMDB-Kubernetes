@@ -2,7 +2,7 @@
 # (ADR-0009). One Helm release per source cluster.
 #
 # Required values that have no defensible default:
-#   - serverURL                       (argosd or DMZ-gateway URL)
+#   - serverURL                       (longue-vue or DMZ-gateway URL)
 #   - clusterName                     (CMDB row name for this cluster)
 #   - tokenSecret.existingSecret      (operator-supplied PAT secret)
 
@@ -23,8 +23,8 @@ resources:
     cpu: 250m
     memory: 128Mi
 
-# ── Argosd / gateway endpoint ─────────────────────────────────────────
-# Required. Either argosd's public listener or the DMZ ingest gateway's
+# ── Longue-vue / gateway endpoint ────────────────────────────────────
+# Required. Either longue-vue's public listener or the DMZ ingest gateway's
 # inbound listener (ADR-0016). Use HTTPS in any non-development setup.
 serverURL: ""
 
@@ -37,7 +37,7 @@ clusterName: ""
 # tokens to keep plaintext PATs out of Helm release state.
 #
 #   kubectl create secret generic longue-vue-collector-credentials \
-#     --namespace <ns> --from-literal=LONGUE_VUE_API_TOKEN=argos_pat_...
+#     --namespace <ns> --from-literal=LONGUE_VUE_API_TOKEN=lv_pat_...
 tokenSecret:
   existingSecret: ""
   tokenKey: LONGUE_VUE_API_TOKEN
@@ -50,7 +50,7 @@ tokenSecret:
 kubeconfig:
   mode: in-cluster      # in-cluster | secret
   existingSecret: ""    # required when mode=secret; key must be `kubeconfig`
-  mountPath: /etc/argos-collector/kubeconfig
+  mountPath: /etc/longue-vue-collector/kubeconfig
 
 # Collection cadence. ADR-0005 / ADR-0009. Reconcile=true is required for
 # ANSSI cartography fidelity (deletes rows that disappeared from the live
@@ -59,19 +59,19 @@ interval: 5m
 fetchTimeout: 30s
 reconcile: true
 
-# ── mTLS to argosd / DMZ gateway ──────────────────────────────────────
+# ── mTLS to longue-vue / DMZ gateway ─────────────────────────────────
 # Used together with serverURL pointing at the DMZ gateway (ADR-0016).
-# Leave existingSecret / caSecret empty to talk to argosd's public listener
-# over plain HTTPS.
+# Leave existingSecret / caSecret empty to talk to longue-vue's public
+# listener over plain HTTPS.
 argosTLS:
   # Kubernetes TLS Secret (kubernetes.io/tls) carrying tls.crt + tls.key.
   existingSecret: ""
-  # ConfigMap or Secret carrying ca.crt. Used to verify argosd's or the
+  # ConfigMap or Secret carrying ca.crt. Used to verify longue-vue's or the
   # gateway's server certificate when not signed by a public CA.
   caSecret: ""
   caKey: ca.crt
   # Comma-separated key=value list passed as LONGUE_VUE_EXTRA_HEADERS. Used by
-  # the DMZ gateway's X-Argos-* injection-defence wiring.
+  # the DMZ gateway's X-LongueVue-* injection-defence wiring.
   extraHeaders: ""
 
 # ── Outbound HTTP proxy ───────────────────────────────────────────────
@@ -116,7 +116,7 @@ rbac:
 # NetworkPolicies centrally rather than per-app.
 networkPolicy:
   enabled: false
-  # CIDRs the collector is allowed to egress to (typically argosd or the
+  # CIDRs the collector is allowed to egress to (typically longue-vue or the
   # DMZ gateway, plus DNS). When empty, the chart leaves egress open to
   # any IP — the policy still blocks ingress from anywhere except the
   # kube-apiserver health-check probes.

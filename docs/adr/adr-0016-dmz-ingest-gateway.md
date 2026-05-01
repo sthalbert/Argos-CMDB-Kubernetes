@@ -489,7 +489,7 @@ Suggested alerts (shipped as a values-block in the chart):
 | `IngestGwCertReloadFailing` | `increase(longue_vue_ingest_gw_cert_reload_total{result="failure"}[10m]) > 0` | warning |
 | `IngestGwUpstream5xx` | `rate(longue_vue_ingest_gw_requests_total{status_class="5xx"}[5m]) > 0.05 * rate(longue_vue_ingest_gw_requests_total[5m])` | warning |
 | `IngestGwHighDenials` | `rate(longue_vue_ingest_gw_requests_total{outcome=~"denied_.*"}[5m]) > 1` | info — likely scanner / misconfigured collector |
-| `IngestGwArgosdUnreachable` | `rate(longue_vue_ingest_gw_requests_total{outcome="upstream_error"}[2m]) > 0 and up{job="longue-vue"} == 0` | critical — paging |
+| `IngestGwUpstreamUnreachable` | `rate(longue_vue_ingest_gw_requests_total{outcome="upstream_error"}[2m]) > 0 and up{job="longue-vue"} == 0` | critical — paging |
 | `IngestGwClientCertFailures` | `increase(longue_vue_ingest_listener_client_cert_failures_total[10m]) > 0` | warning |
 
 Gateway logs (structured JSON via `slog`, single line per request, written after the response):

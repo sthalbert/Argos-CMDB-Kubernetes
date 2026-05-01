@@ -3,8 +3,8 @@
 # releases.
 #
 # Required values that have no defensible default:
-#   - serverURL                       (argosd or DMZ-gateway URL)
-#   - account.name                    (cloud_accounts row name in argosd)
+#   - serverURL                       (longue-vue or DMZ-gateway URL)
+#   - account.name                    (cloud_accounts row name in longue-vue)
 #   - account.region                  (cloud-provider region the API targets)
 #   - tokenSecret.existingSecret      (operator-supplied vm-collector PAT)
 
@@ -17,7 +17,7 @@ image:
 replicaCount: 1
 
 # Conservative defaults — the VM collector is I/O-bound, polling a cloud
-# API and pushing to argosd. Tighten for large fleets, loosen for slow
+# API and pushing to longue-vue. Tighten for large fleets, loosen for slow
 # cloud APIs.
 resources:
   requests:
@@ -27,8 +27,8 @@ resources:
     cpu: 250m
     memory: 128Mi
 
-# ── Argosd / gateway endpoint ─────────────────────────────────────────
-# Required. Either argosd's public listener or the DMZ ingest gateway
+# ── Longue-vue / gateway endpoint ────────────────────────────────────
+# Required. Either longue-vue's public listener or the DMZ ingest gateway
 # (ADR-0016). HTTPS in any non-development setup.
 serverURL: ""
 
@@ -54,7 +54,7 @@ account:
 # state.
 #
 #   kubectl create secret generic longue-vue-vm-collector-credentials \
-#     --namespace <ns> --from-literal=LONGUE_VUE_API_TOKEN=argos_pat_...
+#     --namespace <ns> --from-literal=LONGUE_VUE_API_TOKEN=lv_pat_...
 tokenSecret:
   existingSecret: ""
   tokenKey: LONGUE_VUE_API_TOKEN
@@ -65,27 +65,27 @@ tokenSecret:
 # - reconcile=true: tombstone VMs that disappeared from the live listing
 #   (sets terminated_at / power_state='terminated'). Required for ANSSI
 #   cartography fidelity.
-# - credentialRefresh: re-fetch AK/SK from argosd on this cadence so an
+# - credentialRefresh: re-fetch AK/SK from longue-vue on this cadence so an
 #   admin-rotated key takes effect without a redeploy.
 interval: 5m
 fetchTimeout: 30s
 reconcile: true
 credentialRefresh: 1h
 
-# ── mTLS to argosd / DMZ gateway ──────────────────────────────────────
+# ── mTLS to longue-vue / DMZ gateway ──────────────────────────────────
 # Used together with serverURL pointing at the DMZ gateway (ADR-0016).
-# Leave existingSecret / caSecret empty to talk to argosd's public
+# Leave existingSecret / caSecret empty to talk to longue-vue's public
 # listener over plain HTTPS.
 argosTLS:
   # Kubernetes TLS Secret (kubernetes.io/tls) carrying tls.crt + tls.key.
   existingSecret: ""
-  # ConfigMap or Secret carrying ca.crt. Used to verify argosd's or the
+  # ConfigMap or Secret carrying ca.crt. Used to verify longue-vue's or the
   # gateway's server certificate when not signed by a public CA. Prefix
   # the value with `configmap:` to mount a ConfigMap instead of a Secret.
   caSecret: ""
   caKey: ca.crt
   # Comma-separated key=value list passed as LONGUE_VUE_EXTRA_HEADERS. Used by
-  # the DMZ gateway's X-Argos-* injection-defence wiring.
+  # the DMZ gateway's X-LongueVue-* injection-defence wiring.
   extraHeaders: ""
 
 # ── Outbound HTTP proxy ───────────────────────────────────────────────
@@ -144,7 +144,7 @@ serviceAccount:
 # NetworkPolicies centrally rather than per-app.
 networkPolicy:
   enabled: false
-  # CIDRs the collector is allowed to egress to (typically argosd or the
+  # CIDRs the collector is allowed to egress to (typically longue-vue or the
   # DMZ gateway, plus the cloud-provider API). When empty, the chart
   # leaves egress open to any IP — the policy still blocks ingress from
   # anywhere except the metrics port (when metrics.enabled=true).

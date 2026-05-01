@@ -1,7 +1,7 @@
 package auth
 
 // OIDC authorization-code flow with PKCE + nonce + state, per ADR-0007.
-// Configured via env vars in cmd/argosd/main.go; this package owns the
+// Configured via env vars in cmd/longue-vue/main.go; this package owns the
 // provider wiring and the flow primitives. Storage of in-flight state
 // (code_verifier + nonce tied to `state`) is the caller's job — pass
 // them in and back out at the right points.
@@ -36,7 +36,7 @@ type OIDCConfig struct {
 	Issuer       string // e.g. https://accounts.example.com
 	ClientID     string
 	ClientSecret string
-	RedirectURL  string   // e.g. https://argos.example.com/v1/auth/oidc/callback
+	RedirectURL  string   // e.g. https://longue-vue.example.com/v1/auth/oidc/callback
 	Scopes       []string // default: ["openid", "email", "profile"]
 	Label        string   // button label on the login page; default "OIDC"
 }
@@ -53,7 +53,7 @@ type OIDCProvider struct {
 // the flow primitives. Returns a nil provider + nil error when OIDC is
 // disabled (no Issuer configured) so callers can branch on that.
 //
-// A network failure here is fatal for argosd: OIDC configured but
+// A network failure here is fatal for longue-vue: OIDC configured but
 // unreachable at start means "operator misconfigured", not "IdP has a
 // transient outage" — the operator should see a clear error.
 func NewOIDCProvider(ctx context.Context, cfg *OIDCConfig) (*OIDCProvider, error) {

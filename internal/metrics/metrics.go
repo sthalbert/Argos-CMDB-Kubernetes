@@ -3,8 +3,8 @@
 // All metrics live in one package so operators have a single place to read
 // what's exported. The /metrics endpoint is mounted unauthenticated to match
 // Prometheus's scrape convention; deployments that need access control should
-// either put argosd behind a proxy that gates /metrics or run the scraper on
-// a network path that's already trusted.
+// either put longue-vue behind a proxy that gates /metrics or run the scraper
+// on a network path that's already trusted.
 package metrics
 
 import (
@@ -18,9 +18,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Registry is argosd's private Prometheus registry. We don't reuse the
+// Registry is longue-vue's private Prometheus registry. We don't reuse the
 // default one — a per-process registry keeps scrape output stable across
-// tests and makes it obvious which metrics are argos-specific.
+// tests and makes it obvious which metrics are longue-vue-specific.
 var Registry = prometheus.NewRegistry()
 
 var (
@@ -70,7 +70,7 @@ var (
 	buildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "longue_vue",
 		Name:      "build_info",
-		Help:      "Set to 1 for the running argosd build; labels carry version and Go toolchain info.",
+		Help:      "Set to 1 for the running longue-vue build; labels carry version and Go toolchain info.",
 	}, []string{"version", "go_version"})
 
 	eolEnrichments = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -124,7 +124,7 @@ var (
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"tool"})
 
-	// VM-collector metrics on the argosd side (ADR-0015).
+	// VM-collector metrics on the longue-vue side (ADR-0015).
 	cloudAccountsTotal = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "longue_vue",
 		Name:      "cloud_accounts_total",
@@ -150,7 +150,7 @@ var (
 		Help:      "Cumulative successful credential fetches via GET /v1/cloud-accounts/.../credentials.",
 	}, []string{"cloud_account"})
 
-	// DMZ ingest gateway metrics on the argosd side (ADR-0016).
+	// DMZ ingest gateway metrics on the longue-vue side (ADR-0016).
 	ingestVerifyTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "longue_vue",
 		Subsystem: "auth",
@@ -201,7 +201,7 @@ func IngestVerifyTotal(result string) {
 }
 
 // IngestListenerClientCertFailure increments the mTLS handshake failure
-// counter on the argosd ingest listener. `reason` is one of "bad_ca",
+// counter on the longue-vue ingest listener. `reason` is one of "bad_ca",
 // "expired", "cn_not_allowed", "none_provided" so a misconfigured gateway
 // is diagnosable from a single Prometheus query.
 func IngestListenerClientCertFailure(reason string) {
@@ -209,7 +209,7 @@ func IngestListenerClientCertFailure(reason string) {
 }
 
 // SetCloudAccountsTotal sets the per-status cloud-accounts gauge. Called
-// from a periodic refresh loop in argosd that recomputes the totals from
+// from a periodic refresh loop in longue-vue that recomputes the totals from
 // the store.
 func SetCloudAccountsTotal(status string, n int) {
 	cloudAccountsTotal.WithLabelValues(status).Set(float64(n))

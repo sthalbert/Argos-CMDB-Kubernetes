@@ -17,7 +17,7 @@ spec:
     spec:
       serviceAccountName: {{ include "longue-vue-vm-collector.serviceAccountName" . }}
       # The vm-collector never calls the Kubernetes API — it only talks to
-      # the cloud provider and argosd over HTTPS. Skip projecting the SA
+      # the cloud provider and longue-vue over HTTPS. Skip projecting the SA
       # token so a compromised pod cannot pivot via the in-cluster token.
       automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
@@ -65,13 +65,13 @@ spec:
             {{- end }}
             {{- if .Values.argosTLS.caSecret }}
             - name: LONGUE_VUE_CA_CERT
-              value: /etc/argos-vm-collector/argos-ca/{{ .Values.argosTLS.caKey }}
+              value: /etc/longue-vue-vm-collector/tls-ca/{{ .Values.argosTLS.caKey }}
             {{- end }}
             {{- if .Values.argosTLS.existingSecret }}
             - name: LONGUE_VUE_CLIENT_CERT
-              value: /etc/argos-vm-collector/argos-tls/tls.crt
+              value: /etc/longue-vue-vm-collector/tls/tls.crt
             - name: LONGUE_VUE_CLIENT_KEY
-              value: /etc/argos-vm-collector/argos-tls/tls.key
+              value: /etc/longue-vue-vm-collector/tls/tls.key
             {{- end }}
             {{- if .Values.argosTLS.extraHeaders }}
             - name: LONGUE_VUE_EXTRA_HEADERS
@@ -97,13 +97,13 @@ spec:
                 name: {{ required "tokenSecret.existingSecret is required" .Values.tokenSecret.existingSecret | quote }}
           volumeMounts:
             {{- if .Values.argosTLS.existingSecret }}
-            - name: argos-tls
-              mountPath: /etc/argos-vm-collector/argos-tls
+            - name: lv-tls
+              mountPath: /etc/longue-vue-vm-collector/tls
               readOnly: true
             {{- end }}
             {{- if .Values.argosTLS.caSecret }}
-            - name: argos-ca
-              mountPath: /etc/argos-vm-collector/argos-ca
+            - name: lv-ca
+              mountPath: /etc/longue-vue-vm-collector/tls-ca
               readOnly: true
             {{- end }}
             {{- with .Values.extraVolumeMounts }}
@@ -113,12 +113,12 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         {{- if .Values.argosTLS.existingSecret }}
-        - name: argos-tls
+        - name: lv-tls
           secret:
             secretName: {{ .Values.argosTLS.existingSecret | quote }}
         {{- end }}
         {{- if .Values.argosTLS.caSecret }}
-        - name: argos-ca
+        - name: lv-ca
           {{- if hasPrefix "configmap:" .Values.argosTLS.caSecret }}
           configMap:
             name: {{ trimPrefix "configmap:" .Values.argosTLS.caSecret | quote }}

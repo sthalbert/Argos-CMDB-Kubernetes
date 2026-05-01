@@ -2,11 +2,11 @@
 # longue-vue-collector deployment for an air-gapped cluster behind an HTTP proxy.
 #
 # Prerequisites:
-#   1. Cluster row exists in argosd:
+#   1. Cluster row exists in longue-vue:
 #        POST https://inventory.tooling.cloudgouv-eu-west-1.numspot.internal/v1/clusters
 #        {"name":"<LONGUE_VUE_CLUSTER_NAME>"}
 #      (or rely on auto-create on first tick — ADR-0011)
-#   2. PAT with `write` scope created in the argosd admin panel.
+#   2. PAT with `write` scope created in the longue-vue admin panel.
 #   3. Image mirrored into a registry reachable from the air-gapped cluster.
 #   4. Secret `longue-vue-collector-credentials` applied with LONGUE_VUE_API_TOKEN
 #      (see secret.example.yaml).
@@ -47,7 +47,7 @@ spec:
           image: ghcr.io/sthalbert/longue-vue-collector:latest
           imagePullPolicy: IfNotPresent
           env:
-            # --- argosd target ----------------------------------------------
+            # --- longue-vue target ------------------------------------------
             - name: LONGUE_VUE_SERVER_URL
               value: "https://inventory.tooling.cloudgouv-eu-west-1.numspot.internal"
             - name: LONGUE_VUE_CLUSTER_NAME

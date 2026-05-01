@@ -235,7 +235,7 @@ func TestVerifyToken_PublicEndpoint_NoAuthHeader_Returns200(t *testing.T) {
 			},
 		},
 	)
-	// The real auth.Middleware — not a no-op. This is what argosd runs in
+	// The real auth.Middleware — not a no-op. This is what longue-vue runs in
 	// production on the ingest listener.
 	realAuth := MiddlewareFunc(auth.Middleware(store, auth.SecureNever, nil))
 	h := NewIngestMux(IngestMuxConfig{

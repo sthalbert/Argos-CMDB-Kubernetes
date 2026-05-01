@@ -1595,7 +1595,7 @@ paths:
                 type: string
                 format: uri
         '404':
-          description: OIDC is not configured on this argosd.
+          description: OIDC is not configured on this longue-vue instance.
 
   /v1/auth/oidc/callback:
     get:
@@ -1635,7 +1635,7 @@ paths:
       description: |
         Exchanges a username + password for a session cookie. Returns 401
         with an opaque problem body on any failure (no distinction between
-        unknown user and bad password). Sets `argos_session` as HttpOnly +
+        unknown user and bad password). Sets `longue_vue_session` as HttpOnly +
         SameSite=Strict; the browser carries it on subsequent same-origin
         requests automatically.
       operationId: login
@@ -1741,10 +1741,10 @@ paths:
         the trusted zone. Performs the same argon2id check the bearer
         middleware runs per request and returns the resulting caller
         identity, scopes, and expiry without modifying any HTTP state on
-        argosd's side.
+        longue-vue's side.
 
-        **This endpoint is served only on argosd's mTLS-only ingest
-        listener** (enabled via `LONGUE_VUE_INGEST_LISTEN_ADDR`). Argosd's
+        **This endpoint is served only on longue-vue's mTLS-only ingest
+        listener** (enabled via `LONGUE_VUE_INGEST_LISTEN_ADDR`). longue-vue's
         public listener does not register it. The mTLS handshake is the
         sole authentication mechanism for this call — there is no
         Authorization header on the request itself; the client cert
@@ -1752,7 +1752,7 @@ paths:
         rejected at the TLS handshake by the listener's
         `RequireAndVerifyClientCert` setting.
 
-        The endpoint is rate-limited at argosd to a small per-source-IP
+        The endpoint is rate-limited at longue-vue to a small per-source-IP
         budget as a backstop in case the gateway's verify cache is
         bypassed by a buggy build.
       operationId: verifyToken
@@ -1949,7 +1949,7 @@ paths:
       summary: Mint a new machine token
       description: |
         Returns the full plaintext token exactly once in the response.
-        argosd persists only its argon2id hash — this value cannot be
+        longue-vue persists only its argon2id hash — this value cannot be
         retrieved later. If lost, revoke and mint a new one.
       operationId: createApiToken
       security:
@@ -2141,7 +2141,7 @@ components:
     SessionCookie:
       type: apiKey
       in: cookie
-      name: argos_session
+      name: longue_vue_session
       description: |
         Human session cookie set by `POST /v1/auth/login`. HttpOnly,
         SameSite=Strict, 8-hour sliding expiry. Per ADR-0007.
@@ -2458,7 +2458,7 @@ components:
           enum: [ok]
         version:
           type: string
-          description: Build version of the running argosd.
+          description: Build version of the running longue-vue.
 
     Layer:
       type: string
@@ -3125,7 +3125,7 @@ components:
             StatefulSet / DaemonSet). The collector walks the K8s
             ownerReference chain — for Deployment-owned pods this resolves
             Pod -> ReplicaSet -> Deployment. Null for pods with no
-            controller or with an owner kind argosd doesn't model yet
+            controller or with an owner kind longue-vue doesn't model yet
             (e.g., Job, CronJob).
         labels:
           type: object
@@ -3928,14 +3928,14 @@ components:
       description: |
         Bearer token to verify. The DMZ ingest gateway (ADR-0016) uses
         this to short-circuit invalid tokens before they cross the
-        firewall. Sent over mTLS only — argosd's public listener does
+        firewall. Sent over mTLS only — longue-vue's public listener does
         not serve `POST /v1/auth/verify`.
       type: object
       required: [token]
       properties:
         token:
           type: string
-          description: Opaque PAT (`argos_pat_<prefix>_<suffix>`).
+          description: Opaque PAT (`lv_pat_<prefix>_<suffix>` or legacy `argos_pat_<prefix>_<suffix>`).
           maxLength: 256
 
     VerifyTokenResponse:
@@ -4025,7 +4025,7 @@ components:
             route except `/change-password` until this is cleared.
 
     User:
-      description: A human user registered in argosd.
+      description: A human user registered in longue-vue.
       type: object
       required: [id, username, role, created_at, updated_at]
       properties:
@@ -4196,7 +4196,7 @@ components:
             token:
               type: string
               description: |
-                Plaintext token, format `argos_pat_<8chars>_<random>`.
+                Plaintext token, format `lv_pat_<8chars>_<random>`.
                 Presented exactly once. Store in a secrets manager; do
                 not commit to source control.
 
@@ -4308,10 +4308,10 @@ components:
           type: string
           enum: [api, ingest_gw, system]
           description: |
-            Which listener served the request. `api` is argosd's public
+            Which listener served the request. `api` is longue-vue's public
             listener (humans, admins, trusted-zone collectors). `ingest_gw`
             is the mTLS-only ingest listener fronted by the DMZ gateway
-            (ADR-0016). `system` is for synthetic events emitted by argosd
+            (ADR-0016). `system` is for synthetic events emitted by longue-vue
             itself, not driven by an HTTP request.
         source_ip:
           type: string

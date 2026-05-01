@@ -1,6 +1,6 @@
-// Package apiclient implements collector.CmdbStore over the argosd REST API.
+// Package apiclient implements collector.CmdbStore over the longue-vue REST API.
 // It is the write-path for the push-mode collector (ADR-0009): every store
-// method maps to one HTTP call against a remote argosd instance.
+// method maps to one HTTP call against a remote longue-vue instance.
 package apiclient
 
 import (
@@ -35,8 +35,8 @@ var (
 
 // Config carries the knobs for building an HTTP-backed store.
 type Config struct {
-	// ServerURL is the argosd base URL, e.g. "https://argos.internal:8080"
-	// or "https://gw:443/argos". A trailing path is prepended to every
+	// ServerURL is the longue-vue base URL, e.g. "https://longue-vue.internal:8080"
+	// or "https://gw:443/lv". A trailing path is prepended to every
 	// request so gateway path-prefix rewrite works transparently.
 	ServerURL string
 
@@ -57,7 +57,7 @@ type Config struct {
 	ExtraHeaders map[string]string
 }
 
-// Store implements collector.CmdbStore by calling the argosd REST API.
+// Store implements collector.CmdbStore by calling the longue-vue REST API.
 type Store struct {
 	client       *http.Client
 	baseURL      string // scheme + host + optional path prefix, no trailing slash

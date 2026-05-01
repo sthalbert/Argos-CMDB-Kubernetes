@@ -97,7 +97,7 @@ func TestClientIP_TrustedPeerSingleHopXFF(t *testing.T) {
 }
 
 func TestClientIP_TrustedPeerMultiHopXFF(t *testing.T) {
-	// CDN -> proxyA -> proxyB -> argosd; both proxies trusted.
+	// CDN -> proxyA -> proxyB -> longue-vue; both proxies trusted.
 	// XFF: client, proxyA-internal-IP. Peer: proxyB.
 	r := newRequest("10.0.0.2:443", http.Header{"X-Forwarded-For": []string{"203.0.113.5, 10.0.0.1"}}, false)
 	got := ClientIP(r, mustParse(t, "10.0.0.0/8"))
@@ -109,9 +109,9 @@ func TestClientIP_TrustedPeerMultiHopXFF(t *testing.T) {
 func TestClientIP_AttackerPrefixedXFFReturnsRealClient(t *testing.T) {
 	// Attacker prepends arbitrary values to XFF before reaching nginx.
 	// nginx (10.0.0.1, trusted) sees the attacker's bogus XFF, appends
-	// the attacker's actual IP (203.0.113.5), and forwards to argosd.
+	// the attacker's actual IP (203.0.113.5), and forwards to longue-vue.
 	//
-	// Argosd's right-to-left walk peels off 10.0.0.1 (trusted) and
+	// longue-vue's right-to-left walk peels off 10.0.0.1 (trusted) and
 	// returns 203.0.113.5 (the first untrusted hop from the right) —
 	// the real client. Attacker's prepended "evil-fake" is unreachable.
 	r := newRequest("10.0.0.1:443",

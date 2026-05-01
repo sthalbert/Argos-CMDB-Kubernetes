@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: vm-collector
 # Egress allowlist for the vm-collector pod. Only:
-#   - argosd (in-cluster Service or external endpoint via gateway)
+#   - longue-vue (in-cluster Service or external endpoint via gateway)
 #   - the cloud-provider public API (Outscale: api.{region}.outscale.com on TCP 443)
 #   - in-cluster DNS for service discovery
 spec:
@@ -31,7 +31,7 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # argosd in-cluster service (adjust selector if your argosd lives elsewhere).
+    # longue-vue in-cluster service (adjust selector if your longue-vue lives elsewhere).
     - to:
         - podSelector:
             matchLabels:

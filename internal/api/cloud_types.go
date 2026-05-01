@@ -36,7 +36,7 @@ type VMApplication struct {
 // NormalizeProductName collapses operator-typed product names into a
 // stable kebab-case key. Trim, lowercase, collapse runs of whitespace
 // and underscores into single hyphens. The result is what gets indexed,
-// matched, and used as the suffix in `argos.io/eol.<product>` annotations.
+// matched, and used as the suffix in `longue-vue.io/eol.<product>` annotations.
 func NormalizeProductName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
@@ -82,7 +82,7 @@ const (
 )
 
 // CloudAccount is the persisted view of a cloud-provider account
-// registered in argosd. The plaintext SK is intentionally absent — it
+// registered in longue-vue. The plaintext SK is intentionally absent — it
 // lives only in the encrypted column and is only ever returned by
 // GetCloudAccountCredentials, which decrypts it on the way out.
 type CloudAccount struct {

@@ -1,7 +1,7 @@
 longue-vue-ingest-gw {{ .Chart.AppVersion }} installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
 
 This chart deploys the DMZ ingest gateway for the longue-vue CMDB (ADR-0016). It
-fronts argosd's mTLS-only ingest listener and forwards write requests from
+fronts longue-vue's mTLS-only ingest listener and forwards write requests from
 the K8s push collector across the trusted-zone boundary.
 
 Configuration summary
@@ -9,7 +9,7 @@ Configuration summary
 
   Inbound listener:    :{{ .Values.listener.port }}    (TLS, fronted by Envoy in production)
   Health/metrics:      :{{ .Values.listener.health.port }}    (plaintext, scraped by Prometheus)
-  Upstream argosd:     {{ .Values.upstream.url }}
+  Upstream:                {{ .Values.upstream.url }}
   mTLS source mode:    {{ .Values.mtls.mode }}
   Verify cache:        {{ .Values.cache.ttl }} (positive) / {{ .Values.cache.negativeTtl }} (negative), max {{ .Values.cache.maxEntries }} entries
   Required scope:      {{ .Values.requiredScope | default "none" }}
@@ -28,8 +28,8 @@ Quick checks
          wget -qO- http://localhost:{{ .Values.listener.health.port }}/metrics \
          | grep -E '^longue_vue_ingest_gw_cert_(not_after|reload)'
 
-  3. Upstream argosd reachable (readyz returns 200 only when the gateway
-     can complete an mTLS handshake against argosd's /healthz):
+  3. Upstream longue-vue reachable (readyz returns 200 only when the gateway
+     can complete an mTLS handshake against longue-vue's /healthz):
 
        kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "longue-vue-ingest-gw.fullname" . }} {{ .Values.listener.port }}:{{ .Values.listener.port }}
        curl -k https://localhost:{{ .Values.listener.port }}/readyz
@@ -72,7 +72,7 @@ File mode notes
 
   • mTLS client cert is mounted from the volume specified in
     .Values.mtls.file.volume — operator is responsible for keeping the
-    cert/key files at /etc/argos-ingest-gw/tls/{tls.crt,tls.key} fresh.
+    cert/key files at /etc/longue-vue-ingest-gw/tls/{tls.crt,tls.key} fresh.
 
   • This mode is the escape hatch for environments without Vault and
     without standard k8s Secret tooling. If you can use mode=secret,

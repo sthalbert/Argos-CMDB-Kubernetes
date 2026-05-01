@@ -130,9 +130,9 @@ func TestBuildUpstreamURL(t *testing.T) {
 		requestURI string
 		want       string
 	}{
-		{"https://argosd:8443", "/v1/clusters", "https://argosd:8443/v1/clusters"},
-		{"https://argosd:8443/", "/v1/pods", "https://argosd:8443/v1/pods"},
-		{"https://argosd:8443", "/v1/clusters?foo=bar", "https://argosd:8443/v1/clusters?foo=bar"},
+		{"https://longue-vue:8443", "/v1/clusters", "https://longue-vue:8443/v1/clusters"},
+		{"https://longue-vue:8443/", "/v1/pods", "https://longue-vue:8443/v1/pods"},
+		{"https://longue-vue:8443", "/v1/clusters?foo=bar", "https://longue-vue:8443/v1/clusters?foo=bar"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.want, func(t *testing.T) {

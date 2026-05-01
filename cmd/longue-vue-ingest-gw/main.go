@@ -1,8 +1,8 @@
-// Command argos-ingest-gw is the DMZ ingest gateway for the Argos CMDB
+// Command longue-vue-ingest-gw is the DMZ ingest gateway for longue-vue
 // (ADR-0016). It accepts inbound HTTPS from K8s push collectors, verifies
-// their bearer tokens against argosd via mTLS, and forwards write requests
-// into the trusted zone. It serves a strict-write-only allowlist of 18
-// routes and never exposes any read or admin endpoint.
+// their bearer tokens against the longue-vue server via mTLS, and forwards
+// write requests into the trusted zone. It serves a strict-write-only
+// allowlist of 18 routes and never exposes any read or admin endpoint.
 //
 // Configuration is purely via environment variables — no config file, no
 // CLI flags. See LONGUE_VUE_INGEST_GW_* vars below. Refusal to start on
@@ -86,8 +86,8 @@ func loadConfig() (runConfig, error) { //nolint:gocyclo // env-var validation; f
 		upstreamURL:    os.Getenv("LONGUE_VUE_INGEST_GW_UPSTREAM_URL"),
 		upstreamHost:   os.Getenv("LONGUE_VUE_INGEST_GW_UPSTREAM_HOST"),
 		upstreamCAFile: os.Getenv("LONGUE_VUE_INGEST_GW_UPSTREAM_CA_FILE"),
-		clientCertFile: envOr("LONGUE_VUE_INGEST_GW_CLIENT_CERT_FILE", "/etc/argos-ingest-gw/tls/tls.crt"),
-		clientKeyFile:  envOr("LONGUE_VUE_INGEST_GW_CLIENT_KEY_FILE", "/etc/argos-ingest-gw/tls/tls.key"),
+		clientCertFile: envOr("LONGUE_VUE_INGEST_GW_CLIENT_CERT_FILE", "/etc/longue-vue-ingest-gw/tls/tls.crt"),
+		clientKeyFile:  envOr("LONGUE_VUE_INGEST_GW_CLIENT_KEY_FILE", "/etc/longue-vue-ingest-gw/tls/tls.key"),
 		requiredScope:  envOr("LONGUE_VUE_INGEST_GW_REQUIRED_SCOPE", "write"),
 	}
 
@@ -146,7 +146,7 @@ func run() error {
 		return fmt.Errorf("init cert reloader: %w", err)
 	}
 
-	// Upstream CA (argosd's server cert chain).
+	// Upstream CA (longue-vue's server cert chain).
 	caBytes, err := os.ReadFile(cfg.upstreamCAFile) //nolint:gosec // operator-supplied path
 	if err != nil {
 		return fmt.Errorf("read upstream CA: %w", err)

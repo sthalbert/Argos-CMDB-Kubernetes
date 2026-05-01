@@ -25,11 +25,11 @@ import (
 func oidcStub(label string) *auth.OIDCProvider {
 	return auth.NewOIDCProviderFromTestParts(&auth.OIDCConfig{
 		ClientID:    "cid",
-		RedirectURL: "https://argos.example.com/v1/auth/oidc/callback",
+		RedirectURL: "https://longue-vue.example.com/v1/auth/oidc/callback",
 		Label:       label,
 	}, &oauth2.Config{
 		ClientID:    "cid",
-		RedirectURL: "https://argos.example.com/v1/auth/oidc/callback",
+		RedirectURL: "https://longue-vue.example.com/v1/auth/oidc/callback",
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://idp.example.com/authorize",
 			TokenURL: "https://idp.example.com/token",

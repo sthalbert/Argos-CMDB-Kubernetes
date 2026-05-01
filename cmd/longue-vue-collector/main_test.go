@@ -11,7 +11,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestLoadCollectorConfig_AllRequired(t *testing.T) {
-	t.Setenv("LONGUE_VUE_SERVER_URL", "https://argos.test:8080")
+	t.Setenv("LONGUE_VUE_SERVER_URL", "https://longue-vue.test:8080")
 	t.Setenv("LONGUE_VUE_API_TOKEN", "argos_pat_xxxx_yyyy")
 	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "test-cluster")
 
@@ -19,8 +19,8 @@ func TestLoadCollectorConfig_AllRequired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.serverURL != "https://argos.test:8080" {
-		t.Errorf("serverURL: want https://argos.test:8080, got %q", cfg.serverURL)
+	if cfg.serverURL != "https://longue-vue.test:8080" {
+		t.Errorf("serverURL: want https://longue-vue.test:8080, got %q", cfg.serverURL)
 	}
 	if cfg.token != "argos_pat_xxxx_yyyy" {
 		t.Errorf("token: want argos_pat_xxxx_yyyy, got %q", cfg.token)

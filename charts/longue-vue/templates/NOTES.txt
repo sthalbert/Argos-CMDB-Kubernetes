@@ -15,7 +15,7 @@ longue-vue has been installed.
 {{- end }}
 
 2. Sign in:
-   On first boot, argosd creates an admin user and prints the password
+   On first boot, longue-vue creates an admin user and prints the password
    ONCE in the pod log:
 
    kubectl --namespace {{ .Release.Namespace }} logs -l app.kubernetes.io/name={{ include "longue-vue.name" . }} | grep "LONGUE-VUE FIRST-RUN"

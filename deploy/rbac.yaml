@@ -10,7 +10,7 @@ metadata:
 
 ---
 # ClusterRole granting the bare minimum the collector needs to catalogue the
-# cluster: list on the six resource kinds argosd currently ingests. No watch,
+# cluster: list on the six resource kinds longue-vue currently ingests. No watch,
 # no get-by-name, no write of any kind. Matches the cartography principle of
 # least privilege — the CMDB is strictly a reader.
 apiVersion: rbac.authorization.k8s.io/v1

@@ -35,7 +35,7 @@ A Configuration Management Database (CMDB) for Kubernetes environments, aligned 
 
 ```bash
 helm install longue-vue charts/longue-vue -n longue-vue-system --create-namespace
-kubectl -n longue-vue-system logs -l app.kubernetes.io/name=longue-vue | grep "ARGOS FIRST-RUN"
+kubectl -n longue-vue-system logs -l app.kubernetes.io/name=longue-vue | grep "LONGUE-VUE FIRST-RUN"
 ```
 
 ### From source (local development)

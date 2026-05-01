@@ -1,5 +1,5 @@
-// Command argos-vm-collector polls a cloud-provider API and pushes the
-// resulting VM inventory to argosd over HTTPS. See ADR-0015.
+// Command longue-vue-vm-collector polls a cloud-provider API and pushes the
+// resulting VM inventory to longue-vue over HTTPS. See ADR-0015.
 package main
 
 import (

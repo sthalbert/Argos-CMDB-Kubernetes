@@ -1,6 +1,6 @@
-// Metrics for the argos-vm-collector binary (ADR-0015 §IMP-009).
+// Metrics for the longue-vue-vm-collector binary (ADR-0015 §IMP-009).
 //
-// Exposed on a localhost-only listener separate from argosd's /metrics —
+// Exposed on a localhost-only listener separate from longue-vue's /metrics —
 // the collector is a standalone binary, often deployed where Prometheus
 // scrapes it via a sidecar or node-exporter pattern.
 
@@ -16,7 +16,7 @@ import (
 )
 
 // Registry is the vm-collector's private Prometheus registry. Separate
-// from argosd's so the two binaries can run side by side without
+// from longue-vue's so the two binaries can run side by side without
 // stepping on each other.
 var Registry = prometheus.NewRegistry()
 
@@ -68,7 +68,7 @@ var (
 		Namespace: "longue_vue",
 		Subsystem: "vm_collector",
 		Name:      "build_info",
-		Help:      "Set to 1 for the running argos-vm-collector build; labels carry version.",
+		Help:      "Set to 1 for the running longue-vue-vm-collector build; labels carry version.",
 	}, []string{"version"})
 )
 

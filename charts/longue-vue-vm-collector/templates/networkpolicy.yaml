@@ -23,7 +23,7 @@ spec:
           port: {{ .Values.metrics.port }}
     {{- end }}
   egress:
-    # DNS — required to resolve argosd / DMZ-gateway / cloud-API hosts.
+    # DNS — required to resolve longue-vue / DMZ-gateway / cloud-API hosts.
     - to:
         - namespaceSelector: {}
       ports:
@@ -33,7 +33,7 @@ spec:
           port: 53
     {{- if .Values.networkPolicy.egressCIDRs }}
     # When the operator supplies egressCIDRs, scope 443 to that list.
-    # Must include argosd / the DMZ gateway AND the cloud-provider API.
+    # Must include longue-vue / the DMZ gateway AND the cloud-provider API.
     - to:
         {{- range .Values.networkPolicy.egressCIDRs }}
         - ipBlock:
@@ -44,7 +44,7 @@ spec:
           port: 443
     {{- else }}
     # No egressCIDRs supplied — fall back to allowing 443 to any IP so
-    # the collector can reach both argosd and the cloud-provider API.
+    # the collector can reach both longue-vue and the cloud-provider API.
     - ports:
         - protocol: TCP
           port: 443

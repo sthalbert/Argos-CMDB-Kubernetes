@@ -80,7 +80,7 @@ postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.pas
 {{- end }}
 
 {{/*
-Secret name for argosd credentials.
+Secret name for longue-vue server credentials.
 */}}
 {{- define "longue-vue.secretName" -}}
 {{- if .Values.existingSecret }}

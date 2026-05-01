@@ -65,7 +65,7 @@ prints its password **once** to the startup log inside a banner:
 
 ```
 WARN  ========================================================================
-      ARGOS FIRST-RUN BOOTSTRAP
+      LONGUE-VUE FIRST-RUN BOOTSTRAP
       A default admin user has been created:
         username: admin
         password: <16 random chars, or whatever you set via env>

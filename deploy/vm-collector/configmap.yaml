@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: vm-collector
 data:
-  # The argosd endpoint the collector pushes to. Behind a gateway:
+  # The longue-vue endpoint the collector pushes to. Behind a gateway:
   # set the gateway URL with optional path prefix (LONGUE_VUE_SERVER_URL is
   # used as the base for every request).
   LONGUE_VUE_SERVER_URL: "http://longue-vue.longue-vue-system.svc.cluster.local:8080"
@@ -23,7 +23,7 @@ data:
   LONGUE_VUE_VM_COLLECTOR_FETCH_TIMEOUT: "30s"
   LONGUE_VUE_VM_COLLECTOR_RECONCILE: "true"
 
-  # How often to refetch credentials from argosd. Lets admin AK/SK
+  # How often to refetch credentials from longue-vue. Lets admin AK/SK
   # rotation propagate without a redeploy.
   LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH: "1h"
 

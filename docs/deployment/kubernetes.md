@@ -84,7 +84,7 @@ On first boot with an empty database, longue-vue creates an `admin` user and pri
 
 ```
 WARN  ========================================================================
-      ARGOS FIRST-RUN BOOTSTRAP
+      LONGUE-VUE FIRST-RUN BOOTSTRAP
       A default admin user has been created:
         username: admin
         password: <16 random chars, or your LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD>

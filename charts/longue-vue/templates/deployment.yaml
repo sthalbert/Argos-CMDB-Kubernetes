@@ -35,7 +35,7 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: argosd
+        - name: longue-vue
           image: {{ include "longue-vue.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
@@ -126,7 +126,7 @@ spec:
           volumeMounts:
             {{- if .Values.collector.kubeconfigSecret }}
             - name: kubeconfigs
-              mountPath: /etc/argos/kubeconfigs
+              mountPath: /etc/longue-vue/kubeconfigs
               readOnly: true
             {{- end }}
             {{- if .Values.argosd.tls.existingSecret }}

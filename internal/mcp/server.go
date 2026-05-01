@@ -1,5 +1,5 @@
 // Package mcp exposes CMDB data through the Model Context Protocol (MCP),
-// enabling LLM-based agents to query Argos inventory read-only. The server
+// enabling agents to query longue-vue inventory read-only. The server
 // follows the same goroutine-with-context pattern as the EOL enricher and
 // the collector.
 package mcp
@@ -90,7 +90,7 @@ type Config struct {
 	Auth AuthFunc
 }
 
-// Server wraps an MCP server backed by the Argos CMDB store.
+// Server wraps an MCP server backed by the longue-vue CMDB store.
 type Server struct {
 	store     Store
 	traverser *impact.Traverser

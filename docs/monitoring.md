@@ -104,7 +104,7 @@ spec:
 Fire if any resource kind has not been polled in 10 minutes:
 
 ```yaml
-- alert: ArgosCollectorStale
+- alert: LongueVueCollectorStale
   expr: time() - longue_vue_collector_last_poll_timestamp_seconds > 600
   for: 5m
   labels:
@@ -119,7 +119,7 @@ Fire if any resource kind has not been polled in 10 minutes:
 Fire if the collector encounters persistent errors:
 
 ```yaml
-- alert: ArgosCollectorErrors
+- alert: LongueVueCollectorErrors
   expr: rate(longue_vue_collector_errors_total[5m]) > 0
   for: 10m
   labels:
@@ -134,7 +134,7 @@ Fire if the collector encounters persistent errors:
 Fire if more than 5% of requests return 5xx:
 
 ```yaml
-- alert: ArgosHighErrorRate
+- alert: LongueVueHighErrorRate
   expr: |
     sum(rate(longue_vue_http_requests_total{status=~"5.."}[5m]))
     /
@@ -152,7 +152,7 @@ Fire if more than 5% of requests return 5xx:
 Fire if p95 request duration exceeds 2 seconds:
 
 ```yaml
-- alert: ArgosHighLatency
+- alert: LongueVueHighLatency
   expr: |
     histogram_quantile(0.95, sum(rate(longue_vue_http_request_duration_seconds_bucket[5m])) by (le))
     > 2

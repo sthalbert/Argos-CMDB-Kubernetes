@@ -24,7 +24,7 @@ helm install longue-vue charts/longue-vue \
 longue-vue starts, runs database migrations automatically, and bootstraps an admin user. Retrieve the password from the logs:
 
 ```bash
-kubectl -n longue-vue-system logs -l app.kubernetes.io/name=longue-vue | grep "ARGOS FIRST-RUN"
+kubectl -n longue-vue-system logs -l app.kubernetes.io/name=longue-vue | grep "LONGUE-VUE FIRST-RUN"
 ```
 
 To set a predictable password instead:

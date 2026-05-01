@@ -42,7 +42,7 @@ func NewOutscale(accessKey, secretKey, region, endpointURL string) (*Outscale, e
 		endpointURL = fmt.Sprintf("https://api.%s.outscale.com/api/v1", region)
 	}
 	cfg := osc.NewConfiguration()
-	cfg.UserAgent = "argos-vm-collector"
+	cfg.UserAgent = "longue-vue-vm-collector"
 	cfg.Servers = osc.ServerConfigurations{
 		{URL: endpointURL},
 	}

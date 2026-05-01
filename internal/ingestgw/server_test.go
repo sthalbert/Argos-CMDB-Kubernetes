@@ -191,7 +191,7 @@ func TestServer_TokenRevokedMidRequest_CacheInvalidated(t *testing.T) {
 	t.Parallel()
 	const token = "argos_pat_aabbccdd_revoked"
 
-	// First request: argosd says valid.
+	// First request: longue-vue says valid.
 	callCount := 0
 	var backend http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == verifyPath {

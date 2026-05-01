@@ -1,5 +1,5 @@
 // Package filter implements the cheap pre-filter that drops VMs the
-// argos-vm-collector should never push to argosd (ADR-0015 §8).
+// longue-vue-vm-collector should never push to longue-vue (ADR-0015 §8).
 //
 // Three drop conditions:
 //   - any tag matching OscK8sClusterID/* (Outscale CCM cluster ownership)
@@ -18,13 +18,13 @@ import (
 )
 
 const (
-	cccmTagPrefix    = "OscK8sClusterID/"
-	cccmNodeNameKey  = "OscK8sNodeName"
-	argosIgnoreKey   = "longue-vue.io/ignore"
-	argosIgnoreOnVal = "true"
+	cccmTagPrefix   = "OscK8sClusterID/"
+	cccmNodeNameKey = "OscK8sNodeName"
+	lvIgnoreKey     = "longue-vue.io/ignore"
+	lvIgnoreOnVal   = "true"
 )
 
-// Apply returns the subset of vms that should be pushed to argosd.
+// Apply returns the subset of vms that should be pushed to longue-vue.
 // The input slice is not modified; a fresh slice is allocated.
 func Apply(vms []provider.VM) []provider.VM {
 	out := make([]provider.VM, 0, len(vms))
@@ -40,7 +40,7 @@ func Apply(vms []provider.VM) []provider.VM {
 // shouldDrop reports whether a tag map carries any of the three drop
 // markers from ADR-0015 §8.
 func shouldDrop(tags map[string]string) bool {
-	if v, ok := tags[argosIgnoreKey]; ok && v == argosIgnoreOnVal {
+	if v, ok := tags[lvIgnoreKey]; ok && v == lvIgnoreOnVal {
 		return true
 	}
 	if _, ok := tags[cccmNodeNameKey]; ok {

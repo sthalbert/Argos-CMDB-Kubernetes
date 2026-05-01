@@ -113,7 +113,6 @@ func TestParseToken_AcceptsBothSchemes(t *testing.T) {
 		{"new longue_vue_pat_ prefix", "longue_vue_pat_aabbccdd_" + strings.Repeat("x", 32)},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			prefix, _, err := ParseToken(tc.raw)

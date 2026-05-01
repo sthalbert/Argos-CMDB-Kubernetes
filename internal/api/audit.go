@@ -68,7 +68,7 @@ func SetAuditDetails(ctx context.Context, details map[string]any) {
 // unreachable would be a worse outcome than a gap in the log.
 //
 // `source` distinguishes which listener served the request — "api" for
-// argosd's public listener, "ingest_gw" for the mTLS-only listener
+// longue-vue's public listener, "ingest_gw" for the mTLS-only listener
 // fronted by the DMZ gateway (ADR-0016). The label is passed through to
 // audit_events.source so operators can answer "what came through the
 // DMZ" with a single WHERE clause.
@@ -257,7 +257,7 @@ func deriveResource(r *http.Request) (resType, resID string) {
 }
 
 // singularNames maps collection (URL-segment) names to their singular
-// form for audit display. Only the kinds argosd actually serves are
+// form for audit display. Only the kinds longue-vue actually serves are
 // listed — anything else passes through unchanged (best-effort display
 // only).
 var singularNames = map[string]string{ //nolint:gochecknoglobals // read-only lookup table

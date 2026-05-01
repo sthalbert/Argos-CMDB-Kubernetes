@@ -1,6 +1,6 @@
-// Command argos-collector is the push-mode Kubernetes inventory collector.
+// Command longue-vue-collector is the push-mode Kubernetes inventory collector.
 // It runs inside an air-gapped cluster, polls the local Kubernetes API,
-// and pushes observations to a remote argosd instance over HTTPS. See
+// and pushes observations to a remote longue-vue instance over HTTPS. See
 // ADR-0009 for the design rationale.
 package main
 

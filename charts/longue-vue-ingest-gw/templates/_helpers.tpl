@@ -62,12 +62,12 @@ mtlsCertVolumeMount — always mounted at the same fixed path so the gateway
 binary's --tls-cert-file / --tls-key-file env defaults are mode-agnostic.
 */}}
 {{- define "longue-vue-ingest-gw.mtlsMountPath" -}}
-/etc/argos-ingest-gw/tls
+/etc/longue-vue-ingest-gw/tls
 {{- end }}
 
 {{/*
 vaultAgentAnnotations renders the Vault Agent injector annotations needed
-to populate /etc/argos-ingest-gw/tls/{tls.crt,tls.key} from a Vault PKI
+to populate /etc/longue-vue-ingest-gw/tls/{tls.crt,tls.key} from a Vault PKI
 mount. Empty when mtls.mode != "vault".
 
 The TTL renewal trigger uses the Vault Agent template's `min_stale` style:

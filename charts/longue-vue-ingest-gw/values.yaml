@@ -4,8 +4,8 @@
 # only the volume population differs.
 #
 # Required values that have no defensible default:
-#   - upstream.url       (where argosd's ingest listener lives)
-#   - upstream.caBundle  (PEM trusting argosd's server cert)
+#   - upstream.url       (where longue-vue's ingest listener lives)
+#   - upstream.caBundle  (PEM trusting longue-vue's server cert)
 #   - listener.tls.secretName     (cert presented to Envoy/clients)
 #   - mtls.<mode>.<...>           (one of vault / secret / file)
 
@@ -33,15 +33,15 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
-# ── Upstream argosd configuration ──────────────────────────────────────
-# upstream.url MUST point at argosd's mTLS-only ingest listener
+# ── Upstream longue-vue configuration ─────────────────────────────────
+# upstream.url MUST point at longue-vue's mTLS-only ingest listener
 # (LONGUE_VUE_INGEST_LISTEN_ADDR), NOT the public listener. Typically a
 # ClusterIP service in the trusted-zone namespace.
 upstream:
-  url: ""                   # required: e.g. https://argosd-ingest.argos.svc.cluster.local:8443
+  url: ""                   # required: e.g. https://longue-vue-ingest.longue-vue.svc.cluster.local:8443
   host: ""                  # optional Host: header override; empty = host from url
   timeout: 30s
-  # PEM bundle that signs argosd's server cert. Mounted as a ConfigMap
+  # PEM bundle that signs longue-vue's server cert. Mounted as a ConfigMap
   # volume into the gateway pod. Provide inline (caBundle) or reference
   # an existing ConfigMap (caBundleConfigMap).
   caBundle: ""              # required when caBundleConfigMap is empty
@@ -50,7 +50,7 @@ upstream:
 # ── Inbound listener (gateway ↔ Envoy) ─────────────────────────────────
 # Cert presented by the gateway to its TLS clients (Envoy in production,
 # direct callers in dev). Independent of mtls.* below — that section
-# governs the gateway's identity to argosd, this one governs how clients
+# governs the gateway's identity to longue-vue, this one governs how clients
 # verify the gateway.
 listener:
   port: 8443
@@ -61,7 +61,7 @@ listener:
   health:
     port: 9090
 
-# ── mTLS client identity to argosd ─────────────────────────────────────
+# ── mTLS client identity to longue-vue ─────────────────────────────────
 # Three operator-selectable modes. The gateway code reads cert/key from
 # the same fixed filesystem path regardless of mode; only the volume
 # population strategy differs.
@@ -98,7 +98,7 @@ mtls:
 # ── Verify cache behaviour ─────────────────────────────────────────────
 # Gateway-side LRU sized for ~5 MiB RAM. Revocation lag = positive TTL
 # (60 s default). Operators who need same-second revoke can set TTL=5s
-# or use the Cache-Control: no-store invalidation hint from argosd.
+# or use the Cache-Control: no-store invalidation hint from longue-vue.
 cache:
   ttl: 60s
   negativeTtl: 10s
@@ -111,7 +111,7 @@ maxBodyBytes: 10485760
 # Gateway-side scope check before forwarding. ADR-0016 §5: K8s push
 # collector tokens must declare "write". Tokens with admin imply write
 # per CachedToken.HasScope. Empty disables the gateway-side check —
-# argosd still re-validates.
+# longue-vue still re-validates.
 requiredScope: write
 
 logLevel: info
@@ -141,7 +141,7 @@ serviceAccount:
   name: ""
 
 # ── NetworkPolicy ──────────────────────────────────────────────────────
-# Default: egress permitted only to argosd's ingest listener (and Vault
+# Default: egress permitted only to longue-vue's ingest listener (and Vault
 # in vault mode). No internet egress, no in-cluster lateral movement.
 # Disable only in environments without a NetworkPolicy CNI controller.
 networkPolicy:

@@ -59,7 +59,7 @@ spec:
             component: longue-vue-ingest-gw
           annotations:
             summary: "longue-vue-ingest-gw is returning >5% 5xx"
-            description: "More than 5% of ingest gateway responses are 5xx — argosd may be unhealthy or unreachable from the DMZ."
+            description: "More than 5% of ingest gateway responses are 5xx — longue-vue may be unhealthy or unreachable from the DMZ."
 
         # Likely scanner / misconfigured collector — informational.
         - alert: IngestGwHighDenials
@@ -72,9 +72,9 @@ spec:
             summary: "longue-vue-ingest-gw denying >1 req/s"
             description: "Sustained high denial rate at the DMZ ingest gateway. Either a scanner is hitting the listener or a collector is misconfigured."
 
-        # mTLS handshake failures on argosd's ingest listener — this fires
-        # against argosd metrics but is shipped here because the operator
-        # most likely to debug it is the gateway operator.
+        # mTLS handshake failures on the longue-vue ingest listener — this
+        # fires against longue-vue metrics but is shipped here because the
+        # operator most likely to debug it is the gateway operator.
         - alert: IngestGwClientCertFailures
           expr: increase(longue_vue_ingest_listener_client_cert_failures_total[10m]) > 0
           for: 0m
@@ -82,6 +82,6 @@ spec:
             severity: warning
             component: longue-vue-ingest-gw
           annotations:
-            summary: "argosd is rejecting ingest gateway mTLS handshakes"
+            summary: "longue-vue is rejecting ingest gateway mTLS handshakes"
             description: "Reason label distinguishes bad_ca / expired / cn_not_allowed / none_provided."
 {{- end }}

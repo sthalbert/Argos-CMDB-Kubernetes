@@ -697,7 +697,7 @@ func idStr(id *uuid.UUID) string {
 	return id.String()
 }
 
-// extractEOLEntry inspects annotations for argos.io/eol.* keys and
+// extractEOLEntry inspects annotations for longue-vue.io/eol.* keys and
 // builds a summary entry. Returns status "unknown" when no EOL
 // annotation is found.
 func extractEOLEntry(id, name, entityType string, annotations *map[string]string) eolSummaryEntry {
@@ -713,7 +713,7 @@ func extractEOLEntry(id, name, entityType string, annotations *map[string]string
 	}
 
 	for key, val := range *annotations {
-		if !strings.HasPrefix(key, "argos.io/eol.") {
+		if !strings.HasPrefix(key, "longue-vue.io/eol.") {
 			continue
 		}
 

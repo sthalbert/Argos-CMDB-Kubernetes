@@ -118,7 +118,7 @@ helm install longue-vue charts/longue-vue \
 The chart deploys longue-vue and a PostgreSQL instance (`postgres:17-alpine`). Retrieve the admin password from the logs if you did not set one:
 
 ```bash
-kubectl -n longue-vue-system logs -l app.kubernetes.io/name=longue-vue | grep "ARGOS FIRST-RUN"
+kubectl -n longue-vue-system logs -l app.kubernetes.io/name=longue-vue | grep "LONGUE-VUE FIRST-RUN"
 ```
 
 Access the UI:

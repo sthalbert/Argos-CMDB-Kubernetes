@@ -1,4 +1,4 @@
-// Command argosd is the Argos CMDB daemon entry point.
+// Command longue-vue is the longue-vue CMDB daemon entry point.
 package main
 
 import (
@@ -44,7 +44,9 @@ var (
 	errCollectorClustersEmpty = errors.New("LONGUE_VUE_COLLECTOR_CLUSTERS is empty")
 	errClusterNameRequired    = errors.New("LONGUE_VUE_COLLECTOR_CLUSTERS entry: name is required")
 	errDuplicateClusterName   = errors.New("LONGUE_VUE_COLLECTOR_CLUSTERS entry: duplicate name")
-	errNoCollectorClusters    = errors.New("LONGUE_VUE_COLLECTOR_CLUSTERS or LONGUE_VUE_CLUSTER_NAME must be set when LONGUE_VUE_COLLECTOR_ENABLED=true")
+	errNoCollectorClusters    = errors.New(
+		"LONGUE_VUE_COLLECTOR_CLUSTERS or LONGUE_VUE_CLUSTER_NAME must be set when LONGUE_VUE_COLLECTOR_ENABLED=true",
+	)
 	errInvalidCookiePolicy    = errors.New("LONGUE_VUE_SESSION_SECURE_COOKIE must be auto / always / never")
 	errEncryptedCredentials   = errors.New("secrets master key missing but cloud_accounts rows carry encrypted credentials")
 	errIngestMissingTLSConfig = errors.New("LONGUE_VUE_INGEST_LISTEN_ADDR is set but LONGUE_VUE_INGEST_LISTEN_TLS_CERT, " +
@@ -65,7 +67,7 @@ func main() {
 	}
 }
 
-// runConfig holds parsed configuration for the argosd daemon.
+// runConfig holds parsed configuration for the longue-vue daemon.
 type runConfig struct {
 	addr            string
 	dsn             string
@@ -75,20 +77,20 @@ type runConfig struct {
 	autoMigrate     bool
 	// ingest configures the optional mTLS-only ingest listener used by
 	// the DMZ ingest gateway (ADR-0016). When ingest.addr is empty the
-	// listener is not started and argosd behaves identically to today.
+	// listener is not started and longue-vue behaves identically to today.
 	ingest ingestListenerConfig
 	// Public-listener TLS posture and proxy trust (ADR-0017). All four
 	// fields default to "off" so existing deployments are unchanged.
-	// publicTLSCert + publicTLSKey: opt argosd into native TLS on the
+	// publicTLSCert + publicTLSKey: opt longue-vue into native TLS on the
 	// public listener; both must be set together.
 	publicTLSCert string
 	publicTLSKey  string
 	// trustedProxies enumerates the immediate-peer CIDRs whose
-	// X-Forwarded-For and X-Forwarded-Proto headers argosd will honor.
+	// X-Forwarded-For and X-Forwarded-Proto headers longue-vue will honor.
 	// Empty (the default) means no peer is trusted — both headers are
 	// ignored unconditionally, which is the secure default.
 	trustedProxies []*net.IPNet
-	// requireHTTPS turns the §3 startup guard on. When true, argosd
+	// requireHTTPS turns the §3 startup guard on. When true, longue-vue
 	// refuses to come up unless either native TLS is configured or a
 	// trusted-proxy + always-secure-cookie posture is set.
 	requireHTTPS bool
@@ -497,7 +499,7 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	// /v1/auth/verify is reachable only on the mTLS-only ingest listener
 	// (ADR-0016 §3). The codegen router registers it on every mux it
 	// wires, so 404 it here on the public listener as defence in depth
-	// in case an operator runs argosd without configuring the ingest
+	// in case an operator runs longue-vue without configuring the ingest
 	// listener separately.
 	publicHandler := blockIngestOnlyPaths(mux)
 
@@ -526,7 +528,7 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 }
 
 // blockIngestOnlyPaths 404s requests to paths that should never appear on
-// argosd's public listener. Today that's only POST /v1/auth/verify
+// longue-vue's public listener. Today that's only POST /v1/auth/verify
 // (ADR-0016 §3): the ingest listener serves it; the public listener must
 // not. Belt-and-braces — the spec doesn't declare auth on the verify
 // endpoint, so a misconfigured deployment that mounts only the public
@@ -634,8 +636,8 @@ func loadPEMCertPool(path string) (*x509.CertPool, error) {
 // change. Used for both server-side and client-side cert hot-reload.
 //
 // This minimal version reloads on every handshake when the file's mtime
-// changes — sufficient for argosd-side (cert rotation is infrequent).
-// The gateway binary (cmd/argos-ingest-gw) gets an fsnotify-driven
+// changes — sufficient for longue-vue-side (cert rotation is infrequent).
+// The gateway binary (cmd/longue-vue-ingest-gw) gets an fsnotify-driven
 // equivalent because it sees more frequent rotations from Vault Agent.
 func newCertReloader(certFile, keyFile string) (func(*tls.ClientHelloInfo) (*tls.Certificate, error), error) {
 	// Validate at startup so a missing / malformed cert fails the boot.
@@ -697,7 +699,7 @@ func enforceCNAllowlist(allow []string) func([][]byte, [][]*x509.Certificate) er
 
 // serveAndShutdown starts the public HTTP server (and, when configured,
 // the mTLS-only ingest listener), waits for a shutdown signal, and drains
-// both gracefully. ingestSrv may be nil — argosd treats the ingest listener
+// both gracefully. ingestSrv may be nil — longue-vue treats the ingest listener
 // as opt-in and the absence of one is fully supported.
 func serveAndShutdown( //nolint:gocyclo // central shutdown dispatcher; flat select is clearer than nested helpers
 	rootCtx context.Context,
@@ -773,7 +775,7 @@ func serveAndShutdown( //nolint:gocyclo // central shutdown dispatcher; flat sel
 
 // collectorClusterConfig is one entry in LONGUE_VUE_COLLECTOR_CLUSTERS.
 // Kubeconfig may be empty to mean "use in-cluster config" (typically when
-// argosd runs inside one of the target clusters).
+// longue-vue runs inside one of the target clusters).
 type collectorClusterConfig struct {
 	Name       string `json:"name"`
 	Kubeconfig string `json:"kubeconfig"`

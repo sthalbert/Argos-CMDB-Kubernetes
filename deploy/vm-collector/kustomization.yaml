@@ -5,8 +5,8 @@ kind: Kustomization
 # account (ADR-0015). One Deployment per cloud account.
 #
 # Prerequisites:
-#   1. argosd is reachable and has LONGUE_VUE_SECRETS_MASTER_KEY configured.
-#   2. An admin pre-registers the cloud_account in the argosd UI
+#   1. longue-vue is reachable and has LONGUE_VUE_SECRETS_MASTER_KEY configured.
+#   2. An admin pre-registers the cloud_account in the longue-vue UI
 #      (Admin > Cloud Accounts > Add account) — name + region; AK/SK
 #      can be filled in now or after the collector starts.
 #   3. The admin issues a vm-collector PAT bound to that account from

@@ -13,6 +13,8 @@ require (
 	github.com/mark3labs/mcp-go v0.49.0
 	github.com/oapi-codegen/runtime v1.4.0
 	github.com/outscale/osc-sdk-go/v2 v2.33.0
+	github.com/pb33f/libopenapi v0.36.2
+	github.com/pb33f/libopenapi-validator v0.13.7
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/prometheus/client_golang v1.23.2
 	golang.org/x/crypto v0.48.0
@@ -60,8 +62,6 @@ require (
 	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
 	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
 	github.com/pb33f/jsonpath v0.8.2 // indirect
-	github.com/pb33f/libopenapi v0.36.2 // indirect
-	github.com/pb33f/libopenapi-validator v0.13.7 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect

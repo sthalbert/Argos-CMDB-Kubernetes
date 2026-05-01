@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: daemon
 spec:
-  # Single-writer assumption from ADR-0005: one argosd owns the collector
+  # Single-writer assumption from ADR-0005: one longue-vue owns the collector
   # goroutines. Running two replicas would double-ingest the same cluster
   # state. Scaling out happens via the agent-per-cluster path (future ADR).
   replicas: 1

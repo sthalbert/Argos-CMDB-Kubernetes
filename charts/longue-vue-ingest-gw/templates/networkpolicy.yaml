@@ -40,7 +40,7 @@ spec:
         - protocol: TCP
           port: 53
 
-    # Argosd's mTLS-only ingest listener — the only application-layer
+    # longue-vue's mTLS-only ingest listener — the only application-layer
     # destination the gateway is allowed to reach. Pin the namespace
     # selector by name + the pod selector by app.kubernetes.io/name so
     # this stays valid across longue-vue chart releases.

@@ -1,11 +1,11 @@
-// Package ingestgw implements argos-ingest-gw, the DMZ ingest gateway
-// fronting the K8s push collector → argosd write path (ADR-0016).
+// Package ingestgw implements longue-vue-ingest-gw, the DMZ ingest gateway
+// fronting the K8s push collector → longue-vue write path (ADR-0016).
 //
 // The package is split into small, single-purpose files:
 //
 //	allowlist.go     — the hardcoded (method, path) write allowlist
 //	cache.go         — bounded LRU verify cache with positive/negative TTLs
-//	verify_client.go — calls argosd's POST /v1/auth/verify over mTLS
+//	verify_client.go — calls longue-vue's POST /v1/auth/verify over mTLS
 //	tls_reload.go    — fsnotify-driven cert hot reload
 //	proxy.go         — request forwarding with header strip and body cap
 //	server.go        — wires all the pieces into a single http.Handler
@@ -24,7 +24,7 @@ import (
 )
 
 // Registry is the gateway's private Prometheus registry. Separate from
-// argosd's so the two binaries can run in the same pod (sidecar mode)
+// longue-vue's so the two binaries can run in the same pod (sidecar mode)
 // without metric-name collisions; matches the pattern used by
 // internal/vmcollector.
 var Registry = prometheus.NewRegistry() //nolint:gochecknoglobals // standard Prometheus registry pattern
@@ -69,7 +69,7 @@ var (
 		Namespace: "longue_vue",
 		Subsystem: "ingest_gw",
 		Name:      "token_verify_total",
-		Help:      "Calls to argosd's /v1/auth/verify, by result (valid / invalid / error).",
+		Help:      "Calls to longue-vue's /v1/auth/verify, by result (valid / invalid / error).",
 	}, []string{"result"})
 
 	tokenCacheTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -119,7 +119,7 @@ var (
 		Namespace: "longue_vue",
 		Subsystem: "ingest_gw",
 		Name:      "build_info",
-		Help:      "Set to 1 for the running argos-ingest-gw build; labels carry version and Go toolchain info.",
+		Help:      "Set to 1 for the running longue-vue-ingest-gw build; labels carry version and Go toolchain info.",
 	}, []string{"version", "commit", "go_version"})
 )
 
@@ -204,7 +204,7 @@ func observeCertReload(result string) {
 // foldStatus collapses raw HTTP status codes into Prometheus-friendly
 // classes ("2xx", "4xx", …) so cardinality stays bounded. Mirrors
 // internal/metrics.statusClass; reproduced here so the gateway has no
-// dependency on that argosd-internal package.
+// dependency on that longue-vue-internal package.
 func foldStatus(code int) string {
 	switch code {
 	case http.StatusUnauthorized,

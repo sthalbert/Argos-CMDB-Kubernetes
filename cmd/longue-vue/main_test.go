@@ -127,7 +127,7 @@ func TestLoadCollectorClustersDuplicateName(t *testing.T) {
 
 func setMinimalRunEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("LONGUE_VUE_DATABASE_URL", "postgres://argos:argos@localhost:5432/argos")
+	t.Setenv("LONGUE_VUE_DATABASE_URL", "postgres://lv:lv@localhost:5432/lv")
 	t.Setenv("LONGUE_VUE_API_TOKEN", "")
 	t.Setenv("LONGUE_VUE_API_TOKENS", "")
 	t.Setenv("LONGUE_VUE_SESSION_SECURE_COOKIE", "")
@@ -152,7 +152,7 @@ func TestLoadRunConfig_Defaults(t *testing.T) {
 	if cfg.addr != ":8080" {
 		t.Errorf("addr: want :8080, got %q", cfg.addr)
 	}
-	if cfg.dsn != "postgres://argos:argos@localhost:5432/argos" {
+	if cfg.dsn != "postgres://lv:lv@localhost:5432/lv" {
 		t.Errorf("dsn: want the test DSN, got %q", cfg.dsn)
 	}
 	if cfg.cookiePolicy != auth.SecureAuto {
@@ -295,9 +295,9 @@ func TestLoadOIDCConfig_Empty(t *testing.T) {
 
 func TestLoadOIDCConfig_Full(t *testing.T) {
 	t.Setenv("LONGUE_VUE_OIDC_ISSUER", "https://idp.example.com")
-	t.Setenv("LONGUE_VUE_OIDC_CLIENT_ID", "argos")
+	t.Setenv("LONGUE_VUE_OIDC_CLIENT_ID", "longue-vue")
 	t.Setenv("LONGUE_VUE_OIDC_CLIENT_SECRET", "s3cret")
-	t.Setenv("LONGUE_VUE_OIDC_REDIRECT_URL", "https://argos.example.com/v1/auth/oidc/callback")
+	t.Setenv("LONGUE_VUE_OIDC_REDIRECT_URL", "https://longue-vue.example.com/v1/auth/oidc/callback")
 	t.Setenv("LONGUE_VUE_OIDC_SCOPES", "openid, email , profile")
 	t.Setenv("LONGUE_VUE_OIDC_LABEL", "Corp SSO")
 
@@ -305,13 +305,13 @@ func TestLoadOIDCConfig_Full(t *testing.T) {
 	if cfg.Issuer != "https://idp.example.com" {
 		t.Errorf("issuer: got %q", cfg.Issuer)
 	}
-	if cfg.ClientID != "argos" {
+	if cfg.ClientID != "longue-vue" {
 		t.Errorf("clientId: got %q", cfg.ClientID)
 	}
 	if cfg.ClientSecret != "s3cret" {
 		t.Errorf("clientSecret: got %q", cfg.ClientSecret)
 	}
-	if cfg.RedirectURL != "https://argos.example.com/v1/auth/oidc/callback" {
+	if cfg.RedirectURL != "https://longue-vue.example.com/v1/auth/oidc/callback" {
 		t.Errorf("redirectUrl: got %q", cfg.RedirectURL)
 	}
 	if len(cfg.Scopes) != 3 || cfg.Scopes[0] != "openid" || cfg.Scopes[1] != "email" || cfg.Scopes[2] != "profile" {
@@ -478,7 +478,7 @@ func TestCheckTransportPosture_NativeTLSAccepted(t *testing.T) {
 }
 
 func TestCheckTransportPosture_TrustedProxiesPlusSecureAlwaysAccepted(t *testing.T) {
-	// Branch (b): operator runs argosd behind a TLS-terminating ingress
+	// Branch (b): operator runs longue-vue behind a TLS-terminating ingress
 	// in the trust list AND has set the cookie policy to always-secure.
 	cfg := runConfig{
 		requireHTTPS:   true,

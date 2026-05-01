@@ -4,9 +4,9 @@ kind: Kustomization
 # Deploy the push-mode collector inside an air-gapped cluster (ADR-0009).
 #
 # Prerequisites:
-#   1. The target Cluster row must already exist in argosd
+#   1. The target Cluster row must already exist in longue-vue
 #      (`POST /v1/clusters {"name":"<LONGUE_VUE_CLUSTER_NAME>"}`).
-#   2. A PAT with `write` scope must be created in the argosd admin panel.
+#   2. A PAT with `write` scope must be created in the longue-vue admin panel.
 #
 # Usage:
 #   1. Copy secret.example.yaml -> secret.yaml, fill in real values.

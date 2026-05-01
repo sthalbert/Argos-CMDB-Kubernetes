@@ -1,7 +1,7 @@
-# -- Number of argosd replicas. Must be 1 (single-writer, ADR-0005).
+# -- Number of longue-vue replicas. Must be 1 (single-writer, ADR-0005).
 replicaCount: 1
 
-# -- Container image for argosd.
+# -- Container image for the longue-vue server.
 image:
   repository: ghcr.io/sthalbert/longue-vue
   # -- Overrides the image tag. Defaults to the chart appVersion.
@@ -12,7 +12,7 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-# -- argosd core configuration.
+# -- longue-vue server core configuration.
 argosd:
   # -- HTTP listen address inside the container.
   addr: ":8080"
@@ -30,16 +30,16 @@ argosd:
 
   # -- Public-listener TLS posture (ADR-0017). Two valid postures:
   #
-  #    1. Native TLS — argosd terminates TLS itself. Set tls.existingSecret
+  #    1. Native TLS — longue-vue terminates TLS itself. Set tls.existingSecret
   #       to a TLS-type Kubernetes Secret carrying tls.crt + tls.key; the
-  #       chart mounts it at /etc/argos/tls and passes the paths via
+  #       chart mounts it at /etc/longue-vue/tls and passes the paths via
   #       LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT / _KEY.
   #
-  #    2. Trusted proxy — argosd serves plain HTTP behind a TLS-terminating
+  #    2. Trusted proxy — longue-vue serves plain HTTP behind a TLS-terminating
   #       ingress. Leave tls.existingSecret empty, set trustedProxies to
   #       the ingress's CIDR(s), and pin sessionSecureCookie to "always".
   #
-  #    requireHTTPS=true tells argosd to refuse to start unless one of the
+  #    requireHTTPS=true tells longue-vue to refuse to start unless one of the
   #    two postures is configured — failing closed beats accidentally
   #    serving credentials over plain HTTP.
   tls:
@@ -49,17 +49,17 @@ argosd:
     existingSecret: ""
     # -- Mount path inside the container for the TLS Secret. Pinned by
     #    convention; rarely needs overriding.
-    mountPath: "/etc/argos/tls"
+    mountPath: "/etc/longue-vue/tls"
 
   # -- Comma-separated CIDR list of TLS-terminating proxies whose
-  #    X-Forwarded-For / X-Forwarded-Proto headers argosd should honor
+  #    X-Forwarded-For / X-Forwarded-Proto headers longue-vue should honor
   #    (ADR-0017). Empty = ignore both headers entirely (the secure
   #    default). Configure when running behind ingress-nginx / Envoy /
   #    a cloud LB so audit logs and rate-limit buckets see the real
   #    client IP instead of the ingress pod's.
   trustedProxies: ""
 
-  # -- When true, argosd refuses to start unless either tls.existingSecret
+  # -- When true, longue-vue refuses to start unless either tls.existingSecret
   #    is set (native TLS) OR trustedProxies is non-empty AND
   #    sessionSecureCookie is "always" (trusted-proxy posture).
   requireHTTPS: false
@@ -80,7 +80,7 @@ secrets:
   #    out of values.yaml / GitOps repos.
   existingSecret: ""
 
-# -- Pull-mode collector (embedded in argosd).
+# -- Pull-mode collector (embedded in the longue-vue server).
 collector:
   # -- Enable the Kubernetes polling collector.
   enabled: false
@@ -96,7 +96,7 @@ collector:
   # -- Delete rows that vanish from the live listing.
   reconcile: true
   # -- Name of an existing Secret containing kubeconfig files.
-  # Each key in the Secret is mounted as a file under /etc/argos/kubeconfigs/.
+  # Each key in the Secret is mounted as a file under /etc/longue-vue/kubeconfigs/.
   # Reference the mounted path in kubeconfig or clusters[].kubeconfig.
   kubeconfigSecret: ""
 
@@ -121,7 +121,7 @@ oidc:
 # Set enabled=false and provide externalDatabase.url to use your own PG
 # (managed service, CNPG, or any PostgreSQL 14+ instance).
 postgresql:
-  # -- Deploy a PostgreSQL StatefulSet alongside argosd.
+  # -- Deploy a PostgreSQL StatefulSet alongside the longue-vue server.
   enabled: true
   image:
     repository: postgres
@@ -129,11 +129,11 @@ postgresql:
     pullPolicy: IfNotPresent
   auth:
     # -- Database superuser username.
-    username: argos
+    username: longue_vue
     # -- Database superuser password.
-    password: argos
+    password: longue_vue
     # -- Database name (created on first boot via POSTGRES_DB).
-    database: argos
+    database: longue_vue
   persistence:
     # -- PVC size.
     size: 5Gi
@@ -149,7 +149,7 @@ postgresql:
 
 # -- External PostgreSQL. Only used when cnpg.enabled=false.
 externalDatabase:
-  # -- Full DSN, e.g. postgres://user:pass@host:5432/argos?sslmode=require
+  # -- Full DSN, e.g. postgres://user:pass@host:5432/longue_vue?sslmode=require
   url: ""
 
 # -- Use an existing Secret for credentials instead of the chart-generated one.
@@ -222,20 +222,20 @@ metrics:
     # -- Additional labels for the ServiceMonitor.
     labels: {}
 
-# -- Ingress (expose argosd outside the cluster).
+# -- Ingress (expose longue-vue outside the cluster).
 ingress:
   enabled: false
   className: ""
   annotations: {}
   hosts: []
-  #  - host: argos.example.com
+  #  - host: longue-vue.example.com
   #    paths:
   #      - path: /
   #        pathType: Prefix
   tls: []
-  #  - secretName: argos-tls
+  #  - secretName: longue-vue-tls
   #    hosts:
-  #      - argos.example.com
+  #      - longue-vue.example.com
 
 # -- Node selector, tolerations, affinity.
 nodeSelector: {}

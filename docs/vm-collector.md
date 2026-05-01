@@ -383,12 +383,12 @@ Suggested alerts:
 
 ```yaml
 # Collector hasn't ticked successfully in 30 minutes
-- alert: ArgosVMCollectorStale
+- alert: LongueVueVMCollectorStale
   expr: time() - longue_vue_vm_collector_last_success_timestamp_seconds > 1800
   for: 5m
 
 # Repeated credential-fetch failures
-- alert: ArgosVMCollectorCredentialFailures
+- alert: LongueVueVMCollectorCredentialFailures
   expr: rate(longue_vue_vm_collector_credential_refreshes_total{result="error"}[15m]) > 0
   for: 15m
 ```

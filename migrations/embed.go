@@ -1,4 +1,4 @@
-// Package migrations embeds the SQL migrations applied by argosd at startup
+// Package migrations embeds the SQL migrations applied by longue-vue at startup
 // or by an offline tool.
 package migrations
 

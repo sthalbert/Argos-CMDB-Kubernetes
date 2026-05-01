@@ -23,7 +23,7 @@ import (
 	"os"
 )
 
-// MasterKeyEnvVar is the env var the operator sets on argosd's
+// MasterKeyEnvVar is the env var the operator sets on longue-vue's
 // deployment to deliver the 32-byte AES-256 master key (base64-encoded).
 const MasterKeyEnvVar = "LONGUE_VUE_SECRETS_MASTER_KEY"
 
@@ -97,7 +97,7 @@ func NewEncrypterFromEnv() (*Encrypter, error) {
 }
 
 // Fingerprint returns the first 8 hex chars of SHA-256(masterKey).
-// argosd logs this at startup so operators can confirm the right key
+// longue-vue logs this at startup so operators can confirm the right key
 // is loaded without ever exposing the key itself.
 func (e *Encrypter) Fingerprint() string {
 	const hex = "0123456789abcdef"
