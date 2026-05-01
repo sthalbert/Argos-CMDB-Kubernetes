@@ -1,5 +1,5 @@
 // Design system SVG icons — 24x24 stroke outline, currentColor.
-// Source: Argos Design System (assets/icons/*.svg).
+// Source: longue-vue Design System (assets/icons/*.svg).
 
 interface IconProps {
   size?: number;

@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you from zero to a working Argos installation with data flowing in. By the end you will have argosd running, the web UI accessible, and at least one cluster registered.
+This guide walks you from zero to a working longue-vue installation with data flowing in. By the end you will have longue-vue running, the web UI accessible, and at least one cluster registered.
 
 ## Prerequisites
 
@@ -20,27 +20,27 @@ For the "build from source" path you also need:
 ### 1. Start PostgreSQL
 
 ```bash
-docker run -d --rm --name argos-pg \
-  -e POSTGRES_PASSWORD=argos -e POSTGRES_DB=argos \
+docker run -d --rm --name longue-vue-pg \
+  -e POSTGRES_PASSWORD=longue-vue -e POSTGRES_DB=longue-vue \
   -p 5432:5432 postgres:16-alpine
 ```
 
-### 2. Build and run argosd
+### 2. Build and run longue-vue
 
 ```bash
-git clone https://github.com/sthalbert/argos.git
-cd argos
+git clone https://github.com/sthalbert/longue-vue.git
+cd longue-vue
 
 make ui-install    # first time only -- installs npm deps
 make ui-build      # produces ui/dist/ for embedding
-make build         # produces bin/argosd
+make build         # produces bin/longue-vue
 
-ARGOS_DATABASE_URL="postgres://postgres:argos@localhost:5432/argos?sslmode=disable" \
-  ARGOS_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login" \
-  ./bin/argosd
+LONGUE_VUE_DATABASE_URL="postgres://postgres:longue-vue@localhost:5432/longue-vue?sslmode=disable" \
+  LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login" \
+  ./bin/longue-vue
 ```
 
-argosd runs database migrations automatically on startup, then starts listening on `:8080`.
+longue-vue runs database migrations automatically on startup, then starts listening on `:8080`.
 
 ### 3. Open the UI and sign in
 
@@ -62,39 +62,39 @@ If you do not have a Kubernetes cluster handy, the demo seed script populates a 
 ```bash
 # First, mint a token for the script.
 # Log in via curl, then create a token:
-curl -sS -c /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/login \
+curl -sS -c /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<your new password>"}'
 
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/admin/tokens \
   -H 'Content-Type: application/json' \
   -d '{"name":"seed","scopes":["read","write","delete"]}'
 # Copy the "token" value from the response.
 
-ARGOS_URL=http://localhost:8080 ARGOS_TOKEN=argos_pat_... ./scripts/seed-demo.sh
+LONGUE_VUE_URL=http://localhost:8080 LONGUE_VUE_TOKEN=longue_vue_pat_... ./scripts/seed-demo.sh
 ```
 
 Refresh the UI -- you should see clusters, namespaces, workloads, pods, services, and ingresses.
 
-## Option B -- Binary from source (no Docker for argosd)
+## Option B -- Binary from source (no Docker for longue-vue)
 
-If you prefer to skip Docker entirely for the argosd binary (you still need PostgreSQL somewhere):
+If you prefer to skip Docker entirely for the longue-vue binary (you still need PostgreSQL somewhere):
 
 ```bash
-git clone https://github.com/sthalbert/argos.git
-cd argos
+git clone https://github.com/sthalbert/longue-vue.git
+cd longue-vue
 
 make ui-install
 make ui-build
 make build
 ```
 
-Point argosd at any PostgreSQL 14+ instance:
+Point longue-vue at any PostgreSQL 14+ instance:
 
 ```bash
-export ARGOS_DATABASE_URL="postgres://user:pass@pg-host:5432/argos?sslmode=require"
-export ARGOS_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login"
-./bin/argosd
+export LONGUE_VUE_DATABASE_URL="postgres://user:pass@pg-host:5432/longue-vue?sslmode=require"
+export LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD="changeme-on-first-login"
+./bin/longue-vue
 ```
 
 If you only need the API (no web UI), skip the Node toolchain entirely:
@@ -110,21 +110,21 @@ The `/ui/` path returns 404 in this mode; the REST API works normally.
 If you have a Kubernetes cluster and Helm 3 installed, this is the fastest path to a production-like setup:
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
-  --set argosd.bootstrapAdminPassword="changeme-on-first-login"
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
+  --set longue-vue.bootstrapAdminPassword="changeme-on-first-login"
 ```
 
-The chart deploys argosd and a PostgreSQL instance (`postgres:17-alpine`). Retrieve the admin password from the logs if you did not set one:
+The chart deploys longue-vue and a PostgreSQL instance (`postgres:17-alpine`). Retrieve the admin password from the logs if you did not set one:
 
 ```bash
-kubectl -n argos-system logs -l app.kubernetes.io/name=argos | grep "ARGOS FIRST-RUN"
+kubectl -n longue-vue-system logs -l app.kubernetes.io/name=longue-vue | grep "LONGUE-VUE FIRST-RUN"
 ```
 
 Access the UI:
 
 ```bash
-kubectl -n argos-system port-forward svc/argos 8080:8080
+kubectl -n longue-vue-system port-forward svc/longue-vue 8080:8080
 open http://localhost:8080/
 ```
 
@@ -137,7 +137,7 @@ See [Deploy with Helm](deployment/helm.md) for the full values reference, extern
 This happens automatically on first login in the UI. If you are scripting against the API:
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/change-password \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/auth/change-password \
   -H 'Content-Type: application/json' \
   -d '{"current_password":"changeme-on-first-login","new_password":"a-strong-passphrase"}'
 ```
@@ -149,32 +149,32 @@ The collector auto-creates a minimal cluster record (name only) on first contact
 **Optional: pre-register with curated metadata.** To populate display name, environment, or owner before the first tick:
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/clusters \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/clusters \
   -H 'Content-Type: application/json' \
   -d '{"name":"my-cluster","display_name":"My Cluster","environment":"dev"}'
 ```
 
-The `name` field must match the `ARGOS_CLUSTER_NAME` (or the `name` in `ARGOS_COLLECTOR_CLUSTERS`) that the collector uses.
+The `name` field must match the `LONGUE_VUE_CLUSTER_NAME` (or the `name` in `LONGUE_VUE_COLLECTOR_CLUSTERS`) that the collector uses.
 
 ### Enable the pull collector
 
-Add these environment variables when starting argosd:
+Add these environment variables when starting longue-vue:
 
 ```bash
-ARGOS_COLLECTOR_ENABLED=true \
-ARGOS_CLUSTER_NAME=my-cluster \
-ARGOS_DATABASE_URL="postgres://..." \
-  ./bin/argosd
+LONGUE_VUE_COLLECTOR_ENABLED=true \
+LONGUE_VUE_CLUSTER_NAME=my-cluster \
+LONGUE_VUE_DATABASE_URL="postgres://..." \
+  ./bin/longue-vue
 ```
 
-This uses the in-cluster ServiceAccount by default. For remote clusters, mount kubeconfig files from a Kubernetes Secret and use `ARGOS_COLLECTOR_CLUSTERS` — see [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md).
+This uses the in-cluster ServiceAccount by default. For remote clusters, mount kubeconfig files from a Kubernetes Secret and use `LONGUE_VUE_COLLECTOR_CLUSTERS` — see [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md).
 
 On the next tick (default: 60 seconds) the collector populates nodes, namespaces, pods, workloads, services, ingresses, persistent volumes, and PVCs.
 
 ### Verify data appears
 
 ```bash
-curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/namespaces | jq '.items | length'
+curl -sS -b /tmp/longue-vue.cookies http://localhost:8080/v1/namespaces | jq '.items | length'
 ```
 
 Or simply refresh the UI -- the cluster detail page shows all discovered resources.
@@ -184,7 +184,7 @@ Or simply refresh the UI -- the cluster detail page shows all discovered resourc
 For CI pipelines, automation scripts, or the push-mode collector, create a bearer token:
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/admin/tokens \
   -H 'Content-Type: application/json' \
   -d '{"name":"ci-pipeline","scopes":["read","write"]}'
 ```
@@ -192,14 +192,14 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
 The response contains the plaintext token exactly once -- store it in a secrets manager immediately. Subsequent API calls use it as:
 
 ```bash
-curl -H "Authorization: Bearer argos_pat_..." http://localhost:8080/v1/clusters
+curl -H "Authorization: Bearer longue_vue_pat_..." http://localhost:8080/v1/clusters
 ```
 
 ## Next steps
 
-- [Configuration reference](configuration.md) -- all environment variables for argosd and argos-collector.
+- [Configuration reference](configuration.md) -- all environment variables for longue-vue and longue-vue-collector.
 - [Deploy with Helm](deployment/helm.md) -- one-command Kubernetes install with optional bundled PostgreSQL.
 - [Deploy with Kustomize](deployment/kubernetes.md) -- production deployment with plain manifests.
-- [Push collector for air-gapped clusters](deployment/push-collector.md) -- deploy argos-collector.
+- [Push collector for air-gapped clusters](deployment/push-collector.md) -- deploy longue-vue-collector.
 - [Authentication guide](authentication.md) -- OIDC, roles, tokens.
 - [API reference](api-reference.md) -- every endpoint with curl examples.

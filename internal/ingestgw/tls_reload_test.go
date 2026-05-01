@@ -155,10 +155,10 @@ func TestCertReloader_HotReload(t *testing.T) {
 	atomicWrite(t, certPath, newCertPEM)
 	atomicWrite(t, keyPath, newKeyPEM)
 
-	// Wait up to 5s for the reloader to pick up the new cert.
-	// The debounce in watch() is 200ms; macOS kqueue can be slower than
-	// inotify — give it generous headroom.
-	deadline := time.Now().Add(5 * time.Second)
+	// Wait up to 15s for the reloader to pick up the new cert.
+	// The debounce in watch() is 200ms; CI under -race with concurrent
+	// package tests can stretch scheduling — give it generous headroom.
+	deadline := time.Now().Add(15 * time.Second)
 	var reloaded bool
 	for time.Now().Before(deadline) {
 		cert2, err := reloader.GetClientCertificate(&tls.CertificateRequestInfo{})

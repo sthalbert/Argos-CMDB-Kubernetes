@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/api"
+	"github.com/sthalbert/longue-vue/internal/api"
 )
 
 // auditEventSelectColumns is the column list used for SELECT queries

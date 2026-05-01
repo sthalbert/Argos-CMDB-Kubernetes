@@ -23,11 +23,11 @@ type route struct {
 // paths the K8s push collector touches every tick — no read endpoints, no
 // admin endpoints, no auth endpoints other than verify (which the gateway
 // doesn't expose to collectors anyway; verify is a server-side concern,
-// the gateway calls argosd's verify endpoint internally).
+// the gateway calls longue-vue's verify endpoint internally).
 //
 // Keep this list synchronised with internal/api.IngestRoutes (ADR-0016
-// §3): a route argosd serves but the gateway blocks is fine (defence in
-// depth); a route the gateway forwards but argosd does not register is
+// §3): a route longue-vue serves but the gateway blocks is fine (defence in
+// depth); a route the gateway forwards but longue-vue does not register is
 // a configuration error and produces a 404 at the listener.
 var Routes = []route{ //nolint:gochecknoglobals // hardcoded allowlist; reads better as a literal table
 	{http.MethodPost, "/v1/clusters"},
@@ -52,7 +52,7 @@ var Routes = []route{ //nolint:gochecknoglobals // hardcoded allowlist; reads be
 
 // uuidPattern matches a canonical 8-4-4-4-12 hex UUID. Wider than
 // strictly required (no version / variant nibble check) on purpose —
-// argosd is the authority on whether the UUID resolves to a row; the
+// longue-vue is the authority on whether the UUID resolves to a row; the
 // gateway only needs to confirm "it looks like a UUID, not a path
 // traversal payload" before forwarding.
 var uuidPattern = regexp.MustCompile(

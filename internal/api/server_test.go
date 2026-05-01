@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
 // memStore is an in-memory api.Store implementation used to exercise the

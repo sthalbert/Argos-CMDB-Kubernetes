@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Context
 
-Deleting a cluster is the single most destructive operation in Argos. The `clusters` table sits at the root of the FK tree; a `DELETE FROM clusters WHERE id = $1` cascades through every child table — namespaces, nodes, persistent volumes, and transitively all pods, workloads, services, ingresses, and PVCs belonging to those namespaces. A single API call can erase the entire inventory of a production cluster from the CMDB.
+Deleting a cluster is the single most destructive operation in longue-vue. The `clusters` table sits at the root of the FK tree; a `DELETE FROM clusters WHERE id = $1` cascades through every child table — namespaces, nodes, persistent volumes, and transitively all pods, workloads, services, ingresses, and PVCs belonging to those namespaces. A single API call can erase the entire inventory of a production cluster from the CMDB.
 
 Today the `DELETE /v1/clusters/{id}` endpoint is gated on the `delete` scope, which per ADR-0007 is granted exclusively to the `admin` role. That satisfies the "only admins can do it" requirement at the scope level. However, two gaps remain:
 
@@ -86,7 +86,7 @@ The UI must present a confirmation dialog before calling `DELETE /v1/clusters/{i
 ### Negative
 
 - **NEG-001**: The pre-deletion snapshot requires counting children across multiple tables before the DELETE executes. For very large clusters (thousands of pods), the count queries add latency to the delete call. Acceptable for a rare, admin-only operation.
-- **NEG-002**: No undo. Once deleted, recovery requires re-collecting the cluster (re-add it to `ARGOS_COLLECTOR_CLUSTERS` and wait for the next poll tick). Curated metadata (owner, criticality, notes, runbook_url, annotations) is permanently lost.
+- **NEG-002**: No undo. Once deleted, recovery requires re-collecting the cluster (re-add it to `LONGUE_VUE_COLLECTOR_CLUSTERS` and wait for the next poll tick). Curated metadata (owner, criticality, notes, runbook_url, annotations) is permanently lost.
 - **NEG-003**: UI confirmation is bypassable via direct API call. This is by design (automation use-case), but means a mistyped `curl` from an admin can still drop a cluster.
 
 ### Neutral
@@ -113,7 +113,7 @@ The UI must present a confirmation dialog before calling `DELETE /v1/clusters/{i
 ### Two-admin approval (four-eyes principle)
 
 - **ALT-007**: **Description**: Cluster deletion requires approval from a second admin before executing.
-- **ALT-008**: **Rejection Reason**: Argos is typically operated by small teams (1-3 admins). Requiring a second admin blocks single-admin installations entirely. The audit trail provides after-the-fact accountability; the UI confirmation gate provides before-the-fact friction. Four-eyes can be added as an optional policy in a future ADR if customers request it.
+- **ALT-008**: **Rejection Reason**: longue-vue is typically operated by small teams (1-3 admins). Requiring a second admin blocks single-admin installations entirely. The audit trail provides after-the-fact accountability; the UI confirmation gate provides before-the-fact friction. Four-eyes can be added as an optional policy in a future ADR if customers request it.
 
 ## Implementation Notes
 

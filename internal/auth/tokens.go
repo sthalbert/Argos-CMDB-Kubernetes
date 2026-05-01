@@ -8,8 +8,15 @@ import (
 	"strings"
 )
 
-// Token plaintext format: `argos_pat_<prefix>_<suffix>`
-//   - `argos_pat_` namespaces the value so it's greppable (GitHub's
+// Token plaintext format: `longue_vue_pat_<prefix>_<suffix>`
+//
+// New tokens are issued with the `longue_vue_pat_` scheme (TokenScheme).
+// Legacy tokens minted before the rename used the `argos_pat_` scheme
+// (TokenSchemeLegacy) and are accepted by ParseToken forever — production
+// deployments may carry them indefinitely. MintToken only ever emits
+// the new scheme.
+//
+//   - The scheme prefix namespaces the value so it's greppable (GitHub's
 //     `ghp_` / `gho_` pattern). If this ever leaks into logs or source
 //     control, secret scanners can catch it.
 //   - `<prefix>` is 8 URL-safe characters — stored in the clear in
@@ -20,13 +27,15 @@ import (
 //   - `<suffix>` is 32 URL-safe characters, random. Together with the
 //     prefix, argon2id-hashed at rest.
 const (
-	TokenScheme      = "argos_pat_"
-	tokenPrefixLen   = 8
-	tokenSuffixBytes = 24 // 24 raw → 32 chars base64-url-unpadded
+	TokenScheme       = "longue_vue_pat_"
+	TokenSchemeLegacy = "argos_pat_"
+	tokenPrefixLen    = 8
+	tokenSuffixBytes  = 24 // 24 raw → 32 chars base64-url-unpadded
 )
 
 // ErrInvalidTokenFormat means the Authorization header didn't carry a
-// value shaped like `argos_pat_<prefix>_<suffix>`. Returned by ParseToken;
+// value shaped like either the current scheme (`longue_vue_pat_<prefix>_<suffix>`)
+// or the legacy scheme (`argos_pat_<prefix>_<suffix>`). Returned by ParseToken;
 // handlers translate to 401 without leaking which bit was wrong.
 var ErrInvalidTokenFormat = errors.New("invalid token format")
 
@@ -68,12 +77,20 @@ func MintToken() (MintedToken, error) {
 
 // ParseToken splits a presented plaintext into its prefix (for store
 // lookup) and full form (for argon2id verify against the stored hash).
-// Returns ErrInvalidTokenFormat on anything not shaped like our scheme.
+// Accepts both the current scheme (TokenScheme = "longue_vue_pat_") and
+// the legacy scheme (TokenSchemeLegacy = "argos_pat_") so production
+// tokens minted before the rename continue to verify.
+// Returns ErrInvalidTokenFormat on anything not shaped like either scheme.
 func ParseToken(plaintext string) (prefix, full string, err error) {
-	if !strings.HasPrefix(plaintext, TokenScheme) {
+	var rest string
+	switch {
+	case strings.HasPrefix(plaintext, TokenScheme):
+		rest = strings.TrimPrefix(plaintext, TokenScheme)
+	case strings.HasPrefix(plaintext, TokenSchemeLegacy):
+		rest = strings.TrimPrefix(plaintext, TokenSchemeLegacy)
+	default:
 		return "", "", ErrInvalidTokenFormat
 	}
-	rest := strings.TrimPrefix(plaintext, TokenScheme)
 	sep := strings.IndexByte(rest, '_')
 	if sep != tokenPrefixLen {
 		return "", "", fmt.Errorf("prefix must be %d chars: %w", tokenPrefixLen, ErrInvalidTokenFormat)

@@ -17,13 +17,13 @@ import (
 // Config wires the gateway. All fields are required unless marked
 // otherwise. Validate via Config.Check().
 type Config struct {
-	// UpstreamBaseURL is argosd's ingest listener URL, e.g.
-	// "https://argosd-ingest.argos.svc.cluster.local:8443". No
+	// UpstreamBaseURL is longue-vue's ingest listener URL, e.g.
+	// "https://longue-vue-ingest.longue-vue.svc.cluster.local:8443". No
 	// trailing slash; must include scheme.
 	UpstreamBaseURL string
 
 	// UpstreamHost optionally overrides the Host: header sent to
-	// argosd. Useful when the upstream service hostname differs from
+	// longue-vue. Useful when the upstream service hostname differs from
 	// the cert SAN. Empty = use the host from UpstreamBaseURL.
 	UpstreamHost string
 
@@ -46,7 +46,7 @@ type Config struct {
 	// through the gateway. ADR-0016 ships with "write" — the K8s
 	// push collector's scope. Tokens with admin imply write per
 	// CachedToken.HasScope. Empty disables the gateway-side scope
-	// check entirely (argosd still re-validates).
+	// check entirely (longue-vue still re-validates).
 	RequiredScope string
 
 	// ReadyzCheck is a function that returns nil when the gateway is
@@ -161,7 +161,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 
 // handleProxy is the workhorse. Resolves the allowlist, verifies the
 // bearer token (cache → singleflight verify → cache), enforces scope,
-// then forwards to argosd.
+// then forwards to longue-vue.
 //
 //nolint:gocyclo // central request dispatcher; flat is better than nested helpers
 func (s *Server) handleProxy(
@@ -211,7 +211,7 @@ func (s *Server) handleProxy(
 				"token verify denied", nil)
 			return
 		}
-		// Transport / 5xx — argosd is unreachable. Don't fail-open;
+		// Transport / 5xx — longue-vue is unreachable. Don't fail-open;
 		// don't cache; let the collector retry.
 		s.respond(w, r, route, http.StatusServiceUnavailable, OutcomeUpstreamError, start,
 			"verify call failed", err)
@@ -224,7 +224,7 @@ func (s *Server) handleProxy(
 		return
 	}
 
-	// Scope check — gateway-side short-circuit. Argosd re-checks too.
+	// Scope check — gateway-side short-circuit. longue-vue re-checks too.
 	if s.requiredScope != "" && !entry.HasScope(s.requiredScope) {
 		s.respond(w, r, route, http.StatusForbidden, OutcomeDeniedScope, start,
 			"token lacks required scope", nil)
@@ -238,7 +238,7 @@ func (s *Server) handleProxy(
 			"upstream error", upErr)
 		return
 	}
-	// Argosd 401 means the token was revoked between our cache hit and
+	// longue-vue 401 means the token was revoked between our cache hit and
 	// now. Drop the cache entry so the next request re-verifies.
 	if upstreamStatus == http.StatusUnauthorized {
 		s.cache.Invalidate(token)
@@ -292,7 +292,7 @@ func (s *Server) respond(
 	err error,
 ) {
 	// Only write the response for outcomes that didn't already get one
-	// from proxyRequest (which streams argosd's body verbatim).
+	// from proxyRequest (which streams longue-vue's body verbatim).
 	switch outcome {
 	case OutcomeAllowed, OutcomeUpstreamError, OutcomeUpstreamTimeout:
 		// Body already written (or partially written) by proxyRequest.
@@ -326,7 +326,7 @@ func (s *Server) respond(
 	)
 }
 
-// writeProblem emits a tiny RFC 7807 problem body. Mirrors argosd's
+// writeProblem emits a tiny RFC 7807 problem body. Mirrors longue-vue's
 // shape so collectors can parse one error model regardless of which
 // node in the chain rejected the request.
 func writeProblem(w http.ResponseWriter, status int, detail string) {
@@ -344,9 +344,9 @@ func writeProblem(w http.ResponseWriter, status int, detail string) {
 }
 
 // tokenPrefixFor returns the first 8 hex characters of sha256(token) —
-// useful for log correlation with argosd's audit log without exposing
-// the token itself. (Differs from the argosd-stored prefix, which is
-// the literal first 8 chars of the token after the argos_pat_ prefix;
+// useful for log correlation with longue-vue's audit log without exposing
+// the token itself. (Differs from the longue-vue-stored prefix, which is
+// the literal first 8 chars of the token after the lv_pat_ prefix;
 // the gateway logs the hash prefix because it never sees the token's
 // stored canonical form.)
 func tokenPrefixFor(token string) string {
@@ -364,7 +364,7 @@ func tokenPrefixFor(token string) string {
 // returns a new cert pool containing them. Returns an error when no
 // certificate block is found — a common misconfiguration when the CA
 // bundle path is set but the file is empty or not yet populated by
-// Vault Agent / cert-manager. Used by cmd/argos-ingest-gw/main.go to
+// Vault Agent / cert-manager. Used by cmd/longue-vue-ingest-gw/main.go to
 // assemble the upstream CA bundle from the operator-provided file.
 func AppendCertPoolFromPEM(pem []byte) (*x509.CertPool, error) {
 	pool := x509.NewCertPool()

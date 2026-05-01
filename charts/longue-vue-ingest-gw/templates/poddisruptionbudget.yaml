@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "longue-vue-ingest-gw.fullname" . }}
+  labels:
+    {{- include "longue-vue-ingest-gw.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "longue-vue-ingest-gw.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how Argos works internally -- its components, data flow, storage model, and design decisions.
+This document explains how longue-vue works internally -- its components, data flow, storage model, and design decisions.
 
 ## High-level diagram
 
@@ -10,15 +10,15 @@ This document explains how Argos works internally -- its components, data flow, 
           | client-go (list)                      | client-go (list)
           v                                       v
    ┌──────────────┐                      ┌──────────────────┐
-   │ pull collector│                      │ argos-collector   │
+   │ pull collector│                      │ longue-vue-collector   │
    │ (goroutine    │                      │ (push binary)     │
-   │  in argosd)   │                      └────────┬─────────┘
+   │  in longue-vue)   │                      └────────┬─────────┘
    └──────┬───────┘                               |
           │ direct store calls                     | HTTPS + Bearer token
           │                                        | POST /v1/*, /reconcile
           v                                        v
    ┌─────────────────────────────────────────────────┐
-   │                    argosd                        │
+   │                    longue-vue                        │
    │  ┌───────────┐  ┌──────────┐  ┌──────────────┐  │
    │  │ REST API  │  │ Auth     │  │ Audit        │  │
    │  │ (OpenAPI) │  │ (ADR-07) │  │ Middleware   │  │
@@ -42,9 +42,9 @@ This document explains how Argos works internally -- its components, data flow, 
 
 ## Components
 
-### argosd
+### longue-vue
 
-The main daemon, built from `cmd/argosd/main.go`. It combines several subsystems into a single binary:
+The main daemon, built from `cmd/longue-vue/main.go`. It combines several subsystems into a single binary:
 
 - **REST API** -- generated from `api/openapi/openapi.yaml` via `oapi-codegen`. Handlers live in `internal/api/`. Errors follow RFC 7807.
 - **Auth middleware** -- resolves requests as either session-cookie (humans) or bearer-token (machines), attaching a `Caller{id, kind, role, scopes}` to the context. Implemented in `internal/auth/`.
@@ -54,22 +54,22 @@ The main daemon, built from `cmd/argosd/main.go`. It combines several subsystems
 - **Metrics** -- Prometheus counters and gauges at `/metrics`. Implemented in `internal/metrics/`.
 - **Embedded UI** -- the React SPA built into the binary via `//go:embed` and served at `/ui/*`.
 
-### argos-collector
+### longue-vue-collector
 
-A standalone push-mode collector binary, built from `cmd/argos-collector/`. It shares the same `internal/collector` package as the pull collector but writes through an HTTP client (`internal/collector/apiclient`) instead of the direct store interface.
+A standalone push-mode collector binary, built from `cmd/longue-vue-collector/`. It shares the same `internal/collector` package as the pull collector but writes through an HTTP client (`internal/collector/apiclient`) instead of the direct store interface.
 
 Key differences from the pull collector:
 
 - No database dependency.
 - No HTTP server -- it is a pure client.
-- Authenticates to argosd with a bearer token (PAT).
+- Authenticates to longue-vue with a bearer token (PAT).
 - Supports gateway/proxy traversal: custom CA, mTLS, path prefix rewrite, extra headers.
 
 See [ADR-0009](adr/adr-0009-push-collector-for-airgapped-clusters.md) for the design rationale.
 
 ## Pull collector
 
-The pull collector runs as goroutines inside argosd. Each goroutine handles one cluster.
+The pull collector runs as goroutines inside longue-vue. Each goroutine handles one cluster.
 
 ### Polling cycle
 
@@ -88,7 +88,7 @@ On each tick (default: 60 seconds), the collector:
 
 ### Reconciliation
 
-When `ARGOS_COLLECTOR_RECONCILE=true` (default), after each successful listing the collector deletes rows that disappeared from the live Kubernetes listing:
+When `LONGUE_VUE_COLLECTOR_RECONCILE=true` (default), after each successful listing the collector deletes rows that disappeared from the live Kubernetes listing:
 
 - **Cluster-scoped**: nodes and PVs reconcile against `(cluster_id, name)`.
 - **Namespace-scoped**: pods, services, ingresses, PVCs reconcile per namespace against `(namespace_id, name)`.
@@ -98,11 +98,11 @@ Reconciliation only runs after a successful list. A transient Kubernetes API err
 
 ### Multi-cluster
 
-Configured via `ARGOS_COLLECTOR_CLUSTERS` (JSON array of `{name, kubeconfig}` tuples). One goroutine per entry, all sharing the store. The legacy `ARGOS_CLUSTER_NAME` + `ARGOS_KUBECONFIG` works as a single-cluster shortcut.
+Configured via `LONGUE_VUE_COLLECTOR_CLUSTERS` (JSON array of `{name, kubeconfig}` tuples). One goroutine per entry, all sharing the store. The legacy `LONGUE_VUE_CLUSTER_NAME` + `LONGUE_VUE_KUBECONFIG` works as a single-cluster shortcut.
 
 ## Push collector
 
-The push collector (`argos-collector`) runs inside an air-gapped cluster. It performs the same polling cycle as the pull collector but writes observations to argosd over HTTPS using the REST API:
+The push collector (`longue-vue-collector`) runs inside an air-gapped cluster. It performs the same polling cycle as the pull collector but writes observations to longue-vue over HTTPS using the REST API:
 
 - **Upserts** map to `POST /v1/<resource>` (idempotent on the natural key).
 - **Reconciliation** maps to `POST /v1/<resource>/reconcile`.
@@ -167,7 +167,7 @@ Each Kubernetes kind maps to an ANSSI SecNumCloud cartography layer (per [ADR-00
 Dual-path authentication per [ADR-0007](adr/adr-0007-auth-and-rbac.md):
 
 - **Humans**: session cookie (HttpOnly, SameSite=Strict, 8h sliding expiry) obtained via local login or OIDC.
-- **Machines**: bearer token (`argos_pat_<prefix>_<secret>`, argon2id-hashed at rest).
+- **Machines**: bearer token (`longue_vue_pat_<prefix>_<secret>`, argon2id-hashed at rest).
 - **RBAC**: four fixed roles (admin, editor, auditor, viewer) mapping to scope sets. Scope checks happen at the operation level.
 
 See [Authentication](authentication.md) for operational details.
@@ -176,11 +176,11 @@ See [Authentication](authentication.md) for operational details.
 
 ### PostgreSQL
 
-Argos uses PostgreSQL 14+ with `pgx/v5` for connection pooling. JSONB columns store heterogeneous Kubernetes specs without schema sprawl. All queries use parameterized statements.
+longue-vue uses PostgreSQL 14+ with `pgx/v5` for connection pooling. JSONB columns store heterogeneous Kubernetes specs without schema sprawl. All queries use parameterized statements.
 
 ### Migrations
 
-SQL migrations are embedded in the binary via `migrations/embed.go` and run by `goose` on startup (when `ARGOS_AUTO_MIGRATE=true`, the default). Migrations are timestamped and forward-only.
+SQL migrations are embedded in the binary via `migrations/embed.go` and run by `goose` on startup (when `LONGUE_VUE_AUTO_MIGRATE=true`, the default). Migrations are timestamped and forward-only.
 
 ### Pagination
 
@@ -188,7 +188,7 @@ All list endpoints use cursor-based pagination. The cursor is an opaque base64-e
 
 ## Build and embed
 
-The argosd binary embeds the React UI bundle:
+The longue-vue binary embeds the React UI bundle:
 
 1. `make ui-build` produces `ui/dist/` (Vite build).
 2. `go build` picks it up via `//go:embed all:dist` in `ui/embed.go`.
@@ -201,7 +201,7 @@ The build tag `noui` disables the embed (`make build-noui`), making `/ui/` retur
 The `Dockerfile` uses a three-stage build:
 
 1. `node:22-alpine` builds the UI bundle.
-2. `golang` compiles argosd with the embedded UI (`CGO_ENABLED=0` for a static binary).
+2. `golang` compiles longue-vue with the embedded UI (`CGO_ENABLED=0` for a static binary).
 3. `gcr.io/distroless/static-debian12:nonroot` runs the binary as UID 65532.
 
 The push collector has its own `Dockerfile.collector` following the same pattern without the UI stage.

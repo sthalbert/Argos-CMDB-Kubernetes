@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
 // Auth-substrate state, attached to memStore via an embedded field.

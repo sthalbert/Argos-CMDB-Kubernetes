@@ -1,0 +1,197 @@
+# Default values for longue-vue-ingest-gw — the DMZ ingest gateway (ADR-0016).
+# Three independent TLS-source modes (vault | secret | file) cover the
+# realistic operator postures. The gateway code is identical across modes;
+# only the volume population differs.
+#
+# Required values that have no defensible default:
+#   - upstream.url       (where longue-vue's ingest listener lives)
+#   - upstream.caBundle  (PEM trusting longue-vue's server cert)
+#   - listener.tls.secretName     (cert presented to Envoy/clients)
+#   - mtls.<mode>.<...>           (one of vault / secret / file)
+
+image:
+  repository: ghcr.io/sthalbert/longue-vue-ingest-gw
+  # tag defaults to .Chart.AppVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Two replicas + PDB(minAvailable: 1) gives drain-safe rolling updates
+# without requiring autoscaling.
+replicaCount: 2
+
+# Pod resource shape sized for ~10 K active tokens and bursts up to a
+# few hundred concurrent requests; bumped easily without restart.
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ── Upstream longue-vue configuration ─────────────────────────────────
+# upstream.url MUST point at longue-vue's mTLS-only ingest listener
+# (LONGUE_VUE_INGEST_LISTEN_ADDR), NOT the public listener. Typically a
+# ClusterIP service in the trusted-zone namespace.
+upstream:
+  url: ""                   # required: e.g. https://longue-vue-ingest.longue-vue.svc.cluster.local:8443
+  host: ""                  # optional Host: header override; empty = host from url
+  timeout: 30s
+  # PEM bundle that signs longue-vue's server cert. Mounted as a ConfigMap
+  # volume into the gateway pod. Provide inline (caBundle) or reference
+  # an existing ConfigMap (caBundleConfigMap).
+  caBundle: ""              # required when caBundleConfigMap is empty
+  caBundleConfigMap: ""     # alt: use this existing ConfigMap (key: ca.crt)
+
+# ── Inbound listener (gateway ↔ Envoy) ─────────────────────────────────
+# Cert presented by the gateway to its TLS clients (Envoy in production,
+# direct callers in dev). Independent of mtls.* below — that section
+# governs the gateway's identity to longue-vue, this one governs how clients
+# verify the gateway.
+listener:
+  port: 8443
+  tls:
+    secretName: longue-vue-ingest-gw-server-tls   # type=kubernetes.io/tls
+  # Health/metrics live on a separate plaintext listener bound to the
+  # pod IP. Prometheus scrapes /metrics here; Envoy never sees it.
+  health:
+    port: 9090
+
+# ── mTLS client identity to longue-vue ─────────────────────────────────
+# Three operator-selectable modes. The gateway code reads cert/key from
+# the same fixed filesystem path regardless of mode; only the volume
+# population strategy differs.
+mtls:
+  # mode is one of: vault | secret | file
+  mode: secret
+
+  # Static Kubernetes secret of type kubernetes.io/tls (cert-manager,
+  # sealed-secrets, manual kubectl, …). The gateway's fsnotify watcher
+  # reloads on Secret update; cert-manager handles rotation for free.
+  secret:
+    name: longue-vue-ingest-gw-mtls
+
+  # Vault Agent injector populates the shared volume with cert/key
+  # rotated every certTTL × renewAt%. Requires Vault Agent injector
+  # admission controller running in the cluster + a Vault PKI mount.
+  vault:
+    enabled: false
+    address: https://vault.example.com
+    role: longue-vue-ingest-gw          # Vault k8s auth role bound to the SA + namespace
+    pkiMount: pki_int
+    pkiRole: longue-vue-ingest-gw       # Vault PKI role
+    certTTL: 24h
+    maxTTL: 48h
+    renewAt: "50"                  # % of TTL — string for templating into Vault Agent annotations
+
+  # Files mounted from any source (hostPath, sealed-secrets, SOPS-decrypted
+  # ConfigMap). The chart only mounts the volume; the operator wires it.
+  file:
+    volume:
+      hostPath:
+        path: ""
+
+# ── Verify cache behaviour ─────────────────────────────────────────────
+# Gateway-side LRU sized for ~5 MiB RAM. Revocation lag = positive TTL
+# (60 s default). Operators who need same-second revoke can set TTL=5s
+# or use the Cache-Control: no-store invalidation hint from longue-vue.
+cache:
+  ttl: 60s
+  negativeTtl: 10s
+  maxEntries: 10000
+
+# 10 MiB cap on inbound request bodies. Sized for the largest realistic
+# K8s snapshot (pod listing for a 5 K-pod cluster).
+maxBodyBytes: 10485760
+
+# Gateway-side scope check before forwarding. ADR-0016 §5: K8s push
+# collector tokens must declare "write". Tokens with admin imply write
+# per CachedToken.HasScope. Empty disables the gateway-side check —
+# longue-vue still re-validates.
+requiredScope: write
+
+logLevel: info
+
+# ── Pod hardening ──────────────────────────────────────────────────────
+# Conservative defaults; operators rarely need to relax these.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ── ServiceAccount + RBAC ──────────────────────────────────────────────
+# Vault k8s auth needs the ServiceAccount JWT projected into the pod;
+# secret/file modes don't, so the chart turns that off.
+serviceAccount:
+  create: true
+  name: ""
+
+# ── NetworkPolicy ──────────────────────────────────────────────────────
+# Default: egress permitted only to longue-vue's ingest listener (and Vault
+# in vault mode). No internet egress, no in-cluster lateral movement.
+# Disable only in environments without a NetworkPolicy CNI controller.
+networkPolicy:
+  enabled: true
+  argosdSelector:
+    matchLabels:
+      app.kubernetes.io/name: longue-vue
+  argosdNamespace: longue-vue
+  argosdIngestPort: 8443
+  vaultEgress:
+    enabled: false                  # auto-set to true when mtls.mode=vault by the chart
+    cidrs: []                       # operator fills in, e.g. ["10.0.5.10/32"]
+    port: 8200
+
+# ── Service ────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  annotations: {}
+
+# ── Monitoring opt-ins ─────────────────────────────────────────────────
+# Both gated behind Prometheus Operator availability — no-ops without it.
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+
+# ── Ingress (optional) ─────────────────────────────────────────────────
+# In a typical deployment Envoy sits in front of the gateway and operators
+# wire Envoy directly. This Ingress block exists for simpler deployments
+# where the chart itself fronts the listener.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+
+# ── Pod-spec misc ──────────────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+extraEnv: []                        # additional env vars passed to the container
+extraVolumes: []                    # advanced: extra volumes
+extraVolumeMounts: []               # advanced: extra mounts
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""

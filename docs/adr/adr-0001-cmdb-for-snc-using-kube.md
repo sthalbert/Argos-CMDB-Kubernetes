@@ -22,7 +22,7 @@ The Kubernetes perimeter in scope of this project falls within a SecNumCloud-ali
 
 Manually maintaining these assets in a general-purpose CMDB is infeasible: Kubernetes workloads are dynamic (pods roll frequently) and hierarchical (helm release → chart → resources → pods → nodes → cluster).
 
-A new CMDB — project codename **Argos** — is required with the following constraints:
+A new CMDB — project codename **Argos** (now longue-vue) — is required with the following constraints:
 
 - Written in Go, for performance, static-binary distribution, and first-class alignment with the Kubernetes ecosystem.
 - Must preserve the ANSSI cartography layering model, extended with Kubernetes-specific entity types.
@@ -34,7 +34,7 @@ A new CMDB — project codename **Argos** — is required with the following con
 
 ## Decision
 
-Build **Argos**, a Go-based CMDB purpose-built for Kubernetes-scoped inventory while preserving the ANSSI cartography model.
+Build **longue-vue**, a Go-based CMDB purpose-built for Kubernetes-scoped inventory while preserving the ANSSI cartography model.
 
 Foundational stack:
 

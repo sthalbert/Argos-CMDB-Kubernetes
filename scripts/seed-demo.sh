@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# Seed the Argos CMDB with a realistic-looking multi-cluster inventory for
+# Seed the longue-vue CMDB with a realistic-looking multi-cluster inventory for
 # demo / screenshot purposes. Idempotent-ish: re-running after the fact
 # will hit 409 Conflict on every POST, which is fine — the point is to
 # populate an empty DB once.
 #
-# Per ADR-0007, argosd no longer accepts env-var bearer tokens. This script
+# Per ADR-0007, longue-vue no longer accepts env-var bearer tokens. This script
 # picks one of two auth paths:
-#   - ARGOS_TOKEN=<argos_pat_...>  — use an admin-minted machine token.
-#   - ARGOS_USER + ARGOS_PASSWORD  — log in as a human and ride the
-#     session cookie. Defaults: admin / $ARGOS_BOOTSTRAP_ADMIN_PASSWORD
-#     if you set it on argosd (matches the local-dev pattern in README).
+#   - LONGUE_VUE_TOKEN=<lv_pat_...>  — use an admin-minted machine token.
+#   - LONGUE_VUE_USER + LONGUE_VUE_PASSWORD  — log in as a human and ride the
+#     session cookie. Defaults: admin / $LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD
+#     if you set it on longue-vue (matches the local-dev pattern in README).
 set -euo pipefail
 
-BASE="${ARGOS_BASE:-http://localhost:8080}"
+BASE="${LONGUE_VUE_BASE:-http://localhost:8080}"
 CT="Content-Type: application/json"
-COOKIE_JAR="${COOKIE_JAR:-/tmp/argos-seed.cookies}"
+COOKIE_JAR="${COOKIE_JAR:-/tmp/lv-seed.cookies}"
 
-if [ -n "${ARGOS_TOKEN:-}" ]; then
-    AUTH_ARGS=(-H "Authorization: Bearer ${ARGOS_TOKEN}")
+if [ -n "${LONGUE_VUE_TOKEN:-}" ]; then
+    AUTH_ARGS=(-H "Authorization: Bearer ${LONGUE_VUE_TOKEN}")
 else
     # Session login.
     rm -f "$COOKIE_JAR"
-    USER="${ARGOS_USER:-admin}"
-    PASS="${ARGOS_PASSWORD:-${ARGOS_BOOTSTRAP_ADMIN_PASSWORD:-}}"
+    USER="${LONGUE_VUE_USER:-admin}"
+    PASS="${LONGUE_VUE_PASSWORD:-${LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD:-}}"
     if [ -z "$PASS" ]; then
-        echo "ARGOS_PASSWORD (or ARGOS_BOOTSTRAP_ADMIN_PASSWORD) must be set" >&2
+        echo "LONGUE_VUE_PASSWORD (or LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD) must be set" >&2
         exit 2
     fi
     STATUS=$(curl -sS -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' \
@@ -32,7 +32,7 @@ else
         -H "$CT" \
         -d "{\"username\":\"${USER}\",\"password\":\"${PASS}\"}")
     if [ "$STATUS" != "204" ]; then
-        echo "login failed with status $STATUS — is argosd running, and is must_change_password cleared?" >&2
+        echo "login failed with status $STATUS — is longue-vue running, and is must_change_password cleared?" >&2
         exit 2
     fi
     AUTH_ARGS=(-b "$COOKIE_JAR")

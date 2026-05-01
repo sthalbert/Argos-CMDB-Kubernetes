@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# argos-collector container image (ADR-0009).
+# longue-vue-collector container image (ADR-0009).
 # Two-stage: golang builder -> distroless static runtime. No UI stage needed.
 # Binary is static (CGO_ENABLED=0) and runs as non-root UID 65532.
 
@@ -29,13 +29,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
         -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o /out/argos-collector \
-        ./cmd/argos-collector
+        -o /out/longue-vue-collector \
+        ./cmd/longue-vue-collector
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /out/argos-collector /argos-collector
+COPY --from=build /out/longue-vue-collector /longue-vue-collector
 
 USER nonroot:nonroot
 
-ENTRYPOINT ["/argos-collector"]
+ENTRYPOINT ["/longue-vue-collector"]

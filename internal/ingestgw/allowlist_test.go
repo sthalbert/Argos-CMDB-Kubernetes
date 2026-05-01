@@ -55,7 +55,7 @@ func TestMatchAllowlist_Negative(t *testing.T) {
 		{http.MethodPatch, "/v1/admin/settings", "settings PATCH"},
 		// Auth endpoints not on gateway.
 		{http.MethodPost, "/v1/auth/login", "login not forwarded"},
-		{http.MethodPost, "/v1/auth/verify", "verify is argosd-internal"},
+		{http.MethodPost, "/v1/auth/verify", "verify is longue-vue-internal"},
 		// Read endpoints.
 		{http.MethodGet, "/v1/clusters/" + testUUID, "GET cluster by id"},
 		{http.MethodGet, "/v1/nodes", "GET nodes"},
@@ -118,7 +118,7 @@ func TestMatchAllowlist_ReturnsPattern(t *testing.T) {
 
 func TestRouteCount(t *testing.T) {
 	t.Parallel()
-	// Routes contains exactly 18 write paths (no verify — that's argosd-only).
+	// Routes contains exactly 18 write paths (no verify — that's longue-vue-internal).
 	const wantRoutes = 18
 	if len(Routes) != wantRoutes {
 		t.Errorf("len(Routes) = %d; want %d", len(Routes), wantRoutes)

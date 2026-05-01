@@ -156,7 +156,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
       </aside>
       <div className="app-main">
         <header className="app-header">
-          <h1>Argos CMDB</h1>
+          <h1>longue-vue CMDB</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <span className="muted" style={{ fontSize: 'var(--fs-base)' }}>
               {me.username} <span className="pill">{me.role}</span>

@@ -16,18 +16,18 @@ superseded_by: ""
 
 ## Context
 
-Argos exists to be the Kubernetes-scoped CMDB for a SecNumCloud (SNC)
+longue-vue exists to be the Kubernetes-scoped CMDB for a SecNumCloud (SNC)
 provider (see ADR-0001). Chapter 8 of the SNC v3.2 référentiel —
 *Gestion des actifs* — is the clause that most directly shapes what
 the CMDB must store and expose. A gap audit against the published text
 (clauses 8.1 through 8.5, v3.2 of 2022-03-08) surfaced concrete
 data-model deficiencies that `v0.1.0` does not yet cover.
 
-The clauses and their Argos status as of `v0.1.0` "Canopus":
+The clauses and their longue-vue status as of `v0.1.0` "Canopus":
 
 - **8.1.a — Equipment inventory**: each equipment must carry
   identification (names, IPs, MACs), function, **model**, **location**,
-  **owner**, and **security need** (§8.3). Argos covers the first two
+  **owner**, and **security need** (§8.3). longue-vue covers the first two
   (enriched fields on Nodes; `layer` per ADR-0002;
   `workload.kind` per ADR-0003). Model / location / owner are
   **partial or absent** — `cluster.region` + `node.zone` cover cloud
@@ -40,12 +40,12 @@ The clauses and their Argos status as of `v0.1.0` "Canopus":
   Pod→Node mapping is served by `GET /v1/pods?node_name=…`.
   This clause is **largely satisfied**; only non-Kubernetes software
   (hypervisor / firmware / storage appliances) is out of scope, which
-  is acceptable because Argos is the Kubernetes-scoped CMDB — other
+  is acceptable because longue-vue is the Kubernetes-scoped CMDB — other
   inventories remain in any pre-existing general-purpose CMDB.
-- **8.1.c — License validity**: **not modelled** in Argos, and **will
+- **8.1.c — License validity**: **not modelled** in longue-vue, and **will
   not be**. Software licensing is handled by
   [Dependency-Track](https://dependencytrack.org/) as the authoritative
-  SBOM + license-compliance system. Argos defers to Dependency-Track
+  SBOM + license-compliance system. longue-vue defers to Dependency-Track
   via image reference (the existing `containers[].image` value is the
   join key), it does not duplicate the license field locally.
 - **8.2 — Restitution des actifs**: out of technical scope; procedural
@@ -54,7 +54,7 @@ The clauses and their Argos status as of `v0.1.0` "Canopus":
   requires the provider to identify per-service security needs.
   Following the established ANSSI / EBIOS-RM convention, DICT
   classifications live on the **Application** entity, **not** on
-  every physical or logical asset. Argos has two abstractions
+  every physical or logical asset. longue-vue has two abstractions
   that map to that Application notion: the **Namespace** (tenant-style
   grouping, "application = namespace" view from ADR-0006) and the
   **Workload** (deployed unit, "application = workload" view). DICT
@@ -112,9 +112,9 @@ and implemented as a follow-up PR series:
    well-known-label-derived value for cloud VMs). Additive; the
    collector never writes them — same invariant as PR #48.
 
-**Out of scope for Argos altogether**:
+**Out of scope for longue-vue altogether**:
 
-- License validity (§8.1.c): owned by Dependency-Track; Argos exposes
+- License validity (§8.1.c): owned by Dependency-Track; longue-vue exposes
   the `containers[].image` reference that Dependency-Track uses as
   the join key. The UI may link out to the Dependency-Track project
   for a given image but stores no license state.
@@ -127,8 +127,8 @@ and implemented as a follow-up PR series:
 
 - **POS-001**: DICT lands at the Application abstraction — so an SNC
   assessor familiar with the EBIOS-RM convention can point at the
-  same conceptual row without re-learning a bespoke Argos taxonomy.
-  The two Argos Application abstractions (Namespace and Workload) are
+  same conceptual row without re-learning a bespoke longue-vue taxonomy.
+  The two longue-vue Application abstractions (Namespace and Workload) are
   both already first-class entities with detail pages; no new kind
   needed.
 - **POS-002**: Keeping DICT off Cluster / Node avoids the
@@ -142,7 +142,7 @@ and implemented as a follow-up PR series:
   operationally critical (wake someone at 3am) without claiming it
   processes confidential data — and vice versa.
 - **POS-004**: License tracking stays in Dependency-Track where the
-  SBOM workflow and vulnerability context already live. Argos does
+  SBOM workflow and vulnerability context already live. longue-vue does
   not duplicate, does not drift, and does not invite the "whose value
   is canonical?" question an assessor would otherwise ask.
 - **POS-005**: Security-need columns are sibling to curated metadata
@@ -155,7 +155,7 @@ and implemented as a follow-up PR series:
 - **NEG-001**: Four migrations on top of the existing ones — still
   non-trivial but smaller than the original plan (license fields
   dropped; DICT confined to two kinds instead of four).
-- **NEG-002**: DICT values are pure metadata: Argos will not enforce
+- **NEG-002**: DICT values are pure metadata: longue-vue will not enforce
   any access or handling policy based on them (that would require a
   full data-classification engine, out of scope). A high
   `confidentialité` value on a Workload documents intent; it does not
@@ -221,15 +221,15 @@ and implemented as a follow-up PR series:
   special-case sidecar. Can be layered on top of the columnar values
   later.
 
-### Track licenses inside Argos
+### Track licenses inside longue-vue
 
 - **ALT-009**: **Description**: Add `license` / `license_expires_at`
   fields to the `containers` JSONB entries on Pods and Workloads (the
   original draft of this ADR proposed this).
 - **ALT-010**: **Rejection Reason**: Dependency-Track is the system of
   record for SBOM + license compliance at the target deployment.
-  Duplicating the field in Argos invites drift ("which value is
-  canonical when they disagree?") and pulls Argos into SBOM territory
+  Duplicating the field in longue-vue invites drift ("which value is
+  canonical when they disagree?") and pulls longue-vue into SBOM territory
   it was never meant to cover. The `containers[].image` reference is
   sufficient as the join key between the two systems.
 
@@ -292,7 +292,7 @@ and implemented as a follow-up PR series:
   vulnerability state is sourced from Dependency-Track keyed on those
   references. Optionally link out to a configured Dependency-Track
   instance from container rows in the UI — no new data model, just a
-  URL template in config (e.g. `ARGOS_DEPTRACK_PROJECT_URL`).
+  URL template in config (e.g. `LONGUE_VUE_DEPTRACK_PROJECT_URL`).
 
 - **IMP-007**: **Reporting queries**: once DICT columns land, the UI
   gets a cartography "heat-map" view at `/ui/admin/classification`
@@ -302,7 +302,7 @@ and implemented as a follow-up PR series:
   reporting use case an SNC assessor asks for.
 
 - **IMP-008**: **Success criterion**: a walk-through of SNC §8.1
-  against a populated Argos instance must resolve every required
+  against a populated longue-vue instance must resolve every required
   attribute to either a named column, an explicit derivation rule
   (e.g. `layer` → function), or a documented cross-reference
   ("licenses are in Dependency-Track keyed on `containers[].image`").
@@ -330,6 +330,6 @@ and implemented as a follow-up PR series:
   classification convention and the 0..4 default scale.
 - **REF-007**: Dependency-Track
   ([https://dependencytrack.org/](https://dependencytrack.org/)) —
-  external system of record for SBOM and license compliance. Argos
+  external system of record for SBOM and license compliance. longue-vue
   publishes `containers[].image` as the join key; licenses are not
   duplicated in the CMDB.

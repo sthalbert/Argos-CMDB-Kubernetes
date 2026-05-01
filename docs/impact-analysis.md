@@ -1,6 +1,6 @@
 # Impact Analysis
 
-Argos provides an interactive dependency graph that lets you assess the blast radius of a change before you make it. Select any entity in the CMDB and see what depends on it — and what it depends on — in a single view.
+longue-vue provides an interactive dependency graph that lets you assess the blast radius of a change before you make it. Select any entity in the CMDB and see what depends on it — and what it depends on — in a single view.
 
 ## How it works
 
@@ -67,5 +67,5 @@ The impact endpoint exports Prometheus metrics:
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `argos_impact_queries_total` | counter | `entity_type` | Number of impact graph queries. |
-| `argos_impact_query_duration_seconds` | histogram | `entity_type` | Query duration in seconds. |
+| `longue_vue_impact_queries_total` | counter | `entity_type` | Number of impact graph queries. |
+| `longue_vue_impact_query_duration_seconds` | histogram | `entity_type` | Query duration in seconds. |

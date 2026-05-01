@@ -1,0 +1,50 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "longue-vue-collector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "longue-vue-collector.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "longue-vue-collector.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  # The collector never accepts inbound traffic — it only pushes outbound
+  # observations to longue-vue / the DMZ gateway.
+  ingress: []
+  egress:
+    # Always allow DNS so the collector can resolve the kube API server
+    # and the longue-vue / DMZ gateway hostnames.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.networkPolicy.egressCIDRs }}
+    # When the operator supplies egressCIDRs, scope 443 to that list. The
+    # operator MUST include the kube API server's service CIDR alongside
+    # the longue-vue / DMZ gateway CIDR — the collector inherently needs the
+    # kube API. The unrestricted-443 rule below is suppressed in this mode.
+    - to:
+        {{- range .Values.networkPolicy.egressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- else }}
+    # No egressCIDRs supplied — fall back to allowing 443 to any IP so
+    # the collector can reach both the kube API server and longue-vue. Tighten
+    # by setting networkPolicy.egressCIDRs.
+    - ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+{{- end }}

@@ -18,8 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/sthalbert/argos/internal/api"
-	"github.com/sthalbert/argos/migrations"
+	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/migrations"
 )
 
 // errCursorFormatInvalid is returned when a pagination cursor cannot be decoded.

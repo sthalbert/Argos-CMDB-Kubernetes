@@ -13,7 +13,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/sthalbert/argos/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
 // AuthMiddleware returns an api.MiddlewareFunc that resolves cookie →

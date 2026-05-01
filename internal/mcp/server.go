@@ -1,5 +1,5 @@
 // Package mcp exposes CMDB data through the Model Context Protocol (MCP),
-// enabling LLM-based agents to query Argos inventory read-only. The server
+// enabling agents to query longue-vue inventory read-only. The server
 // follows the same goroutine-with-context pattern as the EOL enricher and
 // the collector.
 package mcp
@@ -14,8 +14,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/sthalbert/argos/internal/api"
-	"github.com/sthalbert/argos/internal/impact"
+	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/impact"
 )
 
 // errDisabled is returned to MCP clients when the administrator has
@@ -90,7 +90,7 @@ type Config struct {
 	Auth AuthFunc
 }
 
-// Server wraps an MCP server backed by the Argos CMDB store.
+// Server wraps an MCP server backed by the longue-vue CMDB store.
 type Server struct {
 	store     Store
 	traverser *impact.Traverser
@@ -102,7 +102,7 @@ type Server struct {
 // get_impact_graph tool; pass nil if impact analysis is not needed.
 func NewServer(store Store, traverser *impact.Traverser, cfg Config) *Server {
 	mcpSrv := server.NewMCPServer(
-		"Argos CMDB",
+		"longue-vue CMDB",
 		"0.1.0",
 		server.WithToolCapabilities(true),
 	)

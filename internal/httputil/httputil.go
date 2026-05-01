@@ -1,7 +1,7 @@
 // Package httputil provides shared HTTP request introspection helpers
 // that gate the trust placed in attacker-controllable proxy headers.
 //
-// ADR-0017 establishes that argosd reads X-Forwarded-For and
+// ADR-0017 establishes that longue-vue reads X-Forwarded-For and
 // X-Forwarded-Proto only when the immediate peer is in an explicit
 // trusted-proxy CIDR list. The empty-list default ignores both headers
 // unconditionally — that is the secure default the pentest report

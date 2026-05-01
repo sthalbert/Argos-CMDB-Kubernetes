@@ -13,7 +13,7 @@ import (
 )
 
 // CertReloader watches a cert/key pair on disk and exposes a hot-reloading
-// callback suitable for tls.Config.GetClientCertificate (gateway → argosd
+// callback suitable for tls.Config.GetClientCertificate (gateway → longue-vue
 // mTLS) or tls.Config.GetCertificate (server side).
 //
 // The watcher uses fsnotify to react to file writes, renames, and creates

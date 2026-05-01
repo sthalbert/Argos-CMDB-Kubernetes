@@ -66,7 +66,7 @@ func parseDateField(v any) (time.Time, bool) {
 }
 
 // Annotation is the structured payload stored as a JSON string value
-// in the entity's annotations map under "argos.io/eol.<product>".
+// in the entity's annotations map under "longue-vue.io/eol.<product>".
 type Annotation struct {
 	Product         string `json:"product"`                    // endoflife.date product id (e.g. "kubernetes")
 	Cycle           string `json:"cycle"`                      // matched major.minor release cycle (e.g. "1.28")

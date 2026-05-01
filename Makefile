@@ -1,15 +1,15 @@
-BINARY  := argosd
+BINARY  := longue-vue
 BIN_DIR := bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-COLLECTOR_BINARY    := argos-collector
-VM_COLLECTOR_BINARY := argos-vm-collector
+COLLECTOR_BINARY    := longue-vue-collector
+VM_COLLECTOR_BINARY := longue-vue-vm-collector
 
-IMAGE_NAME ?= argos
+IMAGE_NAME ?= longue-vue
 IMAGE_TAG  ?= dev
 
-.PHONY: all build build-noui build-collector build-vm-collector generate test test-one vet lint fmt tidy check clean docker-build docker-build-collector docker-build-vm-collector docker-build-ingest-gw ui-install ui-build ui-dev ui-check
+.PHONY: all build build-noui build-collector build-vm-collector generate test test-one vet lint fmt tidy check clean docker-build docker-build-collector docker-build-vm-collector docker-build-ingest-gw ui-install ui-build ui-dev ui-check ui-test
 
 all: build
 
@@ -18,7 +18,7 @@ all: build
 build:
 	go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY) ./cmd/$(BINARY)
 
-# Compile argosd without the embedded UI — /ui/ replies 404. No Node/npm
+# Compile longue-vue without the embedded UI — /ui/ replies 404. No Node/npm
 # required. CI and release builds do not use this target.
 build-noui:
 	go build -tags noui $(LDFLAGS) -o $(BIN_DIR)/$(BINARY) ./cmd/$(BINARY)
@@ -28,7 +28,7 @@ build-collector:
 	go build $(LDFLAGS) -o $(BIN_DIR)/$(COLLECTOR_BINARY) ./cmd/$(COLLECTOR_BINARY)
 
 # Compile the VM collector binary (ADR-0015). Pulls cloud-provider VMs and
-# pushes to argosd over HTTPS. No UI, no DB dependency.
+# pushes to longue-vue over HTTPS. No UI, no DB dependency.
 build-vm-collector:
 	go build $(LDFLAGS) -o $(BIN_DIR)/$(VM_COLLECTOR_BINARY) ./cmd/$(VM_COLLECTOR_BINARY)
 
@@ -43,6 +43,9 @@ ui-dev:
 
 ui-check:
 	cd ui && npm run typecheck
+
+ui-test:
+	cd ui && npm test
 
 generate:
 	go generate ./...
@@ -93,7 +96,7 @@ fmt:
 tidy:
 	go mod tidy
 
-check: fmt vet lint test
+check: fmt vet lint test ui-test
 
 clean:
 	rm -rf $(BIN_DIR)

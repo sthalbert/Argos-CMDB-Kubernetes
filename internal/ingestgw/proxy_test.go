@@ -63,9 +63,9 @@ func TestCopyForwardableHeaders_StripIngressHeaders(t *testing.T) {
 	t.Parallel()
 	ingressOnly := []string{
 		"X-Real-Ip",
-		"X-Argos-Verified-Caller",
-		"X-Argos-Verified-Scope",
-		"X-Argos-Verified-User",
+		"X-Longue-Vue-Verified-Caller",
+		"X-Longue-Vue-Verified-Scope",
+		"X-Longue-Vue-Verified-User",
 	}
 	src := http.Header{}
 	for _, h := range ingressOnly {
@@ -130,9 +130,9 @@ func TestBuildUpstreamURL(t *testing.T) {
 		requestURI string
 		want       string
 	}{
-		{"https://argosd:8443", "/v1/clusters", "https://argosd:8443/v1/clusters"},
-		{"https://argosd:8443/", "/v1/pods", "https://argosd:8443/v1/pods"},
-		{"https://argosd:8443", "/v1/clusters?foo=bar", "https://argosd:8443/v1/clusters?foo=bar"},
+		{"https://longue-vue:8443", "/v1/clusters", "https://longue-vue:8443/v1/clusters"},
+		{"https://longue-vue:8443/", "/v1/pods", "https://longue-vue:8443/v1/pods"},
+		{"https://longue-vue:8443", "/v1/clusters?foo=bar", "https://longue-vue:8443/v1/clusters?foo=bar"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.want, func(t *testing.T) {

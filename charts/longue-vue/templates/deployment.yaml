@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "longue-vue.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "longue-vue.labels" . | nindent 4 }}
+    app.kubernetes.io/component: daemon
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "longue-vue.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: daemon
+  template:
+    metadata:
+      labels:
+        {{- include "longue-vue.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: daemon
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "longue-vue.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: longue-vue
+          image: {{ include "longue-vue.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            {{- if and .Values.mcp.enabled (eq .Values.mcp.transport "sse") }}
+            - name: mcp
+              containerPort: {{ trimPrefix ":" .Values.mcp.addr | default "8090" }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: LONGUE_VUE_ADDR
+              value: {{ .Values.argosd.addr | quote }}
+            - name: LONGUE_VUE_AUTO_MIGRATE
+              value: {{ .Values.argosd.autoMigrate | quote }}
+            - name: LONGUE_VUE_SHUTDOWN_TIMEOUT
+              value: {{ .Values.argosd.shutdownTimeout | quote }}
+            - name: LONGUE_VUE_SESSION_SECURE_COOKIE
+              value: {{ .Values.argosd.sessionSecureCookie | quote }}
+            {{- if .Values.argosd.tls.existingSecret }}
+            - name: LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT
+              value: {{ printf "%s/tls.crt" .Values.argosd.tls.mountPath | quote }}
+            - name: LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY
+              value: {{ printf "%s/tls.key" .Values.argosd.tls.mountPath | quote }}
+            {{- end }}
+            {{- if .Values.argosd.trustedProxies }}
+            - name: LONGUE_VUE_TRUSTED_PROXIES
+              value: {{ .Values.argosd.trustedProxies | quote }}
+            {{- end }}
+            {{- if .Values.argosd.requireHTTPS }}
+            - name: LONGUE_VUE_REQUIRE_HTTPS
+              value: "true"
+            {{- end }}
+            {{- if .Values.collector.enabled }}
+            - name: LONGUE_VUE_COLLECTOR_ENABLED
+              value: "true"
+            - name: LONGUE_VUE_COLLECTOR_RECONCILE
+              value: {{ .Values.collector.reconcile | quote }}
+            - name: LONGUE_VUE_COLLECTOR_INTERVAL
+              value: {{ .Values.collector.interval | quote }}
+            - name: LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT
+              value: {{ .Values.collector.fetchTimeout | quote }}
+            {{- if .Values.collector.clusters }}
+            - name: LONGUE_VUE_COLLECTOR_CLUSTERS
+              value: {{ .Values.collector.clusters | toJson | quote }}
+            {{- else }}
+            - name: LONGUE_VUE_CLUSTER_NAME
+              value: {{ .Values.collector.clusterName | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.mcp.enabled }}
+            - name: LONGUE_VUE_MCP_ENABLED
+              value: "true"
+            - name: LONGUE_VUE_MCP_TRANSPORT
+              value: {{ .Values.mcp.transport | quote }}
+            - name: LONGUE_VUE_MCP_ADDR
+              value: {{ .Values.mcp.addr | quote }}
+            {{- if .Values.mcp.token }}
+            - name: LONGUE_VUE_MCP_TOKEN
+              value: {{ .Values.mcp.token | quote }}
+            {{- end }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "longue-vue.secretName" . }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- if or .Values.collector.kubeconfigSecret .Values.argosd.tls.existingSecret }}
+          volumeMounts:
+            {{- if .Values.collector.kubeconfigSecret }}
+            - name: kubeconfigs
+              mountPath: /etc/longue-vue/kubeconfigs
+              readOnly: true
+            {{- end }}
+            {{- if .Values.argosd.tls.existingSecret }}
+            - name: tls
+              mountPath: {{ .Values.argosd.tls.mountPath }}
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.collector.kubeconfigSecret .Values.argosd.tls.existingSecret }}
+      volumes:
+        {{- if .Values.collector.kubeconfigSecret }}
+        - name: kubeconfigs
+          secret:
+            secretName: {{ .Values.collector.kubeconfigSecret }}
+        {{- end }}
+        {{- if .Values.argosd.tls.existingSecret }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.argosd.tls.existingSecret }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

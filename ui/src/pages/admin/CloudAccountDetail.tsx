@@ -308,7 +308,7 @@ function CredentialsCard({
         </div>
         <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
           The SK is encrypted with AES-256-GCM (AAD bound to the row UUID) and only ever decrypted
-          in argosd's memory when the collector pulls it.
+          in longue-vue's memory when the collector pulls it.
         </p>
         {error && <div className="error">{error}</div>}
         <div className="admin-form-actions">

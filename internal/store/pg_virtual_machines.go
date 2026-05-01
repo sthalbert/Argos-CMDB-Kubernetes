@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/sthalbert/argos/internal/api"
+	"github.com/sthalbert/longue-vue/internal/api"
 )
 
 // vmColumns is the canonical SELECT/INSERT column order for the

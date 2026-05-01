@@ -37,7 +37,7 @@ This ADR resolves the data model, the API surface, the enricher extension, the s
 
 ## Decision
 
-**Add an operator-curated `applications` JSONB column on `virtual_machines`, extend the EOL enricher to walk that column and write `argos.io/eol.<product>` annotations against the same endoflife.date API used for clusters and nodes, and grow the `GET /v1/virtual-machines` filter set to cover name (substring), image (substring on `image_id` OR `image_name`), cloud account (by name *or* UUID), region (exact), role (exact), and the new `application` (JSONB containment).**
+**Add an operator-curated `applications` JSONB column on `virtual_machines`, extend the EOL enricher to walk that column and write `longue-vue.io/eol.<product>` annotations against the same endoflife.date API used for clusters and nodes, and grow the `GET /v1/virtual-machines` filter set to cover name (substring), image (substring on `image_id` OR `image_name`), cloud account (by name *or* UUID), region (exact), role (exact), and the new `application` (JSONB containment).**
 
 ### 1. Data model — `virtual_machines.applications`
 
@@ -154,7 +154,7 @@ func (e *Enricher) enrichVirtualMachine(ctx context.Context, vm *api.VirtualMach
 
 A new matcher `GenericVersionMatcher` lives in `internal/eol/matcher.go`. It takes the operator-declared `product` (already normalized) and the operator-declared `version`, runs the same `^v?(\d+\.\d+)` regex used by `KubernetesMatcher` against the version, and returns `MatchResult{Product: product, Cycle: matchedCycle}`. **No tag-stripping, no distro detection, no runtime-prefix parsing** — those are handled by the existing field-specific matchers (`KubernetesMatcher`, `ContainerRuntimeMatcher`, `OSImageMatcher`, `KernelMatcher`). Operator-declared versions are *expected* to be already-clean strings like `1.15.4` or `1.18`.
 
-**Storage location.** Annotations land on the existing `virtual_machines.annotations` JSONB column under `argos.io/eol.<product>` keys — same namespace, same shape, same merge semantics as clusters and nodes. The EOL Inventory page (`/ui/eol`) discovers them by reading the annotations (not by joining `applications`), so the existing aggregation logic extends naturally.
+**Storage location.** Annotations land on the existing `virtual_machines.annotations` JSONB column under `longue-vue.io/eol.<product>` keys — same namespace, same shape, same merge semantics as clusters and nodes. The EOL Inventory page (`/ui/eol`) discovers them by reading the annotations (not by joining `applications`), so the existing aggregation logic extends naturally.
 
 **Stub annotations for unknown products.** When endoflife.date returns 404 for a product the operator declared (Cyberwatch, internal tools), the enricher writes a stub annotation with `eol_status=unknown` rather than nothing. Why: the UI then shows "Cyberwatch 12.4 — lifecycle unknown" instead of silently dropping the row. Operators see that the data was *evaluated* — the absence of EOL info is a signal, not a bug.
 
@@ -171,7 +171,7 @@ type EnricherStore interface {
 }
 ```
 
-**EOL Inventory UI.** The existing `/ui/eol` page already aggregates `argos.io/eol.*` annotations across clusters and nodes. The aggregation gains a third entity source (VMs). The "Entity" column gains a "type" badge (cluster / node / vm) so operators distinguish a bastion VM from a kube node both running outdated kernels. No new page.
+**EOL Inventory UI.** The existing `/ui/eol` page already aggregates `longue-vue.io/eol.*` annotations across clusters and nodes. The aggregation gains a third entity source (VMs). The "Entity" column gains a "type" badge (cluster / node / vm) so operators distinguish a bastion VM from a kube node both running outdated kernels. No new page.
 
 ### 3. API surface — list filters
 
@@ -256,18 +256,18 @@ Filters compose with the existing region / cloud-account / power-state dropdowns
 
 ### 6. Configuration
 
-No new env vars on argosd. The enricher's existing `ARGOS_EOL_*` variables (interval, approaching-days, base URL, enabled) and the runtime `eol_enabled` setting toggle apply identically — the new VM pass runs in the same goroutine, gated by the same flag. The collector binaries (`argos-collector`, `argos-vm-collector`) are unchanged.
+No new env vars on longue-vue. The enricher's existing `LONGUE_VUE_EOL_*` variables (interval, approaching-days, base URL, enabled) and the runtime `eol_enabled` setting toggle apply identically — the new VM pass runs in the same goroutine, gated by the same flag. The collector binaries (`longue-vue-collector`, `longue-vue-vm-collector`) are unchanged.
 
 ### 7. Metrics
 
 `internal/metrics/` gains:
 
-- `argos_eol_enrichments_total{entity_type, status}` — re-labelled with `entity_type` covering `cluster`, `node`, **`vm`**. Existing metric grows a new label value; back-compatible.
-- `argos_eol_errors_total{entity_type, phase}` — same shape extension.
+- `longue_vue_eol_enrichments_total{entity_type, status}` — re-labelled with `entity_type` covering `cluster`, `node`, **`vm`**. Existing metric grows a new label value; back-compatible.
+- `longue_vue_eol_errors_total{entity_type, phase}` — same shape extension.
 
-`argos_virtual_machines_total{cloud_account, terminated}` (existing) is unchanged.
+`longue_vue_virtual_machines_total{cloud_account, terminated}` (existing) is unchanged.
 
-No new metric for the search filters — the existing `argos_http_requests_total{method, route, status}` already tracks `GET /v1/virtual-machines` with all parameter combinations folded into the same series.
+No new metric for the search filters — the existing `longue_vue_http_requests_total{method, route, status}` already tracks `GET /v1/virtual-machines` with all parameter combinations folded into the same series.
 
 ## Consequences
 
@@ -325,8 +325,8 @@ No new metric for the search filters — the existing `argos_http_requests_total
 
 ### Per-application JSONB key-style annotation
 
-- **ALT-013 Description:** Instead of `argos.io/eol.<product>`, store the EOL signal *inside* each application entry: `applications[].eol = {...}`.
-- **ALT-014 Rejection Reason:** Splits the EOL UI by entity type — clusters/nodes use `argos.io/eol.*` annotations, VMs use a different shape. The existing aggregator can keep one read path. Symmetry wins; the storage cost is identical.
+- **ALT-013 Description:** Instead of `longue-vue.io/eol.<product>`, store the EOL signal *inside* each application entry: `applications[].eol = {...}`.
+- **ALT-014 Rejection Reason:** Splits the EOL UI by entity type — clusters/nodes use `longue-vue.io/eol.*` annotations, VMs use a different shape. The existing aggregator can keep one read path. Symmetry wins; the storage cost is identical.
 
 ## Implementation Notes
 
@@ -388,7 +388,7 @@ No new metric for the search filters — the existing `argos_http_requests_total
   - **Unit (matcher):** `internal/eol/matcher_test.go` — `GenericVersionMatcher` table-driven cases (clean versions, version with leading `v`, malformed, empty).
   - **Unit (handlers):** `internal/api/virtual_machine_handlers_test.go` — name length cap (101 chars → 400), LIKE-escape (`name=%abc%` does not match every row), application normalization on PATCH, duplicate `(product,name)` rejection, max-50 cap, `added_at` / `added_by` stamping on new entries.
   - **Unit (store / pg fake):** the existing `cloudFake` in `server_cloud_fake_test.go` gains the new filter cases.
-  - **Integration (EOL enricher):** extend `internal/eol/enricher_test.go` with a fake `endoflife.date` server returning canned cycles for `vault`, a VM with one app (`vault 1.13.4`), and assert `argos.io/eol.vault` ends up on the VM's annotations with `eol_status=eol`. Cover the unknown-product stub case.
+  - **Integration (EOL enricher):** extend `internal/eol/enricher_test.go` with a fake `endoflife.date` server returning canned cycles for `vault`, a VM with one app (`vault 1.13.4`), and assert `longue-vue.io/eol.vault` ends up on the VM's annotations with `eol_status=eol`. Cover the unknown-product stub case.
   - **Integration (store):** extend `internal/integration/integration_test.go` with VM application CRUD via PATCH + GIN-containment list filter.
   - **OpenAPI validation:** spec-level + request/response payload validation for `GET /v1/virtual-machines` (with new params) and `PATCH /v1/virtual-machines/{id}` (with `applications`).
 
@@ -400,14 +400,14 @@ No new metric for the search filters — the existing `argos_http_requests_total
   - `README.md`: ADR-0019 row in the index; small features-list addition ("Application inventory and EOL enrichment for platform VMs").
   - `CHANGELOG.md`: `Added` entry under the next minor version.
 
-- **IMP-010** Helm charts: no chart-version changes for the collector / vm-collector / ingest-gw charts (they are unaffected). `charts/argos/Chart.yaml` `version` and `appVersion` bump as part of the release.
+- **IMP-010** Helm charts: no chart-version changes for the collector / vm-collector / ingest-gw charts (they are unaffected). `charts/longue-vue/Chart.yaml` `version` and `appVersion` bump as part of the release.
 
 ## Future work
 
 - **FUT-001** `pg_trgm` index on `name`, `display_name`, `image_id`, `image_name` if a deployment passes ~100K platform VMs.
 - **FUT-002** In-guest agent / SSH probe that auto-populates `applications` (already listed in ADR-0015 FUT-002). The data model in this ADR is the contract.
 - **FUT-003** Cross-entity EOL Inventory aggregation — a single page that shows kube nodes *and* platform VMs running the same outdated software (e.g. "Vault 1.13 — running on 2 nodes and 4 VMs").
-- **FUT-004** CVE enrichment alongside EOL (referenced in ADR-0012 ALT). The same `applications[]` shape would carry CVE counts under a sibling annotation namespace (`argos.io/cve.<product>`).
+- **FUT-004** CVE enrichment alongside EOL (referenced in ADR-0012 ALT). The same `applications[]` shape would carry CVE counts under a sibling annotation namespace (`longue-vue.io/cve.<product>`).
 - **FUT-005** Curated `depends_on` edges from VMs to clusters / services (already listed in ADR-0015 FUT-003). Knowing "the bastion VM runs OpenSSH 8.4" + "the bastion is upstream of cluster X" is a natural input to impact analysis.
 - **FUT-006** Bulk-edit applications across many VMs ("rename `hashicorp-vault` → `vault` everywhere") via an admin endpoint.
 

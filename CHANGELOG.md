@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Argos are recorded here. Format loosely follows
+All notable changes to longue-vue are recorded here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
@@ -9,15 +9,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [0.12.2] — 2026-04-30
 
 Helm charts realigned on `appVersion 0.12.2` across the family
-(`argos` 0.15.2, `argos-collector` 0.1.2, `argos-ingest-gw` 0.1.3,
-`argos-vm-collector` 0.1.2). Two bug fixes against 0.12.1: the DMZ ingest
-gateway can actually verify tokens against argosd (a spec-level oversight
+(`longue-vue` 0.15.2, `longue-vue-collector` 0.1.2, `longue-vue-ingest-gw` 0.1.3,
+`longue-vue-vm-collector` 0.1.2). Two bug fixes against 0.12.1: the DMZ ingest
+gateway can actually verify tokens against longue-vue (a spec-level oversight
 made the verify endpoint reject every call from the gateway with 401),
 and EOL enrichment now matches major-only product cycles.
 
 ### Fixed
 
-- **DMZ ingest gateway → argosd verify call always returned `401 missing
+- **DMZ ingest gateway → longue-vue verify call always returned `401 missing
   or invalid credentials`, blocking every forwarded write.** `POST
   /v1/auth/verify` (ADR-0016 §5) is authenticated by the mTLS-only
   listener handshake, not by an `Authorization` header — the gateway
@@ -47,11 +47,11 @@ and EOL enrichment now matches major-only product cycles.
 ## [0.12.1] — 2026-04-30
 
 Helm charts realigned on `appVersion 0.12.1` across the family
-(`argos` 0.15.1, `argos-collector` 0.1.1, `argos-ingest-gw` 0.1.2,
-`argos-vm-collector` 0.1.1). UI hotfix for the VM applications editor
+(`longue-vue` 0.15.1, `longue-vue-collector` 0.1.1, `longue-vue-ingest-gw` 0.1.2,
+`longue-vue-vm-collector` 0.1.1). UI hotfix for the VM applications editor
 introduced in 0.12.0; the collector binaries are unchanged but their
 charts bump in lockstep so `helm list` shows a single coherent
-appVersion across an Argos deployment.
+appVersion across a longue-vue deployment.
 
 ### Fixed
 
@@ -88,7 +88,7 @@ a distinct-applications endpoint for autocomplete.
   only `PATCH /v1/virtual-machines/{id}` does.
 - **EOL enrichment for VM applications** (ADR-0019 §2) — the `internal/eol/`
   enricher gains a third pass, `enrichVirtualMachines`, that walks every
-  non-terminated VM's `applications` list and writes `argos.io/eol.<product>`
+  non-terminated VM's `applications` list and writes `longue-vue.io/eol.<product>`
   annotations using the same endoflife.date lookup used for clusters and nodes.
   Products not on endoflife.date receive a stub annotation with
   `eol_status=unknown` so operators see the row was evaluated rather than
@@ -139,7 +139,7 @@ a distinct-applications endpoint for autocomplete.
   The URL slug and browser title are updated; existing bookmarks using the old
   slug continue to work via a redirect.
 - **EOL dashboard at `/ui/eol` now includes VMs as an entity dimension** —
-  the aggregator reads `argos.io/eol.*` annotations from `virtual_machines`
+  the aggregator reads `longue-vue.io/eol.*` annotations from `virtual_machines`
   alongside clusters and nodes. A new "Type" column (cluster / node / vm) and
   a corresponding filter chip appear in the summary card row. Row-level
   red/orange highlighting and the two-column-group layout ("What we run" /
@@ -150,16 +150,16 @@ a distinct-applications endpoint for autocomplete.
 ## [0.11.2] — 2026-04-29
 
 Charts-only release. `appVersion` stays at `0.11.1` — no binary changed —
-but every Argos deployable now ships with a first-class Helm chart per
-ADR-0018. Two new charts join the family: `charts/argos-collector` (the
+but every longue-vue deployable now ships with a first-class Helm chart per
+ADR-0018. Two new charts join the family: `charts/longue-vue-collector` (the
 push-mode Kubernetes collector for air-gapped clusters) and
-`charts/argos-vm-collector` (the cloud-VM collector). The reference
+`charts/longue-vue-vm-collector` (the cloud-VM collector). The reference
 Kustomize manifests under `deploy/` are demoted to "examples / first
 contact" — Helm is now the supported deployment path for every binary.
 
 ### Added
 
-- **`charts/argos-collector`** — independent chart for the push-mode K8s
+- **`charts/longue-vue-collector`** — independent chart for the push-mode K8s
   collector (ADR-0009). One Helm release per source cluster. Surfaces
   `serverURL`, `clusterName`, operator-supplied `tokenSecret.existingSecret`,
   `kubeconfig.{mode=in-cluster|secret}`, polling cadence, mTLS-to-DMZ-gateway
@@ -168,7 +168,7 @@ contact" — Helm is now the supported deployment path for every binary.
   `readOnlyRootFilesystem`, drop ALL capabilities, seccomp `RuntimeDefault`).
   ClusterRole is genuinely minimal: `list` only, on the eleven resource
   types the collector polls.
-- **`charts/argos-vm-collector`** — independent chart for the cloud-VM
+- **`charts/longue-vue-vm-collector`** — independent chart for the cloud-VM
   collector (ADR-0015). One Helm release per cloud account. Surfaces the
   same operator-supplied PAT pattern, `account.{provider, name, region}`,
   the credential-refresh cadence, mTLS + proxy blocks, optional Service
@@ -176,16 +176,16 @@ contact" — Helm is now the supported deployment path for every binary.
   NetworkPolicy + PodDisruptionBudget. Creates no ClusterRole — the
   vm-collector never calls the Kubernetes API.
 - **`docs/adr/adr-0018-helm-chart-per-deployable-binary.md`** — records
-  the chart-per-binary policy: every deployable Argos binary ships with a
-  Helm chart of its own, sibling to (not subchart of) `charts/argos`.
+  the chart-per-binary policy: every deployable longue-vue binary ships with a
+  Helm chart of its own, sibling to (not subchart of) `charts/longue-vue`.
   Independent chart versions, shared layout / labelling / hardening
-  conventions copied from `charts/argos-ingest-gw`.
+  conventions copied from `charts/longue-vue-ingest-gw`.
 
 ### Security
 
 - **`automountServiceAccountToken` is gated** in both new charts. The
-  `argos-vm-collector` pod hardcodes it to `false` (no K8s API access
-  needed); `argos-collector` ties it to `kubeconfig.mode == in-cluster`
+  `longue-vue-vm-collector` pod hardcodes it to `false` (no K8s API access
+  needed); `longue-vue-collector` ties it to `kubeconfig.mode == in-cluster`
   so the `kubeconfig.mode=secret` path doesn't gratuitously expose the
   projected SA token.
 - **NetworkPolicy egress is scoped** when `networkPolicy.egressCIDRs` is
@@ -219,15 +219,15 @@ the public-listener TLS posture and proxy-trust contract introduced here.
 ### Security
 
 - **Native TLS termination on the public listener** (ADR-0017 §4) —
-  argosd can now serve HTTPS directly when `ARGOS_PUBLIC_LISTEN_TLS_CERT`
-  and `ARGOS_PUBLIC_LISTEN_TLS_KEY` are set. Cert + key are loaded at
+  longue-vue can now serve HTTPS directly when `LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT`
+  and `LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY` are set. Cert + key are loaded at
   startup, hot-reloaded via fsnotify on file change (works with cert-manager,
   Vault Agent atomic-rename, manual file writes), and pinned to TLS 1.3 with
   session tickets disabled. Refuses to start on parse error rather than
   falling through to plain HTTP.
 - **Trust-aware Secure cookie + HSTS + client IP resolution** (ADR-0017 §5)
   — `X-Forwarded-For` and `X-Forwarded-Proto` are honored only when the
-  immediate TCP peer's IP falls inside `ARGOS_TRUSTED_PROXIES` (a
+  immediate TCP peer's IP falls inside `LONGUE_VUE_TRUSTED_PROXIES` (a
   comma-separated CIDR list). Empty list = ignore both headers entirely
   (the secure default). Fixes AUTH-VULN-04: a remote client sending
   `X-Forwarded-For: <victim-ip>` could previously bypass per-IP rate
@@ -236,10 +236,10 @@ the public-listener TLS posture and proxy-trust contract introduced here.
   XFP header. Fixes AUTH-VULN-03: HSTS is emitted only over a verified
   HTTPS request, with a force-emit override for operators declaring the
   full deployment HTTPS-only.
-- **Startup posture guard** (ADR-0017 §7) — `ARGOS_REQUIRE_HTTPS=true`
+- **Startup posture guard** (ADR-0017 §7) — `LONGUE_VUE_REQUIRE_HTTPS=true`
   refuses to boot unless either native TLS is configured (cert + key
-  present) or both `ARGOS_TRUSTED_PROXIES` is non-empty AND
-  `ARGOS_SESSION_SECURE_COOKIE=always`. Fails closed: "warn and serve
+  present) or both `LONGUE_VUE_TRUSTED_PROXIES` is non-empty AND
+  `LONGUE_VUE_SESSION_SECURE_COOKIE=always`. Fails closed: "warn and serve
   plain HTTP" is not an option once the operator has declared the
   deployment HTTPS-only.
 - **Last-admin invariant guard on `DELETE /v1/admin/users/{id}` and
@@ -257,18 +257,18 @@ the public-listener TLS posture and proxy-trust contract introduced here.
   client-IP / IsHTTPS helpers (`ParseTrustedCIDRs`, `ClientIP`, `IsHTTPS`).
   All previously-duplicated XFF parsing routes through it; downstream
   code is single-sourced.
-- **Public-listener cert hot-reload** — `cmd/argosd/main.go:newCertReloader`
+- **Public-listener cert hot-reload** — `cmd/longue-vue/main.go:newCertReloader`
   reloads the public listener's cert + key on every TLS handshake when the
   on-disk file mtime advances (compatible with cert-manager rotations,
   Vault Agent atomic renames, and manual file writes). Sibling to the
   fsnotify-driven `internal/ingestgw/tls_reload.go` used by the DMZ
   gateway; the two listeners use mechanism-appropriate reload paths
   rather than a shared package.
-- **Helm chart `argosd.tls` block** — `existingSecret` references a
+- **Helm chart `longue-vue.tls` block** — `existingSecret` references a
   `kubernetes.io/tls` Secret; the chart mounts it at
-  `/etc/argos/tls` and wires `ARGOS_PUBLIC_LISTEN_TLS_CERT/_KEY`
+  `/etc/longue-vue/tls` and wires `LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT/_KEY`
   automatically.
-- **Helm chart `argosd.trustedProxies` and `argosd.requireHTTPS`** —
+- **Helm chart `longue-vue.trustedProxies` and `longue-vue.requireHTTPS`** —
   surface the new env vars so operators don't have to reach for
   `extraEnv:` overrides.
 - **OpenAPI: `409 Conflict` on `PATCH /v1/admin/users/{id}`** —
@@ -291,83 +291,83 @@ the public-listener TLS posture and proxy-trust contract introduced here.
 
 No DB migration. Two operational changes:
 
-1. **If you run argosd behind a TLS-terminating reverse proxy** (the
+1. **If you run longue-vue behind a TLS-terminating reverse proxy** (the
    common pattern: ingress-nginx, Envoy, a cloud LB), set
-   `ARGOS_TRUSTED_PROXIES` to the proxy's CIDR(s) and pin
-   `ARGOS_SESSION_SECURE_COOKIE=always`. Without trust, the upgrade
+   `LONGUE_VUE_TRUSTED_PROXIES` to the proxy's CIDR(s) and pin
+   `LONGUE_VUE_SESSION_SECURE_COOKIE=always`. Without trust, the upgrade
    silently downgrades cookie security and rate-limit accuracy — the
    defaults are the safest possible state, not the most useful.
 
-2. **If you want HSTS / require HTTPS**, set `ARGOS_REQUIRE_HTTPS=true`.
+2. **If you want HSTS / require HTTPS**, set `LONGUE_VUE_REQUIRE_HTTPS=true`.
    The pod will refuse to start unless one of the two postures (native
    TLS or trusted-proxy + SecureAlways) is present — failing closed
    beats accidentally serving credentials over plain HTTP.
 
-`charts/argos` upgrades transparently with the existing values: the new
-`argosd.tls`, `argosd.trustedProxies`, `argosd.requireHTTPS` keys all
+`charts/longue-vue` upgrades transparently with the existing values: the new
+`longue-vue.tls`, `longue-vue.trustedProxies`, `longue-vue.requireHTTPS` keys all
 default to empty / false, so existing releases are unaffected until the
 operator opts in.
 
 ## [0.11.0] — 2026-04-28
 
 Helm chart 0.13.0 / appVersion 0.11.0. Adds the DMZ ingest gateway track
-from ADR-0016: Argos can now accept collector push traffic through a
-hardened perimeter component (`argos-ingest-gw`) without exposing argosd
+from ADR-0016: longue-vue can now accept collector push traffic through a
+hardened perimeter component (`longue-vue-ingest-gw`) without exposing longue-vue
 to the internet. Also makes `POST /v1/clusters` idempotent on `name` so
 the collector no longer needs a read-before-write at startup.
 
 ### Added
 
-- **`argos-ingest-gw` binary** (ADR-0016) — standalone stateless
+- **`longue-vue-ingest-gw` binary** (ADR-0016) — standalone stateless
   reverse-proxy for the DMZ. Exposes a TLS inbound listener (`:8443`,
   Envoy/WAF-fronted) and a health/metrics listener (`:9090`, pod-IP only,
   no TLS). No database, no queue, no replay buffer. Source under
-  `cmd/argos-ingest-gw/`; shared gateway logic under `internal/ingestgw/`.
+  `cmd/longue-vue-ingest-gw/`; shared gateway logic under `internal/ingestgw/`.
   Built `CGO_ENABLED=0` from `Dockerfile.ingest-gw`, distroless base, UID
   65532.
-- **Helm chart `argos-ingest-gw`** (chart `0.1.0`) — first ship of the
-  gateway chart. Ships independently of the umbrella `argos` chart so the
+- **Helm chart `longue-vue-ingest-gw`** (chart `0.1.0`) — first ship of the
+  gateway chart. Ships independently of the umbrella `longue-vue` chart so the
   DMZ release contains only what belongs in the DMZ. Three TLS cert-source
   modes: `vault` (Vault Agent sidecar + PKI secrets engine, hot-rotate at
   50% TTL), `secret` (Kubernetes `kubernetes.io/tls` Secret, works with
   cert-manager), `file` (operator-mounted path, any tooling). Default 2
   replicas + PodDisruptionBudget. Optional ServiceMonitor + PrometheusRule
   (suggested alerts shipped as values block). NetworkPolicy restricts
-  egress to argosd's ingest port only (plus Vault CIDRs in `vault` mode).
-- **mTLS-only ingest listener on argosd** (ADR-0016 §3) — a second
-  `*http.Server` starts when `ARGOS_INGEST_LISTEN_ADDR` is set (disabled
+  egress to longue-vue's ingest port only (plus Vault CIDRs in `vault` mode).
+- **mTLS-only ingest listener on longue-vue** (ADR-0016 §3) — a second
+  `*http.Server` starts when `LONGUE_VUE_INGEST_LISTEN_ADDR` is set (disabled
   when empty; existing deployments unaffected). The listener requires
   `RequireAndVerifyClientCert` (TLS 1.3 floor, session tickets disabled)
   and is wired by `api.NewIngestMux`, which registers exactly 19 routes:
   the 18 collector writes plus `POST /v1/auth/verify`. New env vars:
-  `ARGOS_INGEST_LISTEN_ADDR`, `ARGOS_INGEST_LISTEN_TLS_CERT`,
-  `ARGOS_INGEST_LISTEN_TLS_KEY`, `ARGOS_INGEST_LISTEN_CLIENT_CA_FILE`,
-  `ARGOS_INGEST_LISTEN_CLIENT_CN_ALLOW`.
+  `LONGUE_VUE_INGEST_LISTEN_ADDR`, `LONGUE_VUE_INGEST_LISTEN_TLS_CERT`,
+  `LONGUE_VUE_INGEST_LISTEN_TLS_KEY`, `LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE`,
+  `LONGUE_VUE_INGEST_LISTEN_CLIENT_CN_ALLOW`.
 - **`POST /v1/auth/verify`** (ADR-0016 §5) — internal-only endpoint
   registered exclusively on the mTLS-only ingest listener (not on `:8080`).
   The gateway calls it to short-circuit invalid tokens before forwarding
   writes across the firewall. Response carries `valid`, `caller_id`,
-  `kind`, `scopes`, `bound_cloud_account_id`. Rate-limited at argosd to
+  `kind`, `scopes`, `bound_cloud_account_id`. Rate-limited at longue-vue to
   100 req/s per source IP (burst 200) via the new `api.VerifyRateLimiter`.
   The `token` field in captured request bodies is scrubbed by the audit
   middleware.
 - **`audit_events.source` column** (migration `00027_audit_events_source.sql`)
   — distinguishes `api` (public listener), `ingest_gw` (mTLS ingest
-  listener, DMZ-origin writes), and `system` (synthetic argosd-emitted
+  listener, DMZ-origin writes), and `system` (synthetic longue-vue-emitted
   events). Empty strings in pre-ADR-0016 rows are treated as `api` for
   backwards compatibility. `AuditMiddleware` now accepts a `source` string
   argument; existing call sites pass `"api"`, the ingest-listener wiring
   passes `"ingest_gw"`. `GET /v1/admin/audit` accepts an optional `source`
   query parameter.
 - **Gateway Prometheus metrics** — new metrics on the gateway's private
-  registry: `argos_ingest_gw_requests_total{method,route,status_class,outcome}`,
-  `argos_ingest_gw_request_duration_seconds`, `argos_ingest_gw_upstream_duration_seconds`,
-  `argos_ingest_gw_token_verify_total{result}`,
-  `argos_ingest_gw_token_cache_total{event}`, `argos_ingest_gw_token_cache_size`,
-  `argos_ingest_gw_cert_not_after_seconds`, `argos_ingest_gw_cert_reload_total{result}`,
-  `argos_ingest_gw_body_bytes`, `argos_ingest_gw_inflight_requests`,
-  `argos_ingest_gw_build_info`. Argosd gains `argos_auth_verify_total{result}`
-  and `argos_ingest_listener_client_cert_failures_total{reason}`.
+  registry: `longue_vue_ingest_gw_requests_total{method,route,status_class,outcome}`,
+  `longue_vue_ingest_gw_request_duration_seconds`, `longue_vue_ingest_gw_upstream_duration_seconds`,
+  `longue_vue_ingest_gw_token_verify_total{result}`,
+  `longue_vue_ingest_gw_token_cache_total{event}`, `longue_vue_ingest_gw_token_cache_size`,
+  `longue_vue_ingest_gw_cert_not_after_seconds`, `longue_vue_ingest_gw_cert_reload_total{result}`,
+  `longue_vue_ingest_gw_body_bytes`, `longue_vue_ingest_gw_inflight_requests`,
+  `longue_vue_ingest_gw_build_info`. longue-vue gains `longue_vue_auth_verify_total{result}`
+  and `longue_vue_ingest_listener_client_cert_failures_total{reason}`.
 
 ### Changed
 
@@ -387,12 +387,12 @@ the collector no longer needs a read-before-write at startup.
 ### Migration
 
 Migration `00027_audit_events_source.sql` adds a nullable `source` column
-to `audit_events`. The `ARGOS_AUTO_MIGRATE=true` default applies it on
+to `audit_events`. The `LONGUE_VUE_AUTO_MIGRATE=true` default applies it on
 startup. Rows inserted by the previous version carry a NULL source; queries
 treat NULL as `"api"` for backwards compatibility.
 
 `api.AuditMiddleware` now requires a `source` argument. Any code outside
-`cmd/argosd/main.go` that constructs a middleware chain must be updated to
+`cmd/longue-vue/main.go` that constructs a middleware chain must be updated to
 pass `"api"` or the appropriate source string.
 
 `api.NewServer` requires the new `verifyLimiter` argument; pass
@@ -407,18 +407,18 @@ through the `PATCH` path.
 ## [0.10.0] — 2026-04-26
 
 Helm chart 0.12.0 / appVersion 0.10.0. Adds the VM-collector track from
-ADR-0015: Argos now inventories the non-Kubernetes platform VMs sitting
+ADR-0015: longue-vue now inventories the non-Kubernetes platform VMs sitting
 underneath the clusters (VPN, DNS, Bastion, Vault, …) per cloud account,
 with encrypted-at-rest credentials and a separate push-mode collector
 binary.
 
 ### Added
 
-- **VM collector binary `argos-vm-collector`** (ADR-0015 §1, §IMP-004) —
-  standalone push-mode binary mirroring `argos-collector`. Stateless,
+- **VM collector binary `longue-vue-vm-collector`** (ADR-0015 §1, §IMP-004) —
+  standalone push-mode binary mirroring `longue-vue-collector`. Stateless,
   distroless, UID 65532, env-var configured. One binary instance per
   cloud account; multi-account = N deployments. Source under
-  `cmd/argos-vm-collector/`; reusable polling logic under
+  `cmd/longue-vue-vm-collector/`; reusable polling logic under
   `internal/vmcollector/`.
 - **`cloud_accounts` table** (ADR-0015 §3) — operator-editable
   cloud-provider accounts with status workflow
@@ -443,7 +443,7 @@ binary.
   preset is selected.
 - **Master-key envelope encryption** (ADR-0015 §4 / IMP-002) — new
   package `internal/secrets/`. AES-256-GCM with the master key from
-  `ARGOS_SECRETS_MASTER_KEY` (base64-encoded 32 bytes; rejected at
+  `LONGUE_VUE_SECRETS_MASTER_KEY` (base64-encoded 32 bytes; rejected at
   startup on any other length). AAD bound to the row UUID so a
   database backup-restore cannot move a ciphertext between rows.
   Master-key fingerprint (first 8 hex chars of SHA-256) logged at
@@ -463,7 +463,7 @@ binary.
   `already_inventoried_as_kubernetes_node` on hit; the collector
   skips. Tag-independent — works for any cloud-controller-manager.
   Local pre-filter on `OscK8sClusterID/*` / `OscK8sNodeName=*` /
-  `argos.io/ignore=true` saves the round-trip per kube worker.
+  `longue-vue.io/ignore=true` saves the round-trip per kube worker.
 - **New endpoints** (ADR-0015 §IMP-006):
   - `POST /v1/admin/cloud-accounts`,
     `GET /v1/admin/cloud-accounts`,
@@ -499,7 +499,7 @@ binary.
   red "pending credentials" banner in the UI, pastes AK/SK, the
   collector picks them up on the next refresh tick. Hot AK/SK
   rotation works the same way: PATCH `/credentials`, collector picks
-  up the new SK within `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`
+  up the new SK within `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH`
   (default 1 h).
 - **Virtual Machines and Cloud Accounts UI pages** (ADR-0015 §10) —
   `/ui/virtual-machines` list + detail (mirrors Node detail layout
@@ -511,17 +511,17 @@ binary.
   distinct server/tower SVG icon. Home-page admin banner surfaces
   the count of `pending_credentials` accounts.
 - **Prometheus metrics**:
-  - argosd: `argos_cloud_accounts_total{status}`,
-    `argos_cloud_accounts_pending_credentials` (gauge for alerting),
-    `argos_virtual_machines_total{cloud_account, terminated}`,
-    `argos_credentials_reads_total{cloud_account}`.
-  - collector binary: `argos_vm_collector_ticks_total{status}`,
-    `argos_vm_collector_tick_duration_seconds`,
-    `argos_vm_collector_vms_observed`,
-    `argos_vm_collector_vms_skipped_kubernetes_total`,
-    `argos_vm_collector_credential_refreshes_total{result}`,
-    `argos_vm_collector_last_success_timestamp_seconds`,
-    `argos_vm_collector_build_info{version}`. Exposed on a private
+  - longue-vue: `longue_vue_cloud_accounts_total{status}`,
+    `longue_vue_cloud_accounts_pending_credentials` (gauge for alerting),
+    `longue_vue_virtual_machines_total{cloud_account, terminated}`,
+    `longue_vue_credentials_reads_total{cloud_account}`.
+  - collector binary: `longue_vue_vm_collector_ticks_total{status}`,
+    `longue_vue_vm_collector_tick_duration_seconds`,
+    `longue_vue_vm_collector_vms_observed`,
+    `longue_vue_vm_collector_vms_skipped_kubernetes_total`,
+    `longue_vue_vm_collector_credential_refreshes_total{result}`,
+    `longue_vue_vm_collector_last_success_timestamp_seconds`,
+    `longue_vue_vm_collector_build_info{version}`. Exposed on a private
     registry on a localhost-only `/metrics` listener.
 
 ### Changed
@@ -550,7 +550,7 @@ binary.
   AES-256-GCM ciphertexts AAD-bound to their row UUID; database
   backup-restore alone cannot move a ciphertext to another row.
   Master key required only when at least one row carries a non-NULL
-  `secret_key_encrypted`; argosd refuses to start otherwise.
+  `secret_key_encrypted`; longue-vue refuses to start otherwise.
 - **vm-collector PATs bound to a single cloud account** — a leaked
   collector PAT exposes exactly one account's credentials and one
   account's VM writes. Strictly less than a `read`-scope PAT
@@ -564,9 +564,9 @@ binary.
 
 Migrations `00023` / `00024` / `00025` are additive (the schema for
 new tables, plus a nullable column on `tokens`); the
-`ARGOS_AUTO_MIGRATE=true` default applies them on startup. Existing
+`LONGUE_VUE_AUTO_MIGRATE=true` default applies them on startup. Existing
 deployments without any `cloud_accounts` row do not need
-`ARGOS_SECRETS_MASTER_KEY`; argosd only refuses to start when the
+`LONGUE_VUE_SECRETS_MASTER_KEY`; longue-vue only refuses to start when the
 table contains an encrypted SK and the env var is unset.
 
 The Helm chart bumps to `0.12.0` / appVersion `0.10.0`. The new
@@ -585,7 +585,7 @@ account.
   (`contains`, `owns`, `hosts`, `binds`). Depth-limited to 1–3 hops.
   Interactive SVG diagram on every entity detail page with depth selector
   and click-to-navigate. Prometheus metrics:
-  `argos_impact_queries_total`, `argos_impact_query_duration_seconds`.
+  `longue_vue_impact_queries_total`, `longue_vue_impact_query_duration_seconds`.
 
 - **MCP server** (ADR-0014) — Model Context Protocol server exposing 17
   read-only CMDB tools for AI agents. SSE and stdio transports. Bearer
@@ -682,19 +682,19 @@ Patch release on top of `v0.1.0` "Canopus". Adds the first two steps of
 the ADR-0008 asset-management rollout (curated metadata on Namespace
 and Node, including `hardware_model`) and fixes three UUID-instead-of-
 name rendering bugs on detail pages. Schema is additive only; `v0.1.0`
-→ `v0.1.1` is a straight `ARGOS_AUTO_MIGRATE=true` bump, no data
+→ `v0.1.1` is a straight `LONGUE_VUE_AUTO_MIGRATE=true` bump, no data
 migration required.
 
 ### Added
 
 - **Curated metadata on Namespace**
-  ([#56](https://github.com/sthalbert/Argos/pull/56)) — `owner` /
+  ([#56](https://github.com/sthalbert/longue-vue/pull/56)) — `owner` /
   `criticality` / `notes` / `runbook_url` / `annotations` (JSONB)
   columns editable at `/ui/namespaces/:id` by editor / admin. The
   collector's `UpsertNamespace` leaves these columns alone on conflict
   so per-tick upserts can't clobber operator edits.
 - **Curated metadata on Node + `hardware_model`**
-  ([#57](https://github.com/sthalbert/Argos/pull/57)) — same five
+  ([#57](https://github.com/sthalbert/longue-vue/pull/57)) — same five
   curated columns on nodes plus a free-form `hardware_model` field for
   bare-metal installs to record a server model alongside the cloud-shaped
   `instance_type` populated by the collector. Closes the SNC §8.1.a
@@ -702,9 +702,9 @@ migration required.
   `/ui/nodes/:id`. `UpsertNode`'s `DO UPDATE SET` clause is explicit
   about which columns the collector owns; the new columns are absent
   from it by design.
-- **ADR-0008** ([#55](https://github.com/sthalbert/Argos/pull/55)) —
+- **ADR-0008** ([#55](https://github.com/sthalbert/longue-vue/pull/55)) —
   SecNumCloud v3.2 chapter 8 coverage. Maps every §8.1 sub-clause to a
-  concrete Argos column or explicit cross-reference (licenses →
+  concrete longue-vue column or explicit cross-reference (licenses →
   Dependency-Track via `containers[].image`; §8.2 and §8.5 are
   procedural / out of system scope). DICT
   (disponibilité / intégrité / confidentialité / traçabilité) classification
@@ -714,7 +714,7 @@ migration required.
 ### Fixed
 
 - **Detail pages resolve parent names instead of UUIDs**
-  ([#58](https://github.com/sthalbert/Argos/pull/58)) —
+  ([#58](https://github.com/sthalbert/longue-vue/pull/58)) —
   `/ui/namespaces/:id` previously had no Cluster row at all;
   `/ui/nodes/:id` showed the cluster id as a truncated UUID;
   `/ui/workloads/:id` did the same for namespace. Each page now
@@ -723,7 +723,7 @@ migration required.
   drill-down trail reads *"Workloads / <cluster> / <namespace> / this
   workload"* instead of dead-ending.
 - **Namespace pods table shows workload name**
-  ([#59](https://github.com/sthalbert/Argos/pull/59)) — the Workload
+  ([#59](https://github.com/sthalbert/longue-vue/pull/59)) — the Workload
   column in `/ui/namespaces/:id`'s pods table rendered each pod's
   `workload_id` as a UUID link. Now renders the workload's name and
   kind (`web-frontend · Deployment`) by resolving against the
@@ -742,12 +742,12 @@ JSONB defaults to `{}`. No data rewrite, no downtime.
 ### Upgrading
 
 ```bash
-# From v0.1.0. Keep your existing ARGOS_BOOTSTRAP_ADMIN_PASSWORD — the
+# From v0.1.0. Keep your existing LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD — the
 # bootstrap only fires when no admin exists, so it's a no-op here.
 make build VERSION=0.1.1
-# Point at the same DSN as v0.1.0; ARGOS_AUTO_MIGRATE=true (default)
+# Point at the same DSN as v0.1.0; LONGUE_VUE_AUTO_MIGRATE=true (default)
 # applies 00019 + 00020 on startup.
-./bin/argosd
+./bin/longue-vue
 ```
 
 No client-side break: new columns show up as `null` on existing rows
@@ -755,7 +755,7 @@ and the UI renders an "Edit" placeholder until an editor fills them in.
 
 ## [0.1.0] — 2026-04-19 — "Canopus"
 
-First tagged release. Argos is a Kubernetes-aware CMDB aligned with the
+First tagged release. longue-vue is a Kubernetes-aware CMDB aligned with the
 ANSSI **SecNumCloud (SNC)** qualification framework. Named after the
 principal star of the old *Argo Navis* constellation — a classical
 navigation marker.
@@ -786,8 +786,8 @@ navigation marker.
   on one table, discriminated by `kind`).
 - **ADR-0004** — Ingress layer classification.
 - **ADR-0005** — Multi-cluster collector topology
-  (`ARGOS_COLLECTOR_CLUSTERS`).
-- **ADR-0006** — Web UI bundled into argosd; curated-metadata columns.
+  (`LONGUE_VUE_COLLECTOR_CLUSTERS`).
+- **ADR-0006** — Web UI bundled into longue-vue; curated-metadata columns.
 - **ADR-0007** — Auth & RBAC (sessions + OIDC + bearer tokens).
 
 ### API & data model
@@ -824,12 +824,12 @@ navigation marker.
 - Polling-based; each tick refreshes the API-server version and lists
   every catalogued kind cluster-wide. Default 5 minute interval,
   configurable.
-- Reconciliation (`ARGOS_COLLECTOR_RECONCILE=true`, default on) deletes
+- Reconciliation (`LONGUE_VUE_COLLECTOR_RECONCILE=true`, default on) deletes
   rows that disappear from the live listing so the CMDB mirrors
   ground truth — required for ANSSI cartography fidelity. Runs only
   after a successful list so a transient Kubernetes error never wipes
   the store.
-- Multi-cluster via `ARGOS_COLLECTOR_CLUSTERS` (JSON array of
+- Multi-cluster via `LONGUE_VUE_COLLECTOR_CLUSTERS` (JSON array of
   `{name, kubeconfig}` tuples); legacy single-cluster env vars still
   work. Empty kubeconfig falls back to in-cluster config.
 - Exposes Prometheus counters and last-poll gauges per
@@ -844,11 +844,11 @@ navigation marker.
   (S256) + nonce + state. Shadow users keyed on `(issuer, sub)`;
   first-login role is `viewer` — admins promote manually (authorization
   is never claim-driven).
-- **Machine tokens**: `Authorization: Bearer argos_pat_<prefix>_<suffix>`;
+- **Machine tokens**: `Authorization: Bearer longue_vue_pat_<prefix>_<suffix>`;
   argon2id-hashed at rest, 8-char prefix for O(1) lookup, plaintext
   shown once at creation (GitHub-PAT pattern). Minted in the admin UI.
 - **First-run bootstrap**: creates a single `admin` user when none
-  exists; password comes from `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` or a
+  exists; password comes from `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` or a
   random 16-char string printed once to the startup log. Forced
   rotation on first login.
 - Role → scope mapping: `admin` carries everything, `editor` =
@@ -888,14 +888,14 @@ navigation marker.
 
 - Dockerfile: three-stage build (Node UI builder → Go builder →
   distroless runtime), static binary, runs as UID 65532.
-- `deploy/` ships reference Kustomize manifests for running argosd in
+- `deploy/` ships reference Kustomize manifests for running longue-vue in
   a Kubernetes cluster cataloguing itself via in-cluster
   ServiceAccount (`list` on every catalogued kind). Multi-cluster
   variant documented in `deploy/README.md`.
 - `/metrics` mounted unauthenticated on the main mux (Prometheus
   scrape convention): HTTP request / duration counters, collector
   upsert / reconcile / error counters, per-`(cluster, resource)`
-  last-poll gauges, `argos_build_info`.
+  last-poll gauges, `longue_vue_build_info`.
 - CI (GitHub Actions): conventional-commit title check, `go vet` /
   `go build` / `go test -race` against a Postgres service container,
   `golangci-lint`, UI `npm run build` + typecheck, Docker image
@@ -912,7 +912,7 @@ navigation marker.
   ADR-0001).
 - No built-in MFA on the local password path; customers who need it
   should federate through their OIDC provider (which already gives
-  every argosd instance MFA as a side-effect).
+  every longue-vue instance MFA as a side-effect).
 
-[0.1.1]: https://github.com/sthalbert/Argos/releases/tag/v0.1.1
-[0.1.0]: https://github.com/sthalbert/Argos/releases/tag/v0.1.0
+[0.1.1]: https://github.com/sthalbert/longue-vue/releases/tag/v0.1.1
+[0.1.0]: https://github.com/sthalbert/longue-vue/releases/tag/v0.1.0

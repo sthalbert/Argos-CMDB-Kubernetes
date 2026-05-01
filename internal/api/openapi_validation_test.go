@@ -71,6 +71,29 @@ func TestOpenAPIDocument_Valid(t *testing.T) {
 	}
 }
 
+// TestOpenAPIDocument_Title asserts info.title matches the canonical product name.
+// Info.Title must match the canonical product name; clients generated from
+// this spec embed the value, so a drift here breaks downstream tooling.
+func TestOpenAPIDocument_Title(t *testing.T) {
+	t.Parallel()
+	specBytes, err := os.ReadFile(specPath(t))
+	if err != nil {
+		t.Fatalf("read openapi spec: %v", err)
+	}
+	doc, err := libopenapi.NewDocument(specBytes)
+	if err != nil {
+		t.Fatalf("parse openapi document: %v", err)
+	}
+	model, buildErr := doc.BuildV3Model()
+	if buildErr != nil {
+		t.Fatalf("build v3 model: %v", buildErr)
+	}
+	const wantTitle = "longue-vue CMDB API"
+	if got := model.Model.Info.Title; got != wantTitle {
+		t.Errorf("info.title = %q, want %q", got, wantTitle)
+	}
+}
+
 // TestOpenAPI_CreateCluster_201 validates a POST /v1/clusters request and
 // 201 response against the spec.
 func TestOpenAPI_CreateCluster_201(t *testing.T) {

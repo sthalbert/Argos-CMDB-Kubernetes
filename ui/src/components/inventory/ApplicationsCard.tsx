@@ -6,7 +6,7 @@ import { Dash, Empty, SectionTitle } from '../../components';
 // ApplicationsCard renders the operator-declared applications running on
 // a VM (ADR-0019). Each row is a (product, version, name?, notes?) tuple
 // stamped server-side with added_at / added_by. The EOL enricher reads
-// this list and writes argos.io/eol.<product> annotations, so editing
+// this list and writes longue-vue.io/eol.<product> annotations, so editing
 // the card directly drives the lifecycle scan.
 
 export function ApplicationsCard({
@@ -283,7 +283,7 @@ function ApplicationsForm({
       </form>
       <SectionTitle>EOL annotations</SectionTitle>
       <p className="muted">
-        Once saved, the EOL enricher writes <code>argos.io/eol.&lt;product&gt;</code> annotations
+        Once saved, the EOL enricher writes <code>longue-vue.io/eol.&lt;product&gt;</code> annotations
         on the VM with lifecycle status, latest available version, and EOL date. Run a manual
         enrichment cycle from <strong>Admin &gt; Settings</strong>, or wait for the next tick.
       </p>

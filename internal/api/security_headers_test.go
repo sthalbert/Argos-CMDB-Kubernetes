@@ -103,7 +103,7 @@ func TestSecurityHeadersHSTS(t *testing.T) {
 		}
 	})
 
-	// ARGOS_REQUIRE_HTTPS=true is the operator's promise that this
+	// LONGUE_VUE_REQUIRE_HTTPS=true is the operator's promise that this
 	// deployment is HTTPS-only. Emit HSTS unconditionally so a browser
 	// that ever lands on the public hostname is told never to downgrade.
 	t.Run("force-emit HSTS when require-https is set", func(t *testing.T) {

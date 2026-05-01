@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/sthalbert/argos/internal/api"
+	"github.com/sthalbert/longue-vue/internal/api"
 )
 
 // podContainers flattens the runtime view of a Pod's containers. It prefers

@@ -1,16 +1,16 @@
 # Authentication and Authorization
 
-Argos uses dual-path authentication: humans authenticate via session cookies, machines authenticate via bearer tokens. Both paths feed the same role-based access control (RBAC) system.
+longue-vue uses dual-path authentication: humans authenticate via session cookies, machines authenticate via bearer tokens. Both paths feed the same role-based access control (RBAC) system.
 
 ## Overview
 
 ```
   Human (browser)                   Machine (CI, collector, script)
        |                                       |
-  POST /v1/auth/login               Authorization: Bearer argos_pat_...
+  POST /v1/auth/login               Authorization: Bearer longue_vue_pat_...
   or OIDC flow                                 |
        |                                       |
-  Set-Cookie: argos_session          Token lookup (argon2id hash)
+  Set-Cookie: longue_vue_session          Token lookup (argon2id hash)
        |                                       |
        +------- Caller{id, role, scopes} ------+
                          |
@@ -21,7 +21,7 @@ Every authenticated request resolves to a `Caller` with an identity, role, and s
 
 ## Roles and scopes
 
-Argos has four fixed roles. Roles are not customizable -- they map directly to scope sets.
+longue-vue has four fixed roles. Roles are not customizable -- they map directly to scope sets.
 
 | Role | Scopes | Typical use |
 |------|--------|-------------|
@@ -46,9 +46,9 @@ Scope requirements per endpoint group:
 
 ### Bootstrap admin
 
-On first startup with an empty database, argosd creates a single `admin` user:
+On first startup with an empty database, longue-vue creates a single `admin` user:
 
-- If `ARGOS_BOOTSTRAP_ADMIN_PASSWORD` is set, it uses that value.
+- If `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` is set, it uses that value.
 - Otherwise, it generates a random 16-character password and prints it **once** to the startup log inside a banner.
 
 The bootstrap admin has `must_change_password=true`, which blocks every API endpoint except `/v1/auth/change-password` until the password is rotated. `/healthz`, `/readyz`, and `/metrics` remain accessible.
@@ -58,7 +58,7 @@ The bootstrap admin has `must_change_password=true`, which blocks every API endp
 Admins create users through the admin panel or the API:
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/users \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/admin/users \
   -H 'Content-Type: application/json' \
   -d '{"username":"alice","password":"initial-password","role":"editor"}'
 ```
@@ -71,12 +71,12 @@ Admins can change a user's role, reset their password, or disable them:
 
 ```bash
 # Promote to admin
-curl -sS -b /tmp/argos.cookies -X PATCH http://localhost:8080/v1/admin/users/<id> \
+curl -sS -b /tmp/longue-vue.cookies -X PATCH http://localhost:8080/v1/admin/users/<id> \
   -H 'Content-Type: application/merge-patch+json' \
   -d '{"role":"admin"}'
 
 # Disable (revokes all active sessions)
-curl -sS -b /tmp/argos.cookies -X PATCH http://localhost:8080/v1/admin/users/<id> \
+curl -sS -b /tmp/longue-vue.cookies -X PATCH http://localhost:8080/v1/admin/users/<id> \
   -H 'Content-Type: application/merge-patch+json' \
   -d '{"disabled":true}'
 ```
@@ -87,35 +87,35 @@ OIDC is optional. When enabled, a "Sign in with ..." button appears on the login
 
 ### Setup
 
-1. Register argosd at your IdP as an application:
-   - **Redirect URI:** `https://<argos-host>/v1/auth/oidc/callback`
+1. Register longue-vue at your IdP as an application:
+   - **Redirect URI:** `https://<longue-vue-host>/v1/auth/oidc/callback`
    - **Grant types:** `authorization_code`
    - **Scopes:** `openid email profile`
 
-2. Configure argosd (see [Configuration](configuration.md) for all variables):
+2. Configure longue-vue (see [Configuration](configuration.md) for all variables):
    ```bash
-   ARGOS_OIDC_ISSUER="https://idp.example.com/realms/argos"
-   ARGOS_OIDC_CLIENT_ID="argos"
-   ARGOS_OIDC_CLIENT_SECRET="your-secret"
-   ARGOS_OIDC_REDIRECT_URL="https://argos.example.com/v1/auth/oidc/callback"
+   LONGUE_VUE_OIDC_ISSUER="https://idp.example.com/realms/longue-vue"
+   LONGUE_VUE_OIDC_CLIENT_ID="longue-vue"
+   LONGUE_VUE_OIDC_CLIENT_SECRET="your-secret"
+   LONGUE_VUE_OIDC_REDIRECT_URL="https://longue-vue.example.com/v1/auth/oidc/callback"
    ```
 
-3. Restart argosd. It fetches the issuer's OpenID Connect discovery document on boot and fails fatally if unreachable.
+3. Restart longue-vue. It fetches the issuer's OpenID Connect discovery document on boot and fails fatally if unreachable.
 
 ### How it works
 
 1. The user clicks "Sign in with ..." in the UI.
 2. The browser hits `GET /v1/auth/oidc/authorize`, which generates a state + PKCE challenge + nonce, stores them in the database, and 302-redirects to the IdP.
 3. After authentication at the IdP, the browser arrives at `GET /v1/auth/oidc/callback` with an authorization code.
-4. argosd exchanges the code, verifies the ID token (issuer, audience, signature, nonce), and finds or creates a "shadow user" keyed on `(issuer, sub)`.
+4. longue-vue exchanges the code, verifies the ID token (issuer, audience, signature, nonce), and finds or creates a "shadow user" keyed on `(issuer, sub)`.
 5. A session cookie is set and the browser redirects to `/ui/`.
 
 ### Shadow users
 
-OIDC users are called "shadow users" in Argos. Key properties:
+OIDC users are called "shadow users" in longue-vue. Key properties:
 
 - They are created automatically on first OIDC login.
-- They start with role `viewer`. Argos does **not** trust OIDC group claims for authorization -- an admin must promote them manually.
+- They start with role `viewer`. longue-vue does **not** trust OIDC group claims for authorization -- an admin must promote them manually.
 - They carry an unusable password hash, so they cannot log in via the local username/password form.
 - They are identified by the `(issuer, sub)` pair, not by email or username.
 
@@ -134,7 +134,7 @@ Machine tokens are for non-human callers: CI pipelines, the push-mode collector,
 Only admins can create tokens, via the admin panel or the API:
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/admin/tokens \
   -H 'Content-Type: application/json' \
   -d '{"name":"ci-pipeline","scopes":["read","write"]}'
 ```
@@ -146,22 +146,22 @@ The response contains the plaintext token **exactly once**:
   "id": "...",
   "name": "ci-pipeline",
   "prefix": "abcd1234",
-  "token": "argos_pat_abcd1234_xxxxxxxxxxxxxxxxxxxxxxxx",
+  "token": "longue_vue_pat_abcd1234_xxxxxxxxxxxxxxxxxxxxxxxx",
   "scopes": ["read", "write"],
   "created_at": "..."
 }
 ```
 
-Store the `token` value in a secrets manager immediately. argosd persists only its argon2id hash -- the plaintext cannot be retrieved later.
+Store the `token` value in a secrets manager immediately. longue-vue persists only its argon2id hash -- the plaintext cannot be retrieved later.
 
 ### Token format
 
-Tokens follow the format `argos_pat_<8-char-prefix>_<32-char-secret>`. The prefix is stored in plaintext for O(1) lookup; the secret is hashed with argon2id.
+Tokens follow the format `longue_vue_pat_<8-char-prefix>_<32-char-secret>`. The prefix is stored in plaintext for O(1) lookup; the secret is hashed with argon2id.
 
 ### Using tokens
 
 ```bash
-curl -H "Authorization: Bearer argos_pat_abcd1234_xxxxxxxxxxxxxxxxxxxxxxxx" \
+curl -H "Authorization: Bearer longue_vue_pat_abcd1234_xxxxxxxxxxxxxxxxxxxxxxxx" \
   http://localhost:8080/v1/clusters
 ```
 
@@ -169,7 +169,7 @@ curl -H "Authorization: Bearer argos_pat_abcd1234_xxxxxxxxxxxxxxxxxxxxxxxx" \
 
 ```bash
 # Via API
-curl -sS -b /tmp/argos.cookies -X DELETE http://localhost:8080/v1/admin/tokens/<id>
+curl -sS -b /tmp/longue-vue.cookies -X DELETE http://localhost:8080/v1/admin/tokens/<id>
 
 # Or via the admin panel at /ui/admin/tokens
 ```
@@ -199,8 +199,8 @@ Changing the password clears the flag and invalidates all other active sessions 
 ### How sessions work
 
 - Sessions are server-side, stored in the database.
-- The `argos_session` cookie is `HttpOnly` + `SameSite=Strict` with an 8-hour sliding expiry.
-- The `Secure` flag is controlled by `ARGOS_SESSION_SECURE_COOKIE` (default: `auto`).
+- The `longue_vue_session` cookie is `HttpOnly` + `SameSite=Strict` with an 8-hour sliding expiry.
+- The `Secure` flag is controlled by `LONGUE_VUE_SESSION_SECURE_COOKIE` (default: `auto`).
 
 ### Viewing and revoking sessions
 
@@ -208,16 +208,16 @@ Admins can view and revoke active sessions in the admin panel at `/ui/admin/sess
 
 ```bash
 # List sessions
-curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/admin/sessions | jq .
+curl -sS -b /tmp/longue-vue.cookies http://localhost:8080/v1/admin/sessions | jq .
 
 # Revoke a session
-curl -sS -b /tmp/argos.cookies -X DELETE http://localhost:8080/v1/admin/sessions/<id>
+curl -sS -b /tmp/longue-vue.cookies -X DELETE http://localhost:8080/v1/admin/sessions/<id>
 ```
 
 ### Logout
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/logout
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/auth/logout
 ```
 
 Deletes the server-side session and clears the cookie.
@@ -246,7 +246,7 @@ Sensitive fields (passwords, tokens, OIDC secrets) are scrubbed before persisten
 The audit log is accessible to users with the `audit` scope (roles `admin` and `auditor`):
 
 ```bash
-curl -sS -b /tmp/argos.cookies 'http://localhost:8080/v1/admin/audit?resource_type=user&action=user.create' | jq .
+curl -sS -b /tmp/longue-vue.cookies 'http://localhost:8080/v1/admin/audit?resource_type=user&action=user.create' | jq .
 ```
 
 See [API Reference](api-reference.md) for full filter options.

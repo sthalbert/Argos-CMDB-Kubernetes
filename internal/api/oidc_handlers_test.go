@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/sthalbert/argos/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
 // oidcStub builds an OIDCProvider with a stub oauth2 endpoint for
@@ -25,11 +25,11 @@ import (
 func oidcStub(label string) *auth.OIDCProvider {
 	return auth.NewOIDCProviderFromTestParts(&auth.OIDCConfig{
 		ClientID:    "cid",
-		RedirectURL: "https://argos.example.com/v1/auth/oidc/callback",
+		RedirectURL: "https://longue-vue.example.com/v1/auth/oidc/callback",
 		Label:       label,
 	}, &oauth2.Config{
 		ClientID:    "cid",
-		RedirectURL: "https://argos.example.com/v1/auth/oidc/callback",
+		RedirectURL: "https://longue-vue.example.com/v1/auth/oidc/callback",
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://idp.example.com/authorize",
 			TokenURL: "https://idp.example.com/token",

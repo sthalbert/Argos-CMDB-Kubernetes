@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/secrets"
+	"github.com/sthalbert/longue-vue/internal/secrets"
 )
 
 // memCloudState is the cloud-substrate slice of memStore. Embedded into

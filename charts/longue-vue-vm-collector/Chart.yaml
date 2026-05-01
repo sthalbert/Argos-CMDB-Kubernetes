@@ -1,0 +1,26 @@
+apiVersion: v2
+name: longue-vue-vm-collector
+description: >-
+  Push-mode cloud-VM collector for the longue-vue CMDB (ADR-0015). Polls a single
+  cloud-provider account (e.g. Outscale) and pushes VM observations to a
+  central longue-vue daemon. Stateless; one Helm release per cloud account. Ships
+  independently of the umbrella `longue-vue` chart so cloud-account collector
+  releases stay decoupled from the central control-plane release.
+type: application
+version: 0.1.2
+appVersion: "0.12.2"
+home: https://github.com/sthalbert/longue-vue
+sources:
+  - https://github.com/sthalbert/longue-vue
+maintainers:
+  - name: Steve Albert
+    url: https://github.com/sthalbert
+keywords:
+  - longue-vue
+  - cmdb
+  - virtual-machines
+  - outscale
+  - cloud
+  - push
+  - secnumcloud
+  - anssi

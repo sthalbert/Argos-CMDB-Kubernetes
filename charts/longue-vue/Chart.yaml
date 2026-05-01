@@ -1,0 +1,21 @@
+apiVersion: v2
+name: longue-vue
+description: >-
+  A CMDB for Kubernetes environments aligned with the ANSSI SecNumCloud
+  qualification framework. Polls clusters and exposes a REST API and web UI.
+type: application
+version: 0.15.2
+appVersion: "0.12.2"
+home: https://github.com/sthalbert/longue-vue
+sources:
+  - https://github.com/sthalbert/longue-vue
+maintainers:
+  - name: Steve Albert
+    url: https://github.com/sthalbert
+keywords:
+  - cmdb
+  - kubernetes
+  - secnumcloud
+  - anssi
+  - inventory
+  - compliance

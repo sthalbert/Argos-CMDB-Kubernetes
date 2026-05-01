@@ -1,0 +1,76 @@
+---
+# longue-vue-collector deployment for an air-gapped cluster behind an HTTP proxy.
+#
+# Prerequisites:
+#   1. Cluster row exists in longue-vue:
+#        POST https://inventory.tooling.cloudgouv-eu-west-1.numspot.internal/v1/clusters
+#        {"name":"<LONGUE_VUE_CLUSTER_NAME>"}
+#      (or rely on auto-create on first tick — ADR-0011)
+#   2. PAT with `write` scope created in the longue-vue admin panel.
+#   3. Image mirrored into a registry reachable from the air-gapped cluster.
+#   4. Secret `longue-vue-collector-credentials` applied with LONGUE_VUE_API_TOKEN
+#      (see secret.example.yaml).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: longue-vue-collector
+  namespace: longue-vue-system
+  labels:
+    app.kubernetes.io/name: longue-vue
+    app.kubernetes.io/component: push-collector
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: longue-vue
+      app.kubernetes.io/component: push-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: longue-vue
+        app.kubernetes.io/component: push-collector
+    spec:
+      serviceAccountName: longue-vue-collector
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: longue-vue-collector
+          # Replace with the mirrored image inside your air-gapped registry,
+          # e.g. registry.zad-sandbox.numspot.internal/longue-vue-collector:<tag>
+          image: ghcr.io/sthalbert/longue-vue-collector:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # --- longue-vue target ------------------------------------------
+            - name: LONGUE_VUE_SERVER_URL
+              value: "https://inventory.tooling.cloudgouv-eu-west-1.numspot.internal"
+            - name: LONGUE_VUE_CLUSTER_NAME
+              value: zad-sandbox
+            # Empty = use in-cluster ServiceAccount.
+            - name: LONGUE_VUE_KUBECONFIG
+              value: ""
+            - name: LONGUE_VUE_COLLECTOR_INTERVAL
+              value: "5m"
+            - name: LONGUE_VUE_COLLECTOR_RECONCILE
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: longue-vue-collector-credentials
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

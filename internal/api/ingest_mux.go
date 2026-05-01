@@ -1,20 +1,20 @@
 package api
 
-// IngestMux — the strict-write-only HTTP router served on argosd's mTLS-only
+// IngestMux — the strict-write-only HTTP router served on longue-vue's mTLS-only
 // ingest listener (ADR-0016 §3). Registers exactly nineteen routes: the
 // eighteen writes the K8s push collector uses (POST/PATCH only — no GETs),
 // plus POST /v1/auth/verify which the DMZ ingest gateway calls to
 // short-circuit invalid tokens before they cross the firewall.
 //
 // Anything else returns 404 from net/http's default ServeMux behaviour. A
-// route that exists on argosd's public listener (e.g. /v1/admin/users,
+// route that exists on longue-vue's public listener (e.g. /v1/admin/users,
 // /v1/clusters via GET, /v1/auth/login) is physically not registered on
 // this mux — defence in depth on top of the gateway's own allowlist.
 
 import (
 	"net/http"
 
-	"github.com/sthalbert/argos/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
 // IngestRoutes is the canonical, hardcoded list of (method, path) pairs the
@@ -22,9 +22,9 @@ import (
 // table of literals you can read out loud during an audit.
 //
 // Keep this list synchronised with internal/ingestgw's gateway-side
-// allowlist (ADR-0016 §2). A route that argosd serves but the gateway
+// allowlist (ADR-0016 §2). A route that longue-vue serves but the gateway
 // blocks is fine (defence in depth); a route the gateway forwards but
-// argosd does not register here is a configuration error and produces a
+// longue-vue does not register here is a configuration error and produces a
 // 404 at the listener.
 var IngestRoutes = []struct {
 	Method  string
@@ -59,8 +59,8 @@ var IngestRoutes = []struct {
 
 // IngestMuxConfig wires the strict-server backend, the auth + audit
 // middleware, and an optional 404 handler for the ingest listener. The
-// auth middleware MUST be the same auth.Middleware argosd's public
-// listener uses — argosd re-validates every forwarded token with the
+// auth middleware MUST be the same auth.Middleware longue-vue's public
+// listener uses — longue-vue re-validates every forwarded token with the
 // standard argon2id check; the gateway is never an auth authority.
 type IngestMuxConfig struct {
 	// Server is the StrictServerInterface implementation (typically
