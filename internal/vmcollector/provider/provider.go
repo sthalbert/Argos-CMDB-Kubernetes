@@ -1,5 +1,5 @@
 // Package provider defines the cloud-provider seam used by the
-// argos-vm-collector binary (ADR-0015 §7). One file per implementation;
+// longue-vue-vm-collector binary (ADR-0015 §7). One file per implementation;
 // only outscale.go is shipped in v1.
 package provider
 
@@ -52,7 +52,7 @@ type VM struct {
 	RootDeviceName       string
 }
 
-// Provider is the interface argos-vm-collector consumes. New cloud
+// Provider is the interface longue-vue-vm-collector consumes. New cloud
 // providers slot in by adding a new file in this package + a
 // constructor entry in the collector wiring.
 type Provider interface {

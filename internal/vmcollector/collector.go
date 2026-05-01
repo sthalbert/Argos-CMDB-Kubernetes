@@ -1,5 +1,5 @@
 // Package vmcollector implements the polling loop run by the
-// argos-vm-collector binary (ADR-0015 §11). One Collector instance =
+// longue-vue-vm-collector binary (ADR-0015 §11). One Collector instance =
 // one cloud account.
 package vmcollector
 
@@ -13,9 +13,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/vmcollector/apiclient"
-	"github.com/sthalbert/argos/internal/vmcollector/filter"
-	"github.com/sthalbert/argos/internal/vmcollector/provider"
+	"github.com/sthalbert/longue-vue/internal/vmcollector/apiclient"
+	"github.com/sthalbert/longue-vue/internal/vmcollector/filter"
+	"github.com/sthalbert/longue-vue/internal/vmcollector/provider"
 )
 
 // ErrCredentialsNotProvisioned is returned by ensureCredentials when the
@@ -33,7 +33,7 @@ type CollectorStore interface {
 }
 
 // ProviderFactory builds a Provider from the credentials fetched from
-// argosd. Returns a fresh instance so AK/SK rotation produces a fresh
+// longue-vue. Returns a fresh instance so AK/SK rotation produces a fresh
 // SDK client.
 type ProviderFactory func(creds apiclient.Credentials) (provider.Provider, error)
 
@@ -174,7 +174,7 @@ func (c *Collector) runOnce(ctx context.Context) {
 	ObserveTick("success", time.Since(tickStart))
 }
 
-// ensureCredentials fetches credentials from argosd; on the first
+// ensureCredentials fetches credentials from longue-vue; on the first
 // attempt it auto-registers the account if missing. Refreshes
 // credentials when the cache age exceeds CredentialRefresh.
 //

@@ -16,11 +16,11 @@ superseded_by: ""
 
 ## Context
 
-Argos catalogues software versions across every entity in the CMDB: `kubernetes_version` on clusters, `kubelet_version` / `kube_proxy_version` / `container_runtime_version` / `kernel_version` / `os_image` on nodes, and container `image` tags on pods and workloads. Today none of these carry lifecycle information — an operator looking at the inventory cannot tell which components are end-of-life (EOL), approaching EOL, or still under active support without checking each version manually.
+longue-vue catalogues software versions across every entity in the CMDB: `kubernetes_version` on clusters, `kubelet_version` / `kube_proxy_version` / `container_runtime_version` / `kernel_version` / `os_image` on nodes, and container `image` tags on pods and workloads. Today none of these carry lifecycle information — an operator looking at the inventory cannot tell which components are end-of-life (EOL), approaching EOL, or still under active support without checking each version manually.
 
 SecNumCloud chapter 8 (asset management) and ANSSI best practices expect the CMDB to surface obsolescence risk. Running EOL software is a known vector for unpatched CVEs and a recurring finding in SNC audits.
 
-The [endoflife.date](https://endoflife.date) project maintains a community-curated, machine-readable database of lifecycle dates for 450+ products — including Kubernetes, Ubuntu, Debian, Alpine Linux, RHEL, containerd, Docker, PostgreSQL, and most software Argos already inventories. It exposes a free, unauthenticated JSON API:
+The [endoflife.date](https://endoflife.date) project maintains a community-curated, machine-readable database of lifecycle dates for 450+ products — including Kubernetes, Ubuntu, Debian, Alpine Linux, RHEL, containerd, Docker, PostgreSQL, and most software longue-vue already inventories. It exposes a free, unauthenticated JSON API:
 
 - `GET /api/all.json` — list of all tracked product identifiers.
 - `GET /api/{product}.json` — all release cycles with `eol`, `support`, `lts`, `latest`, `releaseDate` per cycle.
@@ -30,7 +30,7 @@ No API key, no rate-limit header (community-funded, fair-use expected), response
 
 ## Decision
 
-**Add an EOL enrichment subsystem to argosd** that periodically queries the endoflife.date API, matches inventoried versions against known product cycles, and writes structured EOL annotations on the corresponding CMDB entities.
+**Add an EOL enrichment subsystem to longue-vue** that periodically queries the endoflife.date API, matches inventoried versions against known product cycles, and writes structured EOL annotations on the corresponding CMDB entities.
 
 ### Matchable products (v1 scope)
 
@@ -46,11 +46,11 @@ Container images (pods/workloads) are **out of v1 scope**. Image tags are unstru
 
 ### Enrichment model
 
-The enrichment writes **annotations** on the entity, using a reserved `argos.io/eol.*` key namespace:
+The enrichment writes **annotations** on the entity, using a reserved `longue-vue.io/eol.*` key namespace:
 
 ```json
 {
-  "argos.io/eol.kubernetes": {
+  "longue-vue.io/eol.kubernetes": {
     "product": "kubernetes",
     "cycle": "1.28",
     "eol": "2025-06-28",
@@ -60,7 +60,7 @@ The enrichment writes **annotations** on the entity, using a reserved `argos.io/
     "latest_available": "1.32.3",
     "checked_at": "2026-04-24T10:00:00Z"
   },
-  "argos.io/eol.containerd": {
+  "longue-vue.io/eol.containerd": {
     "product": "containerd",
     "cycle": "1.6",
     "eol": "2024-02-16",
@@ -87,7 +87,7 @@ The annotations key is namespaced per product so a single node can carry multipl
 
 ```
 ┌──────────────────────────────────┐
-│           argosd                 │
+│           longue-vue                 │
 │                                  │
 │  ┌───────────┐  ┌─────────────┐ │
 │  │ Collector  │  │ EOL Enricher│ │
@@ -107,35 +107,35 @@ The annotations key is namespaced per product so a single node can carry multipl
       https://endoflife.date/api/
 ```
 
-The enricher is a **separate goroutine** in argosd, independent of the collector. It runs on its own interval (default: 24h — lifecycle data changes slowly). Each tick:
+The enricher is a **separate goroutine** in longue-vue, independent of the collector. It runs on its own interval (default: 24h — lifecycle data changes slowly). Each tick:
 
 1. Queries the store for all distinct `(product, version)` tuples currently in the CMDB.
 2. Fetches the matching endoflife.date cycles (with an in-memory cache per product, TTL = enricher interval, so repeated cycles don't re-fetch).
 3. Computes `eol_status` for each tuple.
-4. Writes the `argos.io/eol.*` annotations via `UpdateCluster` / `UpdateNode` merge-patch (existing annotations are preserved; only the `argos.io/eol.*` keys are overwritten).
+4. Writes the `longue-vue.io/eol.*` annotations via `UpdateCluster` / `UpdateNode` merge-patch (existing annotations are preserved; only the `longue-vue.io/eol.*` keys are overwritten).
 
 The enricher never deletes CMDB entities — it only annotates. A failed endoflife.date fetch logs a warning and skips that product; stale annotations carry `checked_at` so the UI can show freshness.
 
 ### Configuration
 
 ```
-ARGOS_EOL_ENABLED=true                    # default: false
-ARGOS_EOL_INTERVAL=24h                    # default: 24h
-ARGOS_EOL_APPROACHING_DAYS=90             # default: 90
-ARGOS_EOL_BASE_URL=https://endoflife.date # default; override for mirror/proxy
+LONGUE_VUE_EOL_ENABLED=true                    # default: false
+LONGUE_VUE_EOL_INTERVAL=24h                    # default: 24h
+LONGUE_VUE_EOL_APPROACHING_DAYS=90             # default: 90
+LONGUE_VUE_EOL_BASE_URL=https://endoflife.date # default; override for mirror/proxy
 ```
 
-Disabled by default so the feature is opt-in. When `ARGOS_EOL_ENABLED=false`, no goroutine is started, no outbound HTTP calls are made.
+Disabled by default so the feature is opt-in. When `LONGUE_VUE_EOL_ENABLED=false`, no goroutine is started, no outbound HTTP calls are made.
 
 ### API surface
 
-No new endpoints. EOL data is exposed through the existing entity responses — the `annotations` field already ships in `GET /v1/clusters`, `GET /v1/nodes`, etc. Consumers filter on the `argos.io/eol.*` keys.
+No new endpoints. EOL data is exposed through the existing entity responses — the `annotations` field already ships in `GET /v1/clusters`, `GET /v1/nodes`, etc. Consumers filter on the `longue-vue.io/eol.*` keys.
 
 A future enhancement can add query parameters (`?eol_status=eol`, `?eol_before=2026-06-01`) as convenience filters, but v1 relies on client-side filtering or the UI's annotation display.
 
 ### UI surface
 
-The UI exposes an **End-of-Life Inventory** page (`/ui/eol`) that reads the `argos.io/eol.*` annotations and renders:
+The UI exposes an **End-of-Life Inventory** page (`/ui/eol`) that reads the `longue-vue.io/eol.*` annotations and renders:
 
 - **Summary cards** at the top: red (End of Life), orange (Approaching EOL), green (Supported) — clickable to filter the table.
 - A **sortable table** with two column groups separated by a visual border:
@@ -146,7 +146,7 @@ The UI exposes an **End-of-Life Inventory** page (`/ui/eol`) that reads the `arg
 
 ### Push collector
 
-The push collector (`argos-collector`) does **not** run the enricher. Enrichment is centralised in argosd — it reads from the store and writes back. Push-collected clusters are enriched the same way as pull-collected ones; no change to the push collector binary.
+The push collector (`longue-vue-collector`) does **not** run the enricher. Enrichment is centralised in longue-vue — it reads from the store and writes back. Push-collected clusters are enriched the same way as pull-collected ones; no change to the push collector binary.
 
 ## Consequences
 
@@ -154,13 +154,13 @@ The push collector (`argos-collector`) does **not** run the enricher. Enrichment
 
 - **POS-001**: Operators see EOL risk at a glance in the CMDB, without leaving the tool or cross-referencing external sites.
 - **POS-002**: SNC auditors can query annotations to produce an obsolescence report — a direct input to chapter 8 compliance evidence.
-- **POS-003**: The annotation model is extensible — future enrichers (CVE databases, compliance tags) can use the same `argos.io/*` namespace pattern.
+- **POS-003**: The annotation model is extensible — future enrichers (CVE databases, compliance tags) can use the same `longue-vue.io/*` namespace pattern.
 - **POS-004**: No schema migration — annotations are already a JSONB column on clusters and nodes.
 - **POS-005**: Opt-in by default — environments with no outbound internet (air-gap) are unaffected.
 
 ### Negative
 
-- **NEG-001**: argosd makes outbound HTTPS calls to `endoflife.date`. In strict-egress environments, operators must allowlist the domain or configure `ARGOS_EOL_BASE_URL` to point to an internal mirror.
+- **NEG-001**: longue-vue makes outbound HTTPS calls to `endoflife.date`. In strict-egress environments, operators must allowlist the domain or configure `LONGUE_VUE_EOL_BASE_URL` to point to an internal mirror.
 - **NEG-002**: endoflife.date is community-maintained. Data accuracy depends on upstream contributors. Mitigated by `checked_at` timestamps and the ability to override annotations manually via `PATCH`.
 - **NEG-003**: Version extraction from free-text fields (`os_image`, `container_runtime_version`) is heuristic. Edge cases (custom OS images, non-standard version strings) may produce `unknown` status. The parser must be conservative — `unknown` is better than a wrong match.
 - **NEG-004**: The annotation payload increases the JSON size of entity responses. For nodes with 3-4 matched products, this adds ~1 KB per node — negligible at expected scale.
@@ -206,7 +206,7 @@ Column renames for clarity: "Cycle" → **Version**, "Cycle Latest" → **Patch*
 
 ### Consequences
 
-- **POS**: Operators and auditors can instantly identify upgrade opportunities without leaving Argos.
+- **POS**: Operators and auditors can instantly identify upgrade opportunities without leaving longue-vue.
 - **NEG**: None — the data is already fetched, this only stores one additional string per annotation (~10 bytes).
 
 ## Implementation Notes
@@ -214,9 +214,9 @@ Column renames for clarity: "Cycle" → **Version**, "Cycle Latest" → **Patch*
 - **IMP-001**: Create `internal/eol/` package. Core types: `Product`, `Cycle`, `Status` enum, `Annotation` struct. `Enricher` struct with `Run(ctx)` method (same pattern as `collector.Collector`).
 - **IMP-002**: Create `internal/eol/endoflife/` sub-package: HTTP client for endoflife.date API with in-memory product cache, configurable base URL, timeout, and `http.Client` injection for testing.
 - **IMP-003**: Create `internal/eol/matcher/` sub-package: version extraction and product-matching logic. Start with `KubernetesVersionMatcher`, `ContainerRuntimeMatcher`, `OSImageMatcher`, `KernelMatcher`. Each implements a `Match(fieldValue string) (product, cycle string, ok bool)` interface. Unit-test with real-world `os_image` and `container_runtime_version` strings from diverse clusters.
-- **IMP-004**: Wire the enricher in `cmd/argosd/main.go` behind `ARGOS_EOL_ENABLED`. Start after the store is ready, stop on context cancellation (same as collector goroutines).
-- **IMP-005**: Add Prometheus metrics: `argos_eol_enrichments_total{product, status}`, `argos_eol_errors_total{product, phase}`, `argos_eol_last_run_timestamp_seconds`.
-- **IMP-006**: UI: add EOL badges to cluster detail and node detail pages. Read from `annotations["argos.io/eol.*"]`.
+- **IMP-004**: Wire the enricher in `cmd/longue-vue/main.go` behind `LONGUE_VUE_EOL_ENABLED`. Start after the store is ready, stop on context cancellation (same as collector goroutines).
+- **IMP-005**: Add Prometheus metrics: `longue_vue_eol_enrichments_total{product, status}`, `longue_vue_eol_errors_total{product, phase}`, `longue_vue_eol_last_run_timestamp_seconds`.
+- **IMP-006**: UI: add EOL badges to cluster detail and node detail pages. Read from `annotations["longue-vue.io/eol.*"]`.
 - **IMP-007**: Tests: unit tests for matchers, integration test that starts the enricher against a fake HTTP server returning canned endoflife.date responses and verifies annotations land in the store.
 
 ## References

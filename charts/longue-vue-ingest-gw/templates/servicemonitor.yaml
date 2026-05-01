@@ -1,0 +1,21 @@
+{{- if .Values.monitoring.serviceMonitor.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "longue-vue-ingest-gw.fullname" . }}
+  labels:
+    {{- include "longue-vue-ingest-gw.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "longue-vue-ingest-gw.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ingest-gateway-metrics
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout }}
+{{- end }}

@@ -1,6 +1,6 @@
 //go:build !noui
 
-// Package ui owns the embedded SPA bundle served by argosd under /ui/.
+// Package ui owns the embedded SPA bundle served by longue-vue under /ui/.
 //
 // Two build modes:
 //   - default: //go:embed pulls ui/dist into the binary; Handler() serves it.

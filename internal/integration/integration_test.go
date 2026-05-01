@@ -16,11 +16,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sthalbert/argos/internal/api"
-	"github.com/sthalbert/argos/internal/auth"
-	"github.com/sthalbert/argos/internal/collector"
-	"github.com/sthalbert/argos/internal/collector/apiclient"
-	"github.com/sthalbert/argos/internal/store"
+	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/collector"
+	"github.com/sthalbert/longue-vue/internal/collector/apiclient"
+	"github.com/sthalbert/longue-vue/internal/store"
 )
 
 // integrationDSN is the DSN for the dedicated integration database.

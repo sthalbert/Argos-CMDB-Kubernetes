@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/api"
+	"github.com/sthalbert/longue-vue/internal/api"
 )
 
 // fakeStore implements EnricherStore for tests.
@@ -180,9 +180,9 @@ func TestEnricherEnrichesClusterKubernetesVersion(t *testing.T) {
 		t.Fatal("expected annotations to be set")
 		return
 	}
-	raw, ok := (*ann)["argos.io/eol.kubernetes"]
+	raw, ok := (*ann)["longue-vue.io/eol.kubernetes"]
 	if !ok {
-		t.Fatal("expected argos.io/eol.kubernetes annotation")
+		t.Fatal("expected longue-vue.io/eol.kubernetes annotation")
 	}
 
 	var parsed Annotation
@@ -258,10 +258,10 @@ func TestEnricherEnrichesNodeFields(t *testing.T) {
 	}
 
 	expected := []string{
-		"argos.io/eol.kubernetes",
-		"argos.io/eol.containerd",
-		"argos.io/eol.ubuntu",
-		"argos.io/eol.linux",
+		"longue-vue.io/eol.kubernetes",
+		"longue-vue.io/eol.containerd",
+		"longue-vue.io/eol.ubuntu",
+		"longue-vue.io/eol.linux",
 	}
 	for _, key := range expected {
 		raw, ok := (*ann)[key]
@@ -316,14 +316,14 @@ func TestEnricherPreservesExistingAnnotations(t *testing.T) {
 	if (*ann)["tier"] != "production" {
 		t.Error("existing 'tier' annotation was overwritten")
 	}
-	if _, ok := (*ann)["argos.io/eol.kubernetes"]; !ok {
+	if _, ok := (*ann)["longue-vue.io/eol.kubernetes"]; !ok {
 		t.Error("eol annotation was not added")
 	}
 }
 
 // TestEnricherEnrichesVirtualMachineApplications covers the ADR-0019
 // pillar 2 path: operator-declared apps are looked up on endoflife.date
-// and surfaced as argos.io/eol.<product> annotations on the VM.
+// and surfaced as longue-vue.io/eol.<product> annotations on the VM.
 func TestEnricherEnrichesVirtualMachineApplications(t *testing.T) { //nolint:gocyclo // end-to-end test asserting multiple vm annotation fields
 	t.Parallel()
 
@@ -341,8 +341,8 @@ func TestEnricherEnrichesVirtualMachineApplications(t *testing.T) { //nolint:goc
 
 	vmID := uuid.New()
 	customAnn := map[string]string{
-		"team":                  "platform",
-		"argos.io/eol.obsolete": `{"product":"obsolete","eol_status":"eol"}`,
+		"team":                       "platform",
+		"longue-vue.io/eol.obsolete": `{"product":"obsolete","eol_status":"eol"}`,
 	}
 	vault := "vault-prod-01"
 	store := &fakeStore{
@@ -376,15 +376,15 @@ func TestEnricherEnrichesVirtualMachineApplications(t *testing.T) { //nolint:goc
 	if ann["team"] != "platform" {
 		t.Error("team annotation was lost")
 	}
-	// Stale argos.io/eol.* annotations are removed (the obsolete one was
+	// Stale longue-vue.io/eol.* annotations are removed (the obsolete one was
 	// not in the new applications list).
-	if _, ok := ann["argos.io/eol.obsolete"]; ok {
-		t.Error("stale argos.io/eol.obsolete should have been reaped")
+	if _, ok := ann["longue-vue.io/eol.obsolete"]; ok {
+		t.Error("stale longue-vue.io/eol.obsolete should have been reaped")
 	}
 	// Vault gets a real lifecycle annotation.
-	raw, ok := ann["argos.io/eol.vault"]
+	raw, ok := ann["longue-vue.io/eol.vault"]
 	if !ok {
-		t.Fatal("expected argos.io/eol.vault annotation")
+		t.Fatal("expected longue-vue.io/eol.vault annotation")
 	}
 	var parsed Annotation
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
@@ -395,9 +395,9 @@ func TestEnricherEnrichesVirtualMachineApplications(t *testing.T) { //nolint:goc
 	}
 	// Unknown products produce stub annotations (auditors see the row was
 	// evaluated, rather than a silent drop).
-	stubRaw, ok := ann["argos.io/eol.unknownproduct"]
+	stubRaw, ok := ann["longue-vue.io/eol.unknownproduct"]
 	if !ok {
-		t.Fatal("expected stub argos.io/eol.unknownproduct annotation")
+		t.Fatal("expected stub longue-vue.io/eol.unknownproduct annotation")
 	}
 	var stub Annotation
 	if err := json.Unmarshal([]byte(stubRaw), &stub); err != nil {
@@ -482,9 +482,9 @@ func TestEnricherMatchesMajorOnlyCycles(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	raw, ok := store.vms[0].Annotations["argos.io/eol.postgresql"]
+	raw, ok := store.vms[0].Annotations["longue-vue.io/eol.postgresql"]
 	if !ok {
-		t.Fatal("expected argos.io/eol.postgresql annotation")
+		t.Fatal("expected longue-vue.io/eol.postgresql annotation")
 	}
 	var parsed Annotation
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
@@ -506,7 +506,7 @@ func TestMergeAnnotation(t *testing.T) {
 	t.Run("nil existing", func(t *testing.T) {
 		t.Parallel()
 		merged := mergeAnnotation(nil, "kubernetes", ann)
-		if _, ok := merged["argos.io/eol.kubernetes"]; !ok {
+		if _, ok := merged["longue-vue.io/eol.kubernetes"]; !ok {
 			t.Error("expected eol key")
 		}
 	})
@@ -518,17 +518,17 @@ func TestMergeAnnotation(t *testing.T) {
 		if merged["custom"] != "value" {
 			t.Error("custom key was lost")
 		}
-		if _, ok := merged["argos.io/eol.kubernetes"]; !ok {
+		if _, ok := merged["longue-vue.io/eol.kubernetes"]; !ok {
 			t.Error("expected eol key")
 		}
 	})
 
 	t.Run("overwrites previous eol key", func(t *testing.T) {
 		t.Parallel()
-		existing := map[string]string{"argos.io/eol.kubernetes": `{"old":"data"}`}
+		existing := map[string]string{"longue-vue.io/eol.kubernetes": `{"old":"data"}`}
 		merged := mergeAnnotation(&existing, "kubernetes", ann)
 		var parsed Annotation
-		if err := json.Unmarshal([]byte(merged["argos.io/eol.kubernetes"]), &parsed); err != nil {
+		if err := json.Unmarshal([]byte(merged["longue-vue.io/eol.kubernetes"]), &parsed); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		if parsed.Cycle != "1.28" {

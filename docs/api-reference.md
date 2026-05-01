@@ -1,6 +1,6 @@
 # API Reference
 
-Argos exposes a REST API at `/v1/`. The authoritative schema is the OpenAPI 3.1 spec at `api/openapi/openapi.yaml`. This page provides a concise reference with curl examples.
+longue-vue exposes a REST API at `/v1/`. The authoritative schema is the OpenAPI 3.1 spec at `api/openapi/openapi.yaml`. This page provides a concise reference with curl examples.
 
 ## Conventions
 
@@ -36,18 +36,18 @@ Every endpoint except health probes, metrics, and the auth flow requires authent
 **Session cookie** (humans):
 
 ```bash
-curl -sS -c /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/login \
+curl -sS -c /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"secret"}'
 
 # Subsequent requests carry the cookie:
-curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/clusters
+curl -sS -b /tmp/longue-vue.cookies http://localhost:8080/v1/clusters
 ```
 
 **Bearer token** (machines):
 
 ```bash
-curl -H "Authorization: Bearer argos_pat_xxxx_yyyy" http://localhost:8080/v1/clusters
+curl -H "Authorization: Bearer longue_vue_pat_xxxx_yyyy" http://localhost:8080/v1/clusters
 ```
 
 ### Pagination
@@ -291,7 +291,7 @@ Response:
 **Login:**
 
 ```bash
-curl -sS -c /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/login \
+curl -sS -c /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"my-password"}'
 # 204 No Content on success; session cookie set.
@@ -300,7 +300,7 @@ curl -sS -c /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/login \
 **Who am I:**
 
 ```bash
-curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/auth/me | jq .
+curl -sS -b /tmp/longue-vue.cookies http://localhost:8080/v1/auth/me | jq .
 ```
 
 ```json
@@ -316,7 +316,7 @@ curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/auth/me | jq .
 **Change password:**
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/change-password \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/auth/change-password \
   -H 'Content-Type: application/json' \
   -d '{"current_password":"old","new_password":"new-strong-passphrase"}'
 # 204 on success. All other sessions invalidated.
@@ -324,12 +324,12 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/auth/change-pass
 
 **`POST /v1/auth/verify` — token verification (DMZ ingest gateway, ADR-0016 §5):**
 
-This endpoint is served **only on argosd's mTLS ingest listener** (`:8443` when `ARGOS_INGEST_LISTEN_ADDR` is set). It is not reachable on argosd's public `:8080` listener. The caller must present a valid mTLS client certificate — there is no `Authorization` header on the verify call itself. The ingest gateway uses this endpoint to verify collector PATs before forwarding requests.
+This endpoint is served **only on longue-vue's mTLS ingest listener** (`:8443` when `LONGUE_VUE_INGEST_LISTEN_ADDR` is set). It is not reachable on longue-vue's public `:8080` listener. The caller must present a valid mTLS client certificate — there is no `Authorization` header on the verify call itself. The ingest gateway uses this endpoint to verify collector PATs before forwarding requests.
 
 Request body:
 
 ```json
-{"token": "argos_pat_<prefix>_<suffix>"}
+{"token": "longue_vue_pat_<prefix>_<suffix>"}
 ```
 
 Successful response (`200 OK`):
@@ -368,7 +368,7 @@ Invalid token (`401 Unauthorized`): returns an RFC 7807 problem doc with no deta
 }
 ```
 
-Rate limit: 100 req/s per source IP on argosd (the gateway cache reduces steady-state call volume to well below this). The `token` field in the request body is redacted from the audit log.
+Rate limit: 100 req/s per source IP on longue-vue (the gateway cache reduces steady-state call volume to well below this). The `token` field in the request body is redacted from the audit log.
 
 ---
 
@@ -394,7 +394,7 @@ commit will receive `409` rather than orphaning the deployment.
 **Create a user:**
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/users \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/admin/users \
   -H 'Content-Type: application/json' \
   -d '{"username":"alice","password":"initial-pass","role":"editor"}'
 ```
@@ -410,7 +410,7 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/users \
 **Mint a token:**
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
+curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/admin/tokens \
   -H 'Content-Type: application/json' \
   -d '{"name":"ci-pipeline","scopes":["read","write"]}'
 ```
@@ -432,7 +432,7 @@ curl -sS -b /tmp/argos.cookies -X POST http://localhost:8080/v1/admin/tokens \
 **Get settings:**
 
 ```bash
-curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/admin/settings | jq .
+curl -sS -b /tmp/longue-vue.cookies http://localhost:8080/v1/admin/settings | jq .
 ```
 
 ```json
@@ -445,7 +445,7 @@ curl -sS -b /tmp/argos.cookies http://localhost:8080/v1/admin/settings | jq .
 **Toggle EOL enrichment:**
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X PATCH http://localhost:8080/v1/admin/settings \
+curl -sS -b /tmp/longue-vue.cookies -X PATCH http://localhost:8080/v1/admin/settings \
   -H 'Content-Type: application/json' \
   -d '{"eol_enabled": false}'
 ```
@@ -464,7 +464,7 @@ curl -sS -b /tmp/argos.cookies -X PATCH http://localhost:8080/v1/admin/settings 
 **Query audit events:**
 
 ```bash
-curl -sS -b /tmp/argos.cookies \
+curl -sS -b /tmp/longue-vue.cookies \
   'http://localhost:8080/v1/admin/audit?resource_type=cluster&action=cluster.create&since=2026-01-01T00:00:00Z' \
   | jq '.items[:3]'
 ```
@@ -499,7 +499,7 @@ Filter parameters:
 **Example:**
 
 ```bash
-curl -sS -b /tmp/argos.cookies \
+curl -sS -b /tmp/longue-vue.cookies \
   'http://localhost:8080/v1/impact/node/<uuid>?depth=2' | jq .
 ```
 
@@ -573,8 +573,8 @@ Two new path families and one new scope are involved:
 **Create a cloud account (admin):**
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST \
-  https://argos.internal:8080/v1/admin/cloud-accounts \
+curl -sS -b /tmp/longue-vue.cookies -X POST \
+  https://longue-vue.internal:8080/v1/admin/cloud-accounts \
   -H 'Content-Type: application/json' \
   -d '{
     "provider": "outscale",
@@ -605,8 +605,8 @@ If `access_key` and `secret_key` are omitted, the row is created in `status: pen
 **Set or rotate credentials (admin):**
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X PATCH \
-  https://argos.internal:8080/v1/admin/cloud-accounts/<id>/credentials \
+curl -sS -b /tmp/longue-vue.cookies -X PATCH \
+  https://longue-vue.internal:8080/v1/admin/cloud-accounts/<id>/credentials \
   -H 'Content-Type: application/json' \
   -d '{
     "access_key": "AKIA...",
@@ -615,13 +615,13 @@ curl -sS -b /tmp/argos.cookies -X PATCH \
 # 204 No Content
 ```
 
-The SK is encrypted with AES-256-GCM under `ARGOS_SECRETS_MASTER_KEY` before it touches the database.
+The SK is encrypted with AES-256-GCM under `LONGUE_VUE_SECRETS_MASTER_KEY` before it touches the database.
 
 **Mint a collector token (admin):**
 
 ```bash
-curl -sS -b /tmp/argos.cookies -X POST \
-  https://argos.internal:8080/v1/admin/cloud-accounts/<id>/tokens \
+curl -sS -b /tmp/longue-vue.cookies -X POST \
+  https://longue-vue.internal:8080/v1/admin/cloud-accounts/<id>/tokens \
   -H 'Content-Type: application/json' \
   -d '{"name": "acme-prod-collector"}'
 ```
@@ -634,7 +634,7 @@ Response (token shown **once**):
   "name": "acme-prod-collector",
   "role": "vm-collector",
   "bound_cloud_account_id": "1f2c4a3e-...",
-  "token": "argos_pat_3f9c1e7a_5N2pKdQ...",
+  "token": "longue_vue_pat_3f9c1e7a_5N2pKdQ...",
   "created_at": "2026-04-26T09:30:00Z"
 }
 ```
@@ -644,8 +644,8 @@ The PAT is bound to this `cloud_account_id` at issuance — it can only access t
 **Fetch credentials (vm-collector):**
 
 ```bash
-curl -sS -H "Authorization: Bearer argos_pat_3f9c1e7a_..." \
-  https://argos.internal:8080/v1/cloud-accounts/by-name/acme-prod/credentials
+curl -sS -H "Authorization: Bearer longue_vue_pat_3f9c1e7a_..." \
+  https://longue-vue.internal:8080/v1/cloud-accounts/by-name/acme-prod/credentials
 ```
 
 ```json
@@ -662,8 +662,8 @@ Returned over TLS only. Audit-logged on every call (caller, account name, timest
 **First-contact registration (vm-collector):**
 
 ```bash
-curl -sS -H "Authorization: Bearer argos_pat_3f9c1e7a_..." \
-  -X POST https://argos.internal:8080/v1/cloud-accounts \
+curl -sS -H "Authorization: Bearer longue_vue_pat_3f9c1e7a_..." \
+  -X POST https://longue-vue.internal:8080/v1/cloud-accounts \
   -H 'Content-Type: application/json' \
   -d '{
     "provider": "outscale",
@@ -677,8 +677,8 @@ Idempotent on `(provider, name)`. Returns the row with `status: pending_credenti
 **Heartbeat (vm-collector):**
 
 ```bash
-curl -sS -H "Authorization: Bearer argos_pat_3f9c1e7a_..." \
-  -X PATCH https://argos.internal:8080/v1/cloud-accounts/<id>/status \
+curl -sS -H "Authorization: Bearer longue_vue_pat_3f9c1e7a_..." \
+  -X PATCH https://longue-vue.internal:8080/v1/cloud-accounts/<id>/status \
   -H 'Content-Type: application/json' \
   -d '{
     "last_seen_at": "2026-04-26T10:00:00Z",
@@ -720,30 +720,30 @@ All filters are AND-ed. None of them mutate state.
 ```bash
 # All running VMs in a specific account:
 curl -sS -H "Authorization: Bearer $TOKEN" \
-  'https://argos.internal:8080/v1/virtual-machines?cloud_account_id=<uuid>&power_state=running'
+  'https://longue-vue.internal:8080/v1/virtual-machines?cloud_account_id=<uuid>&power_state=running'
 
 # All VMs running Vault (any version):
 curl -sS -H "Authorization: Bearer $TOKEN" \
-  'https://argos.internal:8080/v1/virtual-machines?application=vault'
+  'https://longue-vue.internal:8080/v1/virtual-machines?application=vault'
 
 # All VMs running a specific Vault version:
 curl -sS -H "Authorization: Bearer $TOKEN" \
-  'https://argos.internal:8080/v1/virtual-machines?application=vault&application_version=1.13.4'
+  'https://longue-vue.internal:8080/v1/virtual-machines?application=vault&application_version=1.13.4'
 
 # All VMs whose name contains "bastion" in a given region:
 curl -sS -H "Authorization: Bearer $TOKEN" \
-  'https://argos.internal:8080/v1/virtual-machines?region=eu-west-2&name=bastion'
+  'https://longue-vue.internal:8080/v1/virtual-machines?region=eu-west-2&name=bastion'
 
 # All VMs running a specific AMI:
 curl -sS -H "Authorization: Bearer $TOKEN" \
-  'https://argos.internal:8080/v1/virtual-machines?image=ami-75374985'
+  'https://longue-vue.internal:8080/v1/virtual-machines?image=ami-75374985'
 ```
 
 **Upsert a VM (vm-collector):**
 
 ```bash
-curl -sS -H "Authorization: Bearer argos_pat_3f9c1e7a_..." \
-  -X POST https://argos.internal:8080/v1/virtual-machines \
+curl -sS -H "Authorization: Bearer longue_vue_pat_3f9c1e7a_..." \
+  -X POST https://longue-vue.internal:8080/v1/virtual-machines \
   -H 'Content-Type: application/json' \
   -d '{
     "cloud_account_id": "<uuid>",
@@ -758,7 +758,7 @@ curl -sS -H "Authorization: Bearer argos_pat_3f9c1e7a_..." \
   }'
 ```
 
-If `provider_vm_id` matches a substring of any existing `nodes.provider_id` (i.e. it is already inventoried as a kube node), argosd returns:
+If `provider_vm_id` matches a substring of any existing `nodes.provider_id` (i.e. it is already inventoried as a kube node), longue-vue returns:
 
 ```
 409 Conflict
@@ -770,8 +770,8 @@ The collector logs and skips. This is the canonical dedup; the collector's tag-b
 **Reconcile (vm-collector):**
 
 ```bash
-curl -sS -H "Authorization: Bearer argos_pat_3f9c1e7a_..." \
-  -X POST https://argos.internal:8080/v1/virtual-machines/reconcile \
+curl -sS -H "Authorization: Bearer longue_vue_pat_3f9c1e7a_..." \
+  -X POST https://longue-vue.internal:8080/v1/virtual-machines/reconcile \
   -H 'Content-Type: application/json' \
   -d '{
     "cloud_account_id": "<uuid>",
@@ -791,7 +791,7 @@ Rows whose `provider_vm_id` is not in the keep list (and which are not already t
 
 ```bash
 curl -sS -H "Authorization: Bearer $TOKEN" -X PATCH \
-  https://argos.internal:8080/v1/virtual-machines/<id> \
+  https://longue-vue.internal:8080/v1/virtual-machines/<id> \
   -H 'Content-Type: application/merge-patch+json' \
   -d '{
     "display_name": "Vault Primary",
@@ -809,7 +809,7 @@ Accepted curated fields: `display_name`, `owner`, `criticality`, `notes`, `runbo
 
 ```bash
 curl -sS -H "Authorization: Bearer $TOKEN" -X PATCH \
-  https://argos.internal:8080/v1/virtual-machines/<id> \
+  https://longue-vue.internal:8080/v1/virtual-machines/<id> \
   -H 'Content-Type: application/merge-patch+json' \
   -d '{
     "applications": [
@@ -852,7 +852,7 @@ Returns the distinct normalized product names recorded across the fleet, with th
 
 ```bash
 curl -sS -H "Authorization: Bearer $TOKEN" \
-  https://argos.internal:8080/v1/virtual-machines/applications/distinct
+  https://longue-vue.internal:8080/v1/virtual-machines/applications/distinct
 ```
 
 ```json
@@ -884,4 +884,4 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 
 ## MCP server (alternative query interface)
 
-Argos also exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with 17 read-only tools that mirror the REST query surface. The MCP interface is designed for AI agents and supports SSE and stdio transports. It is **not** part of the REST API -- see [MCP Server](mcp-server.md) for setup, tool catalogue, and authentication details.
+longue-vue also exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with 17 read-only tools that mirror the REST query surface. The MCP interface is designed for AI agents and supports SSE and stdio transports. It is **not** part of the REST API -- see [MCP Server](mcp-server.md) for setup, tool catalogue, and authentication details.

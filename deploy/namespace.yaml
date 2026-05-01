@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: argos-system
+  name: longue-vue-system
   labels:
-    app.kubernetes.io/name: argos
-    app.kubernetes.io/part-of: argos
+    app.kubernetes.io/name: longue-vue
+    app.kubernetes.io/part-of: longue-vue

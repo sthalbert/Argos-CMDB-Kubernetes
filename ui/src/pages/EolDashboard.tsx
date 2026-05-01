@@ -20,7 +20,7 @@ interface EolAnnotation {
 
 type EolStatus = EolAnnotation['eol_status'];
 
-const EOL_PREFIX = 'argos.io/eol.';
+const EOL_PREFIX = 'longue-vue.io/eol.';
 
 function parseEolAnnotations(annotations?: Record<string, string> | null): EolAnnotation[] {
   if (!annotations) return [];

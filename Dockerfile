@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# argosd container image.
+# longue-vue container image.
 # Multi-stage: node builder (UI) -> golang builder (binary embedding the UI)
 # -> distroless static runtime. Binary is static (CGO_ENABLED=0) and runs
 # as the non-root UID baked into the distroless :nonroot tag (65532).
@@ -58,19 +58,19 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
         -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o /out/argosd \
-        ./cmd/argosd
+        -o /out/longue-vue \
+        ./cmd/longue-vue
 
 # ---- runtime stage -------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
 
-# Copy the binary to /. Distroless has no shell; the container runs argosd directly.
-COPY --from=build /out/argosd /argosd
+# Copy the binary to /. Distroless has no shell; the container runs longue-vue directly.
+COPY --from=build /out/longue-vue /longue-vue
 
-# Default HTTP port (overridable via ARGOS_ADDR).
+# Default HTTP port (overridable via LONGUE_VUE_ADDR).
 EXPOSE 8080
 
 # distroless:nonroot provides UID/GID 65532.
 USER nonroot:nonroot
 
-ENTRYPOINT ["/argosd"]
+ENTRYPOINT ["/longue-vue"]

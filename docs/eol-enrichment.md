@@ -1,19 +1,19 @@
 # End-of-Life Enrichment
 
-Argos can automatically flag software running past its end-of-life date. The EOL enricher periodically queries [endoflife.date](https://endoflife.date) and annotates clusters, nodes, and non-Kubernetes platform VMs with lifecycle status so you can spot obsolescence risk at a glance.
+longue-vue can automatically flag software running past its end-of-life date. The EOL enricher periodically queries [endoflife.date](https://endoflife.date) and annotates clusters, nodes, and non-Kubernetes platform VMs with lifecycle status so you can spot obsolescence risk at a glance.
 
 ## How it works
 
-The enricher runs as a background goroutine inside argosd. On each tick it:
+The enricher runs as a background goroutine inside longue-vue. On each tick it:
 
 1. Reads the `eol_enabled` setting from the database. If disabled, the tick is skipped.
 2. Lists every cluster in the CMDB and processes them, including their nodes.
 3. Lists every non-terminated non-Kubernetes VM in the CMDB.
 4. Extracts version strings from known fields (Kubernetes version, container runtime, OS image, kernel version on clusters and nodes; operator-declared applications on VMs).
 5. Matches each version against the endoflife.date API to determine lifecycle status.
-6. Writes a structured annotation under the `argos.io/eol.<product>` key on the entity.
+6. Writes a structured annotation under the `longue-vue.io/eol.<product>` key on the entity.
 
-For VMs, stale `argos.io/eol.*` annotations (from applications that were removed from the list) are dropped on each tick. Annotations under any other key are preserved. For clusters and nodes, the enricher only overwrites its own `argos.io/eol.*` keys; all other annotations are untouched.
+For VMs, stale `longue-vue.io/eol.*` annotations (from applications that were removed from the list) are dropped on each tick. Annotations under any other key are preserved. For clusters and nodes, the enricher only overwrites its own `longue-vue.io/eol.*` keys; all other annotations are untouched.
 
 ## Enable the enricher
 
@@ -27,7 +27,7 @@ The enricher picks up the change on its next tick (default: every 2 minutes). No
 
 To disable it again, click **Disable** on the same card.
 
-> **Alternative: env var.** Setting `ARGOS_EOL_ENABLED=true` on the argosd Deployment seeds the database setting to `true` on startup. The UI toggle overrides it at runtime. See [Configuration](configuration.md) for all env vars.
+> **Alternative: env var.** Setting `LONGUE_VUE_EOL_ENABLED=true` on the longue-vue Deployment seeds the database setting to `true` on startup. The UI toggle overrides it at runtime. See [Configuration](configuration.md) for all env vars.
 
 ## Use the EOL inventory
 
@@ -90,7 +90,7 @@ Products not listed on endoflife.date, or versions that don't match any known cy
 
 ### Virtual machines
 
-Non-Kubernetes platform VMs are enriched via the operator-curated `applications` field. The enricher reads each VM's `applications` array and writes one `argos.io/eol.<product>` annotation per declared entry. See [VM Applications](vm-applications.md) for how to declare applications.
+Non-Kubernetes platform VMs are enriched via the operator-curated `applications` field. The enricher reads each VM's `applications` array and writes one `longue-vue.io/eol.<product>` annotation per declared entry. See [VM Applications](vm-applications.md) for how to declare applications.
 
 **What the enricher does with each application entry:**
 
@@ -99,7 +99,7 @@ Non-Kubernetes platform VMs are enriched via the operator-curated `applications`
 3. Extracts the major.minor cycle from the declared `version` string. A leading `v` and any build suffix are stripped (`v1.15.4-ent` → cycle `1.15`). If no major.minor can be parsed, the stub annotation is used.
 4. Matches the cycle against the product's release list on endoflife.date and writes a full annotation including `eol_status`, `eol` date, `latest`, and `latest_available`.
 
-On each tick, the enricher drops any `argos.io/eol.*` annotations that no longer correspond to a declared application, so stale annotations from removed entries disappear automatically. Annotations under any other key are preserved.
+On each tick, the enricher drops any `longue-vue.io/eol.*` annotations that no longer correspond to a declared application, so stale annotations from removed entries disappear automatically. Annotations under any other key are preserved.
 
 Terminated VMs are skipped.
 
@@ -109,7 +109,7 @@ Terminated VMs are skipped.
 
 ## Annotation format
 
-Each enriched entity carries one annotation per matched product. The key is `argos.io/eol.<product>` and the value is a JSON string:
+Each enriched entity carries one annotation per matched product. The key is `longue-vue.io/eol.<product>` and the value is a JSON string:
 
 ```json
 {
@@ -139,14 +139,14 @@ These annotations are visible on the entity detail pages (cluster, node, and vir
 
 ## Configuration
 
-The enricher behaviour is tuned with environment variables on the argosd Deployment. See the [Configuration Reference](configuration.md) for the full table. Key variables:
+The enricher behaviour is tuned with environment variables on the longue-vue Deployment. See the [Configuration Reference](configuration.md) for the full table. Key variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ARGOS_EOL_ENABLED` | -- | Seeds the `eol_enabled` database setting on startup. The UI toggle overrides it at runtime. |
-| `ARGOS_EOL_INTERVAL` | `2m` | Time between enrichment ticks. |
-| `ARGOS_EOL_APPROACHING_DAYS` | `90` | Number of days before EOL to flag as "approaching". |
-| `ARGOS_EOL_BASE_URL` | `https://endoflife.date` | Base URL for the endoflife.date API. Override to point at an internal mirror in air-gapped environments. |
+| `LONGUE_VUE_EOL_ENABLED` | -- | Seeds the `eol_enabled` database setting on startup. The UI toggle overrides it at runtime. |
+| `LONGUE_VUE_EOL_INTERVAL` | `2m` | Time between enrichment ticks. |
+| `LONGUE_VUE_EOL_APPROACHING_DAYS` | `90` | Number of days before EOL to flag as "approaching". |
+| `LONGUE_VUE_EOL_BASE_URL` | `https://endoflife.date` | Base URL for the endoflife.date API. Override to point at an internal mirror in air-gapped environments. |
 
 ## Monitoring
 
@@ -154,14 +154,14 @@ The enricher exports Prometheus metrics on the `/metrics` endpoint:
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `argos_eol_enrichments_total` | counter | `cluster`, `resource`, `status` | Annotations written per tick. |
-| `argos_eol_errors_total` | counter | `cluster`, `resource`, `phase` | Errors during enrichment. `phase` is `list`, `resolve`, or `update`. |
-| `argos_eol_last_run_timestamp_seconds` | gauge | -- | Unix timestamp of the last completed enrichment run. |
+| `longue_vue_eol_enrichments_total` | counter | `cluster`, `resource`, `status` | Annotations written per tick. |
+| `longue_vue_eol_errors_total` | counter | `cluster`, `resource`, `phase` | Errors during enrichment. `phase` is `list`, `resolve`, or `update`. |
+| `longue_vue_eol_last_run_timestamp_seconds` | gauge | -- | Unix timestamp of the last completed enrichment run. |
 
 A simple freshness alert:
 
 ```
-time() - argos_eol_last_run_timestamp_seconds > 600
+time() - longue_vue_eol_last_run_timestamp_seconds > 600
 ```
 
 ## Air-gapped environments
@@ -169,12 +169,12 @@ time() - argos_eol_last_run_timestamp_seconds > 600
 The enricher makes outbound HTTPS requests to `endoflife.date`. In environments where this is not possible:
 
 1. Set up an internal mirror of the endoflife.date API (the project publishes its data as JSON files).
-2. Set `ARGOS_EOL_BASE_URL` to the mirror URL.
+2. Set `LONGUE_VUE_EOL_BASE_URL` to the mirror URL.
 3. Standard proxy environment variables (`HTTPS_PROXY`, `NO_PROXY`) are honored by Go's HTTP client.
 
 ## Limitations
 
 - **Container images are not matched.** Image tags are unstructured (`nginx:1.25-alpine`, `myapp:latest`) and matching them to endoflife.date products would require a registry-aware parser. This is planned for a future version.
-- **VM application data is operator-curated.** The enricher annotates whatever version was last written to the `applications` field. If a VM's Vault version is upgraded without updating Argos, the EOL annotation reflects the old version. The `added_at` timestamp on each application entry is shown in the UI to help spot stale records. An in-guest agent for automatic discovery is planned for a future version.
+- **VM application data is operator-curated.** The enricher annotates whatever version was last written to the `applications` field. If a VM's Vault version is upgraded without updating longue-vue, the EOL annotation reflects the old version. The `added_at` timestamp on each application entry is shown in the UI to help spot stale records. An in-guest agent for automatic discovery is planned for a future version.
 - **Data accuracy depends on endoflife.date.** The project is community-maintained. Verify critical EOL decisions against vendor documentation.
-- **A typo in `ARGOS_CLUSTER_NAME` creates a new cluster.** The auto-created cluster will be enriched, but with the wrong name. Verify cluster names after first deployment.
+- **A typo in `LONGUE_VUE_CLUSTER_NAME` creates a new cluster.** The auto-created cluster will be enriched, but with the wrong name. Verify cluster names after first deployment.

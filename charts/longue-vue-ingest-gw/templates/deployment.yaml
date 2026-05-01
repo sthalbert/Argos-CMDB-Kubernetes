@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "longue-vue-ingest-gw.fullname" . }}
+  labels:
+    {{- include "longue-vue-ingest-gw.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "longue-vue-ingest-gw.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "longue-vue-ingest-gw.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Trigger a rollout when the upstream CA bundle changes; otherwise
+        # an in-place ConfigMap update would leave running pods stuck on
+        # the old bundle until something else nudged them.
+        checksum/ca-bundle: {{ include (print $.Template.BasePath "/configmap-ca.yaml") . | sha256sum }}
+        {{- include "longue-vue-ingest-gw.vaultAnnotations" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "longue-vue-ingest-gw.serviceAccountName" . }}
+      # Vault k8s auth needs the projected SA token to log in. Other modes
+      # don't need it, so we drop the SA token mount in the pod spec to
+      # shrink the blast radius of a compromised gateway pod.
+      automountServiceAccountToken: {{ eq .Values.mtls.mode "vault" }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: ingest-gw
+          image: {{ include "longue-vue-ingest-gw.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: ingest
+              containerPort: {{ .Values.listener.port }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.listener.health.port }}
+              protocol: TCP
+          env:
+            - name: LONGUE_VUE_INGEST_GW_LISTEN_ADDR
+              value: ":{{ .Values.listener.port }}"
+            - name: LONGUE_VUE_INGEST_GW_HEALTH_ADDR
+              value: ":{{ .Values.listener.health.port }}"
+            - name: LONGUE_VUE_INGEST_GW_LISTEN_TLS_CERT
+              value: /etc/longue-vue-ingest-gw/listener-tls/tls.crt
+            - name: LONGUE_VUE_INGEST_GW_LISTEN_TLS_KEY
+              value: /etc/longue-vue-ingest-gw/listener-tls/tls.key
+            - name: LONGUE_VUE_INGEST_GW_UPSTREAM_URL
+              value: {{ required "upstream.url is required" .Values.upstream.url | quote }}
+            {{- if .Values.upstream.host }}
+            - name: LONGUE_VUE_INGEST_GW_UPSTREAM_HOST
+              value: {{ .Values.upstream.host | quote }}
+            {{- end }}
+            - name: LONGUE_VUE_INGEST_GW_UPSTREAM_TIMEOUT
+              value: {{ .Values.upstream.timeout | quote }}
+            - name: LONGUE_VUE_INGEST_GW_UPSTREAM_CA_FILE
+              value: /etc/longue-vue-ingest-gw/upstream-ca/ca.crt
+            - name: LONGUE_VUE_INGEST_GW_CLIENT_CERT_FILE
+              value: {{ include "longue-vue-ingest-gw.mtlsMountPath" . }}/tls.crt
+            - name: LONGUE_VUE_INGEST_GW_CLIENT_KEY_FILE
+              value: {{ include "longue-vue-ingest-gw.mtlsMountPath" . }}/tls.key
+            - name: LONGUE_VUE_INGEST_GW_CACHE_TTL
+              value: {{ .Values.cache.ttl | quote }}
+            - name: LONGUE_VUE_INGEST_GW_CACHE_NEGATIVE_TTL
+              value: {{ .Values.cache.negativeTtl | quote }}
+            - name: LONGUE_VUE_INGEST_GW_CACHE_MAX_ENTRIES
+              value: {{ .Values.cache.maxEntries | quote }}
+            - name: LONGUE_VUE_INGEST_GW_MAX_BODY_BYTES
+              value: {{ .Values.maxBodyBytes | quote }}
+            - name: LONGUE_VUE_INGEST_GW_REQUIRED_SCOPE
+              value: {{ .Values.requiredScope | quote }}
+            - name: LONGUE_VUE_INGEST_GW_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            # Read-only root filesystem requires a writable /tmp scratch
+            # area and a place for the runtime to drop ephemeral data.
+            - name: tmp
+              mountPath: /tmp
+            - name: var-run
+              mountPath: /var/run
+            # Listener cert (gateway → Envoy) — always a Kubernetes Secret.
+            - name: listener-tls
+              mountPath: /etc/longue-vue-ingest-gw/listener-tls
+              readOnly: true
+            # Upstream CA bundle — verifies the longue-vue server cert.
+            - name: upstream-ca
+              mountPath: /etc/longue-vue-ingest-gw/upstream-ca
+              readOnly: true
+            # mTLS client identity — populated by the active mtls.mode.
+            {{- if eq .Values.mtls.mode "vault" }}
+            # Vault Agent injector mounts here automatically — no volume
+            # entry required, but the gateway expects the path to exist.
+            {{- else }}
+            - name: mtls
+              mountPath: {{ include "longue-vue-ingest-gw.mtlsMountPath" . }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              # Hits the inbound listener — TLS, but stdlib http probes
+              # accept self-signed in this scope. The /readyz check
+              # validates upstream longue-vue is reachable too.
+              path: /readyz
+              port: ingest
+              scheme: HTTPS
+            periodSeconds: 10
+            failureThreshold: 3
+            initialDelaySeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        - name: var-run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Mi
+        - name: listener-tls
+          secret:
+            secretName: {{ .Values.listener.tls.secretName | quote }}
+        - name: upstream-ca
+          configMap:
+            name: {{ .Values.upstream.caBundleConfigMap | default (printf "%s-upstream-ca" (include "longue-vue-ingest-gw.fullname" .)) | quote }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- if eq .Values.mtls.mode "secret" }}
+        - name: mtls
+          secret:
+            secretName: {{ .Values.mtls.secret.name | quote }}
+        {{- else if eq .Values.mtls.mode "file" }}
+        - name: mtls
+          {{- toYaml .Values.mtls.file.volume | nindent 10 }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

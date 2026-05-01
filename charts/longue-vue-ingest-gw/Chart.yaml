@@ -1,0 +1,26 @@
+apiVersion: v2
+name: longue-vue-ingest-gw
+description: >-
+  DMZ ingest gateway for the longue-vue CMDB (ADR-0016). Stateless reverse-proxy
+  deployed in a perimeter network in front of the longue-vue daemon. Accepts inbound HTTPS
+  from K8s push collectors, verifies bearer tokens against the daemon via mTLS,
+  and forwards a strict-write-only allowlist of write requests into the
+  trusted zone. Ships independently of the umbrella `longue-vue` chart so the
+  DMZ release contains only what should be in the DMZ.
+type: application
+version: 0.1.3
+appVersion: "0.12.2"
+home: https://github.com/sthalbert/longue-vue
+sources:
+  - https://github.com/sthalbert/longue-vue
+maintainers:
+  - name: Steve Albert
+    url: https://github.com/sthalbert
+keywords:
+  - longue-vue
+  - cmdb
+  - dmz
+  - gateway
+  - mtls
+  - secnumcloud
+  - anssi

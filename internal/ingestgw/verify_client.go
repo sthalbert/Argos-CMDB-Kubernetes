@@ -11,19 +11,19 @@ import (
 	"time"
 )
 
-// ErrVerifyDenied is returned by VerifyClient.Verify when argosd
+// ErrVerifyDenied is returned by VerifyClient.Verify when longue-vue
 // responds 401 (token invalid / unknown / expired / revoked). The
 // gateway uses errors.Is to distinguish a valid-but-rejected token
 // from a transport / 5xx failure.
 var ErrVerifyDenied = errors.New("verify denied")
 
-// VerifyClient calls argosd's POST /v1/auth/verify (ADR-0016 §5).
+// VerifyClient calls longue-vue's POST /v1/auth/verify (ADR-0016 §5).
 // Reuses the gateway's mTLS *http.Client so the verify call rides the
 // same connection pool as forwarded writes — one keepalive, one cert
 // rotation event reaches both code paths.
 type VerifyClient struct {
 	client      *http.Client
-	endpointURL string // e.g. "https://argosd-ingest.argos.svc:8443/v1/auth/verify"
+	endpointURL string // e.g. "https://longue-vue-ingest.longue-vue.svc:8443/v1/auth/verify"
 }
 
 // NewVerifyClient wires a verify client against the given upstream base
@@ -37,7 +37,7 @@ func NewVerifyClient(client *http.Client, upstreamBaseURL string) *VerifyClient 
 
 // verifyRequestBody / verifyResponseBody mirror the OpenAPI shapes
 // without importing internal/api — keeps the gateway binary lean and
-// independent of argosd's codegen output.
+// independent of longue-vue's codegen output.
 type verifyRequestBody struct {
 	Token string `json:"token"`
 }
@@ -52,12 +52,12 @@ type verifyResponseBody struct {
 	Exp                 int64    `json:"exp,omitempty"`
 }
 
-// Verify calls argosd's verify endpoint and returns a decoded result
+// Verify calls longue-vue's verify endpoint and returns a decoded result
 // plus the token's own expiry (zero when the token does not expire).
 //
 // Returns:
-//   - (entry, exp, nil) on argosd 200 — caller stores in the positive cache.
-//   - (CachedToken{}, time.Time{}, ErrVerifyDenied) on argosd 401 — caller
+//   - (entry, exp, nil) on longue-vue 200 — caller stores in the positive cache.
+//   - (CachedToken{}, time.Time{}, ErrVerifyDenied) on longue-vue 401 — caller
 //     stores in the negative cache.
 //   - (CachedToken{}, time.Time{}, transport / 5xx error) — caller does
 //     NOT cache and surfaces 503 to the collector.

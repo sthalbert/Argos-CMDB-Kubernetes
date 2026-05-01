@@ -3,7 +3,7 @@ package filter
 import (
 	"testing"
 
-	"github.com/sthalbert/argos/internal/vmcollector/provider"
+	"github.com/sthalbert/longue-vue/internal/vmcollector/provider"
 )
 
 func TestApply(t *testing.T) {
@@ -15,13 +15,13 @@ func TestApply(t *testing.T) {
 	}{
 		{"no tags", nil, false},
 		{"unrelated tag", map[string]string{"env": "prod"}, false},
-		{"argos.io/ignore=true drops", map[string]string{"argos.io/ignore": "true"}, true},
-		{"argos.io/ignore=false keeps", map[string]string{"argos.io/ignore": "false"}, false},
+		{"longue-vue.io/ignore=true drops", map[string]string{"longue-vue.io/ignore": "true"}, true},
+		{"longue-vue.io/ignore=false keeps", map[string]string{"longue-vue.io/ignore": "false"}, false},
 		{"OscK8sNodeName drops", map[string]string{"OscK8sNodeName": "ip-10-0-0-1"}, true},
 		{"OscK8sClusterID/<cluster> drops", map[string]string{"OscK8sClusterID/abc": "owned"}, true},
 		{"ansible_group present keeps", map[string]string{"ansible_group": "vault"}, false},
 		{"ansible_group absent keeps", map[string]string{"Name": "bastion"}, false},
-		{"mix: ignore + ansible drops", map[string]string{"argos.io/ignore": "true", "ansible_group": "vault"}, true},
+		{"mix: ignore + ansible drops", map[string]string{"longue-vue.io/ignore": "true", "ansible_group": "vault"}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

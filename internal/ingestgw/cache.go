@@ -26,12 +26,12 @@ type CachedToken struct {
 
 // HasScope returns true when the caller carries want. Mirrors auth.Caller's
 // admin-implies-write convention so the gateway can short-circuit obvious
-// scope mismatches without calling argosd. For the ingest gateway use case
+// scope mismatches without calling longue-vue. For the ingest gateway use case
 // the only scope that matters in practice is "write" (the K8s collector's
 // declared scope), so the implication rule is just "admin implies write".
 //
 // Importantly, admin does NOT imply vm-collector here — exactly mirrors
-// the argosd-side auth.HasScope rule from ADR-0015 §5.
+// the longue-vue-side auth.HasScope rule from ADR-0015 §5.
 func (c *CachedToken) HasScope(want string) bool {
 	for _, s := range c.Scopes {
 		if s == want {
@@ -90,7 +90,7 @@ type Cache struct {
 	lru     *list.List
 	// inflight de-dupes concurrent verify calls for the same token.
 	// First caller acquires the channel, subsequent callers wait on
-	// it — single argosd round-trip even under thundering-herd.
+	// it — single longue-vue round-trip even under thundering-herd.
 	inflight map[string]chan struct{}
 	// now overrides time.Now() in tests. Production code leaves it nil.
 	now func() time.Time
@@ -193,7 +193,7 @@ func (c *Cache) PutNegative(token string) {
 }
 
 // Invalidate drops the entry for token (no-op if absent). Called when an
-// upstream forwarded request returns 401 — argosd has revoked between
+// upstream forwarded request returns 401 — longue-vue has revoked between
 // the cache hit and now, so the next request must re-verify.
 func (c *Cache) Invalidate(token string) {
 	key := keyOf(token)

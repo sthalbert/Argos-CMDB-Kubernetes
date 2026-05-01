@@ -275,7 +275,7 @@ func Middleware(store Store, policy SecureCookiePolicy, trustedProxies []*net.IP
 
 			caller, err := resolve(r, store, policy, trustedProxies, w)
 			if err != nil {
-				w.Header().Set("WWW-Authenticate", `Bearer realm="argos"`)
+				w.Header().Set("WWW-Authenticate", `Bearer realm="longue-vue"`)
 				writeProblemJSON(w, http.StatusUnauthorized, "Unauthorized", "missing or invalid credentials")
 				return
 			}

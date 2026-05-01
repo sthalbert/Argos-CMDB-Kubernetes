@@ -15,14 +15,14 @@ import (
 // before the gateway forwards them. Two reasons:
 //
 //  1. RFC 7230 hop-by-hop headers must not be forwarded.
-//  2. X-Argos-Verified-* are reserved for argosd's own use; a malicious
+//  2. X-Longue-Vue-Verified-* are reserved for longue-vue's own use; a malicious
 //     collector that sneaks one of these in could trick a downstream
 //     listener into trusting a forged caller identity. The ingest
 //     listener doesn't actually trust those headers (it runs full
 //     argon2id verification against the original Authorization
 //     header), but defence in depth — strip them at the boundary.
 //
-// Outbound (gateway → argosd): only the original Authorization,
+// Outbound (gateway → longue-vue): only the original Authorization,
 // X-Forwarded-For, and any custom collector headers below are forwarded.
 //
 //nolint:gochecknoglobals // immutable lookup tables
@@ -39,12 +39,12 @@ var (
 		"Upgrade":             {},
 	}
 	stripIngressHeaders = map[string]struct{}{
-		"X-Real-Ip":               {},
-		"X-Argos-Verified-Caller": {},
-		"X-Argos-Verified-Scope":  {},
-		"X-Argos-Verified-User":   {},
+		"X-Real-Ip":                    {},
+		"X-Longue-Vue-Verified-Caller": {},
+		"X-Longue-Vue-Verified-Scope":  {},
+		"X-Longue-Vue-Verified-User":   {},
 		// X-Forwarded-For is also stripped on ingress and replaced with
-		// the gateway's connection peer below. argosd's clientIP() trusts
+		// the gateway's connection peer below. longue-vue's clientIP() trusts
 		// the leftmost XFF entry and writes it into audit_events.source_ip;
 		// honouring an attacker-controlled XFF would forge the audit trail
 		// (ANSSI SecNumCloud chapter-8 requires audit-log integrity, see
@@ -54,7 +54,7 @@ var (
 	}
 )
 
-// proxyRequest forwards an allowed request to argosd over the configured
+// proxyRequest forwards an allowed request to longue-vue over the configured
 // mTLS upstream client. handles header strip, body forward, response
 // streaming. errors map to:
 //   - ctx.Err() — collector-cancelled; return 499 (or the connection
@@ -84,7 +84,7 @@ func (s *Server) proxyRequest( //nolint:gocyclo // central proxy dispatcher; fla
 	// Set X-Forwarded-For to the gateway's connection peer ONLY — never
 	// honour an inbound XFF (it's already stripped from the copied
 	// headers above). The connection peer is Envoy in production or the
-	// direct caller in dev. argosd's audit log records this trusted hop;
+	// direct caller in dev. longue-vue's audit log records this trusted hop;
 	// the chain back to the public-internet client lives in Envoy's
 	// access log where it belongs. See H-1 in the ADR-0016 security
 	// audit + ADR-0008 (audit-log integrity).
@@ -106,7 +106,7 @@ func (s *Server) proxyRequest( //nolint:gocyclo // central proxy dispatcher; fla
 	defer func() { _ = resp.Body.Close() }()
 	observeUpstream(route, time.Since(upStart))
 
-	// Mirror argosd's response back to the collector verbatim — same
+	// Mirror longue-vue's response back to the collector verbatim — same
 	// status, same headers (minus hop-by-hop), same body. If the
 	// collector sees a 401 it knows to refresh / fail; the gateway
 	// also invalidates its cached entry for this token so the next

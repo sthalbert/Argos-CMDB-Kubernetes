@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/auth"
-	"github.com/sthalbert/argos/internal/secrets"
+	"github.com/sthalbert/longue-vue/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/secrets"
 )
 
 // Sentinel errors returned by Store implementations. Handlers translate these
@@ -633,7 +633,7 @@ type AuditEventInsert struct {
 	// Source identifies which listener served the request:
 	//   "api"       — the public listener serving humans, admins, and trusted-zone collectors
 	//   "ingest_gw" — the mTLS-only ingest listener fronted by the DMZ gateway (ADR-0016)
-	//   "system"    — synthetic events emitted by argosd itself, not driven by a request
+	//   "system"    — synthetic events emitted by longue-vue itself, not driven by a request
 	// Empty string is treated as "api" for backwards compatibility with rows
 	// inserted before ADR-0016 added this column.
 	Source    string

@@ -69,7 +69,7 @@ function MintedReveal({
         <button onClick={onDismiss}>Dismiss</button>
       </div>
       <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
-        argosd stores only the argon2id hash. Once you dismiss this banner the
+        longue-vue stores only the argon2id hash. Once you dismiss this banner the
         plaintext is gone — if you lose it, revoke the token and mint a new one.
       </p>
       <div className="reveal-value">

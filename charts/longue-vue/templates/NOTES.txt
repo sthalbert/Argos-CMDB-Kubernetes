@@ -1,0 +1,28 @@
+longue-vue has been installed.
+
+1. Get the application URL:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "longue-vue.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "ClusterIP" .Values.service.type }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "longue-vue.fullname" . }} 8080:{{ .Values.service.port }}
+  echo http://localhost:8080
+{{- end }}
+
+2. Sign in:
+   On first boot, longue-vue creates an admin user and prints the password
+   ONCE in the pod log:
+
+   kubectl --namespace {{ .Release.Namespace }} logs -l app.kubernetes.io/name={{ include "longue-vue.name" . }} | grep "LONGUE-VUE FIRST-RUN"
+
+3. Register a cluster:
+   curl -X POST http://localhost:8080/v1/clusters \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"my-cluster"}'
+
+Documentation: https://github.com/sthalbert/longue-vue/tree/main/docs

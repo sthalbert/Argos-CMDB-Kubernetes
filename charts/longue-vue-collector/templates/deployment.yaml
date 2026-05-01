@@ -1,0 +1,146 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "longue-vue-collector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "longue-vue-collector.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "longue-vue-collector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "longue-vue-collector.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "longue-vue-collector.serviceAccountName" . }}
+      # Only mount the projected SA token when the collector actually needs
+      # the in-cluster kubeconfig. The kubeconfig.mode=secret path supplies
+      # its own credentials and gains nothing from the projected token, so
+      # we shrink the blast radius of a compromised collector pod.
+      automountServiceAccountToken: {{ eq .Values.kubeconfig.mode "in-cluster" }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: collector
+          image: {{ include "longue-vue-collector.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: LONGUE_VUE_SERVER_URL
+              value: {{ required "serverURL is required" .Values.serverURL | quote }}
+            - name: LONGUE_VUE_CLUSTER_NAME
+              value: {{ required "clusterName is required" .Values.clusterName | quote }}
+            - name: LONGUE_VUE_COLLECTOR_INTERVAL
+              value: {{ .Values.interval | quote }}
+            - name: LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT
+              value: {{ .Values.fetchTimeout | quote }}
+            - name: LONGUE_VUE_COLLECTOR_RECONCILE
+              value: {{ .Values.reconcile | quote }}
+            {{- if eq .Values.kubeconfig.mode "secret" }}
+            - name: LONGUE_VUE_KUBECONFIG
+              value: {{ .Values.kubeconfig.mountPath | quote }}
+            {{- end }}
+            {{- if .Values.argosTLS.caSecret }}
+            - name: LONGUE_VUE_CA_CERT
+              value: /etc/longue-vue-collector/tls-ca/{{ .Values.argosTLS.caKey }}
+            {{- end }}
+            {{- if .Values.argosTLS.existingSecret }}
+            - name: LONGUE_VUE_CLIENT_CERT
+              value: /etc/longue-vue-collector/tls/tls.crt
+            - name: LONGUE_VUE_CLIENT_KEY
+              value: /etc/longue-vue-collector/tls/tls.key
+            {{- end }}
+            {{- if .Values.argosTLS.extraHeaders }}
+            - name: LONGUE_VUE_EXTRA_HEADERS
+              value: {{ .Values.argosTLS.extraHeaders | quote }}
+            {{- end }}
+            {{- if .Values.proxy.httpsProxy }}
+            - name: HTTPS_PROXY
+              value: {{ .Values.proxy.httpsProxy | quote }}
+            {{- end }}
+            {{- if .Values.proxy.httpProxy }}
+            - name: HTTP_PROXY
+              value: {{ .Values.proxy.httpProxy | quote }}
+            {{- end }}
+            {{- if .Values.proxy.noProxy }}
+            - name: NO_PROXY
+              value: {{ .Values.proxy.noProxy | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ required "tokenSecret.existingSecret is required" .Values.tokenSecret.existingSecret | quote }}
+          volumeMounts:
+            {{- if eq .Values.kubeconfig.mode "secret" }}
+            - name: kubeconfig
+              mountPath: {{ .Values.kubeconfig.mountPath }}
+              subPath: kubeconfig
+              readOnly: true
+            {{- end }}
+            {{- if .Values.argosTLS.existingSecret }}
+            - name: lv-tls
+              mountPath: /etc/longue-vue-collector/tls
+              readOnly: true
+            {{- end }}
+            {{- if .Values.argosTLS.caSecret }}
+            - name: lv-ca
+              mountPath: /etc/longue-vue-collector/tls-ca
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        {{- if eq .Values.kubeconfig.mode "secret" }}
+        - name: kubeconfig
+          secret:
+            secretName: {{ required "kubeconfig.existingSecret is required when kubeconfig.mode=secret" .Values.kubeconfig.existingSecret | quote }}
+        {{- end }}
+        {{- if .Values.argosTLS.existingSecret }}
+        - name: lv-tls
+          secret:
+            secretName: {{ .Values.argosTLS.existingSecret | quote }}
+        {{- end }}
+        {{- if .Values.argosTLS.caSecret }}
+        - name: lv-ca
+          {{- if hasPrefix "configmap:" .Values.argosTLS.caSecret }}
+          configMap:
+            name: {{ trimPrefix "configmap:" .Values.argosTLS.caSecret | quote }}
+            items:
+              - key: {{ .Values.argosTLS.caKey }}
+                path: {{ .Values.argosTLS.caKey }}
+          {{- else }}
+          secret:
+            secretName: {{ .Values.argosTLS.caSecret | quote }}
+            items:
+              - key: {{ .Values.argosTLS.caKey }}
+                path: {{ .Values.argosTLS.caKey }}
+          {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

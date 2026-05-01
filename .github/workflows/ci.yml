@@ -22,9 +22,9 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_USER: argos
-          POSTGRES_PASSWORD: argos
-          POSTGRES_DB: argos_test
+          POSTGRES_USER: longue_vue
+          POSTGRES_PASSWORD: longue_vue
+          POSTGRES_DB: longue_vue_test
         ports:
           - 5432:5432
         options: >-
@@ -34,7 +34,7 @@ jobs:
           --health-retries=10
 
     env:
-      PGX_TEST_DATABASE: postgres://argos:argos@localhost:5432/argos_test?sslmode=disable
+      PGX_TEST_DATABASE: postgres://longue_vue:longue_vue@localhost:5432/longue_vue_test?sslmode=disable
 
     steps:
       - name: Checkout
@@ -60,6 +60,11 @@ jobs:
           cd ui
           npm ci
           npm run build
+
+      - name: UI tests
+        run: |
+          cd ui
+          npm test
 
       - name: Verify generated code is current
         run: |
@@ -106,25 +111,25 @@ jobs:
         run: helm repo add bitnami https://charts.bitnami.com/bitnami
 
       - name: Build dependencies
-        run: helm dependency build charts/argos
+        run: helm dependency build charts/longue-vue
 
       - name: Lint chart (default values — bundled PG)
-        run: helm lint charts/argos
+        run: helm lint charts/longue-vue
 
       - name: Lint chart (external database — no PG)
         run: |
-          helm lint charts/argos \
+          helm lint charts/longue-vue \
             --set postgresql.enabled=false \
-            --set externalDatabase.url="postgres://argos:test@pg:5432/argos"
+            --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue"
 
       - name: Template renders cleanly (bundled PG)
-        run: helm template argos charts/argos > /dev/null
+        run: helm template longue-vue charts/longue-vue > /dev/null
 
       - name: Template renders cleanly (external database)
         run: |
-          helm template argos charts/argos \
+          helm template longue-vue charts/longue-vue \
             --set postgresql.enabled=false \
-            --set externalDatabase.url="postgres://argos:test@pg:5432/argos" > /dev/null
+            --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" > /dev/null
 
   docker:
     name: docker build
@@ -136,12 +141,12 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build argosd image
+      - name: Build longue-vue image
         uses: docker/build-push-action@v7
         with:
           context: .
           push: false
-          tags: argos:ci-${{ github.sha }}
+          tags: longue-vue:ci-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |

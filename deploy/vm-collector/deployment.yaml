@@ -1,10 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: argos-vm-collector
-  namespace: argos-system
+  name: longue-vue-vm-collector
+  namespace: longue-vue-system
   labels:
-    app.kubernetes.io/name: argos
+    app.kubernetes.io/name: longue-vue
     app.kubernetes.io/component: vm-collector
 spec:
   replicas: 1
@@ -12,12 +12,12 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: argos
+      app.kubernetes.io/name: longue-vue
       app.kubernetes.io/component: vm-collector
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: argos
+        app.kubernetes.io/name: longue-vue
         app.kubernetes.io/component: vm-collector
     spec:
       securityContext:
@@ -28,14 +28,14 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: argos-vm-collector
-          image: ghcr.io/sthalbert/argos-vm-collector:latest
+        - name: longue-vue-vm-collector
+          image: ghcr.io/sthalbert/longue-vue-vm-collector:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: argos-vm-collector-config
+                name: longue-vue-vm-collector-config
             - secretRef:
-                name: argos-vm-collector-credentials
+                name: longue-vue-vm-collector-credentials
           ports:
             - name: metrics
               containerPort: 9090

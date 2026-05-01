@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Context
 
-The CMDB currently tracks `Cluster`, `Namespace`, `Node`, and `Pod`. The next Kubernetes layer Argos must catalogue is the **workloads** that own those pods: `Deployment`, `StatefulSet`, `DaemonSet`, and eventually `Job`, `CronJob`, `ReplicaSet`, `ReplicationController`.
+The CMDB currently tracks `Cluster`, `Namespace`, `Node`, and `Pod`. The next Kubernetes layer longue-vue must catalogue is the **workloads** that own those pods: `Deployment`, `StatefulSet`, `DaemonSet`, and eventually `Job`, `CronJob`, `ReplicaSet`, `ReplicationController`.
 
 These kinds share most of their CMDB-relevant metadata:
 
@@ -33,7 +33,7 @@ A choice is required **before any workload code is written**:
 2. A single polymorphic `workloads` table / endpoint with a `kind` discriminator column, sharing columns for the common fields and a JSONB bag for kind-specific ones.
 3. A hybrid: a `workloads` base table plus FK-linked per-kind detail tables.
 
-Argos already commits to storing heterogeneous Kubernetes specs in JSONB when relational typing doesn't pay (ADR-0001, POS-004 / NEG-004). The workload kinds match that profile: most of what consumers want to query lives in the shared columns; the kind-specific fields are display / drill-down detail.
+longue-vue already commits to storing heterogeneous Kubernetes specs in JSONB when relational typing doesn't pay (ADR-0001, POS-004 / NEG-004). The workload kinds match that profile: most of what consumers want to query lives in the shared columns; the kind-specific fields are display / drill-down detail.
 
 ## Decision
 

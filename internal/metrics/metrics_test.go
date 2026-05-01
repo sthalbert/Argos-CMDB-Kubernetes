@@ -80,8 +80,8 @@ func TestHandlerExposesRegisteredMetrics(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		`argos_collector_upserted_total{cluster="smoke-cluster",resource="pods"}`,
-		`argos_collector_errors_total{cluster="smoke-cluster",phase="upsert",resource="pods"}`,
+		`longue_vue_collector_upserted_total{cluster="smoke-cluster",resource="pods"}`,
+		`longue_vue_collector_errors_total{cluster="smoke-cluster",phase="upsert",resource="pods"}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics body missing %q\nbody: %s", want, body)

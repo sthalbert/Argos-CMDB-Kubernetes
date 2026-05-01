@@ -21,9 +21,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/auth"
-	"github.com/sthalbert/argos/internal/metrics"
-	"github.com/sthalbert/argos/internal/secrets"
+	"github.com/sthalbert/longue-vue/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/metrics"
+	"github.com/sthalbert/longue-vue/internal/secrets"
 )
 
 // parseOptTime returns a pointer to time.Time when the optional jsonTime
@@ -180,7 +180,7 @@ func HandleCreateCloudAccount(store Store, enc *secrets.Encrypter) http.HandlerF
 		if req.AccessKey != "" && req.SecretKey != "" {
 			if enc == nil {
 				writeProblem(w, http.StatusServiceUnavailable, "Encryption Disabled",
-					"argosd has no master key; cannot store credentials")
+					"longue-vue has no master key; cannot store credentials")
 				return
 			}
 			ct, err := enc.Encrypt([]byte(req.SecretKey), acct.ID[:])
@@ -285,7 +285,7 @@ func HandlePatchCloudAccountCredentials(store Store, enc *secrets.Encrypter) htt
 		}
 		if enc == nil {
 			writeProblem(w, http.StatusServiceUnavailable, "Encryption Disabled",
-				"argosd has no master key; cannot store credentials")
+				"longue-vue has no master key; cannot store credentials")
 			return
 		}
 		ct, err := enc.Encrypt([]byte(req.SecretKey), id[:])
@@ -527,7 +527,7 @@ func HandleCollectorGetCredentialsByID(store Store, enc *secrets.Encrypter) http
 func respondCredentials(w http.ResponseWriter, r *http.Request, store Store, enc *secrets.Encrypter, acct *CloudAccount) {
 	if enc == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "Encryption Disabled",
-			"argosd has no master key; cannot decrypt credentials")
+			"longue-vue has no master key; cannot decrypt credentials")
 		return
 	}
 	ak, ct, err := store.GetCloudAccountCredentials(r.Context(), acct.ID)

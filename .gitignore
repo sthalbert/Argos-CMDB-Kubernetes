@@ -26,3 +26,6 @@ coverage.html
 .DS_Store
 Thumbs.db
 charts/*/charts/*.tgz
+
+# Operator-local Helm values (often contains secrets)
+values.yml

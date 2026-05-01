@@ -17,8 +17,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/auth"
-	"github.com/sthalbert/argos/internal/metrics"
+	"github.com/sthalbert/longue-vue/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/metrics"
 )
 
 // ── request-in-context plumbing ─────────────────────────────────────
@@ -508,15 +508,15 @@ func (s *Server) ChangePassword(ctx context.Context, request ChangePasswordReque
 // the DMZ ingest gateway (ADR-0016 §5) to short-circuit invalid tokens
 // before they cross the firewall into the trusted zone.
 //
-// This handler is registered ONLY on argosd's mTLS-only ingest listener
+// This handler is registered ONLY on longue-vue's mTLS-only ingest listener
 // (see api.IngestMux). The mTLS handshake is the sole authentication for
 // the call itself — the request body's `token` field carries the PAT to
-// be verified, NOT the caller's identity. argosd never trusts the
+// be verified, NOT the caller's identity. longue-vue never trusts the
 // outcome of this RPC for its own auth decisions; the gateway's cache
 // uses it purely as a DMZ-side filter, and every forwarded write is
-// re-verified by argosd's standard bearer middleware.
+// re-verified by longue-vue's standard bearer middleware.
 //
-// Rate-limited at argosd to a per-source-IP budget (default 100 req/s,
+// Rate-limited at longue-vue to a per-source-IP budget (default 100 req/s,
 // burst 200) as a backstop in case the gateway's cache is bypassed.
 func (s *Server) VerifyToken(ctx context.Context, request VerifyTokenRequestObject) (VerifyTokenResponseObject, error) {
 	if request.Body == nil || request.Body.Token == "" {
@@ -546,7 +546,7 @@ func (s *Server) VerifyToken(ctx context.Context, request VerifyTokenRequestObje
 	if err != nil {
 		// Don't leak why — bad prefix, unknown row, hash mismatch, expired
 		// all collapse to a generic 401. The gateway's negative cache TTL
-		// + argosd's per-IP rate limit defend against guessing.
+		// + longue-vue's per-IP rate limit defend against guessing.
 		metrics.IngestVerifyTotal("invalid")
 		return VerifyToken401ApplicationProblemPlusJSONResponse{ //nolint:nilerr // 401 response shape
 			problemUnauthorized("invalid token"),
@@ -937,7 +937,7 @@ func mustHashDummy() string {
 	h, err := auth.HashPassword("this-is-not-a-real-password-0123456789abcdef")
 	if err != nil {
 		// init-time failure means the crypto/rand source is broken;
-		// argosd can't serve auth anyway, fail loudly on first login.
+		// longue-vue can't serve auth anyway, fail loudly on first login.
 		return ""
 	}
 	return h

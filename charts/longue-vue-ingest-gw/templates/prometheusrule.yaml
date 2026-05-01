@@ -1,0 +1,87 @@
+{{- if .Values.monitoring.prometheusRule.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "longue-vue-ingest-gw.fullname" . }}
+  labels:
+    {{- include "longue-vue-ingest-gw.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: longue-vue-ingest-gw
+      rules:
+        # Cert renewal observability — fire warning a full hour before
+        # expiry so an oncaller has time to investigate before any traffic
+        # actually fails. ADR-0016 §11.
+        - alert: IngestGwCertExpiringSoon
+          expr: longue_vue_ingest_gw_cert_not_after_seconds - time() < 3600
+          for: 5m
+          labels:
+            severity: warning
+            component: longue-vue-ingest-gw
+          annotations:
+            summary: "longue-vue-ingest-gw client cert expires in less than 1 hour"
+            description: "The mTLS client cert for the DMZ ingest gateway expires in less than 1 hour. Renewal has either failed or is overdue."
+        - alert: IngestGwCertExpiringCritical
+          expr: longue_vue_ingest_gw_cert_not_after_seconds - time() < 900
+          for: 1m
+          labels:
+            severity: critical
+            component: longue-vue-ingest-gw
+          annotations:
+            summary: "longue-vue-ingest-gw client cert expires in less than 15 minutes"
+            description: "Cert renewal is failing. Once the cert expires, all writes will start returning 503 to collectors."
+
+        # Hot-reload regression — caught before the cert actually expires.
+        - alert: IngestGwCertReloadFailing
+          expr: increase(longue_vue_ingest_gw_cert_reload_total{result="failure"}[10m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+            component: longue-vue-ingest-gw
+          annotations:
+            summary: "longue-vue-ingest-gw cert reload is failing"
+            description: "fsnotify watcher detected a cert change but the reload itself failed. Previous keypair retained — investigate the cert source."
+
+        # Upstream is unhealthy — gateway returns 5xx to collectors.
+        - alert: IngestGwUpstream5xx
+          expr: |
+            (
+              rate(longue_vue_ingest_gw_requests_total{status_class="5xx"}[5m])
+              /
+              clamp_min(rate(longue_vue_ingest_gw_requests_total[5m]), 1e-9)
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            component: longue-vue-ingest-gw
+          annotations:
+            summary: "longue-vue-ingest-gw is returning >5% 5xx"
+            description: "More than 5% of ingest gateway responses are 5xx — longue-vue may be unhealthy or unreachable from the DMZ."
+
+        # Likely scanner / misconfigured collector — informational.
+        - alert: IngestGwHighDenials
+          expr: rate(longue_vue_ingest_gw_requests_total{outcome=~"denied_.*"}[5m]) > 1
+          for: 10m
+          labels:
+            severity: info
+            component: longue-vue-ingest-gw
+          annotations:
+            summary: "longue-vue-ingest-gw denying >1 req/s"
+            description: "Sustained high denial rate at the DMZ ingest gateway. Either a scanner is hitting the listener or a collector is misconfigured."
+
+        # mTLS handshake failures on the longue-vue ingest listener — this
+        # fires against longue-vue metrics but is shipped here because the
+        # operator most likely to debug it is the gateway operator.
+        - alert: IngestGwClientCertFailures
+          expr: increase(longue_vue_ingest_listener_client_cert_failures_total[10m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+            component: longue-vue-ingest-gw
+          annotations:
+            summary: "longue-vue is rejecting ingest gateway mTLS handshakes"
+            description: "Reason label distinguishes bad_ca / expired / cn_not_allowed / none_provided."
+{{- end }}

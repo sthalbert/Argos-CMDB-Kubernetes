@@ -2,7 +2,7 @@
 // stored in the CMDB (cloud-provider AK/SK pairs per ADR-0015).
 //
 // Current scheme: AES-256-GCM with a single master key delivered through
-// the ARGOS_SECRETS_MASTER_KEY env var (base64-encoded 32 bytes). The
+// the LONGUE_VUE_SECRETS_MASTER_KEY env var (base64-encoded 32 bytes). The
 // AAD (Additional Authenticated Data) is bound to the row's primary key
 // so a database restore cannot move a ciphertext between rows.
 //
@@ -23,9 +23,9 @@ import (
 	"os"
 )
 
-// MasterKeyEnvVar is the env var the operator sets on argosd's
+// MasterKeyEnvVar is the env var the operator sets on longue-vue's
 // deployment to deliver the 32-byte AES-256 master key (base64-encoded).
-const MasterKeyEnvVar = "ARGOS_SECRETS_MASTER_KEY"
+const MasterKeyEnvVar = "LONGUE_VUE_SECRETS_MASTER_KEY"
 
 // CurrentKID is the key id stamped on every fresh ciphertext. A future
 // rotation ADR will introduce a registry of {kid → key} pairs.
@@ -38,7 +38,7 @@ const MasterKeySize = 32
 // responses or log lines as appropriate.
 var (
 	// ErrMasterKeyMissing is returned by NewEncrypterFromEnv when
-	// ARGOS_SECRETS_MASTER_KEY is unset or empty.
+	// LONGUE_VUE_SECRETS_MASTER_KEY is unset or empty.
 	ErrMasterKeyMissing = errors.New("master key not configured")
 	// ErrMasterKeySize is returned when the decoded master key is not
 	// exactly 32 bytes long.
@@ -81,7 +81,7 @@ func NewEncrypter(masterKey []byte) (*Encrypter, error) {
 	return enc, nil
 }
 
-// NewEncrypterFromEnv builds an Encrypter from ARGOS_SECRETS_MASTER_KEY.
+// NewEncrypterFromEnv builds an Encrypter from LONGUE_VUE_SECRETS_MASTER_KEY.
 // Returns ErrMasterKeyMissing if unset, ErrMasterKeySize if the decoded
 // length is wrong.
 func NewEncrypterFromEnv() (*Encrypter, error) {
@@ -97,7 +97,7 @@ func NewEncrypterFromEnv() (*Encrypter, error) {
 }
 
 // Fingerprint returns the first 8 hex chars of SHA-256(masterKey).
-// argosd logs this at startup so operators can confirm the right key
+// longue-vue logs this at startup so operators can confirm the right key
 // is loaded without ever exposing the key itself.
 func (e *Encrypter) Fingerprint() string {
 	const hex = "0123456789abcdef"

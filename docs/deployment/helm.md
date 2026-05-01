@@ -1,6 +1,6 @@
-# Deploy Argos with Helm
+# Deploy longue-vue with Helm
 
-This guide deploys argosd on Kubernetes using the Helm chart in `charts/argos/`. The chart bundles an optional PostgreSQL instance (official `postgres:17-alpine` image) so you can get a fully working Argos with a single `helm install` -- no external operator or dependency required.
+This guide deploys longue-vue on Kubernetes using the Helm chart in `charts/longue-vue/`. The chart bundles an optional PostgreSQL instance (official `postgres:17-alpine` image) so you can get a fully working longue-vue with a single `helm install` -- no external operator or dependency required.
 
 > **Prefer Kustomize?** See [Deploy on Kubernetes](kubernetes.md) for the plain-manifest approach.
 
@@ -10,29 +10,29 @@ This guide deploys argosd on Kubernetes using the Helm chart in `charts/argos/`.
 - [Helm 3](https://helm.sh/docs/intro/install/) installed locally.
 - `kubectl` configured to talk to the cluster.
 
-Pre-built images are published to `ghcr.io/sthalbert/argos` on every release. To build your own, see [Build the image](#build-the-image) below.
+Pre-built images are published to `ghcr.io/sthalbert/longue-vue` on every release. To build your own, see [Build the image](#build-the-image) below.
 
 ## Install with bundled PostgreSQL
 
-The simplest path -- one command deploys argosd and PostgreSQL together:
+The simplest path -- one command deploys longue-vue and PostgreSQL together:
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace
 ```
 
-argosd starts, runs database migrations automatically, and bootstraps an admin user. Retrieve the password from the logs:
+longue-vue starts, runs database migrations automatically, and bootstraps an admin user. Retrieve the password from the logs:
 
 ```bash
-kubectl -n argos-system logs -l app.kubernetes.io/name=argos | grep "ARGOS FIRST-RUN"
+kubectl -n longue-vue-system logs -l app.kubernetes.io/name=longue-vue | grep "LONGUE-VUE FIRST-RUN"
 ```
 
 To set a predictable password instead:
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
-  --set argosd.bootstrapAdminPassword="my-strong-passphrase"
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
+  --set longue-vue.bootstrapAdminPassword="my-strong-passphrase"
 ```
 
 ## Install with external PostgreSQL
@@ -40,10 +40,10 @@ helm install argos charts/argos \
 If you already have a PostgreSQL instance (managed service, CloudNativePG, etc.), disable the bundled one:
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
   --set postgresql.enabled=false \
-  --set externalDatabase.url="postgres://argos:secret@pg.prod.svc:5432/argos?sslmode=require"
+  --set externalDatabase.url="postgres://longue-vue:secret@pg.prod.svc:5432/longue-vue?sslmode=require"
 ```
 
 The chart validates that `externalDatabase.url` is set when `postgresql.enabled=false` -- it refuses to render otherwise.
@@ -53,21 +53,21 @@ The chart validates that `externalDatabase.url` is set when `postgresql.enabled=
 If you manage secrets externally (Vault, External Secrets Operator, SealedSecrets), point the chart at your Secret instead of generating one:
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
-  --set existingSecret=my-argos-credentials \
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
+  --set existingSecret=my-longue-vue-credentials \
   --set postgresql.enabled=false
 ```
 
-Your Secret must contain at least `ARGOS_DATABASE_URL`. It can also include `ARGOS_BOOTSTRAP_ADMIN_PASSWORD`, `ARGOS_OIDC_*` variables, or any other `ARGOS_*` key.
+Your Secret must contain at least `LONGUE_VUE_DATABASE_URL`. It can also include `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD`, `LONGUE_VUE_OIDC_*` variables, or any other `LONGUE_VUE_*` key.
 
 ## Enable the collector
 
-To have argosd catalogue the cluster it runs on:
+To have longue-vue catalogue the cluster it runs on:
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
   --set collector.enabled=true \
   --set collector.clusterName=my-cluster
 ```
@@ -77,7 +77,7 @@ The chart creates a ClusterRole granting read-only `list` on the Kubernetes reso
 The collector auto-creates the cluster record on first contact (ADR-0011). To populate curated metadata (display name, environment, owner) before the first tick, optionally pre-register:
 
 ```bash
-kubectl -n argos-system port-forward svc/argos 8080:8080 &
+kubectl -n longue-vue-system port-forward svc/longue-vue 8080:8080 &
 curl -X POST http://localhost:8080/v1/clusters \
   -H 'Content-Type: application/json' \
   -d '{"name":"my-cluster","display_name":"My Cluster","environment":"prod"}'
@@ -86,13 +86,13 @@ curl -X POST http://localhost:8080/v1/clusters \
 ## Enable OIDC
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
   --set oidc.enabled=true \
   --set oidc.issuer="https://accounts.example.com" \
-  --set oidc.clientId="argos" \
+  --set oidc.clientId="longue-vue" \
   --set oidc.clientSecret="s3cret" \
-  --set oidc.redirectUrl="https://argos.example.com/v1/auth/oidc/callback"
+  --set oidc.redirectUrl="https://longue-vue.example.com/v1/auth/oidc/callback"
 ```
 
 See [Authentication](../authentication.md) for details on OIDC setup and shadow user behavior.
@@ -100,15 +100,15 @@ See [Authentication](../authentication.md) for details on OIDC setup and shadow 
 ## Expose with Ingress
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
   --set ingress.enabled=true \
   --set ingress.className=nginx \
-  --set 'ingress.hosts[0].host=argos.example.com' \
+  --set 'ingress.hosts[0].host=longue-vue.example.com' \
   --set 'ingress.hosts[0].paths[0].path=/' \
   --set 'ingress.hosts[0].paths[0].pathType=Prefix' \
-  --set 'ingress.tls[0].secretName=argos-tls' \
-  --set 'ingress.tls[0].hosts[0]=argos.example.com'
+  --set 'ingress.tls[0].secretName=longue-vue-tls' \
+  --set 'ingress.tls[0].hosts[0]=longue-vue.example.com'
 ```
 
 ## Enable ServiceMonitor
@@ -116,8 +116,8 @@ helm install argos charts/argos \
 For Prometheus Operator environments:
 
 ```bash
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
   --set metrics.serviceMonitor.enabled=true \
   --set metrics.serviceMonitor.interval=30s
 ```
@@ -129,42 +129,42 @@ See [Monitoring](../monitoring.md) for the full metrics reference and alert exam
 Pre-built images are published to GHCR on every release. For local development or custom builds:
 
 ```bash
-make docker-build    # tags argos:dev
+make docker-build    # tags longue-vue:dev
 
 # Load into local clusters:
-kind load docker-image argos:dev --name <cluster>
-# or: minikube image load argos:dev
+kind load docker-image longue-vue:dev --name <cluster>
+# or: minikube image load longue-vue:dev
 
 # Use the local image:
-helm install argos charts/argos \
-  -n argos-system --create-namespace \
-  --set image.repository=argos \
+helm install longue-vue charts/longue-vue \
+  -n longue-vue-system --create-namespace \
+  --set image.repository=longue-vue \
   --set image.tag=dev \
   --set image.pullPolicy=Never
 ```
 
 ## Values reference
 
-The table below lists the most common values. See [`charts/argos/values.yaml`](../../charts/argos/values.yaml) for the complete file with inline comments.
+The table below lists the most common values. See [`charts/longue-vue/values.yaml`](../../charts/longue-vue/values.yaml) for the complete file with inline comments.
 
 ### Core
 
 | Value | Default | Description |
 |-------|---------|-------------|
 | `replicaCount` | `1` | Must be 1 (single-writer constraint). |
-| `image.repository` | `ghcr.io/sthalbert/argos` | Container image repository. |
+| `image.repository` | `ghcr.io/sthalbert/longue-vue` | Container image repository. |
 | `image.tag` | `""` (appVersion) | Image tag override. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
 
-### argosd
+### longue-vue
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `argosd.addr` | `":8080"` | HTTP listen address. |
-| `argosd.autoMigrate` | `true` | Run DB migrations on startup. |
-| `argosd.shutdownTimeout` | `"15s"` | Graceful shutdown budget. |
-| `argosd.bootstrapAdminPassword` | `""` | Admin password (empty = random). |
-| `argosd.sessionSecureCookie` | `"auto"` | Cookie Secure flag: auto/always/never. |
+| `longue-vue.addr` | `":8080"` | HTTP listen address. |
+| `longue-vue.autoMigrate` | `true` | Run DB migrations on startup. |
+| `longue-vue.shutdownTimeout` | `"15s"` | Graceful shutdown budget. |
+| `longue-vue.bootstrapAdminPassword` | `""` | Admin password (empty = random). |
+| `longue-vue.sessionSecureCookie` | `"auto"` | Cookie Secure flag: auto/always/never. |
 
 ### Collector
 
@@ -173,7 +173,7 @@ The table below lists the most common values. See [`charts/argos/values.yaml`](.
 | `collector.enabled` | `false` | Enable the pull-mode collector. |
 | `collector.clusterName` | `"in-cluster"` | Single-cluster name (ignored when `clusters` is non-empty). |
 | `collector.clusters` | `[]` | Multi-cluster list. Each entry: `{name, kubeconfig}`. |
-| `collector.kubeconfigSecret` | `""` | Name of an existing Secret containing kubeconfig files. Mounted read-only at `/etc/argos/kubeconfigs/`. See [How to securely provide kubeconfigs](../how-to-secure-kubeconfig.md). |
+| `collector.kubeconfigSecret` | `""` | Name of an existing Secret containing kubeconfig files. Mounted read-only at `/etc/longue-vue/kubeconfigs/`. See [How to securely provide kubeconfigs](../how-to-secure-kubeconfig.md). |
 | `collector.interval` | `"5m"` | Poll interval. |
 | `collector.fetchTimeout` | `"10s"` | Per-poll K8s API timeout. |
 | `collector.reconcile` | `true` | Delete stale rows. |
@@ -197,9 +197,9 @@ The table below lists the most common values. See [`charts/argos/values.yaml`](.
 | `postgresql.enabled` | `true` | Deploy bundled PostgreSQL (`postgres:17-alpine`). |
 | `postgresql.image.repository` | `postgres` | PostgreSQL image. |
 | `postgresql.image.tag` | `"17-alpine"` | PostgreSQL image tag. |
-| `postgresql.auth.username` | `argos` | PG username. |
-| `postgresql.auth.password` | `argos` | PG password. |
-| `postgresql.auth.database` | `argos` | PG database name. |
+| `postgresql.auth.username` | `longue-vue` | PG username. |
+| `postgresql.auth.password` | `longue-vue` | PG password. |
+| `postgresql.auth.database` | `longue-vue` | PG database name. |
 | `postgresql.persistence.size` | `5Gi` | PVC size. |
 | `postgresql.persistence.storageClass` | `""` | Storage class (empty = cluster default). |
 | `postgresql.resources` | 100m-500m CPU, 128-512Mi | PG resource requests/limits. |
@@ -226,7 +226,7 @@ The table below lists the most common values. See [`charts/argos/values.yaml`](.
 ## Upgrade
 
 ```bash
-helm upgrade argos charts/argos -n argos-system
+helm upgrade longue-vue charts/longue-vue -n longue-vue-system
 ```
 
 The Deployment includes a `checksum/secret` annotation, so any change to Secret values triggers a rolling restart automatically.
@@ -234,12 +234,12 @@ The Deployment includes a `checksum/secret` annotation, so any change to Secret 
 ## Uninstall
 
 ```bash
-helm uninstall argos -n argos-system
-kubectl delete namespace argos-system
+helm uninstall longue-vue -n longue-vue-system
+kubectl delete namespace longue-vue-system
 ```
 
 If you used the bundled PostgreSQL, the PVC persists by default. Delete it manually if you want a clean slate:
 
 ```bash
-kubectl -n argos-system delete pvc data-argos-postgresql-0
+kubectl -n longue-vue-system delete pvc data-longue-vue-postgresql-0
 ```

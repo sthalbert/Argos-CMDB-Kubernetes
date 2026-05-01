@@ -1,0 +1,243 @@
+# -- Number of longue-vue replicas. Must be 1 (single-writer, ADR-0005).
+replicaCount: 1
+
+# -- Container image for the longue-vue server.
+image:
+  repository: ghcr.io/sthalbert/longue-vue
+  # -- Overrides the image tag. Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- longue-vue server core configuration.
+argosd:
+  # -- HTTP listen address inside the container.
+  addr: ":8080"
+  # -- Run embedded goose migrations on startup.
+  autoMigrate: true
+  # -- Graceful shutdown budget.
+  shutdownTimeout: "15s"
+  # -- First-install admin password. Empty = random (printed once in logs).
+  bootstrapAdminPassword: ""
+  # -- Session cookie Secure flag: auto | always | never. Pin to "always"
+  #    when fronted by a TLS-terminating proxy (the default behind
+  #    ingress-nginx / Envoy / a cloud LB) so cookies never travel over
+  #    plaintext, even on a misconfigured request.
+  sessionSecureCookie: "auto"
+
+  # -- Public-listener TLS posture (ADR-0017). Two valid postures:
+  #
+  #    1. Native TLS — longue-vue terminates TLS itself. Set tls.existingSecret
+  #       to a TLS-type Kubernetes Secret carrying tls.crt + tls.key; the
+  #       chart mounts it at /etc/longue-vue/tls and passes the paths via
+  #       LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT / _KEY.
+  #
+  #    2. Trusted proxy — longue-vue serves plain HTTP behind a TLS-terminating
+  #       ingress. Leave tls.existingSecret empty, set trustedProxies to
+  #       the ingress's CIDR(s), and pin sessionSecureCookie to "always".
+  #
+  #    requireHTTPS=true tells longue-vue to refuse to start unless one of the
+  #    two postures is configured — failing closed beats accidentally
+  #    serving credentials over plain HTTP.
+  tls:
+    # -- Name of an existing TLS Secret (kubernetes.io/tls) for native
+    #    TLS termination. Empty = serve plain HTTP (use a TLS-terminating
+    #    proxy in front).
+    existingSecret: ""
+    # -- Mount path inside the container for the TLS Secret. Pinned by
+    #    convention; rarely needs overriding.
+    mountPath: "/etc/longue-vue/tls"
+
+  # -- Comma-separated CIDR list of TLS-terminating proxies whose
+  #    X-Forwarded-For / X-Forwarded-Proto headers longue-vue should honor
+  #    (ADR-0017). Empty = ignore both headers entirely (the secure
+  #    default). Configure when running behind ingress-nginx / Envoy /
+  #    a cloud LB so audit logs and rate-limit buckets see the real
+  #    client IP instead of the ingress pod's.
+  trustedProxies: ""
+
+  # -- When true, longue-vue refuses to start unless either tls.existingSecret
+  #    is set (native TLS) OR trustedProxies is non-empty AND
+  #    sessionSecureCookie is "always" (trusted-proxy posture).
+  requireHTTPS: false
+
+# -- Secret-encryption master key for cloud-account credentials (ADR-0015).
+# Required when the VM collector is in use; safe to leave empty otherwise.
+# The key is a base64-encoded 32-byte AES-256 master key used to envelope-
+# encrypt cloud-provider AK/SK at rest. Generate with:
+#   openssl rand -base64 32
+#
+# IMPORTANT: back this key up separately from the database. Loss of the key
+# means every stored cloud-account SK becomes unrecoverable.
+secrets:
+  # -- Inline base64 master key. Mutually exclusive with existingSecret.
+  masterKey: ""
+  # -- Reference an existing Secret carrying the key under
+  #    `LONGUE_VUE_SECRETS_MASTER_KEY`. Use this in production to keep the key
+  #    out of values.yaml / GitOps repos.
+  existingSecret: ""
+
+# -- Pull-mode collector (embedded in the longue-vue server).
+collector:
+  # -- Enable the Kubernetes polling collector.
+  enabled: false
+  # -- Single-cluster name (ignored when clusters is non-empty).
+  clusterName: "in-cluster"
+  # -- Multi-cluster list. Each entry: {name: "x", kubeconfig: "/path"}.
+  # An empty kubeconfig uses the pod's in-cluster credentials.
+  clusters: []
+  # -- Time between polls.
+  interval: "5m"
+  # -- Per-poll Kubernetes API timeout.
+  fetchTimeout: "10s"
+  # -- Delete rows that vanish from the live listing.
+  reconcile: true
+  # -- Name of an existing Secret containing kubeconfig files.
+  # Each key in the Secret is mounted as a file under /etc/longue-vue/kubeconfigs/.
+  # Reference the mounted path in kubeconfig or clusters[].kubeconfig.
+  kubeconfigSecret: ""
+
+# -- OIDC federation (optional).
+oidc:
+  # -- Enable OIDC sign-in.
+  enabled: false
+  # -- OIDC issuer URL (must serve .well-known/openid-configuration).
+  issuer: ""
+  # -- OAuth2 client ID.
+  clientId: ""
+  # -- OAuth2 client secret.
+  clientSecret: ""
+  # -- Authorization callback URL (must match IdP config).
+  redirectUrl: ""
+  # -- Comma-separated OAuth2 scopes.
+  scopes: "openid,email,profile"
+  # -- Login button label.
+  label: "OIDC"
+
+# -- Bundled PostgreSQL (official postgres:17-alpine image).
+# Set enabled=false and provide externalDatabase.url to use your own PG
+# (managed service, CNPG, or any PostgreSQL 14+ instance).
+postgresql:
+  # -- Deploy a PostgreSQL StatefulSet alongside the longue-vue server.
+  enabled: true
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    # -- Database superuser username.
+    username: longue_vue
+    # -- Database superuser password.
+    password: longue_vue
+    # -- Database name (created on first boot via POSTGRES_DB).
+    database: longue_vue
+  persistence:
+    # -- PVC size.
+    size: 5Gi
+    # -- Storage class (empty = cluster default).
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -- External PostgreSQL. Only used when cnpg.enabled=false.
+externalDatabase:
+  # -- Full DSN, e.g. postgres://user:pass@host:5432/longue_vue?sslmode=require
+  url: ""
+
+# -- Use an existing Secret for credentials instead of the chart-generated one.
+# The Secret must contain LONGUE_VUE_DATABASE_URL (and optionally other LONGUE_VUE_* keys).
+existingSecret: ""
+
+# -- MCP server (Model Context Protocol for AI agents).
+mcp:
+  # -- Enable the MCP server (seeds mcp_enabled DB setting on startup).
+  enabled: false
+  # -- Transport: "sse" (HTTP, remote agents) or "stdio" (local agents).
+  transport: "sse"
+  # -- Listen address for SSE transport.
+  addr: ":8090"
+  # -- PAT for stdio transport auth (not needed for SSE — uses bearer header).
+  token: ""
+
+# -- Kubernetes Service.
+service:
+  type: ClusterIP
+  port: 8080
+  # -- MCP SSE port (only exposed when mcp.enabled and mcp.transport=sse).
+  mcpPort: 8090
+
+# -- ServiceAccount.
+serviceAccount:
+  create: true
+  # -- Name override. Defaults to the release fullname.
+  name: ""
+  annotations: {}
+
+# -- RBAC (ClusterRole granting list on K8s resources for the collector).
+rbac:
+  create: true
+
+# -- Pod resource requests and limits.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# -- Pod-level security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# -- Prometheus metrics.
+metrics:
+  # -- Expose /metrics endpoint (always on; this controls annotations).
+  enabled: true
+  serviceMonitor:
+    # -- Create a ServiceMonitor for Prometheus Operator.
+    enabled: false
+    # -- Scrape interval.
+    interval: "30s"
+    # -- Additional labels for the ServiceMonitor.
+    labels: {}
+
+# -- Ingress (expose longue-vue outside the cluster).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  #  - host: longue-vue.example.com
+  #    paths:
+  #      - path: /
+  #        pathType: Prefix
+  tls: []
+  #  - secretName: longue-vue-tls
+  #    hosts:
+  #      - longue-vue.example.com
+
+# -- Node selector, tolerations, affinity.
+nodeSelector: {}
+tolerations: []
+affinity: {}

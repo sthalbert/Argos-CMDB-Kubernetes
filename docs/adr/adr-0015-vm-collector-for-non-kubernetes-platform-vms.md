@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Context
 
-Argos catalogues every node *inside* every Kubernetes cluster (via the kube-API collector — ADR-0001, ADR-0005, ADR-0011) but the platform that runs *underneath* the clusters is invisible to the CMDB today. Production deployments rely on a small set of off-cluster VMs that are essential for the platform to function:
+longue-vue catalogues every node *inside* every Kubernetes cluster (via the kube-API collector — ADR-0001, ADR-0005, ADR-0011) but the platform that runs *underneath* the clusters is invisible to the CMDB today. Production deployments rely on a small set of off-cluster VMs that are essential for the platform to function:
 
 - **VPN gateway** — operator access to private networks
 - **DNS server** — internal name resolution
@@ -47,23 +47,23 @@ The infrastructure provider for the current target environment is **Outscale** (
 - Must produce an **audit trail** on every access.
 - Must be **scoped narrowly** so a leaked collector token cannot be used to impersonate a human user or read other entities.
 
-**The deployment-topology problem.** Three constraints ruled out the "embed the collector in argosd" approach:
+**The deployment-topology problem.** Three constraints ruled out the "embed the collector in longue-vue" approach:
 
-- The collector must be deployable **independently of argosd** — on a VM, in a Kubernetes cluster, behind firewalls — wherever it has outbound access to the cloud-provider API and to argosd's REST API.
-- argosd must not be required to reach the cloud-provider API itself. Some SNC environments deploy argosd in a management zone with no egress to public Outscale endpoints.
-- The pattern of "separate binary that pushes to argosd over HTTPS" already exists in the codebase for air-gapped Kubernetes clusters (**ADR-0009 push-collector**). Re-using that pattern keeps the architecture coherent.
+- The collector must be deployable **independently of longue-vue** — on a VM, in a Kubernetes cluster, behind firewalls — wherever it has outbound access to the cloud-provider API and to longue-vue's REST API.
+- longue-vue must not be required to reach the cloud-provider API itself. Some SNC environments deploy longue-vue in a management zone with no egress to public Outscale endpoints.
+- The pattern of "separate binary that pushes to longue-vue over HTTPS" already exists in the codebase for air-gapped Kubernetes clusters (**ADR-0009 push-collector**). Re-using that pattern keeps the architecture coherent.
 
 This ADR decides the data model, the credential-management story, the deployment topology, the provider abstraction, the dedup logic, the lifecycle policy, and the UI surface for cataloguing non-Kubernetes platform VMs.
 
 ## Decision
 
-**Ship a standalone push-mode binary `argos-vm-collector` (mirroring ADR-0009) that polls a cloud provider's API, pushes observations to argosd over HTTPS, and fetches its cloud-provider AK/SK from argosd's central encrypted credential store via a narrow new token scope. Argosd grows two new entities — `cloud_accounts` and `virtual_machines` — and a new server-side dedup against `nodes.provider_id` so K8s workers never appear in the VM inventory.**
+**Ship a standalone push-mode binary `longue-vue-vm-collector` (mirroring ADR-0009) that polls a cloud provider's API, pushes observations to longue-vue over HTTPS, and fetches its cloud-provider AK/SK from longue-vue's central encrypted credential store via a narrow new token scope. longue-vue grows two new entities — `cloud_accounts` and `virtual_machines` — and a new server-side dedup against `nodes.provider_id` so K8s workers never appear in the VM inventory.**
 
 ### 1. Two-binary topology
 
 ```
                                     ┌─────────────────────────────────────┐
-                                    │             argosd                  │
+                                    │             longue-vue                  │
                                     │  (REST API + Postgres + UI)         │
                                     │                                     │
                                     │  cloud_accounts  (AK plain, SK enc) │
@@ -75,14 +75,14 @@ This ADR decides the data model, the credential-management story, the deployment
                        ┌─────────────────────┴──────────────────────┐
                        │                                            │
               ┌────────┴───────────────┐                  ┌─────────┴──────────────┐
-              │   argos-vm-collector   │                  │   argos-vm-collector   │
+              │   longue-vue-vm-collector   │                  │   longue-vue-vm-collector   │
               │   (acme-prod)          │                  │   (acme-dr)            │
               │                        │                  │                        │
               │   1. Fetches creds     │                  │   1. Fetches creds     │
-              │      from argosd       │                  │      from argosd       │
+              │      from longue-vue       │                  │      from longue-vue       │
               │   2. Lists VMs from    │                  │   2. Lists VMs from    │
               │      Outscale          │                  │      Outscale          │
-              │   3. Pushes to argosd  │                  │   3. Pushes to argosd  │
+              │   3. Pushes to longue-vue  │                  │   3. Pushes to longue-vue  │
               └────────┬───────────────┘                  └──────────┬─────────────┘
                        │                                             │
                        ▼ Outscale API                                ▼ Outscale API
@@ -92,12 +92,12 @@ This ADR decides the data model, the credential-management story, the deployment
               └──────────────────┘                          └──────────────────┘
 ```
 
-The collector binary is independent of argosd:
+The collector binary is independent of longue-vue:
 
-- Built from `cmd/argos-vm-collector/` as a static Go binary, distroless base image, UID 65532.
+- Built from `cmd/longue-vue-vm-collector/` as a static Go binary, distroless base image, UID 65532.
 - Stateless — no database, no file storage, no listening port.
-- Configured purely via env vars (mirrors `argos-collector` from ADR-0009).
-- Deployable on any Kubernetes cluster, any VM, any container runtime — wherever outbound HTTPS works to argosd and to the cloud-provider endpoint.
+- Configured purely via env vars (mirrors `longue-vue-collector` from ADR-0009).
+- Deployable on any Kubernetes cluster, any VM, any container runtime — wherever outbound HTTPS works to longue-vue and to the cloud-provider endpoint.
 - One binary instance per cloud account. Multi-account support = N deployments.
 
 ### 2. Data model — `virtual_machines` table
@@ -159,7 +159,7 @@ CREATE TABLE virtual_machines (
     -- semi-structured
     tags                    JSONB NOT NULL DEFAULT '{}'::jsonb,    -- raw provider Tags as map
     labels                  JSONB NOT NULL DEFAULT '{}'::jsonb,    -- normalised labels
-    annotations             JSONB NOT NULL DEFAULT '{}'::jsonb,    -- argos.io/* (EOL etc.)
+    annotations             JSONB NOT NULL DEFAULT '{}'::jsonb,    -- longue-vue.io/* (EOL etc.)
 
     -- curated
     owner                   TEXT,
@@ -231,8 +231,8 @@ CREATE TABLE cloud_accounts (
 ### 4. Credential storage — encrypted at rest, fetched by the collector
 
 - **AK is plaintext.** It is a public identifier (it appears in request signatures and isn't independently authoritative).
-- **SK is encrypted with AES-256-GCM.** Master key from `ARGOS_SECRETS_MASTER_KEY` env var (32 bytes, base64-encoded). The AAD is the row UUID — a database backup-restore cannot move a SK from one row to another.
-- **Master-key handling:** required only when `cloud_accounts` contains at least one row with non-NULL `secret_key_encrypted`. Argosd refuses to start with such rows present and no master key. A master-key fingerprint (first 8 chars of SHA-256) is logged at startup so operators can confirm the right key is loaded. The master key is never logged, returned, or surfaced in the UI.
+- **SK is encrypted with AES-256-GCM.** Master key from `LONGUE_VUE_SECRETS_MASTER_KEY` env var (32 bytes, base64-encoded). The AAD is the row UUID — a database backup-restore cannot move a SK from one row to another.
+- **Master-key handling:** required only when `cloud_accounts` contains at least one row with non-NULL `secret_key_encrypted`. longue-vue refuses to start with such rows present and no master key. A master-key fingerprint (first 8 chars of SHA-256) is logged at startup so operators can confirm the right key is loaded. The master key is never logged, returned, or surfaced in the UI.
 - **Key id (`secret_key_kid`)** stored on every row so a future rotation ADR can introduce a multi-key scheme without a schema change.
 - **Plaintext SK is never returned by the regular admin UI endpoints.** `GET /v1/admin/cloud-accounts/{id}` returns AK and metadata only. SK is write-only — set on `POST` / `PATCH` / `PATCH /credentials`, never read back through admin endpoints.
 - **Plaintext SK is returned by exactly one endpoint, gated on a new narrow scope** (see §5):
@@ -282,23 +282,23 @@ A leaked `vm-collector` PAT therefore exposes **exactly one cloud account's AK/S
 
 Onboarding flow:
 
-1. **Operator deploys `argos-vm-collector`** with:
+1. **Operator deploys `longue-vue-vm-collector`** with:
    ```
-   ARGOS_SERVER_URL=https://argos.internal:8080
-   ARGOS_API_TOKEN=argos_pat_xxxx_yyyy        (vm-collector scope, bound to account name)
-   ARGOS_VM_COLLECTOR_PROVIDER=outscale
-   ARGOS_VM_COLLECTOR_ACCOUNT_NAME=acme-prod
-   ARGOS_VM_COLLECTOR_REGION=eu-west-2
+   LONGUE_VUE_SERVER_URL=https://longue-vue.internal:8080
+   LONGUE_VUE_API_TOKEN=longue_vue_pat_xxxx_yyyy        (vm-collector scope, bound to account name)
+   LONGUE_VUE_VM_COLLECTOR_PROVIDER=outscale
+   LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME=acme-prod
+   LONGUE_VUE_VM_COLLECTOR_REGION=eu-west-2
    ```
 2. **Collector boots.** Calls `GET /v1/cloud-accounts/by-name/acme-prod/credentials`.
-3. **First contact** — argosd has no row with that name:
-   - Argosd's handler **does not auto-create** on `GET /credentials` (a credential read should never side-effect).
+3. **First contact** — longue-vue has no row with that name:
+   - longue-vue's handler **does not auto-create** on `GET /credentials` (a credential read should never side-effect).
    - Returns `404 Not Found` with body `{"error":"cloud_account_not_registered"}`.
    - Collector receives the 404 and fires `POST /v1/cloud-accounts` with `{provider, name, region}`. The handler creates a placeholder row in `status = 'pending_credentials'`, AK and SK NULL.
    - Collector logs `cloud account "acme-prod" registered, awaiting admin to provide credentials` and waits.
-4. **Admin sees the placeholder.** The admin UI surfaces the row prominently: 🔴 `acme-prod (pending credentials)`. Admin clicks → form → enters AK + SK → POST `/v1/admin/cloud-accounts/{id}/credentials` (admin scope). Argosd encrypts the SK, stores it, transitions row to `status = 'active'`.
+4. **Admin sees the placeholder.** The admin UI surfaces the row prominently: 🔴 `acme-prod (pending credentials)`. Admin clicks → form → enters AK + SK → POST `/v1/admin/cloud-accounts/{id}/credentials` (admin scope). longue-vue encrypts the SK, stores it, transitions row to `status = 'active'`.
 5. **Collector retries.** Next interval, `GET .../credentials` returns the pair. Collector starts polling Outscale.
-6. **Steady state.** Collector posts VMs every interval, reconciles, updates `last_seen_at` via `PATCH /status`. Admin can rotate the SK at any time via `PATCH /credentials`; the collector picks up the new SK on the next periodic refresh (every hour by default; configurable via `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`).
+6. **Steady state.** Collector posts VMs every interval, reconciles, updates `last_seen_at` via `PATCH /status`. Admin can rotate the SK at any time via `PATCH /credentials`; the collector picks up the new SK on the next periodic refresh (every hour by default; configurable via `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH`).
 
 The status field has four values:
 
@@ -364,15 +364,15 @@ A VM ends up in `virtual_machines` **unless** one of three conditions is true. *
 | Condition                                          | Where it's checked        | Outcome                                |
 |----------------------------------------------------|---------------------------|----------------------------------------|
 | Has `OscK8sClusterID/*` or `OscK8sNodeName=*` tag  | Collector pre-filter      | Dropped before any HTTP POST           |
-| Has `argos.io/ignore=true` tag                     | Collector pre-filter      | Dropped before any HTTP POST           |
-| `provider_vm_id` matches an existing `nodes.provider_id` | Argosd server-side  | `409 Conflict`; collector logs and skips |
+| Has `longue-vue.io/ignore=true` tag                     | Collector pre-filter      | Dropped before any HTTP POST           |
+| `provider_vm_id` matches an existing `nodes.provider_id` | longue-vue server-side  | `409 Conflict`; collector logs and skips |
 
 The collector applies the **cheap pre-filter** at its boundary:
 
 - Drop any VM bearing tags matching `OscK8sClusterID/*` or `OscK8sNodeName=*` (Outscale CCM ownership tags). Saves an HTTP round-trip per K8s worker.
-- Drop any VM bearing `argos.io/ignore=true` (operator-set escape hatch — argos only reads it, never writes it).
+- Drop any VM bearing `longue-vue.io/ignore=true` (operator-set escape hatch — longue-vue only reads it, never writes it).
 
-Argosd applies the **canonical dedup** server-side on `POST /v1/virtual-machines`:
+longue-vue applies the **canonical dedup** server-side on `POST /v1/virtual-machines`:
 
 - Look up `nodes` rows where `provider_id` contains the posted `provider_vm_id` (e.g. `provider_id LIKE '%i-96fff41b%'`).
 - If found → return `409 Conflict` body `{"error":"already_inventoried_as_kubernetes_node","node_id":"<uuid>"}`. The collector logs `vm i-96fff41b is a kube node, skipping`.
@@ -394,7 +394,7 @@ POST /v1/virtual-machines/reconcile           (vm-collector scope)
 Response: { "tombstoned": 3 }
 ```
 
-Argosd updates rows where `cloud_account_id = $1 AND provider_vm_id NOT IN ($2…) AND terminated_at IS NULL`:
+longue-vue updates rows where `cloud_account_id = $1 AND provider_vm_id NOT IN ($2…) AND terminated_at IS NULL`:
 
 - `terminated_at = NOW()`
 - `power_state = 'terminated'`
@@ -422,43 +422,43 @@ A new SVG icon (server/tower glyph) is added for the Virtual Machines nav entry,
 
 ### 11. Configuration
 
-**On argosd:**
+**On longue-vue:**
 
 | Env var                       | Purpose                                                                  | Default                |
 |-------------------------------|--------------------------------------------------------------------------|------------------------|
-| `ARGOS_SECRETS_MASTER_KEY`    | Base64-encoded 32-byte AES-256 master key for SK envelope encryption     | (required if accounts) |
+| `LONGUE_VUE_SECRETS_MASTER_KEY`    | Base64-encoded 32-byte AES-256 master key for SK envelope encryption     | (required if accounts) |
 
-**On `argos-vm-collector`:**
+**On `longue-vue-vm-collector`:**
 
 | Env var                                  | Purpose                                              | Default          |
 |------------------------------------------|------------------------------------------------------|------------------|
-| `ARGOS_SERVER_URL`                       | argosd base URL (gateway-aware path prefix supported)| (required)       |
-| `ARGOS_API_TOKEN`                        | Bearer PAT with `vm-collector` scope                 | (required)       |
-| `ARGOS_VM_COLLECTOR_PROVIDER`            | Cloud provider (only `outscale` in v1)               | `outscale`       |
-| `ARGOS_VM_COLLECTOR_ACCOUNT_NAME`        | Cloud account name (matches cloud_accounts.name)     | (required)       |
-| `ARGOS_VM_COLLECTOR_REGION`              | Cloud region                                         | (required)       |
-| `ARGOS_VM_COLLECTOR_INTERVAL`            | Tick interval                                        | `5m`             |
-| `ARGOS_VM_COLLECTOR_FETCH_TIMEOUT`       | Per-tick context timeout                             | `30s`            |
-| `ARGOS_VM_COLLECTOR_RECONCILE`           | Whether to call `/reconcile` after each tick         | `true`           |
-| `ARGOS_VM_COLLECTOR_CREDENTIAL_REFRESH`  | How often to refetch creds (rotation pickup)         | `1h`             |
-| `ARGOS_CA_CERT`                          | Custom CA for argosd TLS                             | (system)         |
-| `ARGOS_CLIENT_CERT`                      | Client cert for mTLS to argosd / gateway             | (none)           |
-| `ARGOS_CLIENT_KEY`                       | Client key for mTLS                                  | (none)           |
-| `ARGOS_EXTRA_HEADERS`                    | Extra HTTP headers (`k=v,k=v`) for gateway routing   | (none)           |
+| `LONGUE_VUE_SERVER_URL`                       | longue-vue base URL (gateway-aware path prefix supported)| (required)       |
+| `LONGUE_VUE_API_TOKEN`                        | Bearer PAT with `vm-collector` scope                 | (required)       |
+| `LONGUE_VUE_VM_COLLECTOR_PROVIDER`            | Cloud provider (only `outscale` in v1)               | `outscale`       |
+| `LONGUE_VUE_VM_COLLECTOR_ACCOUNT_NAME`        | Cloud account name (matches cloud_accounts.name)     | (required)       |
+| `LONGUE_VUE_VM_COLLECTOR_REGION`              | Cloud region                                         | (required)       |
+| `LONGUE_VUE_VM_COLLECTOR_INTERVAL`            | Tick interval                                        | `5m`             |
+| `LONGUE_VUE_VM_COLLECTOR_FETCH_TIMEOUT`       | Per-tick context timeout                             | `30s`            |
+| `LONGUE_VUE_VM_COLLECTOR_RECONCILE`           | Whether to call `/reconcile` after each tick         | `true`           |
+| `LONGUE_VUE_VM_COLLECTOR_CREDENTIAL_REFRESH`  | How often to refetch creds (rotation pickup)         | `1h`             |
+| `LONGUE_VUE_CA_CERT`                          | Custom CA for longue-vue TLS                             | (system)         |
+| `LONGUE_VUE_CLIENT_CERT`                      | Client cert for mTLS to longue-vue / gateway             | (none)           |
+| `LONGUE_VUE_CLIENT_KEY`                       | Client key for mTLS                                  | (none)           |
+| `LONGUE_VUE_EXTRA_HEADERS`                    | Extra HTTP headers (`k=v,k=v`) for gateway routing   | (none)           |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`| Standard Go-honoured proxy vars                       | (env)            |
 
-**There is no AK/SK env var on the collector.** Credentials live exclusively in argosd's `cloud_accounts` table.
+**There is no AK/SK env var on the collector.** Credentials live exclusively in longue-vue's `cloud_accounts` table.
 
 ### 12. Deployment
 
 A new directory `deploy/vm-collector/` ships reference Kustomize manifests:
 
-- `Deployment` (replicas: 1) running `argos-vm-collector`
-- `Secret` carrying `ARGOS_API_TOKEN` (the PAT)
-- Egress NetworkPolicy allowing HTTPS to the argosd endpoint and to the cloud-provider API endpoint only
+- `Deployment` (replicas: 1) running `longue-vue-vm-collector`
+- `Secret` carrying `LONGUE_VUE_API_TOKEN` (the PAT)
+- Egress NetworkPolicy allowing HTTPS to the longue-vue endpoint and to the cloud-provider API endpoint only
 - A `ConfigMap` for non-secret env vars
 
-A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds and pushes both `argos:<version>` and `argos-vm-collector:<version>`.
+A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds and pushes both `longue-vue:<version>` and `longue-vue-vm-collector:<version>`.
 
 ## Consequences
 
@@ -468,7 +468,7 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
 - **POS-002** The `virtual_machines` schema captures **substantially more** than the Node equivalent — image AMI, keypair, VPC/subnet, NICs, SGs, block devices, deletion protection, provider creation date. SNC cartography reviewers get a complete logical-server picture.
 - **POS-003** Encrypted-at-rest credentials with explicit master-key handling, AAD-bound ciphertexts, audit-logged CRUD and credential reads, and the GitHub-PAT pattern (write-only from admin endpoints) raise the security bar materially.
 - **POS-004** **The new `vm-collector` scope is the narrowest scope in the system.** A leaked collector PAT exposes exactly one cloud account's read access — strictly less than a `read`-scope user PAT (which can list everything).
-- **POS-005** Two-binary topology mirrors ADR-0009 — the architecture is coherent with the existing airgap-cluster solution. Operators who deployed `argos-collector` already understand the deployment shape of `argos-vm-collector`.
+- **POS-005** Two-binary topology mirrors ADR-0009 — the architecture is coherent with the existing airgap-cluster solution. Operators who deployed `longue-vue-collector` already understand the deployment shape of `longue-vue-vm-collector`.
 - **POS-006** Provider abstraction in place from day one. Adding AWS / OVHcloud / Scaleway is a one-file PR (a new `internal/vmcollector/provider/<provider>.go`).
 - **POS-007** Multi-account is free with the per-deployment shape — one collector deployment per account, isolated blast radius, independent error budgets.
 - **POS-008** Server-side VM-ID dedup against `nodes.provider_id` is deterministic and tag-independent. Works regardless of which cloud-controller-manager is in use.
@@ -479,14 +479,14 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
 
 ### Negative
 
-- **NEG-001** Master-key handling is a new failure mode. Loss of `ARGOS_SECRETS_MASTER_KEY` means every stored SK is unrecoverable — operators must re-enter every account's SK. Mitigation: documented backup procedure for the master key (separate from the database backup), startup banner showing the master-key fingerprint, planned future ADR (`FUT-001`) for KMS integration so the master key never lives in an env var on prod.
+- **NEG-001** Master-key handling is a new failure mode. Loss of `LONGUE_VUE_SECRETS_MASTER_KEY` means every stored SK is unrecoverable — operators must re-enter every account's SK. Mitigation: documented backup procedure for the master key (separate from the database backup), startup banner showing the master-key fingerprint, planned future ADR (`FUT-001`) for KMS integration so the master key never lives in an env var on prod.
 - **NEG-002** No agent-based guest-OS information in v1. `kernel_version` and `operating_system` are empty for every VM until a separate agent track lands. The EOL enricher is therefore a no-op for VMs in v1.
-- **NEG-003** A second binary to build, release, and version. Mitigated by sharing `internal/vmcollector` — the polling logic is compiled once, consumed by both the static-build artefact and the integration tests in `argosd`.
+- **NEG-003** A second binary to build, release, and version. Mitigated by sharing `internal/vmcollector` — the polling logic is compiled once, consumed by both the static-build artefact and the integration tests in `longue-vue`.
 - **NEG-004** The `virtual_machines` table is unbounded by tombstone retention. After several years of churn, the table accumulates terminated rows. A retention policy is a follow-up (`FUT-006`).
 - **NEG-005** A leaked `vm-collector` PAT exposes one cloud account's plaintext SK. Mitigation: the scope is bound to a single account (the admin issues the token tied to a specific `cloud_account_id`); rotation is one click in the UI; every credential read is audit-logged.
 - **NEG-006** Two collectors with overlapping concerns (kube push collector writes `nodes`, VM push collector writes `virtual_machines`) — operators must understand the split. Mitigated by clear UI labelling ("Kubernetes Nodes" / "Virtual Machines") and the deterministic server-side dedup in §8.
 - **NEG-007** Credential fetch over HTTPS adds a round-trip on collector startup and every refresh interval. Acceptable: O(1) per hour per collector, far below any meaningful overhead.
-- **NEG-008** The hybrid-onboarding flow has a "pending credentials" state that requires admin attention to clear. If admins ignore the UI banner, a collector can sit idle indefinitely. Mitigation: surface the state prominently on the admin home page, expose a `argos_cloud_accounts_pending_credentials` Prometheus gauge for alerting.
+- **NEG-008** The hybrid-onboarding flow has a "pending credentials" state that requires admin attention to clear. If admins ignore the UI banner, a collector can sit idle indefinitely. Mitigation: surface the state prominently on the admin home page, expose a `longue_vue_cloud_accounts_pending_credentials` Prometheus gauge for alerting.
 
 ## Alternatives Considered
 
@@ -495,20 +495,20 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
 - **ALT-001** **Description**: Add `kind = 'kubernetes' | 'standalone_vm'` and make `cluster_id` nullable. Single inventory of "logical servers".
 - **ALT-002** **Rejection Reason**: Pollutes the `nodes` semantics with rows that aren't Kubernetes nodes. Drops K8s-specific columns to NULL-by-discriminator. The UI would have to branch on `kind` everywhere. A new table is cheaper and the rich cloud-native columns (NICs, SGs, block_devices, image_id, keypair_name) have no Node equivalent.
 
-### Embed the VM collector in argosd as a goroutine
+### Embed the VM collector in longue-vue as a goroutine
 
-- **ALT-003** **Description**: argosd reads `cloud_accounts`, decrypts SKs in-process, runs one `Collector` goroutine per row.
-- **ALT-004** **Rejection Reason**: argosd would need outbound HTTPS to every cloud-provider endpoint. Some SNC environments deploy argosd in a management zone with no public egress. Operators wanted the airgap-collector pattern (separate binary, push over HTTPS) for symmetry. The two-binary shape mirrors ADR-0009 exactly.
+- **ALT-003** **Description**: longue-vue reads `cloud_accounts`, decrypts SKs in-process, runs one `Collector` goroutine per row.
+- **ALT-004** **Rejection Reason**: longue-vue would need outbound HTTPS to every cloud-provider endpoint. Some SNC environments deploy longue-vue in a management zone with no public egress. Operators wanted the airgap-collector pattern (separate binary, push over HTTPS) for symmetry. The two-binary shape mirrors ADR-0009 exactly.
 
 ### Env-var-managed credentials on the collector
 
 - **ALT-005** **Description**: AK/SK delivered to the collector via env vars / a Kubernetes Secret. No DB storage of secrets at all.
 - **ALT-006** **Rejection Reason**: Distributes the secret across N collector deployments. Rotation requires updating N Secrets. No central audit. SecNumCloud chapter 9 (cryptographic asset protection) prefers centralised secret management with audit. The fetch-API design centralises rotation and audit while keeping the collector binary stateless.
 
-### Argosd-as-proxy (collector never sees AK/SK)
+### longue-vue-as-proxy (collector never sees AK/SK)
 
-- **ALT-007** **Description**: argosd holds AK/SK and itself calls Outscale; the collector exists only as a thin proxy that posts results.
-- **ALT-008** **Rejection Reason**: Collapses to the central-pull model with extra steps. The collector adds no value if argosd is doing the cloud API call. The whole point of the separate binary is that argosd does **not** need cloud-provider reachability.
+- **ALT-007** **Description**: longue-vue holds AK/SK and itself calls Outscale; the collector exists only as a thin proxy that posts results.
+- **ALT-008** **Rejection Reason**: Collapses to the central-pull model with extra steps. The collector adds no value if longue-vue is doing the cloud API call. The whole point of the separate binary is that longue-vue does **not** need cloud-provider reachability.
 
 ### Hard-delete VMs that disappear
 
@@ -520,12 +520,12 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
 - **ALT-011** **Description**: Put Outscale in `internal/outscale/` directly; refactor when the next provider arrives.
 - **ALT-012** **Rejection Reason**: The seam (a `Provider` interface + a `VM` struct) costs ~40 lines and turns the second provider from a refactor into a one-file contribution.
 
-### Tag-driven opt-in (`argos.io/platform=true`)
+### Tag-driven opt-in (`longue-vue.io/platform=true`)
 
-- **ALT-013** **Description**: Operator must tag every platform VM with `argos.io/platform=true`; collector ingests only tagged VMs.
-- **ALT-014** **Rejection Reason**: Operators don't tag their existing VMs with argos-specific tags and can't reasonably be asked to retag a fleet. The VM-ID dedup against `nodes.provider_id` is sufficient: every VM that isn't a kube node IS a platform VM by definition. The `argos.io/ignore=true` opt-out remains as an escape hatch (read by argos, set by operators if they want to exclude something).
+- **ALT-013** **Description**: Operator must tag every platform VM with `longue-vue.io/platform=true`; collector ingests only tagged VMs.
+- **ALT-014** **Rejection Reason**: Operators don't tag their existing VMs with longue-vue-specific tags and can't reasonably be asked to retag a fleet. The VM-ID dedup against `nodes.provider_id` is sufficient: every VM that isn't a kube node IS a platform VM by definition. The `longue-vue.io/ignore=true` opt-out remains as an escape hatch (read by longue-vue, set by operators if they want to exclude something).
 
-### Collector-side `ARGOS_VM_COLLECTOR_ROLE_TAG` env var
+### Collector-side `LONGUE_VUE_VM_COLLECTOR_ROLE_TAG` env var
 
 - **ALT-015** **Description**: Make the role-derivation tag (default `ansible_group`) configurable per collector deployment.
 - **ALT-016** **Rejection Reason**: YAGNI. There is one operator, one convention. If a future provider needs a different tag, the right place for that knob is a column on `cloud_accounts` (per-account, not per-deployment), not a collector env var. The Outscale provider hardcodes `ansible_group`.
@@ -550,17 +550,17 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
 - **IMP-001** New migrations:
   - `00023_create_cloud_accounts.sql` — `cloud_accounts` table with status / encryption columns / curated metadata.
   - `00024_create_virtual_machines.sql` — `virtual_machines` table with full schema from §2.
-  - No `settings` toggle migration: the VM collector's "enabled" state is purely "is the binary deployed?". There is no goroutine inside argosd to enable/disable.
-- **IMP-002** New package `internal/secrets/` with an `Encrypter` interface and a single AES-256-GCM impl. Master key parsed from `ARGOS_SECRETS_MASTER_KEY` (base64 → 32 bytes; reject other lengths at startup). Encrypter is constructed once in `main.go` and passed into the cloud-accounts handlers and the credential-read handler. Covered by unit tests with NIST known-answer vectors and round-trip property tests including AAD mismatch.
-- **IMP-003** New package `internal/vmcollector/` shared between the collector binary and argosd's tests:
+  - No `settings` toggle migration: the VM collector's "enabled" state is purely "is the binary deployed?". There is no goroutine inside longue-vue to enable/disable.
+- **IMP-002** New package `internal/secrets/` with an `Encrypter` interface and a single AES-256-GCM impl. Master key parsed from `LONGUE_VUE_SECRETS_MASTER_KEY` (base64 → 32 bytes; reject other lengths at startup). Encrypter is constructed once in `main.go` and passed into the cloud-accounts handlers and the credential-read handler. Covered by unit tests with NIST known-answer vectors and round-trip property tests including AAD mismatch.
+- **IMP-003** New package `internal/vmcollector/` shared between the collector binary and longue-vue's tests:
   - `provider/provider.go` — `Provider` interface, `VM` struct.
   - `provider/outscale.go` — Outscale impl using `github.com/outscale/osc-sdk-go/v2`. Maps `osc.Vm` → `provider.VM`. Canonical state mapping for `vm.State`. Instance-type → CPU/memory parser for known TINA families. Tags flattened from `[]ResourceTag` to `map[string]string`. Hardcoded `ansible_group` as the role-tag key.
   - `provider/fake.go` — test fake.
-  - `apiclient/store.go` — HTTP-backed store implementing the narrow collector interface: `FetchCredentials`, `RegisterCloudAccount`, `UpdateCloudAccountStatus`, `UpsertVirtualMachine`, `ReconcileVirtualMachines`. Retry with exponential backoff on 5xx (3 attempts max). Stop on 401/403 (token revoked or misconfigured). Inherits gateway/proxy/mTLS support from the same `http.Transport` shape as `argos-collector`.
-  - `filter/filter.go` — pre-filter (drops `OscK8sClusterID/*`, `OscK8sNodeName=*`, `argos.io/ignore=true`).
+  - `apiclient/store.go` — HTTP-backed store implementing the narrow collector interface: `FetchCredentials`, `RegisterCloudAccount`, `UpdateCloudAccountStatus`, `UpsertVirtualMachine`, `ReconcileVirtualMachines`. Retry with exponential backoff on 5xx (3 attempts max). Stop on 401/403 (token revoked or misconfigured). Inherits gateway/proxy/mTLS support from the same `http.Transport` shape as `longue-vue-collector`.
+  - `filter/filter.go` — pre-filter (drops `OscK8sClusterID/*`, `OscK8sNodeName=*`, `longue-vue.io/ignore=true`).
   - `collector.go` — the polling loop: fetch creds (with cache + periodic refresh), instantiate provider, list VMs, pre-filter, upsert each VM, reconcile after success, update status. Handles 409 from `POST /v1/virtual-machines` (already-a-kube-node) by logging and continuing.
-- **IMP-004** New binary `cmd/argos-vm-collector/main.go`. Env parsing, signal handling (SIGINT/SIGTERM → context cancel → graceful drain), one collector loop. Build with `CGO_ENABLED=0`. Same distroless base, UID 65532.
-- **IMP-005** Argosd-side store interface additions:
+- **IMP-004** New binary `cmd/longue-vue-vm-collector/main.go`. Env parsing, signal handling (SIGINT/SIGTERM → context cancel → graceful drain), one collector loop. Build with `CGO_ENABLED=0`. Same distroless base, UID 65532.
+- **IMP-005** longue-vue-side store interface additions:
   - `UpsertCloudAccount(ctx, provider, name, region) (CloudAccount, error)` — used by both the admin UI flow and the collector's first-contact flow. Idempotent on `(provider, name)`. Creates with `status='pending_credentials'`.
   - `GetCloudAccountByName(ctx, provider, name)` and `GetCloudAccount(ctx, id)`.
   - `ListCloudAccounts(ctx, filter)`.
@@ -598,8 +598,8 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
   - Token issuance UI: admin form to create a `vm-collector` PAT requires selecting the bound `cloud_account_id`. Backend stores the binding on the token row (new column `bound_cloud_account_id` on the `tokens` table; nullable for non-vm-collector tokens). Middleware enforces the binding: a vm-collector PAT can only access its own account's endpoints.
   - Migration `00025_add_token_bound_cloud_account.sql` adds the column.
 - **IMP-009** Prometheus metrics:
-  - argosd: `argos_cloud_accounts_total{status}`, `argos_cloud_accounts_pending_credentials` (gauge), `argos_virtual_machines_total{cloud_account, terminated}`, `argos_credentials_reads_total{cloud_account}`.
-  - collector binary: `argos_vm_collector_ticks_total{status}`, `argos_vm_collector_tick_duration_seconds`, `argos_vm_collector_vms_observed`, `argos_vm_collector_vms_skipped_kubernetes`, `argos_vm_collector_credential_refreshes_total{result}`, `argos_vm_collector_last_success_timestamp_seconds`. Exposed on a localhost-only `/metrics` listener (port from `ARGOS_VM_COLLECTOR_METRICS_ADDR`, default `127.0.0.1:9090`).
+  - longue-vue: `longue_vue_cloud_accounts_total{status}`, `longue_vue_cloud_accounts_pending_credentials` (gauge), `longue_vue_virtual_machines_total{cloud_account, terminated}`, `longue_vue_credentials_reads_total{cloud_account}`.
+  - collector binary: `longue_vue_vm_collector_ticks_total{status}`, `longue_vue_vm_collector_tick_duration_seconds`, `longue_vue_vm_collector_vms_observed`, `longue_vue_vm_collector_vms_skipped_kubernetes`, `longue_vue_vm_collector_credential_refreshes_total{result}`, `longue_vue_vm_collector_last_success_timestamp_seconds`. Exposed on a localhost-only `/metrics` listener (port from `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR`, default `127.0.0.1:9090`).
 - **IMP-010** UI work (`ui/src/`):
   - New routes: `/ui/virtual-machines`, `/ui/virtual-machines/:id`, `/ui/admin/cloud-accounts`, `/ui/admin/cloud-accounts/new`, `/ui/admin/cloud-accounts/:id`.
   - New nav entry "Virtual Machines" under the existing inventory section, with a new SVG icon (server/tower glyph distinct from the Node icon). Update `ui/src/icons.tsx`.
@@ -611,11 +611,11 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
     - "Issue collector token" button (admin-only): opens token-creation modal pre-bound to this `cloud_account_id` and pre-set to the `vm-collector` role.
   - Home-page admin banner: surface count of `pending_credentials` accounts.
 - **IMP-011** Build and CI:
-  - New `Dockerfile.vm-collector` (or new build stage in the existing Dockerfile) producing `argos-vm-collector`.
-  - CI matrix: build both `argos:<version>` and `argos-vm-collector:<version>`. Run integration tests for each.
+  - New `Dockerfile.vm-collector` (or new build stage in the existing Dockerfile) producing `longue-vue-vm-collector`.
+  - CI matrix: build both `longue-vue:<version>` and `longue-vue-vm-collector:<version>`. Run integration tests for each.
   - `make build-vm-collector` and `make docker-build-vm-collector` Makefile targets.
 - **IMP-012** Deployment:
-  - New `deploy/vm-collector/` Kustomize directory: `Deployment`, `Secret` (PAT), `ConfigMap` (env vars), `NetworkPolicy` (egress to argosd + Outscale endpoint only).
+  - New `deploy/vm-collector/` Kustomize directory: `Deployment`, `Secret` (PAT), `ConfigMap` (env vars), `NetworkPolicy` (egress to longue-vue + Outscale endpoint only).
   - `deploy/vm-collector/README.md` walks operators through token issuance, collector deployment, admin credential entry — the full hybrid-onboarding flow.
 - **IMP-013** Tests:
   - Unit: `internal/secrets/` round-trip + AAD-mismatch negative test + master-key fingerprint test.
@@ -624,19 +624,19 @@ A new `Dockerfile.vm-collector` (or build stage) produces the image. CI builds a
   - Unit: token-binding middleware (vm-collector PAT bound to account A cannot access account B).
   - Integration: store CRUD on `cloud_accounts` and `virtual_machines`, soft-delete reconcile, server-side dedup against `nodes.provider_id`.
   - Integration: full hybrid-onboarding flow — collector POSTs to register, admin sets creds, collector fetches and runs.
-  - End-to-end: `argos-vm-collector` running against a `provider/fake.go` fake provider, against a real argosd + test PG.
+  - End-to-end: `longue-vue-vm-collector` running against a `provider/fake.go` fake provider, against a real longue-vue + test PG.
 - **IMP-014** Documentation deliverables (Phase 5 of the workflow):
   - New `docs/cloud-accounts.md` — admin guide: how to register an account, what cloud-provider permissions the AK needs, hybrid-onboarding flow, rotation, master-key backup.
-  - New `docs/vm-collector.md` — operator guide: deploying `argos-vm-collector`, env-var reference, gateway/proxy/mTLS configuration, troubleshooting.
-  - `docs/configuration.md` — add `ARGOS_SECRETS_MASTER_KEY` and the collector-binary env vars.
+  - New `docs/vm-collector.md` — operator guide: deploying `longue-vue-vm-collector`, env-var reference, gateway/proxy/mTLS configuration, troubleshooting.
+  - `docs/configuration.md` — add `LONGUE_VUE_SECRETS_MASTER_KEY` and the collector-binary env vars.
   - `docs/api-reference.md` — new endpoints with scope annotations.
-  - `CLAUDE.md` — new architecture notes for `internal/secrets/`, `internal/vmcollector/`, `cmd/argos-vm-collector/`, the `cloud_accounts` and `virtual_machines` tables, the dedup logic, the `vm-collector` scope, the hybrid-onboarding flow.
+  - `CLAUDE.md` — new architecture notes for `internal/secrets/`, `internal/vmcollector/`, `cmd/longue-vue-vm-collector/`, the `cloud_accounts` and `virtual_machines` tables, the dedup logic, the `vm-collector` scope, the hybrid-onboarding flow.
   - `README.md` — feature list update, ADR index entry, docs table entry, two-binary topology diagram.
   - `CHANGELOG.md` — `Added` entries under the next minor version.
 - **IMP-015** Helm chart:
   - Bump `version` and `appVersion`.
   - Add a `secrets.masterKey` value (delivered via a Kubernetes Secret, never in `values.yaml`). Document master-key backup separately from the database.
-  - Add an optional sub-chart or values block for deploying `argos-vm-collector` alongside argosd in the same release.
+  - Add an optional sub-chart or values block for deploying `longue-vue-vm-collector` alongside longue-vue in the same release.
 
 ## Future work
 

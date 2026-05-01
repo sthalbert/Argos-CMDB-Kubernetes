@@ -218,7 +218,7 @@ export default function VirtualMachines() {
         <VirtualMachineIcon size={20} /> Virtual Machines
       </h2>
       <p className="muted" style={{ marginBottom: '1rem' }}>
-        Non-Kubernetes platform VMs catalogued by argos-vm-collector (ADR-0015).
+        Non-Kubernetes platform VMs catalogued by longue-vue-vm-collector (ADR-0015).
       </p>
 
       <AsyncView state={vmsState}>

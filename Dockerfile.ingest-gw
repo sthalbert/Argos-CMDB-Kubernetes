@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# argos-ingest-gw container image (ADR-0016).
+# longue-vue-ingest-gw container image (ADR-0016).
 # Two-stage: golang builder -> distroless static runtime. No UI stage needed.
 # Binary is static (CGO_ENABLED=0) and runs as non-root UID 65532.
 
@@ -29,12 +29,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
         -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o /out/argos-ingest-gw \
-        ./cmd/argos-ingest-gw
+        -o /out/longue-vue-ingest-gw \
+        ./cmd/longue-vue-ingest-gw
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /out/argos-ingest-gw /argos-ingest-gw
+COPY --from=build /out/longue-vue-ingest-gw /longue-vue-ingest-gw
 
 USER nonroot:nonroot
 
@@ -43,4 +43,4 @@ EXPOSE 8443
 # Health + metrics (plaintext, pod-local).
 EXPOSE 9090
 
-ENTRYPOINT ["/argos-ingest-gw"]
+ENTRYPOINT ["/longue-vue-ingest-gw"]

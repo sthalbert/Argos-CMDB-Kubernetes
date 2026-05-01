@@ -11,11 +11,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/api"
-	"github.com/sthalbert/argos/internal/metrics"
+	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/metrics"
 )
 
-const annotationPrefix = "argos.io/eol."
+const annotationPrefix = "longue-vue.io/eol."
 
 // EnricherStore is the narrow subset of api.Store the enricher needs.
 type EnricherStore interface {
@@ -111,7 +111,7 @@ func (e *Enricher) enrich(ctx context.Context) {
 }
 
 // enrichVirtualMachines walks all non-terminated VMs and writes
-// `argos.io/eol.<product>` annotations driven by the operator-declared
+// `longue-vue.io/eol.<product>` annotations driven by the operator-declared
 // applications list. Filter intentionally omits IncludeTerminated so
 // soft-deleted rows don't pile up annotation churn.
 func (e *Enricher) enrichVirtualMachines(ctx context.Context) {
@@ -248,9 +248,9 @@ func (e *Enricher) enrichNode(ctx context.Context, clusterName string, node *api
 	}
 }
 
-// enrichVirtualMachine builds a fresh `argos.io/eol.<product>` set from
+// enrichVirtualMachine builds a fresh `longue-vue.io/eol.<product>` set from
 // the VM's declared applications and writes the result, dropping every
-// previous `argos.io/eol.*` key in the process so stale annotations are
+// previous `longue-vue.io/eol.*` key in the process so stale annotations are
 // reaped automatically (operators removing an entry from the list see
 // the matching annotation disappear on the next tick).
 //
@@ -301,7 +301,7 @@ func (e *Enricher) enrichVirtualMachine(ctx context.Context, vm *api.VirtualMach
 	}
 
 	// Compute the merged annotations: keep every non-EOL annotation,
-	// drop every existing `argos.io/eol.*`, then layer in newEOL.
+	// drop every existing `longue-vue.io/eol.*`, then layer in newEOL.
 	merged := make(map[string]string)
 	for k, v := range vm.Annotations {
 		if !strings.HasPrefix(k, annotationPrefix) {
@@ -522,7 +522,7 @@ func (e *Enricher) mergeNodeAnnotation(ctx context.Context, id uuid.UUID, produc
 }
 
 // mergeAnnotation takes existing annotations and merges in the new EOL
-// annotation under "argos.io/eol.<product>". Non-EOL annotations are
+// annotation under "longue-vue.io/eol.<product>". Non-EOL annotations are
 // preserved; only EOL keys are overwritten.
 //
 //nolint:gocritic // ptrToRefParam: matches the api.Cluster.Annotations type (*map[string]string).

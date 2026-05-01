@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Context
 
-ADR-0001 committed Argos to preserving the ANSSI cartography layering for classical IT assets. As of today the Argos data model has three Kubernetes-native entities (`Cluster`, `Node`, `Namespace`) but **none of them declares which ANSSI cartography layer it belongs to**. Without this information:
+ADR-0001 committed longue-vue to preserving the ANSSI cartography layering for classical IT assets. As of today the longue-vue data model has three Kubernetes-native entities (`Cluster`, `Node`, `Namespace`) but **none of them declares which ANSSI cartography layer it belongs to**. Without this information:
 
 - The inventory cannot be exported in a form the SecNumCloud evidence package expects (auditors receive asset lists grouped by layer).
 - Cross-entity filters such as "show every asset in the *infrastructure* layer" cannot be expressed.
@@ -37,7 +37,7 @@ The CMDB needs a stable, documented mapping from Kubernetes kinds onto those lay
 
 ## Decision
 
-Argos adopts the six-layer ANSSI model unchanged and decorates every inventory entity with a **`layer`** attribute carrying one of those six values.
+longue-vue adopts the six-layer ANSSI model unchanged and decorates every inventory entity with a **`layer`** attribute carrying one of those six values.
 
 **Mapping for the v1 entities:**
 
@@ -72,14 +72,14 @@ Argos adopts the six-layer ANSSI model unchanged and decorates every inventory e
 ### Positive
 
 - **POS-001**: SecNumCloud evidence exports can be grouped by layer directly from API responses — no post-processing in the auditor's workflow.
-- **POS-002**: Layer taxonomy is pinned to the six ANSSI layers, so Argos-managed Kubernetes data composes with the rest of SNC's inventory without a translation step.
+- **POS-002**: Layer taxonomy is pinned to the six ANSSI layers, so longue-vue-managed Kubernetes data composes with the rest of SNC's inventory without a translation step.
 - **POS-003**: Derived classification has zero schema cost. A new entity kind only needs a one-line mapping in the handler, and the implication is enforced at the type boundary.
 - **POS-004**: Readonly field semantics prevent clients from mis-classifying assets and drifting the inventory.
 
 ### Negative
 
 - **NEG-001**: Per-instance override (e.g., "this particular node is a VM, not physical hardware") is not supported in v1. Every `Node` row reads back as `infrastructure_physical`.
-- **NEG-002**: The ANSSI (French) → Argos layer names differ linguistically. Consumers that pivot between the two must own the translation table (documented above).
+- **NEG-002**: The ANSSI (French) → longue-vue layer names differ linguistically. Consumers that pivot between the two must own the translation table (documented above).
 - **NEG-003**: Cross-entity "list everything in layer X" queries are not available in v1 — they would require either a materialised view or UNION ALL across tables. Out of scope here; revisit when the kind inventory grows.
 
 ## Alternatives Considered
@@ -102,7 +102,7 @@ Argos adopts the six-layer ANSSI model unchanged and decorates every inventory e
 ### Use French ANSSI names as enum values
 
 - **ALT-007**: **Description**: Use `ecosysteme`, `metier`, `applicatif`, `administration`, `infrastructure_logique`, `infrastructure_physique` in JSON.
-- **ALT-008**: **Rejection Reason**: The rest of the Argos codebase (identifiers, error messages, logs) is in English. Keeping the enum in English matches that convention; the ADR documents the mapping back to the French reference.
+- **ALT-008**: **Rejection Reason**: The rest of the longue-vue codebase (identifiers, error messages, logs) is in English. Keeping the enum in English matches that convention; the ADR documents the mapping back to the French reference.
 
 ## Implementation Notes
 

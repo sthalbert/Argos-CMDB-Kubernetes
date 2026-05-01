@@ -102,6 +102,44 @@ func TestParseToken(t *testing.T) {
 	}
 }
 
+func TestParseToken_AcceptsBothSchemes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"legacy argos_pat_ prefix", "argos_pat_aabbccdd_" + strings.Repeat("x", 32)},
+		{"new longue_vue_pat_ prefix", "longue_vue_pat_aabbccdd_" + strings.Repeat("x", 32)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			prefix, _, err := ParseToken(tc.raw)
+			if err != nil {
+				t.Fatalf("ParseToken(%q) returned error: %v", tc.raw, err)
+			}
+			if prefix != "aabbccdd" {
+				t.Fatalf("expected prefix %q, got %q", "aabbccdd", prefix)
+			}
+		})
+	}
+}
+
+func TestMintToken_UsesNewSchemeOnly(t *testing.T) {
+	t.Parallel()
+	tok, err := MintToken()
+	if err != nil {
+		t.Fatalf("MintToken: %v", err)
+	}
+	if !strings.HasPrefix(tok.Plaintext, TokenScheme) {
+		t.Fatalf("expected plaintext to start with %q, got %q", TokenScheme, tok.Plaintext)
+	}
+	if strings.HasPrefix(tok.Plaintext, TokenSchemeLegacy) {
+		t.Fatalf("MintToken must not emit legacy scheme; got %q", tok.Plaintext)
+	}
+}
+
 func TestScopesForRole(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

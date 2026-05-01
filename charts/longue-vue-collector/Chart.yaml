@@ -1,0 +1,26 @@
+apiVersion: v2
+name: longue-vue-collector
+description: >-
+  Push-mode Kubernetes collector for the longue-vue CMDB (ADR-0009). Runs inside
+  air-gapped or DMZ-isolated clusters and pushes inventory observations to a
+  central longue-vue daemon over HTTPS. One Helm release per source cluster. Ships
+  independently of the umbrella `longue-vue` chart so the source-cluster release
+  contains only what belongs in that cluster.
+type: application
+version: 0.1.2
+appVersion: "0.12.2"
+home: https://github.com/sthalbert/longue-vue
+sources:
+  - https://github.com/sthalbert/longue-vue
+maintainers:
+  - name: Steve Albert
+    url: https://github.com/sthalbert
+keywords:
+  - longue-vue
+  - cmdb
+  - kubernetes
+  - collector
+  - push
+  - airgap
+  - secnumcloud
+  - anssi

@@ -17,7 +17,7 @@ import (
 func testOAuthConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:    "cid",
-		RedirectURL: "https://argos.example.com/cb",
+		RedirectURL: "https://longue-vue.example.com/cb",
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://idp.example.com/authorize",
 			TokenURL: "https://idp.example.com/token",
@@ -104,7 +104,7 @@ func TestNewOIDCProvider_RejectsIncompleteConfig(t *testing.T) {
 	// Issuer set but client id missing → should error before any network.
 	_, err := NewOIDCProvider(context.Background(), &OIDCConfig{
 		Issuer:      "https://example.invalid",
-		RedirectURL: "https://argos.example.com/cb",
+		RedirectURL: "https://longue-vue.example.com/cb",
 	})
 	if err == nil {
 		t.Fatal("expected error for missing client id")
@@ -120,7 +120,7 @@ func TestNewOIDCProvider_RejectsIncompleteConfig(t *testing.T) {
 func TestAuthorizeURL_CarriesStatePKCENonce(t *testing.T) {
 	t.Parallel()
 	p := &OIDCProvider{
-		Config: OIDCConfig{ClientID: "cid", RedirectURL: "https://argos.example.com/cb"},
+		Config: OIDCConfig{ClientID: "cid", RedirectURL: "https://longue-vue.example.com/cb"},
 		oauth:  testOAuthConfig(),
 	}
 	raw := p.AuthorizeURL("state-XYZ", "challenge-ABC", "nonce-123")

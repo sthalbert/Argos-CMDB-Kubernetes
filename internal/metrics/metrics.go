@@ -3,8 +3,8 @@
 // All metrics live in one package so operators have a single place to read
 // what's exported. The /metrics endpoint is mounted unauthenticated to match
 // Prometheus's scrape convention; deployments that need access control should
-// either put argosd behind a proxy that gates /metrics or run the scraper on
-// a network path that's already trusted.
+// either put longue-vue behind a proxy that gates /metrics or run the scraper
+// on a network path that's already trusted.
 package metrics
 
 import (
@@ -18,21 +18,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Registry is argosd's private Prometheus registry. We don't reuse the
+// Registry is longue-vue's private Prometheus registry. We don't reuse the
 // default one — a per-process registry keeps scrape output stable across
-// tests and makes it obvious which metrics are argos-specific.
+// tests and makes it obvious which metrics are longue-vue-specific.
 var Registry = prometheus.NewRegistry()
 
 var (
 	httpRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "http",
 		Name:      "requests_total",
 		Help:      "HTTP requests handled, labelled by method, route pattern, and status class.",
 	}, []string{"method", "route", "status"})
 
 	httpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "http",
 		Name:      "request_duration_seconds",
 		Help:      "HTTP request handling duration in seconds.",
@@ -40,69 +40,69 @@ var (
 	}, []string{"method", "route"})
 
 	collectorUpserts = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "collector",
 		Name:      "upserted_total",
 		Help:      "Cumulative count of entities upserted by the collector, per cluster and resource kind.",
 	}, []string{"cluster", "resource"})
 
 	collectorReconciled = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "collector",
 		Name:      "reconciled_total",
 		Help:      "Cumulative count of entities removed by reconciliation, per cluster and resource kind.",
 	}, []string{"cluster", "resource"})
 
 	collectorErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "collector",
 		Name:      "errors_total",
 		Help:      "Collector errors, per cluster, resource kind, and phase (list, upsert, reconcile, lookup).",
 	}, []string{"cluster", "resource", "phase"})
 
 	collectorLastPoll = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "collector",
 		Name:      "last_poll_timestamp_seconds",
 		Help:      "Unix timestamp of the last successful poll for each (cluster, resource).",
 	}, []string{"cluster", "resource"})
 
 	buildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Name:      "build_info",
-		Help:      "Set to 1 for the running argosd build; labels carry version and Go toolchain info.",
+		Help:      "Set to 1 for the running longue-vue build; labels carry version and Go toolchain info.",
 	}, []string{"version", "go_version"})
 
 	eolEnrichments = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "eol",
 		Name:      "enrichments_total",
 		Help:      "EOL annotations written, per cluster, resource kind, and status.",
 	}, []string{"cluster", "resource", "status"})
 
 	eolErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "eol",
 		Name:      "errors_total",
 		Help:      "EOL enrichment errors, per cluster, resource kind, and phase.",
 	}, []string{"cluster", "resource", "phase"})
 
 	eolLastRun = prometheus.NewGauge(prometheus.GaugeOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "eol",
 		Name:      "last_run_timestamp_seconds",
 		Help:      "Unix timestamp of the last completed EOL enrichment run.",
 	})
 
 	impactQueries = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "impact",
 		Name:      "queries_total",
 		Help:      "Impact graph queries, per entity type.",
 	}, []string{"entity_type"})
 
 	impactDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "impact",
 		Name:      "query_duration_seconds",
 		Help:      "Impact graph query duration in seconds.",
@@ -110,56 +110,56 @@ var (
 	}, []string{"entity_type"})
 
 	mcpToolCalls = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "mcp",
 		Name:      "tool_calls_total",
 		Help:      "MCP tool calls, per tool name.",
 	}, []string{"tool"})
 
 	mcpToolDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "mcp",
 		Name:      "tool_duration_seconds",
 		Help:      "MCP tool call duration in seconds.",
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"tool"})
 
-	// VM-collector metrics on the argosd side (ADR-0015).
+	// VM-collector metrics on the longue-vue side (ADR-0015).
 	cloudAccountsTotal = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Name:      "cloud_accounts_total",
 		Help:      "Number of registered cloud accounts, labelled by status.",
 	}, []string{"status"})
 
 	cloudAccountsPending = prometheus.NewGauge(prometheus.GaugeOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Name:      "cloud_accounts_pending_credentials",
 		Help:      "Number of cloud accounts in status=pending_credentials. A non-zero value means a collector is registered but admin has not yet supplied AK/SK.",
 	})
 
 	virtualMachinesTotal = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Name:      "virtual_machines_total",
 		Help:      "Number of virtual machines, labelled by cloud account name and tombstone state.",
 	}, []string{"cloud_account", "terminated"})
 
 	credentialsReads = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "cloud_accounts",
 		Name:      "credentials_reads_total",
 		Help:      "Cumulative successful credential fetches via GET /v1/cloud-accounts/.../credentials.",
 	}, []string{"cloud_account"})
 
-	// DMZ ingest gateway metrics on the argosd side (ADR-0016).
+	// DMZ ingest gateway metrics on the longue-vue side (ADR-0016).
 	ingestVerifyTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "auth",
 		Name:      "verify_total",
 		Help:      "POST /v1/auth/verify calls, per outcome (valid / invalid / rate_limited).",
 	}, []string{"result"})
 
 	ingestListenerClientCertFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "argos",
+		Namespace: "longue_vue",
 		Subsystem: "ingest_listener",
 		Name:      "client_cert_failures_total",
 		Help:      "Failed mTLS client-cert validations on the ingest listener, per reason (bad_ca / expired / cn_not_allowed / none_provided).",
@@ -201,7 +201,7 @@ func IngestVerifyTotal(result string) {
 }
 
 // IngestListenerClientCertFailure increments the mTLS handshake failure
-// counter on the argosd ingest listener. `reason` is one of "bad_ca",
+// counter on the longue-vue ingest listener. `reason` is one of "bad_ca",
 // "expired", "cn_not_allowed", "none_provided" so a misconfigured gateway
 // is diagnosable from a single Prometheus query.
 func IngestListenerClientCertFailure(reason string) {
@@ -209,7 +209,7 @@ func IngestListenerClientCertFailure(reason string) {
 }
 
 // SetCloudAccountsTotal sets the per-status cloud-accounts gauge. Called
-// from a periodic refresh loop in argosd that recomputes the totals from
+// from a periodic refresh loop in longue-vue that recomputes the totals from
 // the store.
 func SetCloudAccountsTotal(status string, n int) {
 	cloudAccountsTotal.WithLabelValues(status).Set(float64(n))
@@ -238,7 +238,7 @@ func Handler() http.Handler {
 	return promhttp.HandlerFor(Registry, promhttp.HandlerOpts{Registry: Registry})
 }
 
-// SetBuildInfo sets the single argos_build_info time-series to 1. Call once
+// SetBuildInfo sets the single longue_vue_build_info time-series to 1. Call once
 // at startup with the version injected via -ldflags.
 func SetBuildInfo(version string) {
 	goVersion := "unknown"

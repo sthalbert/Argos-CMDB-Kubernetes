@@ -16,29 +16,29 @@ superseded_by: ""
 
 ## Context
 
-Argos is API-only today. Every interaction — register a cluster, list pods, inspect an ingress, check freshness — goes through `GET /v1/...` with a bearer token, typically via `curl` or a future scripted client. For the solo developer and the collector that's fine. For the two primary human user roles SecNumCloud assumes, it isn't:
+longue-vue is API-only today. Every interaction — register a cluster, list pods, inspect an ingress, check freshness — goes through `GET /v1/...` with a bearer token, typically via `curl` or a future scripted client. For the solo developer and the collector that's fine. For the two primary human user roles SecNumCloud assumes, it isn't:
 
 - **Auditors** need to *read* the cartography layer-by-layer: "show me everything classified `applicative` in `prod-eu-west-1` as of today", "which pods front an internet-facing Ingress", "what changed in the last 30 days". Issuing those as raw REST queries is neither practical nor defensible in an audit interview — the tooling itself is part of the qualification evidence.
 - **Operators** need to *annotate* assets with information Kubernetes doesn't carry: the business owner of a workload, the SNC criticality tier of a namespace, a free-text operational note, a link to the runbook, the ticket that justified a given cluster's existence. That metadata has to live *somewhere*, and shoving it into K8s annotations (the only place the collector would see it) defeats the point — it would require write access back into every catalogued cluster and couple CMDB state to cluster state.
 
-General-purpose CMDBs in the same space typically ship with a UI that does exactly these two things. Argos cannot offer less without asking users to regress.
+General-purpose CMDBs in the same space typically ship with a UI that does exactly these two things. longue-vue cannot offer less without asking users to regress.
 
 **Two tensions force the decision:**
 
 1. **Observed vs. curated data.** The collector reconciles every tick against the live cluster — anything it writes gets overwritten (or deleted via `Delete*NotIn`) on the next pass. If a UI lets users edit `Pod.Phase` or a namespace's `labels`, those edits disappear within one interval. A UI that *feels* like it can update anything but silently drops the update is worse than no UI at all.
-2. **Deployment shape.** Argos today is one Go binary serving one REST API behind bearer auth. A UI can either ride along inside that binary (single Deployment, shared auth) or live as a separate frontend (decoupled releases, separate repo, cross-origin concerns). The project is solo-maintained; every extra moving part has a cost.
+2. **Deployment shape.** longue-vue today is one Go binary serving one REST API behind bearer auth. A UI can either ride along inside that binary (single Deployment, shared auth) or live as a separate frontend (decoupled releases, separate repo, cross-origin concerns). The project is solo-maintained; every extra moving part has a cost.
 
 This ADR decides the UI's scope, its data model contract with the collector, and its deployment shape. It does not decide framework, component library, or visual design — those are deferred to implementation PRs.
 
 ## Decision
 
-**Adopt a read-plus-curate web UI, served by argosd itself, with a strict separation between collector-owned fields and user-curated fields.**
+**Adopt a read-plus-curate web UI, served by longue-vue itself, with a strict separation between collector-owned fields and user-curated fields.**
 
 **Scope (what the UI does):**
 
 1. **Browse and audit the CMDB.** Layer-scoped views (one page per ANSSI cartography layer per ADR-0002), cluster-scoped views, namespace drill-down, entity detail pages. Every list backed by the existing cursor-paginated REST endpoints. Filters match the existing query params (`cluster_id`, `namespace_id`, `kind`).
 2. **Edit curated metadata.** New fields that the collector never reads or writes — owner, criticality tier, free-text notes, runbook URL, arbitrary curated labels. Editing is gated by the `write` scope on the operator's bearer token.
-3. **Show freshness and collector health.** Surface `argos_collector_last_poll_timestamp_seconds` per `(cluster, resource)` so auditors can see at a glance which data is stale. Reuses the `/metrics` endpoint added in ADR context.
+3. **Show freshness and collector health.** Surface `longue_vue_collector_last_poll_timestamp_seconds` per `(cluster, resource)` so auditors can see at a glance which data is stale. Reuses the `/metrics` endpoint added in ADR context.
 4. **Read-only for observed fields.** `Pod.Phase`, `Workload.Kind`, `Ingress.Rules`, etc. render but are not editable in the UI — editing them would be pointless (the next collector tick would revert).
 
 **Out of scope (v1):** dashboards, charts, full-text search, diff view across time, relationship graphs, full cartography map rendering. All defensible future work; none block the audit + annotation use case this ADR unlocks.
@@ -53,9 +53,9 @@ This ADR decides the UI's scope, its data model contract with the collector, and
 
 The collector's existing `Upsert*` paths **only set collector-owned columns** (explicit column list in every INSERT and in the ON CONFLICT DO UPDATE clause; curated columns are omitted from both). `Delete*NotIn` already deletes the whole row when the K8s entity disappears, which is correct behaviour — if the pod is gone, its curated notes go with it. Operators who need longer-lived annotations attach them to the parent Workload / Namespace instead (both survive pod churn by design).
 
-**Deployment shape.** Bundle a SPA's built static assets into the argosd binary via `go:embed`, serve them under `/ui/` from the same HTTP mux that serves `/v1/*`. Same bearer-token auth, same CORS story (there isn't one — the SPA is same-origin). The SPA consumes a TypeScript client generated from `openapi.yaml` at build time (the OpenAPI spec is already the contract source of truth — generating both the Go server and the TS client from it keeps them in lockstep).
+**Deployment shape.** Bundle a SPA's built static assets into the longue-vue binary via `go:embed`, serve them under `/ui/` from the same HTTP mux that serves `/v1/*`. Same bearer-token auth, same CORS story (there isn't one — the SPA is same-origin). The SPA consumes a TypeScript client generated from `openapi.yaml` at build time (the OpenAPI spec is already the contract source of truth — generating both the Go server and the TS client from it keeps them in lockstep).
 
-**Auth in the browser.** Bearer token is entered once via a login page and held in `sessionStorage` (not `localStorage` — reduces XSS blast radius, survives page reloads within a tab, clears on tab close). Tokens continue to be issued out-of-band through `ARGOS_API_TOKENS`; the UI never mints them. A dedicated `ui` scope is **not** added — the UI uses whatever scopes the operator's token already grants (`read` for auditors, `read`+`write` for annotators, `admin` for superusers). This reuses the mechanism already in place and matches the "the UI is a thin client of the API" framing.
+**Auth in the browser.** Bearer token is entered once via a login page and held in `sessionStorage` (not `localStorage` — reduces XSS blast radius, survives page reloads within a tab, clears on tab close). Tokens continue to be issued out-of-band through `LONGUE_VUE_API_TOKENS`; the UI never mints them. A dedicated `ui` scope is **not** added — the UI uses whatever scopes the operator's token already grants (`read` for auditors, `read`+`write` for annotators, `admin` for superusers). This reuses the mechanism already in place and matches the "the UI is a thin client of the API" framing.
 
 **Framework.** React + TypeScript + Vite, with the component library left to implementation. Rationale: biggest ecosystem for OpenAPI-generated clients, most candidates familiar with it (a solo-maintained project still benefits from a mainstream stack if help is ever needed), Vite's output is a static bundle that embeds cleanly. This is the least load-bearing part of the decision — ripping out React for something else later is a contained refactor because the data layer is defined by the OpenAPI spec, not the framework.
 
@@ -77,7 +77,7 @@ The collector's existing `Upsert*` paths **only set collector-owned columns** (e
 - **NEG-001**: Curated metadata is a new first-class concern in the data model. Every new entity kind that wants human annotations needs the same column additions (owner / criticality / notes / runbook_url / annotations). Mitigation: provide a reusable migration template and a shared `CuratedMetadata` OpenAPI component to copy-paste.
 - **NEG-002**: Row-level delete-on-disappear (the collector's existing `Delete*NotIn`) takes curated pod annotations with it. This is intentional per the decision above — the alternative is soft-delete + tombstones, a significantly bigger design. Operators who need durable annotations attach them to Workloads / Namespaces.
 - **NEG-003**: Go developers now need Node + npm to produce a release binary. Mitigation: the `make ui-skip` target and a CI job that still runs when `ui/` didn't change.
-- **NEG-004**: Bundled-SPA approach ties frontend and backend release cadence. A UI-only hotfix requires a full `argosd` release. Acceptable at current scale; extractable if it becomes painful.
+- **NEG-004**: Bundled-SPA approach ties frontend and backend release cadence. A UI-only hotfix requires a full `longue-vue` release. Acceptable at current scale; extractable if it becomes painful.
 - **NEG-005**: `sessionStorage` tokens are browser-JS-accessible. XSS in the UI is now a token-exfiltration vector. Mitigation: standard CSP + the UI doesn't execute user-supplied HTML (notes are rendered as plain text, not markdown-rendered-to-HTML, in v1). A stricter cookie-based session flow is a follow-up ADR if the threat model tightens.
 
 ### Neutral
@@ -90,11 +90,11 @@ The collector's existing `Upsert*` paths **only set collector-owned columns** (e
 ### No UI — document `curl` recipes instead
 
 - **ALT-001**: **Description**: Publish a cookbook of `curl` / `jq` invocations for common audit queries; do not build a UI.
-- **ALT-002**: **Rejection Reason**: Fails both target users. Auditors can't review thousands of pods through `jq`, and operators have nowhere to record non-K8s metadata. Comparable CMDB UIs set a floor that Argos cannot clear by going backwards.
+- **ALT-002**: **Rejection Reason**: Fails both target users. Auditors can't review thousands of pods through `jq`, and operators have nowhere to record non-K8s metadata. Comparable CMDB UIs set a floor that longue-vue cannot clear by going backwards.
 
-### Separate `argos-ui` repository, deployed independently
+### Separate `longue-vue-ui` repository, deployed independently
 
-- **ALT-003**: **Description**: A separate repo containing the SPA; operators deploy the UI as its own container behind an ingress that routes `/` to the UI and `/v1/*` to argosd.
+- **ALT-003**: **Description**: A separate repo containing the SPA; operators deploy the UI as its own container behind an ingress that routes `/` to the UI and `/v1/*` to longue-vue.
 - **ALT-004**: **Rejection Reason**: Two repos, two release cadences, two CI pipelines, cross-origin auth to solve, distinct token-handling code for browsers. Every cost paid to decouple things that aren't today under pressure to decouple. Extracting the UI later is a rename-and-split; embedding it at the start is cheaper than pre-splitting it.
 
 ### Allow editing observed fields, let the collector honor a "do-not-overwrite" flag
@@ -104,8 +104,8 @@ The collector's existing `Upsert*` paths **only set collector-owned columns** (e
 
 ### Store curated metadata in K8s annotations via a write-back collector
 
-- **ALT-007**: **Description**: Users annotate in Argos; a reverse-collector writes the annotations back to the live K8s resources so they're visible in-cluster and survive a CMDB rebuild.
-- **ALT-008**: **Rejection Reason**: Requires `update` RBAC on every catalogued cluster, inverting the deliberately read-only RBAC model in `deploy/rbac.yaml`. Expands the blast radius of an argosd compromise from "read your inventory" to "mutate your clusters". The CMDB-local curated-column model is simpler and safer; a write-back integration can be built later as an opt-in if a real operational need emerges.
+- **ALT-007**: **Description**: Users annotate in longue-vue; a reverse-collector writes the annotations back to the live K8s resources so they're visible in-cluster and survive a CMDB rebuild.
+- **ALT-008**: **Rejection Reason**: Requires `update` RBAC on every catalogued cluster, inverting the deliberately read-only RBAC model in `deploy/rbac.yaml`. Expands the blast radius of a longue-vue compromise from "read your inventory" to "mutate your clusters". The CMDB-local curated-column model is simpler and safer; a write-back integration can be built later as an opt-in if a real operational need emerges.
 
 ### Server-rendered HTML (no SPA)
 
@@ -114,7 +114,7 @@ The collector's existing `Upsert*` paths **only set collector-owned columns** (e
 
 ### Multiple UIs (one for audit, one for operators)
 
-- **ALT-011**: **Description**: Ship `argos-audit` (read-only, polished for qualification interviews) and `argos-admin` (curation-heavy) as two separate frontends.
+- **ALT-011**: **Description**: Ship `longue-vue-audit` (read-only, polished for qualification interviews) and `longue-vue-admin` (curation-heavy) as two separate frontends.
 - **ALT-012**: **Rejection Reason**: Premature specialization. The two use cases differ by scope, not by shape — auditors and operators both want the same list views; operators additionally see edit buttons. A single UI with role-aware rendering (hide edit affordances when the token lacks `write` scope) covers both without the duplication.
 
 ## Implementation Notes

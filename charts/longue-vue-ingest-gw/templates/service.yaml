@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "longue-vue-ingest-gw.fullname" . }}
+  labels:
+    {{- include "longue-vue-ingest-gw.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.listener.port }}
+      targetPort: ingest
+      protocol: TCP
+      name: ingest
+  selector:
+    {{- include "longue-vue-ingest-gw.selectorLabels" . | nindent 4 }}
+---
+# Health/metrics is exposed on a SEPARATE Service so Prometheus can scrape
+# /metrics without the inbound TLS handshake. The metrics listener is
+# bound to the pod IP via env in the deployment; the Service simply makes
+# it discoverable inside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "longue-vue-ingest-gw.fullname" . }}-metrics
+  labels:
+    {{- include "longue-vue-ingest-gw.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingest-gateway-metrics
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.listener.health.port }}
+      targetPort: health
+      protocol: TCP
+      name: http-metrics
+  selector:
+    {{- include "longue-vue-ingest-gw.selectorLabels" . | nindent 4 }}

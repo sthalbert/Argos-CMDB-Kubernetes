@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/api"
+	"github.com/sthalbert/longue-vue/internal/api"
 )
 
 // fakeSource implements KubeSource with fixed results.

@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Context
 
-ADR-0002 decided the ANSSI cartography layer for every entity Argos catalogues and published a roadmap table listing `Ingress → applicative (with ecosystem boundary semantics)`. The parenthetical deliberately left the door open: Ingress is the only Kubernetes kind whose entire reason for existing is to bridge the cluster to external traffic, and a sharp reading of the ANSSI model could argue it belongs in the `ecosystem` layer rather than `applicative`.
+ADR-0002 decided the ANSSI cartography layer for every entity longue-vue catalogues and published a roadmap table listing `Ingress → applicative (with ecosystem boundary semantics)`. The parenthetical deliberately left the door open: Ingress is the only Kubernetes kind whose entire reason for existing is to bridge the cluster to external traffic, and a sharp reading of the ANSSI model could argue it belongs in the `ecosystem` layer rather than `applicative`.
 
 This ADR resolves the question before any Ingress code lands, so the walking skeleton doesn't bake in a classification we'd have to retrofit.
 
@@ -35,7 +35,7 @@ This ADR resolves the question before any Ingress code lands, so the walking ske
 
 **Implications for future work** (scoped here, not built in this ADR):
 
-- When Argos eventually models the `ecosystem` layer, it does so with a **separate entity kind** — e.g., `ExternalEndpoint` or similar — representing the real external actors: "the public internet", "partner X's callback API", "customer portal domain foo.example.com", etc.
+- When longue-vue eventually models the `ecosystem` layer, it does so with a **separate entity kind** — e.g., `ExternalEndpoint` or similar — representing the real external actors: "the public internet", "partner X's callback API", "customer portal domain foo.example.com", etc.
 - An Ingress-to-ExternalEndpoint relationship then answers the "what's internet-exposed?" audit question explicitly, rather than through a layer assignment that is really a proxy for that relationship.
 - As a simpler interim signal, a future schema revision of Ingress may carry an optional `internet_exposed` boolean (set by the collector based on `status.loadBalancer.ingress` presence and ingress-class configuration). Out of scope for v1.
 
@@ -50,14 +50,14 @@ This ADR resolves the question before any Ingress code lands, so the walking ske
 
 ### Positive
 
-- **POS-001**: Layer classification stays consistent with how the ANSSI cartography model uses `ecosystem`: for external actors, not for bridges to them. Auditors reading Argos output see a taxonomy that matches their mental model.
+- **POS-001**: Layer classification stays consistent with how the ANSSI cartography model uses `ecosystem`: for external actors, not for bridges to them. Auditors reading longue-vue output see a taxonomy that matches their mental model.
 - **POS-002**: Keeps every Kubernetes-native kind inside `applicative` / `infrastructure_*` / `administration`. The `ecosystem` layer stays reserved for the work that genuinely populates it when the CMDB grows beyond K8s.
 - **POS-003**: Future "what's internet-exposed?" queries are answered by an explicit relationship or flag — a stronger, more auditable signal than a layer label that mixes classification with exposure.
 - **POS-004**: Implementation matches the existing Service pattern (same natural key shape, same FK cascade, same handler scaffolding). No new architectural concepts required for the walking skeleton.
 
 ### Negative
 
-- **NEG-001**: `ecosystem` gets no entity in v1 of Argos. The layer remains populated only when the broader cartography (external endpoints, partners) is modelled — a later milestone.
+- **NEG-001**: `ecosystem` gets no entity in v1 of longue-vue. The layer remains populated only when the broader cartography (external endpoints, partners) is modelled — a later milestone.
 - **NEG-002**: Operators who expect `GET /v1/ingresses?layer=ecosystem` to list internet-facing assets won't get that answer from layer alone. Documentation must spell out the intended query (filter or future flag) once Ingress lands.
 - **NEG-003**: Future classification of resources that genuinely straddle layers (e.g., Gateway API resources, EndpointSlice bridging external services) will likely revisit this ADR. That's acceptable: the rule "ecosystem is for external actors" gives those revisits a consistent starting point.
 

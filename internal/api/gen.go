@@ -1,4 +1,4 @@
-// Package api contains the HTTP handlers for the Argos REST API and the
+// Package api contains the HTTP handlers for the longue-vue REST API and the
 // server/model code generated from api/openapi/openapi.yaml.
 //
 // Run `go generate ./...` (or `make generate`) after editing the OpenAPI

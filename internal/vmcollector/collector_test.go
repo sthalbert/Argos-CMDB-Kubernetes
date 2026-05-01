@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/vmcollector/apiclient"
-	"github.com/sthalbert/argos/internal/vmcollector/provider"
+	"github.com/sthalbert/longue-vue/internal/vmcollector/apiclient"
+	"github.com/sthalbert/longue-vue/internal/vmcollector/provider"
 )
 
 // fakeStore implements CollectorStore for collector tests.

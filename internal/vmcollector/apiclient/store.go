@@ -1,5 +1,5 @@
 // Package apiclient implements the narrow collector-side store that
-// argos-vm-collector uses to talk to argosd over HTTPS (ADR-0015).
+// longue-vue-vm-collector uses to talk to longue-vue over HTTPS (ADR-0015).
 // Mirrors the transport setup of internal/collector/apiclient — same
 // CA / mTLS / extra-headers shape — but exposes only the methods the
 // VM collector needs.
@@ -24,18 +24,18 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sthalbert/argos/internal/vmcollector/provider"
+	"github.com/sthalbert/longue-vue/internal/vmcollector/provider"
 )
 
 // Sentinel errors.
 var (
-	// ErrAlreadyKubeNode is returned by UpsertVirtualMachine when argosd
+	// ErrAlreadyKubeNode is returned by UpsertVirtualMachine when longue-vue
 	// reports 409 — the VM is already inventoried as a Kubernetes node.
 	ErrAlreadyKubeNode = errors.New("already_inventoried_as_kubernetes_node")
-	// ErrNotRegistered is returned by FetchCredentialsByName when argosd
+	// ErrNotRegistered is returned by FetchCredentialsByName when longue-vue
 	// returns 404 (the cloud_account row does not exist yet).
 	ErrNotRegistered = errors.New("cloud_account_not_registered")
-	// ErrAccountDisabled is returned when argosd reports 403 — the
+	// ErrAccountDisabled is returned when longue-vue reports 403 — the
 	// account has been disabled by an admin.
 	ErrAccountDisabled = errors.New("cloud_account_disabled")
 	// ErrHTTPForbidden is returned on 403 responses that are not account-disabled.
@@ -136,7 +136,7 @@ type Credentials struct {
 
 // CloudAccount mirrors the relevant fields of api.CloudAccount used
 // by the collector. Kept as its own type so we don't import the
-// argosd internal/api package from the collector binary.
+// longue-vue internal/api package from the collector binary.
 type CloudAccount struct {
 	ID       uuid.UUID `json:"id"`
 	Provider string    `json:"provider"`
@@ -190,7 +190,7 @@ func (s *Store) UpdateCloudAccountStatus(ctx context.Context, id uuid.UUID, stat
 	return nil
 }
 
-// upsertVMBody mirrors the argosd handler's vmUpsertReq so we don't
+// upsertVMBody mirrors the longue-vue handler's vmUpsertReq so we don't
 // import that type.
 type upsertVMBody struct {
 	CloudAccountID       uuid.UUID         `json:"cloud_account_id"`
