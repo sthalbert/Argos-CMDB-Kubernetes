@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
+import { Pill } from '../../components/lv/Pill';
 
 // CloudAccountsPage — admin tab for ADR-0015 cloud-provider accounts.
 // Shape mirrors the Tokens page: list-then-action, with an inline create
@@ -16,15 +17,15 @@ type Reload = () => void;
 function CloudAccountStatusBadge({ status }: { status: api.CloudAccountStatus }) {
   switch (status) {
     case 'active':
-      return <span className="pill status-ok">active</span>;
+      return <Pill status="ok">active</Pill>;
     case 'pending_credentials':
-      return <span className="pill status-bad">pending credentials</span>;
+      return <Pill status="bad">pending credentials</Pill>;
     case 'error':
-      return <span className="pill status-warn">error</span>;
+      return <Pill status="warn">error</Pill>;
     case 'disabled':
-      return <span className="pill">disabled</span>;
+      return <Pill>disabled</Pill>;
     default:
-      return <span className="pill">{status}</span>;
+      return <Pill>{status}</Pill>;
   }
 }
 
@@ -54,75 +55,77 @@ export default function CloudAccountsPage() {
   };
 
   return (
-    <AsyncView state={state}>
-      {(resp) => {
-        const accounts = resp.items;
-        // Plain filter (no useMemo) — render-prop callbacks aren't a stable
-        // hook scope. Both filters are O(N) over the page's 200-row max so
-        // recomputing every render is cheap.
-        const pending = accounts.filter((a) => a.status === 'pending_credentials');
-        const filtered = statusFilter
-          ? accounts.filter((a) => a.status === statusFilter)
-          : accounts;
+    <div className="lv-card">
+      <AsyncView state={state}>
+        {(resp) => {
+          const accounts = resp.items;
+          // Plain filter (no useMemo) — render-prop callbacks aren't a stable
+          // hook scope. Both filters are O(N) over the page's 200-row max so
+          // recomputing every render is cheap.
+          const pending = accounts.filter((a) => a.status === 'pending_credentials');
+          const filtered = statusFilter
+            ? accounts.filter((a) => a.status === statusFilter)
+            : accounts;
 
-        return (
-          <>
-            {pending.length > 0 && (
-              <div className="vm-banner">
-                <strong>{pending.length}</strong> account{pending.length === 1 ? '' : 's'} pending
-                credentials — collector is stuck waiting for AK/SK input.{' '}
-                <button
-                  type="button"
-                  className="link-btn"
-                  onClick={() => setStatus('pending_credentials')}
-                >
-                  Filter table
-                </button>
-              </div>
-            )}
+          return (
+            <>
+              {pending.length > 0 && (
+                <div className="vm-banner">
+                  <strong>{pending.length}</strong> account{pending.length === 1 ? '' : 's'} pending
+                  credentials — collector is stuck waiting for AK/SK input.{' '}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => setStatus('pending_credentials')}
+                  >
+                    Filter table
+                  </button>
+                </div>
+              )}
 
-            <CreateForm reload={reload} />
+              <CreateForm reload={reload} />
 
-            <SectionTitle count={filtered.length}>
-              {statusFilter ? `Cloud accounts (${statusFilter})` : 'Cloud accounts'}
-            </SectionTitle>
+              <SectionTitle count={filtered.length}>
+                {statusFilter ? `Cloud accounts (${statusFilter})` : 'Cloud accounts'}
+              </SectionTitle>
 
-            {statusFilter && (
-              <p style={{ margin: '0 0 0.5rem' }}>
-                Filtering by <code>{statusFilter}</code>.{' '}
-                <button type="button" className="link-btn" onClick={() => setStatus('')}>
-                  clear
-                </button>
-              </p>
-            )}
+              {statusFilter && (
+                <p style={{ margin: '0 0 0.5rem' }}>
+                  Filtering by <code>{statusFilter}</code>.{' '}
+                  <button type="button" className="link-btn" onClick={() => setStatus('')}>
+                    clear
+                  </button>
+                </p>
+              )}
 
-            {filtered.length === 0 ? (
-              <p className="muted">No cloud accounts registered yet.</p>
-            ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Provider</th>
-                    <th>Region</th>
-                    <th>Status</th>
-                    <th>Last seen</th>
-                    <th>Owner</th>
-                    <th>Criticality</th>
-                    <th style={{ textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((a) => (
-                    <CloudAccountRow key={a.id} account={a} reload={reload} />
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </>
-        );
-      }}
-    </AsyncView>
+              {filtered.length === 0 ? (
+                <p className="muted">No cloud accounts registered yet.</p>
+              ) : (
+                <table className="entities">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Provider</th>
+                      <th>Region</th>
+                      <th>Status</th>
+                      <th>Last seen</th>
+                      <th>Owner</th>
+                      <th>Criticality</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((a) => (
+                      <CloudAccountRow key={a.id} account={a} reload={reload} />
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          );
+        }}
+      </AsyncView>
+    </div>
   );
 }
 
@@ -180,7 +183,7 @@ function CreateForm({ reload }: { reload: Reload }) {
   if (!open) {
     return (
       <div className="admin-actions">
-        <button className="primary" onClick={() => setOpen(true)}>
+        <button className="lv-btn lv-btn-primary" onClick={() => setOpen(true)}>
           + Add cloud account
         </button>
       </div>
@@ -265,7 +268,7 @@ function CreateForm({ reload }: { reload: Reload }) {
         narrow vm-collector token.
       </p>
       <div className="admin-form-actions">
-        <button type="submit" className="primary" disabled={busy}>
+        <button type="submit" className="lv-btn lv-btn-primary" disabled={busy}>
           {busy ? 'Registering…' : 'Register account'}
         </button>
         <button
@@ -275,6 +278,7 @@ function CreateForm({ reload }: { reload: Reload }) {
             setOpen(false);
           }}
           disabled={busy}
+          className="lv-btn lv-btn-ghost"
         >
           Cancel
         </button>
@@ -340,7 +344,7 @@ function CloudAccountRow({ account, reload }: { account: api.CloudAccount; reloa
         </Link>
       </td>
       <td>
-        <span className="pill">{account.provider}</span>
+        <Pill>{account.provider}</Pill>
       </td>
       <td>
         <code>{account.region}</code>
@@ -353,7 +357,7 @@ function CloudAccountRow({ account, reload }: { account: api.CloudAccount; reloa
       </td>
       <td>{account.owner || <Dash />}</td>
       <td>
-        {account.criticality ? <span className="pill">{account.criticality}</span> : <Dash />}
+        {account.criticality ? <Pill>{account.criticality}</Pill> : <Dash />}
       </td>
       <td style={{ textAlign: 'right' }}>
         <Link to={`/admin/cloud-accounts/${account.id}`} className="link-btn">
@@ -368,7 +372,7 @@ function CloudAccountRow({ account, reload }: { account: api.CloudAccount; reloa
             Disable
           </button>
         )}{' '}
-        <button onClick={onDelete} disabled={busy} className="danger">
+        <button onClick={onDelete} disabled={busy} className="lv-btn lv-btn-ghost">
           Delete
         </button>
       </td>

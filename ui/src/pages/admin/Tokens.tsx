@@ -3,11 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
+import { Callout } from '../../components/lv/Callout';
+import { Pill } from '../../components/lv/Pill';
 
-// Token presets per ADR-0007 + ADR-0015. The OpenAPI request type is
-// fixed (name, scopes, expires_at) so vm-collector tokens currently
-// can't be minted from the UI — the form keeps the affordance visible
-// but disabled with a note that the backend extension is pending.
+// Token presets per ADR-0007 + ADR-0015.
 type Preset = 'standard' | 'vm-collector';
 
 // Admin Tokens page. The one-shot plaintext reveal is the load-bearing
@@ -25,21 +24,23 @@ export default function TokensPage() {
   const state = useResource(() => api.listApiTokens(), [nonce]);
 
   return (
-    <AsyncView state={state}>
-      {(resp) => (
-        <>
-          {minted && <MintedReveal minted={minted} onDismiss={() => setMinted(null)} />}
-          <MintForm
-            reload={() => {
-              reload();
-            }}
-            onMinted={setMinted}
-          />
-          <SectionTitle count={resp.items.length}>Machine tokens</SectionTitle>
-          <TokenTable tokens={resp.items} reload={reload} />
-        </>
-      )}
-    </AsyncView>
+    <div className="lv-card">
+      <AsyncView state={state}>
+        {(resp) => (
+          <>
+            {minted && <MintedReveal minted={minted} onDismiss={() => setMinted(null)} />}
+            <MintForm
+              reload={() => {
+                reload();
+              }}
+              onMinted={setMinted}
+            />
+            <SectionTitle count={resp.items.length}>Machine tokens</SectionTitle>
+            <TokenTable tokens={resp.items} reload={reload} />
+          </>
+        )}
+      </AsyncView>
+    </div>
   );
 }
 
@@ -63,18 +64,14 @@ function MintedReveal({
   };
 
   return (
-    <div className="reveal-callout">
-      <div className="reveal-header">
-        <strong>Token minted — shown once, copy it now</strong>
-        <button onClick={onDismiss}>Dismiss</button>
-      </div>
+    <Callout title="Token minted — shown once, copy it now" status="ok">
       <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
         longue-vue stores only the argon2id hash. Once you dismiss this banner the
         plaintext is gone — if you lose it, revoke the token and mint a new one.
       </p>
       <div className="reveal-value">
         <code>{minted.token}</code>
-        <button onClick={copy} className="primary">
+        <button onClick={copy} className="lv-btn lv-btn-primary">
           {copied ? 'Copied ✓' : 'Copy'}
         </button>
       </div>
@@ -82,7 +79,10 @@ function MintedReveal({
         Name: <strong>{minted.name}</strong> · Scopes:{' '}
         <code>{minted.scopes.join(', ')}</code> · Prefix: <code>{minted.prefix}</code>
       </p>
-    </div>
+      <div style={{ marginTop: '0.5rem' }}>
+        <button onClick={onDismiss} className="lv-btn lv-btn-ghost">Dismiss</button>
+      </div>
+    </Callout>
   );
 }
 
@@ -193,7 +193,7 @@ function MintForm({
   if (!open) {
     return (
       <div className="admin-actions">
-        <button className="primary" onClick={() => setOpen(true)}>
+        <button className="lv-btn lv-btn-primary" onClick={() => setOpen(true)}>
           + Mint token
         </button>
       </div>
@@ -277,10 +277,10 @@ function MintForm({
         </div>
       )}
       <div className="admin-form-actions">
-        <button type="submit" disabled={busy} className="primary">
+        <button type="submit" disabled={busy} className="lv-btn lv-btn-primary">
           {busy ? 'Minting…' : 'Mint token'}
         </button>
-        <button type="button" onClick={() => setOpen(false)} disabled={busy}>
+        <button type="button" onClick={() => setOpen(false)} disabled={busy} className="lv-btn lv-btn-ghost">
           Cancel
         </button>
       </div>
@@ -345,11 +345,11 @@ function TokenRow({ token, reload }: { token: api.ApiToken; reload: Reload }) {
       <td>{token.last_used_at ? formatTs(token.last_used_at) : <Dash />}</td>
       <td>{token.expires_at ? formatTs(token.expires_at) : <Dash />}</td>
       <td>
-        <span className={`pill ${status.cls}`}>{status.label}</span>
+        <Pill status={status.pillStatus}>{status.label}</Pill>
       </td>
       <td style={{ textAlign: 'right' }}>
         {status.label === 'Active' ? (
-          <button onClick={revoke} disabled={busy} className="danger">
+          <button onClick={revoke} disabled={busy} className="lv-btn lv-btn-ghost">
             Revoke
           </button>
         ) : (
@@ -362,12 +362,12 @@ function TokenRow({ token, reload }: { token: api.ApiToken; reload: Reload }) {
   );
 }
 
-function tokenStatus(t: api.ApiToken): { label: string; cls: string } {
-  if (t.revoked_at) return { label: 'Revoked', cls: 'status-bad' };
+function tokenStatus(t: api.ApiToken): { label: string; pillStatus: 'ok' | 'warn' | 'bad' } {
+  if (t.revoked_at) return { label: 'Revoked', pillStatus: 'bad' };
   if (t.expires_at && new Date(t.expires_at) < new Date()) {
-    return { label: 'Expired', cls: 'status-warn' };
+    return { label: 'Expired', pillStatus: 'warn' };
   }
-  return { label: 'Active', cls: 'status-ok' };
+  return { label: 'Active', pillStatus: 'ok' };
 }
 
 function formatTs(ts: string): string {

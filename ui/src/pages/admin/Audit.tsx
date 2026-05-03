@@ -1,7 +1,10 @@
 import { FormEvent, useState } from 'react';
+import type { ReactNode } from 'react';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
-import { AsyncView, Dash, SectionTitle } from '../../components';
+import { AsyncView, SectionTitle } from '../../components';
+import { AuditRow } from '../../components/lv/AuditRow';
+import { Pill } from '../../components/lv/Pill';
 
 // Admin Audit page. Read-only, newest-first list of recorded API
 // actions. Auditors can reach this without the rest of the admin panel
@@ -76,8 +79,8 @@ export default function AuditPage() {
           onChange={(e) => setDraft({ ...draft, since: e.target.value })}
           style={{ flex: '1 1 200px' }}
         />
-        <button type="submit">Apply</button>
-        <button type="button" onClick={clear} className="danger">
+        <button type="submit" className="lv-btn lv-btn-primary">Apply</button>
+        <button type="button" onClick={clear} className="lv-btn lv-btn-ghost">
           Clear
         </button>
       </form>
@@ -87,23 +90,17 @@ export default function AuditPage() {
           resp.items.length === 0 ? (
             <p className="muted">No audit events match.</p>
           ) : (
-            <table className="entities">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Actor</th>
-                  <th>Action</th>
-                  <th>Resource</th>
-                  <th>HTTP</th>
-                  <th>Source IP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resp.items.map((ev) => (
-                  <AuditRow key={ev.id} ev={ev} />
-                ))}
-              </tbody>
-            </table>
+            <div role="table">
+              {resp.items.map((e) => (
+                <AuditRow
+                  key={e.id}
+                  time={formatTs(e.occurred_at)}
+                  actor={actorLabel(e)}
+                  message={renderMessage(e)}
+                  result={statusPill(e.http_status)}
+                />
+              ))}
+            </div>
           )
         }
       </AsyncView>
@@ -111,58 +108,39 @@ export default function AuditPage() {
   );
 }
 
-function AuditRow({ ev }: { ev: api.AuditEvent }) {
-  return (
-    <tr>
-      <td>
-        <span className="muted" style={{ fontSize: '0.8rem' }}>
-          {formatTs(ev.occurred_at)}
-        </span>
-      </td>
-      <td>
-        {ev.actor_username ? (
-          <>
-            <strong>{ev.actor_username}</strong>{' '}
-            {ev.actor_role && <span className="pill">{ev.actor_role}</span>}{' '}
-            <span className="muted" style={{ fontSize: '0.75rem' }}>
-              ({ev.actor_kind})
-            </span>
-          </>
-        ) : (
-          <span className="muted">{ev.actor_kind}</span>
-        )}
-      </td>
-      <td>
-        <code className="inline-code">{ev.action}</code>
-      </td>
-      <td>
-        {ev.resource_type ? (
-          <>
-            <code className="inline-code">{ev.resource_type}</code>
-            {ev.resource_id ? (
-              <span className="muted" style={{ fontSize: '0.8rem', marginLeft: '0.4rem' }}>
-                {shortRes(ev.resource_id)}
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <Dash />
-        )}
-      </td>
-      <td>
-        <span className={statusClass(ev.http_status)}>
-          {ev.http_method} {ev.http_status}
-        </span>
-      </td>
-      <td>{ev.source_ip ? <code>{ev.source_ip}</code> : <Dash />}</td>
-    </tr>
-  );
+function actorLabel(e: api.AuditEvent): string {
+  if (e.actor_username) return e.actor_username;
+  if (e.actor_id) return e.actor_id;
+  return e.actor_kind;
 }
 
-function statusClass(status: number): string {
-  if (status >= 500) return 'pill status-bad';
-  if (status >= 400) return 'pill status-warn';
-  return 'pill status-ok';
+function renderMessage(e: api.AuditEvent): ReactNode {
+  const parts: ReactNode[] = [<code key="action">{e.action}</code>];
+  if (e.resource_type) {
+    parts.push(' ');
+    parts.push(<code key="rt">{e.resource_type}</code>);
+  }
+  if (e.resource_id) {
+    parts.push(' ');
+    parts.push(
+      <span key="rid" className="muted" style={{ fontSize: '0.8rem' }}>
+        {shortRes(e.resource_id)}
+      </span>,
+    );
+  }
+  // Include the HTTP method and path for context.
+  parts.push(
+    <span key="http" className="muted" style={{ fontSize: '0.8rem', marginLeft: '0.5rem' }}>
+      {e.http_method} {e.http_path}
+    </span>,
+  );
+  return <>{parts}</>;
+}
+
+function statusPill(status: number): ReactNode {
+  if (status >= 500) return <Pill status="bad">{status}</Pill>;
+  if (status >= 400) return <Pill status="warn">{status}</Pill>;
+  return <Pill status="ok">{status}</Pill>;
 }
 
 function shortRes(id: string): string {

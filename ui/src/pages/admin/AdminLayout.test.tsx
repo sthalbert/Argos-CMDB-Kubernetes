@@ -16,7 +16,7 @@ describe('AdminLayout', () => {
         </MeProvider>
       </MemoryRouter>,
     );
-    expect(screen.getByText('Users')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Users' })).toBeInTheDocument();
   });
 
   it('renders only the audit tab for an auditor role', () => {
@@ -29,7 +29,7 @@ describe('AdminLayout', () => {
         </MeProvider>
       </MemoryRouter>,
     );
-    expect(screen.getByText('Audit')).toBeInTheDocument();
-    expect(screen.queryByText('Users')).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Audit' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Users' })).toBeNull();
   });
 });

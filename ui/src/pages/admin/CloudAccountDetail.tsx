@@ -135,7 +135,7 @@ export default function CloudAccountDetail() {
               <div className="admin-form-actions" style={{ marginTop: 0 }}>
                 {account.status === 'disabled' ? (
                   <button
-                    className="primary"
+                    className="lv-btn lv-btn-primary"
                     onClick={async () => {
                       await api.enableCloudAccount(account.id);
                       reload();
@@ -145,6 +145,7 @@ export default function CloudAccountDetail() {
                   </button>
                 ) : (
                   <button
+                    className="lv-btn lv-btn-ghost"
                     onClick={async () => {
                       if (
                         !confirm(
@@ -163,7 +164,7 @@ export default function CloudAccountDetail() {
                 <Link to={`/admin/tokens?bind=${account.id}`} className="link-btn">
                   Issue collector token
                 </Link>
-                <button className="danger" onClick={() => onDelete(account, vmCount)}>
+                <button className="lv-btn lv-btn-ghost" onClick={() => onDelete(account, vmCount)}>
                   Delete account
                 </button>
               </div>
@@ -263,10 +264,10 @@ function CredentialsCard({
 
   if (!editing) {
     return (
-      <section className="curated-card">
+      <section className="lv-card">
         <div className="curated-card-header">
-          <h3>Credentials</h3>
-          <button className="primary" onClick={() => setEditing(true)}>
+          <h3 className="lv-card-title">Credentials</h3>
+          <button className="lv-btn lv-btn-primary" onClick={() => setEditing(true)}>
             {account.access_key ? 'Rotate credentials' : 'Set credentials'}
           </button>
         </div>
@@ -280,9 +281,9 @@ function CredentialsCard({
   }
 
   return (
-    <section className="curated-card">
+    <section className="lv-card">
       <div className="curated-card-header">
-        <h3>{account.access_key ? 'Rotate credentials' : 'Set credentials'}</h3>
+        <h3 className="lv-card-title">{account.access_key ? 'Rotate credentials' : 'Set credentials'}</h3>
       </div>
       <form className="admin-form" onSubmit={submit}>
         <div className="admin-form-row">
@@ -312,7 +313,7 @@ function CredentialsCard({
         </p>
         {error && <div className="error">{error}</div>}
         <div className="admin-form-actions">
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="submit" className="lv-btn lv-btn-primary" disabled={busy}>
             {busy ? 'Saving…' : 'Save credentials'}
           </button>
           <button
@@ -323,6 +324,7 @@ function CredentialsCard({
               setEditing(false);
             }}
             disabled={busy}
+            className="lv-btn lv-btn-ghost"
           >
             Cancel
           </button>

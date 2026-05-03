@@ -2,18 +2,19 @@ import { useState } from 'react';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView } from '../../components';
+import { Pill } from '../../components/lv/Pill';
 
 export default function SettingsPage() {
   const [nonce, setNonce] = useState(0);
   const state = useResource(() => api.getSettings(), [nonce]);
 
   return (
-    <>
-      <h3>Settings</h3>
+    <div className="lv-card">
+      <h3 className="lv-card-title">Settings</h3>
       <AsyncView state={state}>
         {(settings) => <SettingsForm settings={settings} onSaved={() => setNonce((n) => n + 1)} />}
       </AsyncView>
-    </>
+    </div>
   );
 }
 
@@ -87,11 +88,11 @@ function SettingToggle({
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span className={`pill ${enabled ? 'status-ok' : ''}`}>
+          <Pill status={enabled ? 'ok' : undefined}>
             {enabled ? 'Enabled' : 'Disabled'}
-          </span>
+          </Pill>
           <button
-            className={enabled ? 'danger' : 'primary'}
+            className={enabled ? 'lv-btn lv-btn-ghost' : 'lv-btn lv-btn-primary'}
             onClick={onToggle}
             disabled={saving}
           >

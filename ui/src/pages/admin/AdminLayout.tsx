@@ -1,44 +1,39 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useLocation, useNavigate, Outlet } from 'react-router-dom';
 import type { Role } from '../../api';
+import { PageHead } from '../../components/lv/PageHead';
+import { Tabs } from '../../components/lv/Tabs';
 
 // AdminLayout wraps the admin sub-pages with a shared tab-style sub-nav.
-// The outer <Chrome> (top nav + role pill + sign-out) comes from
-// App.tsx; this layout sits inside <main>. Admins see every tab;
-// auditors only get the read-only Audit tab (the /v1/admin/users|tokens
-// |sessions endpoints require `admin` scope server-side anyway).
+// The outer top-bar (role pill + sign-out) comes from App.tsx; this
+// layout sits inside <main>. Admins see every tab; auditors only get the
+// read-only Audit tab.
+
+const TABS = [
+  { key: 'users', label: 'Users', roles: ['admin'] },
+  { key: 'tokens', label: 'Tokens', roles: ['admin'] },
+  { key: 'sessions', label: 'Sessions', roles: ['admin'] },
+  { key: 'cloud-accounts', label: 'Cloud accounts', roles: ['admin'] },
+  { key: 'audit', label: 'Audit', roles: ['admin', 'auditor'] },
+  { key: 'settings', label: 'Settings', roles: ['admin'] },
+];
 
 export default function AdminLayout({ role }: { role: Role }) {
   const location = useLocation();
-  // The Cloud accounts tab covers both list (/admin/cloud-accounts) and
-  // detail (/admin/cloud-accounts/:id), so we mark it active for any
-  // path under that prefix instead of relying on react-router's strict
-  // `end` matching.
-  const tab = (to: string, label: string, prefix?: string) => {
-    const active = prefix ? location.pathname.startsWith(prefix) : undefined;
-    return (
-      <NavLink
-        to={to}
-        className={({ isActive }) =>
-          'admin-tab' + ((active ?? isActive) ? ' active' : '')
-        }
-        end={!prefix}
-      >
-        {label}
-      </NavLink>
-    );
-  };
+  const navigate = useNavigate();
+  const visible = TABS.filter((t) => t.roles.includes(role));
+  // The second segment of /admin/<key>[/...] identifies the active tab.
+  // Cloud-account detail pages sit under cloud-accounts/ so startsWith
+  // keeps the tab highlighted on drill-down.
+  const segment = location.pathname.split('/')[2] ?? 'users';
+  const active = visible.find((t) => segment.startsWith(t.key))?.key ?? segment;
   return (
     <>
-      <h2>Admin</h2>
-      <nav className="admin-subnav">
-        {role === 'admin' && tab('/admin/users', 'Users')}
-        {role === 'admin' && tab('/admin/tokens', 'Machine tokens')}
-        {role === 'admin' && tab('/admin/sessions', 'Active sessions')}
-        {role === 'admin' &&
-          tab('/admin/cloud-accounts', 'Cloud accounts', '/admin/cloud-accounts')}
-        {tab('/admin/audit', 'Audit')}
-        {role === 'admin' && tab('/admin/settings', 'Settings')}
-      </nav>
+      <PageHead title="Admin" />
+      <Tabs
+        items={visible.map(({ key, label }) => ({ key, label }))}
+        active={active}
+        onChange={(k) => navigate(`/admin/${k}`)}
+      />
       <Outlet />
     </>
   );

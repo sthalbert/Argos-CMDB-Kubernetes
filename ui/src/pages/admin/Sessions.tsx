@@ -14,40 +14,42 @@ export default function SessionsPage() {
   const state = useResource(() => api.listSessions(), [nonce]);
 
   return (
-    <AsyncView state={state}>
-      {(resp) => (
-        <>
-          <SectionTitle count={resp.items.length}>Active sessions</SectionTitle>
-          <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Only non-expired sessions are listed. Revoking a session logs that
-            user's tab out server-side — the next request the browser makes
-            bounces back to the login page.
-          </p>
-          {resp.items.length === 0 ? (
-            <p className="muted">No active sessions.</p>
-          ) : (
-            <table className="entities">
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Created</th>
-                  <th>Last used</th>
-                  <th>Expires</th>
-                  <th>User agent</th>
-                  <th>Source IP</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resp.items.map((s) => (
-                  <SessionRow key={s.id} session={s} reload={reload} />
-                ))}
-              </tbody>
-            </table>
-          )}
-        </>
-      )}
-    </AsyncView>
+    <div className="lv-card">
+      <AsyncView state={state}>
+        {(resp) => (
+          <>
+            <SectionTitle count={resp.items.length}>Active sessions</SectionTitle>
+            <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+              Only non-expired sessions are listed. Revoking a session logs that
+              user's tab out server-side — the next request the browser makes
+              bounces back to the login page.
+            </p>
+            {resp.items.length === 0 ? (
+              <p className="muted">No active sessions.</p>
+            ) : (
+              <table className="entities">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Created</th>
+                    <th>Last used</th>
+                    <th>Expires</th>
+                    <th>User agent</th>
+                    <th>Source IP</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resp.items.map((s) => (
+                    <SessionRow key={s.id} session={s} reload={reload} />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </AsyncView>
+    </div>
   );
 }
 
@@ -85,7 +87,7 @@ function SessionRow({ session, reload }: { session: api.Session; reload: () => v
       </td>
       <td>{session.source_ip ? <code>{session.source_ip}</code> : <Dash />}</td>
       <td style={{ textAlign: 'right' }}>
-        <button onClick={revoke} disabled={busy} className="danger">
+        <button onClick={revoke} disabled={busy} className="lv-btn lv-btn-ghost">
           Revoke
         </button>
       </td>

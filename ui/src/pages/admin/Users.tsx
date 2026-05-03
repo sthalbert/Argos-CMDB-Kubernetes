@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
+import { Pill } from '../../components/lv/Pill';
 
 // Admin Users page: list of humans, new-user collapsible form, inline
 // row actions. Destructive actions (delete, disable, reset-password)
@@ -15,7 +16,7 @@ export default function UsersPage() {
   const state = useResource(() => api.listUsers(), [nonce]);
 
   return (
-    <>
+    <div className="lv-card">
       <AsyncView state={state}>
         {(resp) => (
           <>
@@ -25,7 +26,7 @@ export default function UsersPage() {
           </>
         )}
       </AsyncView>
-    </>
+    </div>
   );
 }
 
@@ -67,7 +68,7 @@ function NewUserForm({ reload }: { reload: Reload }) {
   if (!open) {
     return (
       <div className="admin-actions">
-        <button className="primary" onClick={() => setOpen(true)}>
+        <button className="lv-btn lv-btn-primary" onClick={() => setOpen(true)}>
           + New user
         </button>
       </div>
@@ -109,10 +110,10 @@ function NewUserForm({ reload }: { reload: Reload }) {
         New users have <code>must_change_password=true</code>; they'll rotate on first login.
       </p>
       <div className="admin-form-actions">
-        <button type="submit" disabled={busy} className="primary">
+        <button type="submit" disabled={busy} className="lv-btn lv-btn-primary">
           {busy ? 'Creating…' : 'Create user'}
         </button>
-        <button type="button" onClick={() => setOpen(false)} disabled={busy}>
+        <button type="button" onClick={() => setOpen(false)} disabled={busy} className="lv-btn lv-btn-ghost">
           Cancel
         </button>
       </div>
@@ -193,9 +194,7 @@ function UserRow({ user, reload }: { user: api.User; reload: Reload }) {
       <td>
         <strong>{user.username}</strong>
         {user.must_change_password && (
-          <span className="pill status-warn" style={{ marginLeft: '0.5rem', fontSize: '0.7rem' }}>
-            must change pw
-          </span>
+          <Pill status="warn">must change pw</Pill>
         )}
       </td>
       <td>
@@ -208,9 +207,9 @@ function UserRow({ user, reload }: { user: api.User; reload: Reload }) {
       </td>
       <td>
         {user.disabled_at ? (
-          <span className="pill status-bad">Disabled</span>
+          <Pill status="bad">Disabled</Pill>
         ) : (
-          <span className="pill status-ok">Active</span>
+          <Pill status="ok">Active</Pill>
         )}
       </td>
       <td>{user.last_login_at ? formatTs(user.last_login_at) : <Dash />}</td>
@@ -222,7 +221,7 @@ function UserRow({ user, reload }: { user: api.User; reload: Reload }) {
         <button onClick={toggleDisable} disabled={busy}>
           {user.disabled_at ? 'Enable' : 'Disable'}
         </button>{' '}
-        <button onClick={deleteUser} disabled={busy} className="danger">
+        <button onClick={deleteUser} disabled={busy} className="lv-btn lv-btn-ghost">
           Delete
         </button>
       </td>
