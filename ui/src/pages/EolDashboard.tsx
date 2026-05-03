@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResources } from '../hooks';
 import { AsyncView, Dash } from '../components';
+import { PageHead } from '../components/lv/PageHead';
+import { EolCard } from '../components/lv/EolCard';
 import { EolIcon } from '../icons';
 
 // --- EOL annotation parsing -----------------------------------------------
@@ -245,10 +247,10 @@ export default function EolDashboard() {
 
   return (
     <>
-      <h2><EolIcon size={20} /> End-of-Life Inventory</h2>
-      <p className="muted" style={{ marginBottom: '1rem' }}>
-        Lifecycle status of inventoried software, enriched from endoflife.date.
-      </p>
+      <PageHead
+        title={<><EolIcon size={20} /> Lifecycle</>}
+        sub="Kubernetes / nodes / VMs end-of-life inventory."
+      />
       <AsyncView state={state}>
         {([clustersResp, nodesResp, vmsResp]) => (
           <EolTable
@@ -308,24 +310,33 @@ function EolTable({
     );
   }
 
-  const cardClass = (status: EolStatus, colorClass: string) =>
-    `eol-summary-card ${colorClass}${statusFilter === status ? ' eol-active' : ''}`;
-
   return (
     <>
       <div className="eol-summary">
-        <div className={cardClass('eol', 'eol-bad')} onClick={() => onCardClick('eol')}>
-          <span className="eol-summary-count">{counts.eol}</span>
-          <span className="eol-summary-label">End of Life</span>
-        </div>
-        <div className={cardClass('approaching_eol', 'eol-warn')} onClick={() => onCardClick('approaching_eol')}>
-          <span className="eol-summary-count">{counts.approaching_eol}</span>
-          <span className="eol-summary-label">Approaching EOL</span>
-        </div>
-        <div className={cardClass('supported', 'eol-ok')} onClick={() => onCardClick('supported')}>
-          <span className="eol-summary-count">{counts.supported}</span>
-          <span className="eol-summary-label">Supported</span>
-        </div>
+        <EolCard
+          status="bad"
+          count={counts.eol}
+          label="End of Life"
+          meta="eol items"
+          active={statusFilter === 'eol'}
+          onClick={() => onCardClick('eol')}
+        />
+        <EolCard
+          status="warn"
+          count={counts.approaching_eol}
+          label="Approaching EOL"
+          meta="approaching eol items"
+          active={statusFilter === 'approaching_eol'}
+          onClick={() => onCardClick('approaching_eol')}
+        />
+        <EolCard
+          status="ok"
+          count={counts.supported}
+          label="Supported"
+          meta="supported items"
+          active={statusFilter === 'supported'}
+          onClick={() => onCardClick('supported')}
+        />
       </div>
 
       {statusFilter && (

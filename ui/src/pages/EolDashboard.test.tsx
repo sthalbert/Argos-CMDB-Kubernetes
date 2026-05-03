@@ -8,7 +8,7 @@ import { server } from '../test/server';
 describe('EolDashboard', () => {
   it('renders without crashing', () => {
     renderWithRouter(<EolDashboard />, { initialPath: '/eol' });
-    expect(screen.getByRole('heading', { name: /end-of-life inventory/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /lifecycle/i })).toBeInTheDocument();
   });
 
   it('shows empty-state message once fetches resolve with no annotations', async () => {
