@@ -99,27 +99,72 @@ function RequireAdmin({ auth, children }: { auth: AuthState; children: React.Rea
 
 // --- chrome -------------------------------------------------------------
 
-const PRIMARY_NAV: Array<{ to: string; label: string; roles?: api.Me['role'][] }> = [
-  { to: '/clusters',         label: 'Clusters' },
-  { to: '/workloads',        label: 'Workloads' },
-  { to: '/nodes',            label: 'Nodes' },
-  { to: '/virtual-machines', label: 'Virtual Machines' },
-  { to: '/eol',              label: 'Lifecycle' },
-  { to: '/search/image',     label: 'Search' },
+type NavItem = { to: string; label: string };
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Kubernetes',
+    items: [
+      { to: '/clusters',               label: 'Clusters' },
+      { to: '/workloads',              label: 'Workloads' },
+      { to: '/pods',                   label: 'Pods' },
+      { to: '/nodes',                  label: 'Nodes' },
+      { to: '/namespaces',             label: 'Namespaces' },
+      { to: '/services',               label: 'Services' },
+      { to: '/ingresses',              label: 'Ingresses' },
+      { to: '/persistentvolumes',      label: 'PVs' },
+      { to: '/persistentvolumeclaims', label: 'PVCs' },
+    ],
+  },
+  {
+    label: 'Cloud infra',
+    items: [
+      { to: '/virtual-machines', label: 'Virtual Machines' },
+    ],
+  },
+  {
+    label: 'Tools',
+    items: [
+      { to: '/search/image', label: 'Search' },
+      { to: '/eol',          label: 'Lifecycle' },
+    ],
+  },
 ];
 
-const MORE_ITEMS: Array<{ to: string; label: string }> = [
-  { to: '/namespaces',             label: 'Namespaces' },
-  { to: '/pods',                   label: 'Pods' },
-  { to: '/services',               label: 'Services' },
-  { to: '/ingresses',              label: 'Ingresses' },
-  { to: '/persistentvolumes',      label: 'PVs' },
-  { to: '/persistentvolumeclaims', label: 'PVCs' },
-];
+function adminGroup(role: api.Me['role']): NavGroup | null {
+  if (role === 'admin') {
+    return {
+      label: 'Admin',
+      items: [
+        { to: '/admin/users',          label: 'Users' },
+        { to: '/admin/tokens',         label: 'Tokens' },
+        { to: '/admin/sessions',       label: 'Sessions' },
+        { to: '/admin/cloud-accounts', label: 'Cloud accounts' },
+        { to: '/admin/audit',          label: 'Audit' },
+        { to: '/admin/settings',       label: 'Settings' },
+      ],
+    };
+  }
+  if (role === 'auditor') {
+    return {
+      label: 'Admin',
+      items: [{ to: '/admin/audit', label: 'Audit' }],
+    };
+  }
+  return null;
+}
 
-function pathPrefix(pathname: string): string {
-  const m = /^\/[^/]+/.exec(pathname);
-  return m ? m[0] : '/';
+// isActiveLink decides whether a sidebar link is the active route. Top-level
+// routes match on the first path segment so /clusters/c-123 highlights the
+// Clusters link. Admin routes match on the full /admin/<tab> prefix so each
+// admin tab keeps its own highlight instead of all six lighting up at once.
+function isActiveLink(to: string, pathname: string): boolean {
+  if (to.startsWith('/admin/')) {
+    return pathname === to || pathname.startsWith(to + '/');
+  }
+  const seg = /^\/[^/]+/.exec(pathname)?.[0] ?? '/';
+  return seg === to;
 }
 
 function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
@@ -133,73 +178,43 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
   }, []);
 
   const ts = now.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-  const activePrefix = pathPrefix(location.pathname);
 
   const signOut = async () => {
     try { await api.logout(); } catch { /* ignore */ }
     navigate('/login', { replace: true });
   };
 
-  const adminEntry = me.role === 'admin'
-    ? { to: '/admin/users', label: 'Admin' }
-    : me.role === 'auditor'
-    ? { to: '/admin/audit', label: 'Admin' }
-    : null;
-
-  const auditNavEntry = (me.role === 'admin' || me.role === 'auditor');
+  const groups: NavGroup[] = [...NAV_GROUPS];
+  const ag = adminGroup(me.role);
+  if (ag) groups.push(ag);
 
   return (
     <div className="lv-app">
-      <header className="lv-header">
-        <Brand />
-        <nav className="lv-nav">
-          {PRIMARY_NAV.map((it) => (
-            <NavLink
-              key={it.to}
-              to={it.to}
-              className={() => `lv-nav-link ${pathPrefix(it.to) === activePrefix ? 'active' : ''}`}
-            >
-              {it.label}
-            </NavLink>
+      <aside className="lv-sidebar">
+        <div className="lv-sidebar-brand">
+          <Brand />
+        </div>
+        <nav className="lv-sidebar-nav" aria-label="Primary">
+          {groups.map((g) => (
+            <div key={g.label} className="lv-sidebar-group">
+              <div className="lv-sidebar-group-label">{g.label}</div>
+              {g.items.map((it) => (
+                <NavLink
+                  key={it.to}
+                  to={it.to}
+                  className={() =>
+                    `lv-sidebar-link${isActiveLink(it.to, location.pathname) ? ' active' : ''}`
+                  }
+                >
+                  {it.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
-          <Disclosure
-            trigger={({ open, toggle }) => (
-              <button
-                type="button"
-                className={`lv-nav-link${open ? ' active' : ''}`}
-                aria-haspopup="menu"
-                aria-expanded={open}
-                onClick={toggle}
-              >
-                More ▾
-              </button>
-            )}
-          >
-            {({ close }) => (
-              <div role="menu">
-                {MORE_ITEMS.map((it) => (
-                  <NavLink
-                    key={it.to}
-                    to={it.to}
-                    className="lv-popover-item"
-                    onClick={close}
-                  >
-                    {it.label}
-                  </NavLink>
-                ))}
-              </div>
-            )}
-          </Disclosure>
-          {auditNavEntry && (
-            <NavLink
-              to="/admin/audit"
-              className={() => `lv-nav-link ${activePrefix === '/admin' ? 'active' : ''}`}
-            >
-              Audit
-            </NavLink>
-          )}
         </nav>
-        <div className="lv-header-right">
+      </aside>
+      <div className="lv-app-main">
+        <header className="lv-topbar">
           <span className="lv-time" aria-label={`polled ${ts}`}>
             <span className="lv-time-dot" />
             polled {ts}
@@ -225,14 +240,6 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
                 <div className="lv-popover-section-label">Signed in as {me.username}</div>
                 <div className="lv-popover-divider" />
                 <UiPrefsPanel />
-                {adminEntry && (
-                  <>
-                    <div className="lv-popover-divider" />
-                    <NavLink to={adminEntry.to} className="lv-popover-item" onClick={close}>
-                      {adminEntry.label}
-                    </NavLink>
-                  </>
-                )}
                 <div className="lv-popover-divider" />
                 <button type="button" className="lv-popover-item" onClick={() => { close(); signOut(); }}>
                   Sign out
@@ -240,9 +247,9 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
               </div>
             )}
           </Disclosure>
-        </div>
-      </header>
-      <main className="lv-main">{children}</main>
+        </header>
+        <main className="lv-main">{children}</main>
+      </div>
     </div>
   );
 }

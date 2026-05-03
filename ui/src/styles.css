@@ -345,9 +345,19 @@ table.entities tbody tr:hover td { background: var(--bg-2); }
 
 dl.kv-list, .kv-list {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   gap: var(--row-gap) 1.5rem;
   margin: 0;
+}
+.kv-list .kv {
+  min-width: 0;
+}
+/* Long-content rows (annotations, notes) span both columns so a single
+ * unbroken JSON value can wrap inside the card instead of stretching the
+ * grid track and pushing the page sideways. */
+.kv-list .kv:has(.label-list),
+.kv-list .kv:has(.curated-notes) {
+  grid-column: 1 / -1;
 }
 .kv-list dt, .kv dt {
   color: var(--fg-muted);
@@ -362,12 +372,15 @@ dl.kv-list, .kv-list {
   font-size: 0.9rem;
   color: var(--fg-1);
   word-break: break-word;
+  min-width: 0;
 }
 
 .label-list {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .label-chip {
   display: inline-flex;
@@ -376,15 +389,21 @@ dl.kv-list, .kv-list {
   border-radius: var(--radius-sm);
   overflow: hidden;
   font-family: var(--font-mono);
+  max-width: 100%;
+  min-width: 0;
 }
 .label-k {
   background: var(--bg-label-k);
   color: var(--fg-pill);
   padding: 0.1rem 0.4rem;
+  flex-shrink: 0;
 }
 .label-v {
   padding: 0.1rem 0.4rem;
   color: var(--fg-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .search-form {
@@ -888,20 +907,44 @@ th.sortable:hover {
 
 /* --- Impact Graph -------------------------------------------------------- */
 .impact-graph-container {
-  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-0);
   padding: 1rem;
   margin-bottom: 1rem;
 }
+.impact-graph-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+.impact-graph-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.impact-graph-zoom-level {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  min-width: 3.25rem;
+  text-align: center;
+}
 .impact-graph-svg {
   width: 100%;
-  min-height: 200px;
-  max-height: 600px;
+  height: 600px;
+  cursor: grab;
+  user-select: none;
+  background: var(--bg-1);
+  border-radius: var(--radius-md);
+  display: block;
 }
-.impact-graph-svg a { cursor: pointer; }
-.impact-graph-svg a:hover rect { stroke-width: 2.5; }
+.impact-graph-svg.dragging { cursor: grabbing; }
+.impact-node-link { cursor: pointer; }
+.impact-node-link:hover rect { stroke-width: 2.5; }
 .impact-node-type {
   font-size: 10px;
   font-weight: var(--fw-semi);
@@ -921,22 +964,115 @@ th.sortable:hover {
   fill: var(--fg-muted);
 }
 
-/* =============== app shell (new top-bar chrome) =============== */
+.impact-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+.impact-filter-chip {
+  --chip-accent: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--fg-1);
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: opacity 120ms ease, border-color 120ms ease;
+}
+.impact-filter-chip:hover { border-color: var(--chip-accent); }
+.impact-filter-chip.hidden {
+  opacity: 0.45;
+  text-decoration: line-through;
+  text-decoration-color: var(--fg-muted);
+}
+.impact-filter-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--chip-accent);
+  display: inline-block;
+}
+
+/* =============== app shell (sidebar chrome) =============== */
 .lv-app {
   min-height: 100vh;
   background: var(--bg-1);
   color: var(--fg-1);
   display: flex;
+  flex-direction: row;
+}
+.lv-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+  z-index: 30;
+}
+.lv-sidebar-brand {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.lv-sidebar-nav {
+  padding: 0.75rem 0.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.lv-sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.lv-sidebar-group-label {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+  padding: 0.1rem 0.75rem 0.4rem;
+}
+.lv-sidebar-link {
+  display: block;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.86rem;
+  color: var(--fg-3);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  font-family: inherit;
+}
+.lv-sidebar-link:hover { background: var(--bg-3); color: var(--fg-1); text-decoration: none; }
+.lv-sidebar-link.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.lv-app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
 }
-.lv-header {
+.lv-topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0.85rem 1.5rem;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 0.65rem 1.5rem;
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
-  gap: 1.5rem;
   position: sticky;
   top: 0;
   z-index: 30;
@@ -964,35 +1100,6 @@ th.sortable:hover {
   font-style: italic;
   color: var(--accent);
   font-weight: 400;
-}
-.lv-nav {
-  display: flex;
-  gap: 0.25rem;
-  flex: 1;
-  margin-left: 1rem;
-  flex-wrap: wrap;
-}
-.lv-nav-link {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.86rem;
-  color: var(--fg-3);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  white-space: nowrap;
-  background: transparent;
-  border: none;
-  font-family: inherit;
-}
-.lv-nav-link:hover { background: var(--bg-3); color: var(--fg-1); text-decoration: none; }
-.lv-nav-link.active {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-.lv-header-right {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-shrink: 0;
 }
 .lv-time {
   font-family: var(--font-mono);
@@ -1280,6 +1387,11 @@ th.sortable:hover {
   color: var(--danger);
 }
 .lv-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
+.lv-btn-sm {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+}
 
 /* =============== pill modifier rename (status-* → bare) =============== */
 /* Existing .pill rule body is rewritten in step 5; this block adds the new modifiers. */

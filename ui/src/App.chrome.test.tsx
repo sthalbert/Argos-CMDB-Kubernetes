@@ -18,8 +18,8 @@ function mockMe(me: Me) {
 beforeEach(() => { localStorage.clear(); });
 afterEach(() => { vi.restoreAllMocks(); });
 
-describe('Chrome (top-bar)', () => {
-  it('renders all primary nav links for an admin', async () => {
+describe('Chrome (sidebar)', () => {
+  it('renders every primary nav link for an admin', async () => {
     mockMe(adminMe);
     renderWithRouter(<App />, { initialPath: '/clusters' });
     await screen.findByRole('link', { name: 'Clusters' });
@@ -32,18 +32,21 @@ describe('Chrome (top-bar)', () => {
     expect(screen.getByRole('link', { name: 'Audit' })).toBeTruthy();
   });
 
-  it('hides Audit for viewer', async () => {
+  it('hides the Admin group for viewer', async () => {
     mockMe(viewerMe);
     renderWithRouter(<App />, { initialPath: '/clusters' });
     await screen.findByRole('link', { name: 'Clusters' });
     expect(screen.queryByRole('link', { name: 'Audit' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Users' })).toBeNull();
   });
 
-  it('shows Audit for auditor', async () => {
+  it('shows only Audit under Admin for auditor', async () => {
     mockMe(auditorMe);
     renderWithRouter(<App />, { initialPath: '/clusters' });
     await screen.findByRole('link', { name: 'Audit' });
     expect(screen.getByRole('link', { name: 'Audit' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Users' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull();
   });
 
   it('marks Clusters active on /clusters/:id', async () => {
@@ -53,17 +56,28 @@ describe('Chrome (top-bar)', () => {
     expect(link.classList.contains('active')).toBe(true);
   });
 
-  it('opens "More" dropdown and lists overflow routes', async () => {
+  it('renders every overflow route directly in the sidebar (no More dropdown)', async () => {
     mockMe(adminMe);
     renderWithRouter(<App />, { initialPath: '/clusters' });
-    const moreBtn = await screen.findByRole('button', { name: /more/i });
-    fireEvent.click(moreBtn);
+    await screen.findByRole('link', { name: 'Clusters' });
     expect(screen.getByRole('link', { name: 'Namespaces' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Pods' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Services' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Ingresses' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'PVs' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'PVCs' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /more/i })).toBeNull();
+  });
+
+  it('groups admin tabs in the sidebar Admin section for admin role', async () => {
+    mockMe(adminMe);
+    renderWithRouter(<App />, { initialPath: '/clusters' });
+    await screen.findByRole('link', { name: 'Clusters' });
+    expect(screen.getByRole('link', { name: 'Users' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Tokens' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Sessions' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Cloud accounts' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Settings' })).toBeTruthy();
   });
 
   it('opens user menu and signs out', async () => {
