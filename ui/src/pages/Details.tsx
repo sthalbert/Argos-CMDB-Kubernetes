@@ -54,8 +54,8 @@ function NodeStatusInline({
       ? 'Ready · Cordoned'
       : 'Ready'
     : 'NotReady';
-  const cls = ready ? (unschedulable ? 'status-warn' : 'status-ok') : 'status-bad';
-  return <span className={`pill ${cls}`} style={{ fontSize: '0.8rem' }}>{label}</span>;
+  const status: 'ok' | 'warn' | 'bad' = ready ? (unschedulable ? 'warn' : 'ok') : 'bad';
+  return <Pill status={status}>{label}</Pill>;
 }
 
 // --- Cluster detail -------------------------------------------------------
@@ -332,7 +332,7 @@ export function NamespaceDetail() {
                       </Link>
                     </td>
                     <td>
-                      <span className="pill">{w.kind}</span>
+                      <Pill>{w.kind}</Pill>
                     </td>
                     <td>
                       {w.ready_replicas ?? '?'}
@@ -428,7 +428,7 @@ export function NamespaceDetail() {
                       <strong>{s.name}</strong>
                     </td>
                     <td>
-                      <span className="pill">{s.type || 'ClusterIP'}</span>
+                      <Pill>{s.type || 'ClusterIP'}</Pill>
                     </td>
                     <td>{s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash />}</td>
                   </tr>
@@ -921,9 +921,7 @@ export function NodeDetail() {
                         <strong>{c.type}</strong>
                       </td>
                       <td>
-                        <span className={`pill ${healthy ? 'status-ok' : 'status-bad'}`}>
-                          {c.status}
-                        </span>
+                        <Pill status={healthy ? 'ok' : 'bad'}>{c.status}</Pill>
                       </td>
                       <td>{c.reason || <Dash />}</td>
                       <td>
@@ -958,7 +956,7 @@ export function NodeDetail() {
                     </td>
                     <td>{t.value ? <code>{t.value}</code> : <Dash />}</td>
                     <td>
-                      <span className="pill">{t.effect}</span>
+                      <Pill>{t.effect}</Pill>
                     </td>
                   </tr>
                 ))}
@@ -1026,7 +1024,7 @@ export function NodeDetail() {
                                       )}
                                     </td>
                                     <td>
-                                      {wl ? <span className="pill">{wl.kind}</span> : <Dash />}
+                                      {wl ? <Pill>{wl.kind}</Pill> : <Dash />}
                                     </td>
                                     <td>
                                       <strong>{list.length}</strong>
