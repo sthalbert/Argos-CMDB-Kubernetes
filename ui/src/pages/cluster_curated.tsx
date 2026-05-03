@@ -38,11 +38,11 @@ export function ClusterCuratedCard({
     !cluster.runbook_url &&
     !cluster.annotations;
   return (
-    <section className="curated-card">
-      <div className="curated-card-header">
-        <h3>Ownership &amp; context</h3>
+    <div className="lv-card" style={{ marginTop: '1rem' }}>
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">Ownership &amp; context</h3>
         {canEdit(me) && (
-          <button type="button" className="primary" onClick={() => setEditing(true)}>
+          <button type="button" className="lv-btn lv-btn-ghost" onClick={() => setEditing(true)}>
             Edit
           </button>
         )}
@@ -85,7 +85,7 @@ export function ClusterCuratedCard({
           <KV k="Annotations" v={<Labels labels={cluster.annotations} />} />
         </dl>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -148,9 +148,9 @@ function ClusterCuratedForm({
   };
 
   return (
-    <section className="curated-card">
-      <div className="curated-card-header">
-        <h3>Edit ownership &amp; context</h3>
+    <div className="lv-card" style={{ marginTop: '1rem' }}>
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">Edit ownership &amp; context</h3>
       </div>
       <form className="admin-form" onSubmit={onSubmit}>
         <div className="admin-form-row">
@@ -247,15 +247,15 @@ function ClusterCuratedForm({
         </div>
         {error && <div className="error">{error}</div>}
         <div className="admin-form-actions">
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="submit" className="lv-btn lv-btn-primary" disabled={busy}>
             {busy ? 'Saving…' : 'Save'}
           </button>
-          <button type="button" className="danger" onClick={onCancel} disabled={busy}>
+          <button type="button" className="lv-btn lv-btn-ghost" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         </div>
       </form>
-    </section>
+    </div>
   );
 }
 

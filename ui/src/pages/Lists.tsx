@@ -8,15 +8,17 @@ import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses } from '../components';
 import {
-  ClusterIcon, NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
+  NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
   ServiceIcon, IngressIcon, VolumeIcon,
 } from '../icons';
+import { PageHead } from '../components/lv/PageHead';
 
 export function Clusters() {
   const state = useResource(() => api.listClusters(), []);
+  const sub = state.status === 'ready' ? `${state.data.items.length} active` : undefined;
   return (
     <>
-      <h2><ClusterIcon size={20} /> Clusters</h2>
+      <PageHead title="Clusters" sub={sub} />
       <AsyncView state={state}>
         {(resp) => (
           <table className="entities">

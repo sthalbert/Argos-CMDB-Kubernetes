@@ -22,7 +22,7 @@ import { NodeCuratedCard } from './node_curated';
 import { ImpactSection } from './ImpactGraph';
 import { LabelsCard } from '../components/inventory/LabelsCard';
 import {
-  ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon, IngressIcon,
+  NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon, IngressIcon,
 } from '../icons';
 import {
   AsyncView,
@@ -34,6 +34,12 @@ import {
   SectionTitle,
   Empty,
 } from '../components';
+import { Breadcrumb } from '../components/lv/Breadcrumb';
+import { PageHead } from '../components/lv/PageHead';
+import { StatRow, Stat } from '../components/lv/StatRow';
+import { Callout } from '../components/lv/Callout';
+import { Pill } from '../components/lv/Pill';
+import { KvList } from '../components/lv/KvList';
 
 // Inline status badge used in detail-page h2s. Same colour scheme as the
 // list-page NodeStatusBadge (green Ready, orange cordoned, red NotReady)
@@ -95,39 +101,60 @@ export function ClusterDetail() {
 
   return (
     <>
-      <div className="breadcrumb">
-        <Link to="/clusters" aria-label="Back to clusters">Clusters</Link> / <span>this cluster</span>
-      </div>
+      <Breadcrumb parts={[{ label: 'Clusters', to: '/clusters' }, { label: 'this cluster' }]} />
       <AsyncView state={state}>
         {([cluster, nodes, namespaces, pvs]) => {
           const childCount =
             nodes.items.length + namespaces.items.length + pvs.items.length;
           return (
           <>
-            <h2>
-              <ClusterIcon size={20} /> {cluster.display_name || cluster.name} <LayerPill layer={cluster.layer} />
-              {isAdmin(me) && (
-                <button
-                  className="danger"
-                  style={{ marginLeft: '1rem', fontSize: '0.85rem' }}
-                  disabled={deleting}
-                  onClick={() => handleDelete(cluster, childCount)}
-                >
-                  {deleting ? 'Deleting…' : 'Delete cluster'}
-                </button>
-              )}
-            </h2>
-            <dl className="kv-list">
-              <KV k="Name" v={<code>{cluster.name}</code>} />
-              <KV k="Environment" v={cluster.environment} />
-              <KV k="Provider" v={cluster.provider} />
-              <KV k="Region" v={cluster.region} />
-              <KV k="K8s version" v={cluster.kubernetes_version && <code>{cluster.kubernetes_version}</code>} />
-              <KV k="API endpoint" v={cluster.api_endpoint && <code>{cluster.api_endpoint}</code>} />
-              <KV k="Labels" v={<Labels labels={cluster.labels} />} />
-            </dl>
+            <PageHead
+              title={cluster.display_name || cluster.name}
+              sub={cluster.kubernetes_version ?? undefined}
+              actions={<>
+                {cluster.criticality && <Pill status="accent">{cluster.criticality}</Pill>}
+                {cluster.environment && <Pill>{cluster.environment}</Pill>}
+                <LayerPill layer={cluster.layer} />
+                {isAdmin(me) && (
+                  <button
+                    className="lv-btn lv-btn-danger"
+                    style={{ fontSize: '0.85rem' }}
+                    disabled={deleting}
+                    onClick={() => handleDelete(cluster, childCount)}
+                  >
+                    {deleting ? 'Deleting…' : 'Delete cluster'}
+                  </button>
+                )}
+              </>}
+            />
 
-            <ClusterCuratedCard cluster={cluster} onSaved={reload} />
+            <StatRow>
+              <Stat label="Nodes" value={nodes.items.length} />
+              <Stat label="Namespaces" value={namespaces.items.length} />
+              <Stat label="PVs" value={pvs.items.length} />
+            </StatRow>
+
+            <Callout title="Impact analysis">Review what depends on this cluster before any change.</Callout>
+
+            <div className="detail-grid">
+              <div>
+                <KvList items={[
+                  ['Name', <code key="name">{cluster.name}</code>],
+                  ['Environment', cluster.environment ?? '—'],
+                  ['Provider', cluster.provider ?? '—'],
+                  ['Region', cluster.region ?? '—'],
+                  ['K8s version', cluster.kubernetes_version ? <code key="k8s">{cluster.kubernetes_version}</code> : '—'],
+                  ['API endpoint', cluster.api_endpoint ? <code key="ep">{cluster.api_endpoint}</code> : '—'],
+                  ['Owner', cluster.owner ?? '—'],
+                  ['Criticality', cluster.criticality ?? '—'],
+                  ['Runbook', cluster.runbook_url ? <a key="rb" href={cluster.runbook_url}>{cluster.runbook_url}</a> : '—'],
+                ]} />
+                <ClusterCuratedCard cluster={cluster} onSaved={reload} />
+              </div>
+              <div>
+                <ImpactSection entityType="clusters" entityId={id} />
+              </div>
+            </div>
 
             <SectionTitle count={namespaces.items.length}>Namespaces</SectionTitle>
             {namespaces.items.length === 0 ? (
@@ -214,7 +241,6 @@ export function ClusterDetail() {
           );
         }}
       </AsyncView>
-      <ImpactSection entityType="clusters" entityId={id} />
     </>
   );
 }
