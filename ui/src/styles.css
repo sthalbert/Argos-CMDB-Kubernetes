@@ -1261,6 +1261,7 @@ th.sortable:hover {
   border-radius: var(--radius-lg);
   padding: var(--pad-card);
 }
+.detail-grid .lv-card { margin-top: 1rem; }
 .lv-card-header {
   display: flex;
   justify-content: space-between;

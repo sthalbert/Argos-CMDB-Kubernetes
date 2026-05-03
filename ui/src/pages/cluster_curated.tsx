@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import * as api from '../api';
 import { canEdit, useMe } from '../me';
 import { KV, Labels } from '../components';
+import { Pill } from '../components/lv/Pill';
 import { formatKV, parseKV } from '../kv';
 
 // ClusterCuratedCard renders the operator-owned fields that don't come
@@ -38,7 +39,7 @@ export function ClusterCuratedCard({
     !cluster.runbook_url &&
     !cluster.annotations;
   return (
-    <div className="lv-card" style={{ marginTop: '1rem' }}>
+    <div className="lv-card">
       <div className="lv-card-header">
         <h3 className="lv-card-title">Ownership &amp; context</h3>
         {canEdit(me) && (
@@ -60,7 +61,7 @@ export function ClusterCuratedCard({
             k="Criticality"
             v={
               cluster.criticality ? (
-                <span className="pill">{cluster.criticality}</span>
+                <Pill status="accent">{cluster.criticality}</Pill>
               ) : undefined
             }
           />
@@ -148,7 +149,7 @@ function ClusterCuratedForm({
   };
 
   return (
-    <div className="lv-card" style={{ marginTop: '1rem' }}>
+    <div className="lv-card">
       <div className="lv-card-header">
         <h3 className="lv-card-title">Edit ownership &amp; context</h3>
       </div>

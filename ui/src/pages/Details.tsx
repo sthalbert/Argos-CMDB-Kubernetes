@@ -101,13 +101,13 @@ export function ClusterDetail() {
 
   return (
     <>
-      <Breadcrumb parts={[{ label: 'Clusters', to: '/clusters' }, { label: 'this cluster' }]} />
       <AsyncView state={state}>
         {([cluster, nodes, namespaces, pvs]) => {
           const childCount =
             nodes.items.length + namespaces.items.length + pvs.items.length;
           return (
           <>
+            <Breadcrumb parts={[{ label: 'Clusters', to: '/clusters', ariaLabel: 'Back to clusters' }, { label: cluster.name }]} />
             <PageHead
               title={cluster.display_name || cluster.name}
               sub={cluster.kubernetes_version ?? undefined}
