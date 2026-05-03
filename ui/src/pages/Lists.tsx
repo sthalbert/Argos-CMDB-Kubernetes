@@ -7,10 +7,6 @@ import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses } from '../components';
-import {
-  NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
-  ServiceIcon, IngressIcon, VolumeIcon,
-} from '../icons';
 import { PageHead } from '../components/lv/PageHead';
 
 export function Clusters() {
@@ -71,9 +67,10 @@ export function Nodes() {
       })),
     [],
   );
+  const sub = state.status === 'ready' ? `${state.data.nodes.length} active` : undefined;
   return (
     <>
-      <h2><NodeIcon size={20} /> Nodes</h2>
+      <PageHead title="Nodes" sub={sub} />
       <AsyncView state={state}>
         {({ nodes, clustersById }) => (
           <table className="entities">
@@ -162,9 +159,10 @@ export function Namespaces() {
       })),
     [],
   );
+  const sub = state.status === 'ready' ? `${state.data.namespaces.length} active` : undefined;
   return (
     <>
-      <h2><NamespaceIcon size={20} /> Namespaces</h2>
+      <PageHead title="Namespaces" sub={sub} />
       <AsyncView state={state}>
         {({ namespaces, clustersById }) => (
           <table className="entities">
@@ -245,10 +243,11 @@ function NamespaceLink({
 export function Workloads() {
   const index = useNamespaceIndex();
   const workloads = useResource(() => api.listWorkloads(), []);
+  const sub = workloads.status === 'ready' ? `${workloads.data.items.length} active` : undefined;
 
   return (
     <>
-      <h2><WorkloadIcon size={20} /> Workloads</h2>
+      <PageHead title="Workloads" sub={sub} />
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={workloads}>
@@ -308,9 +307,10 @@ export function Pods() {
   const index = useNamespaceIndex();
   const pods = useResource(() => api.listPods(), []);
   const workloads = useResource(() => api.listWorkloads(), []);
+  const sub = pods.status === 'ready' ? `${pods.data.items.length} active` : undefined;
   return (
     <>
-      <h2><PodIcon size={20} /> Pods</h2>
+      <PageHead title="Pods" sub={sub} />
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={pods}>
@@ -383,9 +383,10 @@ export function Pods() {
 export function Services() {
   const index = useNamespaceIndex();
   const services = useResource(() => api.listServices(), []);
+  const sub = services.status === 'ready' ? `${services.data.items.length} active` : undefined;
   return (
     <>
-      <h2><ServiceIcon size={20} /> Services</h2>
+      <PageHead title="Services" sub={sub} />
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={services}>
@@ -445,9 +446,10 @@ export function Services() {
 export function Ingresses() {
   const index = useNamespaceIndex();
   const ingresses = useResource(() => api.listIngresses(), []);
+  const sub = ingresses.status === 'ready' ? `${ingresses.data.items.length} active` : undefined;
   return (
     <>
-      <h2><IngressIcon size={20} /> Ingresses</h2>
+      <PageHead title="Ingresses" sub={sub} />
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={ingresses}>
@@ -514,9 +516,10 @@ export function PersistentVolumes() {
       })),
     [],
   );
+  const sub = state.status === 'ready' ? `${state.data.pvs.length} active` : undefined;
   return (
     <>
-      <h2><VolumeIcon size={20} /> Persistent Volumes</h2>
+      <PageHead title="Persistent Volumes" sub={sub} />
       <AsyncView state={state}>
         {({ pvs, clustersById }) => (
           <table className="entities">
@@ -563,9 +566,10 @@ export function PersistentVolumes() {
 export function PersistentVolumeClaims() {
   const index = useNamespaceIndex();
   const pvcs = useResource(() => api.listPersistentVolumeClaims(), []);
+  const sub = pvcs.status === 'ready' ? `${pvcs.data.items.length} active` : undefined;
   return (
     <>
-      <h2><VolumeIcon size={20} /> Persistent Volume Claims</h2>
+      <PageHead title="Persistent Volume Claims" sub={sub} />
       <AsyncView state={index}>
         {({ namespacesById, clustersById }) => (
           <AsyncView state={pvcs}>
