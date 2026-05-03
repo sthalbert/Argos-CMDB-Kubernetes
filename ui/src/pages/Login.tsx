@@ -94,7 +94,7 @@ export default function Login() {
       <section className="lv-login-form-wrap">
         <div className="lv-login-form">
           <h2>Sign in</h2>
-          <form onSubmit={onSubmit}>
+          <form className="login" onSubmit={onSubmit}>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
               First install? Read the <code>LONGUE-VUE FIRST-RUN BOOTSTRAP</code> banner
               in the longue-vue startup log for the initial admin password.
