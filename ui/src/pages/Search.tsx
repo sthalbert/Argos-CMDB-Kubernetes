@@ -77,6 +77,7 @@ export default function ImageSearch() {
           <input
             type="text"
             placeholder={placeholder}
+            aria-label={activeTab === 'image' ? 'Search by image' : 'Search by application'}
             autoFocus
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -144,7 +145,7 @@ function ImageResults({ q }: { q: string }) {
               {affectedApps === 1 ? '' : 's'}.
             </p>
 
-            <Section count={workloads.length}>Kubernetes</Section>
+            <Section count={workloads.length + pods.length}>Kubernetes</Section>
             {workloads.length === 0 && pods.length === 0 ? (
               <Empty message="No K8s workloads or pods match." />
             ) : (
