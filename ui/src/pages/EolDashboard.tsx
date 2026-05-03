@@ -5,7 +5,6 @@ import { useResources } from '../hooks';
 import { AsyncView, Dash } from '../components';
 import { PageHead } from '../components/lv/PageHead';
 import { EolCard } from '../components/lv/EolCard';
-import { EolIcon } from '../icons';
 
 // --- EOL annotation parsing -----------------------------------------------
 
@@ -247,10 +246,7 @@ export default function EolDashboard() {
 
   return (
     <>
-      <PageHead
-        title={<><EolIcon size={20} /> Lifecycle</>}
-        sub="Kubernetes / nodes / VMs end-of-life inventory."
-      />
+      <PageHead title="Lifecycle" sub="Kubernetes / nodes / VMs end-of-life inventory." />
       <AsyncView state={state}>
         {([clustersResp, nodesResp, vmsResp]) => (
           <EolTable
@@ -317,7 +313,7 @@ function EolTable({
           status="bad"
           count={counts.eol}
           label="End of Life"
-          meta="eol items"
+          meta=""
           active={statusFilter === 'eol'}
           onClick={() => onCardClick('eol')}
         />
@@ -325,7 +321,7 @@ function EolTable({
           status="warn"
           count={counts.approaching_eol}
           label="Approaching EOL"
-          meta="approaching eol items"
+          meta="next 90 days"
           active={statusFilter === 'approaching_eol'}
           onClick={() => onCardClick('approaching_eol')}
         />
@@ -333,7 +329,7 @@ function EolTable({
           status="ok"
           count={counts.supported}
           label="Supported"
-          meta="supported items"
+          meta=""
           active={statusFilter === 'supported'}
           onClick={() => onCardClick('supported')}
         />
