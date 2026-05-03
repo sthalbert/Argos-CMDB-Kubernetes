@@ -267,7 +267,7 @@ function ApplicationsForm({
           </table>
         )}
         <div style={{ marginTop: '0.5rem' }}>
-          <button type="button" onClick={add} disabled={busy}>
+          <button type="button" className="lv-btn lv-btn-ghost" onClick={add} disabled={busy}>
             + Add application
           </button>
         </div>

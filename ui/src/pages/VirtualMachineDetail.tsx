@@ -15,7 +15,6 @@ import { CuratedMetadataCard } from '../components/inventory/CuratedMetadataCard
 import { Breadcrumb } from '../components/lv/Breadcrumb';
 import { PageHead } from '../components/lv/PageHead';
 import { Pill } from '../components/lv/Pill';
-import { ImpactSection } from './ImpactGraph';
 
 // VirtualMachineDetail is the per-VM drill-down page. Card layout mirrors
 // the Node detail page, with extra cards for cloud-native fields (image,
@@ -270,8 +269,6 @@ export default function VirtualMachineDetail() {
                   <LabelsCard labels={vm.tags} title="Tags (provider)" />
                   <LabelsCard labels={vm.labels} title="Labels" />
                   <AnnotationsCard annotations={vm.annotations} />
-
-                  <ImpactSection entityType="virtual-machines" entityId={id} />
                 </div>
               </div>
             </>
