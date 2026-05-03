@@ -53,10 +53,10 @@ describe('NamespaceDetail', () => {
       initialPath: `/namespaces/${fixtureNamespace.id}`,
       routePath: '/namespaces/:id',
     });
-    // "payments" appears in multiple places; check the h2 heading specifically
+    // "payments" appears in multiple places; check the h1 heading (PageHead) specifically
     await waitFor(() =>
       expect(
-        screen.getByRole('heading', { level: 2, name: new RegExp(fixtureNamespace.name) }),
+        screen.getByRole('heading', { level: 1, name: new RegExp(fixtureNamespace.name) }),
       ).toBeInTheDocument(),
     );
   });
@@ -82,7 +82,9 @@ describe('WorkloadDetail', () => {
       routePath: '/workloads/:id',
     });
     await waitFor(() =>
-      expect(screen.getByText(fixtureWorkload.name)).toBeInTheDocument(),
+      expect(
+        screen.getByRole('heading', { level: 1, name: new RegExp(fixtureWorkload.name) }),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -107,7 +109,9 @@ describe('PodDetail', () => {
       routePath: '/pods/:id',
     });
     await waitFor(() =>
-      expect(screen.getByText(fixturePod.name)).toBeInTheDocument(),
+      expect(
+        screen.getByRole('heading', { level: 1, name: new RegExp(fixturePod.name) }),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -131,10 +135,10 @@ describe('NodeDetail', () => {
       initialPath: `/nodes/${fixtureNode.id}`,
       routePath: '/nodes/:id',
     });
-    // NodeDetail renders display_name || name in the h2; fixture has display_name null
+    // NodeDetail renders display_name || name in the h1 (PageHead); fixture has display_name null
     await waitFor(() =>
       expect(
-        screen.getByRole('heading', { level: 2, name: new RegExp(fixtureNode.name) }),
+        screen.getByRole('heading', { level: 1, name: new RegExp(fixtureNode.name) }),
       ).toBeInTheDocument(),
     );
   });
@@ -160,7 +164,9 @@ describe('IngressDetail', () => {
       routePath: '/ingresses/:id',
     });
     await waitFor(() =>
-      expect(screen.getByText(fixtureIngress.name)).toBeInTheDocument(),
+      expect(
+        screen.getByRole('heading', { level: 1, name: new RegExp(fixtureIngress.name) }),
+      ).toBeInTheDocument(),
     );
   });
 

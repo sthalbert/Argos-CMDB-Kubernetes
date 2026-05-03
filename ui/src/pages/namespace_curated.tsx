@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import * as api from '../api';
 import { canEdit, useMe } from '../me';
 import { KV, Labels } from '../components';
+import { Pill } from '../components/lv/Pill';
 import { formatKV, parseKV } from '../kv';
 
 // NamespaceCuratedCard mirrors ClusterCuratedCard but only surfaces the
@@ -38,11 +39,11 @@ export function NamespaceCuratedCard({
     !namespace.runbook_url &&
     !namespace.annotations;
   return (
-    <section className="curated-card">
-      <div className="curated-card-header">
-        <h3>Ownership &amp; context</h3>
+    <div className="lv-card">
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">Ownership &amp; context</h3>
         {canEdit(me) && (
-          <button type="button" className="primary" onClick={() => setEditing(true)}>
+          <button type="button" className="lv-btn lv-btn-ghost" onClick={() => setEditing(true)}>
             Edit
           </button>
         )}
@@ -60,7 +61,7 @@ export function NamespaceCuratedCard({
             k="Criticality"
             v={
               namespace.criticality ? (
-                <span className="pill">{namespace.criticality}</span>
+                <Pill status="accent">{namespace.criticality}</Pill>
               ) : undefined
             }
           />
@@ -85,7 +86,7 @@ export function NamespaceCuratedCard({
           <KV k="Annotations" v={<Labels labels={namespace.annotations} />} />
         </dl>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -134,9 +135,9 @@ function NamespaceCuratedForm({
   };
 
   return (
-    <section className="curated-card">
-      <div className="curated-card-header">
-        <h3>Edit ownership &amp; context</h3>
+    <div className="lv-card">
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">Edit ownership &amp; context</h3>
       </div>
       <form className="admin-form" onSubmit={onSubmit}>
         <div className="admin-form-row">
@@ -191,14 +192,14 @@ function NamespaceCuratedForm({
         </div>
         {error && <div className="error">{error}</div>}
         <div className="admin-form-actions">
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="submit" className="lv-btn lv-btn-primary" disabled={busy}>
             {busy ? 'Saving…' : 'Save'}
           </button>
-          <button type="button" className="danger" onClick={onCancel} disabled={busy}>
+          <button type="button" className="lv-btn lv-btn-ghost" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         </div>
       </form>
-    </section>
+    </div>
   );
 }
