@@ -1,8 +1,9 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView } from '../components';
+import { Tabs } from '../components/lv/Tabs';
 
 // --- Layout constants -------------------------------------------------------
 
@@ -266,27 +267,21 @@ export function ImpactSection({
     [entityId, depth],
   );
 
-  const handleDepth = useCallback(
-    (d: number) => setDepth(d),
-    [],
-  );
-
   if (!impactType) return null;
 
   return (
-    <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', margin: '1rem 0 0.5rem' }}>
-        <h3 style={{ margin: 0 }}>Impact graph</h3>
-        <span className="muted" style={{ fontSize: '0.8rem' }}>Depth:</span>
-        {[1, 2, 3].map((d) => (
-          <button
-            key={d}
-            className={`depth-btn${d === depth ? ' depth-active' : ''}`}
-            onClick={() => handleDepth(d)}
-          >
-            {d}
-          </button>
-        ))}
+    <div className="lv-card">
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">Impact graph</h3>
+        <Tabs
+          items={[
+            { key: '1', label: '1 hop' },
+            { key: '2', label: '2 hops' },
+            { key: '3', label: '3 hops' },
+          ]}
+          active={String(depth)}
+          onChange={(k) => setDepth(Number(k))}
+        />
       </div>
       <AsyncView state={state}>
         {(graph) => (
@@ -300,6 +295,6 @@ export function ImpactSection({
           </>
         )}
       </AsyncView>
-    </>
+    </div>
   );
 }

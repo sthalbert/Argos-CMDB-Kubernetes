@@ -960,21 +960,6 @@ th.sortable:hover {
   font-size: 9px;
   fill: var(--fg-muted);
 }
-.depth-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--fg-muted);
-  padding: 0.15rem 0.5rem;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--fs-sm);
-}
-.depth-btn:hover { border-color: var(--accent); color: var(--accent); }
-.depth-active {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: #fff;
-}
 
 /* =============== app shell (new top-bar chrome) =============== */
 .lv-app {
