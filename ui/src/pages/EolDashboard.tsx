@@ -5,6 +5,7 @@ import { useResources } from '../hooks';
 import { AsyncView, Dash } from '../components';
 import { PageHead } from '../components/lv/PageHead';
 import { EolCard } from '../components/lv/EolCard';
+import { Pill } from '../components/lv/Pill';
 
 // --- EOL annotation parsing -----------------------------------------------
 
@@ -39,19 +40,6 @@ function parseEolAnnotations(annotations?: Record<string, string> | null): EolAn
 
 // --- Status badge ---------------------------------------------------------
 
-function statusClass(status: EolStatus): string {
-  switch (status) {
-    case 'eol':
-      return 'pill status-bad';
-    case 'approaching_eol':
-      return 'pill status-warn';
-    case 'supported':
-      return 'pill status-ok';
-    default:
-      return 'pill';
-  }
-}
-
 function statusLabel(status: EolStatus): string {
   switch (status) {
     case 'eol':
@@ -66,7 +54,9 @@ function statusLabel(status: EolStatus): string {
 }
 
 export const EolBadge = ({ status }: { status: EolStatus }) => (
-  <span className={statusClass(status)}>{statusLabel(status)}</span>
+  <Pill status={status === 'eol' ? 'bad' : status === 'approaching_eol' ? 'warn' : status === 'supported' ? 'ok' : undefined}>
+    {statusLabel(status)}
+  </Pill>
 );
 
 // --- Flat row for the table -----------------------------------------------

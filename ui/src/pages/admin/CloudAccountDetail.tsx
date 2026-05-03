@@ -267,7 +267,7 @@ function CredentialsCard({
   if (!editing) {
     return (
       <section className="lv-card">
-        <div className="curated-card-header">
+        <div className="lv-card-header">
           <h3 className="lv-card-title">Credentials</h3>
           <button className="lv-btn lv-btn-primary" onClick={() => setEditing(true)}>
             {account.access_key ? 'Rotate credentials' : 'Set credentials'}
@@ -284,7 +284,7 @@ function CredentialsCard({
 
   return (
     <section className="lv-card">
-      <div className="curated-card-header">
+      <div className="lv-card-header">
         <h3 className="lv-card-title">{account.access_key ? 'Rotate credentials' : 'Set credentials'}</h3>
       </div>
       <form className="admin-form" onSubmit={submit}>

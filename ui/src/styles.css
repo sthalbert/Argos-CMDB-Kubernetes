@@ -462,12 +462,6 @@ dl.kv-list, .kv-list {
 
 /* -- admin ------------------------------------------------------ */
 
-.admin-subnav {
-  display: flex;
-  gap: 0.25rem;
-  border-bottom: 1px solid var(--border);
-  margin: 0 0 1.25rem;
-}
 .admin-tab {
   padding: 0.5rem 0.9rem;
   font-size: var(--fs-body);
@@ -643,26 +637,6 @@ table.entities select {
   }
 }
 
-.curated-card {
-  margin: 1rem 0 1.5rem;
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-2);
-}
-.curated-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-.curated-card-header h3 {
-  margin: 0;
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-semi);
-  color: var(--fg-2);
-}
 .curated-notes {
   margin: 0;
   padding: 0.6rem 0.8rem;
@@ -674,20 +648,6 @@ table.entities select {
   font-size: var(--fs-body);
   color: var(--fg-2);
 }
-.curated-card textarea {
-  padding: 0.5rem 0.65rem;
-  background: var(--bg-0);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--fg-1);
-  font-size: var(--fs-body);
-  resize: vertical;
-}
-.curated-card textarea:focus {
-  outline: none;
-  border-color: var(--accent-dim);
-}
-
 /* --- EOL Inventory ------------------------------------------------------- */
 .eol-summary {
   display: grid;

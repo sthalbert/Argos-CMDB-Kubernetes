@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { canEdit, useMe } from '../../me';
 import { KV, Labels } from '../../components';
 import { formatKV, parseKV } from '../../kv';
+import { Pill } from '../lv/Pill';
 
 // CuratedMetadataCard is the inline read-then-edit pattern that the
 // Cluster / Node / Namespace / VirtualMachine detail pages all need.
@@ -88,11 +89,11 @@ export function CuratedMetadataCard({
     !(extraDisplay ?? []).some((d) => d.value);
 
   return (
-    <section className="curated-card">
-      <div className="curated-card-header">
-        <h3>{title}</h3>
+    <div className="lv-card">
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">{title}</h3>
         {canEdit(me) && (
-          <button type="button" className="primary" onClick={() => setEditing(true)}>
+          <button type="button" className="lv-btn lv-btn-primary" onClick={() => setEditing(true)}>
             Edit
           </button>
         )}
@@ -109,7 +110,7 @@ export function CuratedMetadataCard({
           <KV k="Owner" v={values.owner} />
           <KV
             k="Criticality"
-            v={values.criticality ? <span className="pill">{values.criticality}</span> : undefined}
+            v={values.criticality ? <Pill status="accent">{values.criticality}</Pill> : undefined}
           />
           <KV
             k="Runbook"
@@ -128,7 +129,7 @@ export function CuratedMetadataCard({
           <KV k="Annotations" v={<Labels labels={values.annotations} />} />
         </dl>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -196,9 +197,9 @@ function CuratedForm({
   const multilineExtras = extraFields.filter((f) => f.multiline);
 
   return (
-    <section className="curated-card">
-      <div className="curated-card-header">
-        <h3>Edit {title.toLowerCase()}</h3>
+    <div className="lv-card">
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">Edit {title.toLowerCase()}</h3>
       </div>
       <form className="admin-form" onSubmit={onSubmit}>
         <div className="admin-form-row">
@@ -276,14 +277,14 @@ function CuratedForm({
         </div>
         {error && <div className="error">{error}</div>}
         <div className="admin-form-actions">
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="submit" className="lv-btn lv-btn-primary" disabled={busy}>
             {busy ? 'Saving…' : 'Save'}
           </button>
-          <button type="button" className="danger" onClick={onCancel} disabled={busy}>
+          <button type="button" className="lv-btn lv-btn-ghost" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         </div>
       </form>
-    </section>
+    </div>
   );
 }
