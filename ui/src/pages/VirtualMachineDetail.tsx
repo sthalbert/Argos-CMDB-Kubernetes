@@ -15,6 +15,7 @@ import { CuratedMetadataCard } from '../components/inventory/CuratedMetadataCard
 import { Breadcrumb } from '../components/lv/Breadcrumb';
 import { PageHead } from '../components/lv/PageHead';
 import { Pill } from '../components/lv/Pill';
+import { ImpactSection } from './ImpactGraph';
 
 // VirtualMachineDetail is the per-VM drill-down page. Card layout mirrors
 // the Node detail page, with extra cards for cloud-native fields (image,
@@ -76,196 +77,203 @@ export default function VirtualMachineDetail() {
                 </>}
               />
 
-              <IdentityCard
-                rows={[
-                  { label: 'Name', value: <code>{vm.name}</code> },
-                  { label: 'Display name', value: vm.display_name },
-                  { label: 'Role', value: vm.role && <Pill>{vm.role}</Pill> },
-                  {
-                    label: 'Provider VM ID',
-                    value: <code>{vm.provider_vm_id}</code>,
-                  },
-                  {
-                    label: 'Cloud account',
-                    value: acct ? (
-                      isAdmin(me) ? (
-                        <Link to={`/admin/cloud-accounts/${acct.id}`}>
-                          <strong>{acct.name}</strong>{' '}
-                          <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
-                            {acct.provider}/{acct.region}
-                          </span>
-                        </Link>
-                      ) : (
-                        <>
-                          <strong>{acct.name}</strong>{' '}
-                          <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
-                            {acct.provider}/{acct.region}
-                          </span>
-                        </>
-                      )
-                    ) : (
-                      <span className="muted">{vm.cloud_account_id.slice(0, 8)}…</span>
-                    ),
-                  },
-                ]}
-              />
+              <div className="detail-grid">
+                <div>
+                  <IdentityCard
+                    rows={[
+                      { label: 'Name', value: <code>{vm.name}</code> },
+                      { label: 'Display name', value: vm.display_name },
+                      { label: 'Role', value: vm.role && <Pill>{vm.role}</Pill> },
+                      {
+                        label: 'Provider VM ID',
+                        value: <code>{vm.provider_vm_id}</code>,
+                      },
+                      {
+                        label: 'Cloud account',
+                        value: acct ? (
+                          isAdmin(me) ? (
+                            <Link to={`/admin/cloud-accounts/${acct.id}`}>
+                              <strong>{acct.name}</strong>{' '}
+                              <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                                {acct.provider}/{acct.region}
+                              </span>
+                            </Link>
+                          ) : (
+                            <>
+                              <strong>{acct.name}</strong>{' '}
+                              <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                                {acct.provider}/{acct.region}
+                              </span>
+                            </>
+                          )
+                        ) : (
+                          <span className="muted">{vm.cloud_account_id.slice(0, 8)}…</span>
+                        ),
+                      },
+                    ]}
+                  />
 
-              <CuratedMetadataCard
-                values={{
-                  owner: vm.owner,
-                  criticality: vm.criticality,
-                  notes: vm.notes,
-                  runbook_url: vm.runbook_url,
-                  annotations: vm.annotations,
-                }}
-                extraDisplay={[
-                  { label: 'Display name', value: vm.display_name },
-                  {
-                    label: 'Role',
-                    value: vm.role ? <Pill>{vm.role}</Pill> : null,
-                  },
-                ]}
-                extraFields={[
-                  {
-                    key: 'display_name',
-                    label: 'Display name',
-                    placeholder: 'web-prod-01',
-                    initial: vm.display_name ?? '',
-                  },
-                  {
-                    key: 'role',
-                    label: 'Role',
-                    placeholder: 'bastion / db / app',
-                    initial: vm.role ?? '',
-                  },
-                ]}
-                onSave={async (values, extras) => {
-                  await api.updateVirtualMachine(vm.id, {
-                    owner: values.owner,
-                    criticality: values.criticality,
-                    notes: values.notes,
-                    runbook_url: values.runbook_url,
-                    annotations: values.annotations,
-                    display_name: extras.display_name,
-                    role: extras.role,
-                  });
-                }}
-                onSaved={reload}
-              />
+                  <CuratedMetadataCard
+                    values={{
+                      owner: vm.owner,
+                      criticality: vm.criticality,
+                      notes: vm.notes,
+                      runbook_url: vm.runbook_url,
+                      annotations: vm.annotations,
+                    }}
+                    extraDisplay={[
+                      { label: 'Display name', value: vm.display_name },
+                      {
+                        label: 'Role',
+                        value: vm.role ? <Pill>{vm.role}</Pill> : null,
+                      },
+                    ]}
+                    extraFields={[
+                      {
+                        key: 'display_name',
+                        label: 'Display name',
+                        placeholder: 'web-prod-01',
+                        initial: vm.display_name ?? '',
+                      },
+                      {
+                        key: 'role',
+                        label: 'Role',
+                        placeholder: 'bastion / db / app',
+                        initial: vm.role ?? '',
+                      },
+                    ]}
+                    onSave={async (values, extras) => {
+                      await api.updateVirtualMachine(vm.id, {
+                        owner: values.owner,
+                        criticality: values.criticality,
+                        notes: values.notes,
+                        runbook_url: values.runbook_url,
+                        annotations: values.annotations,
+                        display_name: extras.display_name,
+                        role: extras.role,
+                      });
+                    }}
+                    onSaved={reload}
+                  />
 
-              <NetworkingCard
-                rows={[
-                  { label: 'Private IP', value: vm.private_ip && <code>{vm.private_ip}</code> },
-                  { label: 'Public IP', value: vm.public_ip && <code>{vm.public_ip}</code> },
-                  {
-                    label: 'Private DNS',
-                    value: vm.private_dns_name && <code>{vm.private_dns_name}</code>,
-                  },
-                  { label: 'VPC', value: vm.vpc_id && <code>{vm.vpc_id}</code> },
-                  { label: 'Subnet', value: vm.subnet_id && <code>{vm.subnet_id}</code> },
-                ]}
-              >
-                <NicsTable nics={vm.nics} />
-                <SecurityGroupsTable sgs={vm.security_groups} />
-              </NetworkingCard>
+                  <NetworkingCard
+                    rows={[
+                      { label: 'Private IP', value: vm.private_ip && <code>{vm.private_ip}</code> },
+                      { label: 'Public IP', value: vm.public_ip && <code>{vm.public_ip}</code> },
+                      {
+                        label: 'Private DNS',
+                        value: vm.private_dns_name && <code>{vm.private_dns_name}</code>,
+                      },
+                      { label: 'VPC', value: vm.vpc_id && <code>{vm.vpc_id}</code> },
+                      { label: 'Subnet', value: vm.subnet_id && <code>{vm.subnet_id}</code> },
+                    ]}
+                  >
+                    <NicsTable nics={vm.nics} />
+                    <SecurityGroupsTable sgs={vm.security_groups} />
+                  </NetworkingCard>
 
-              <SectionTitle>Cloud identity</SectionTitle>
-              <dl className="kv-list">
-                <KV
-                  k="Instance type"
-                  v={vm.instance_type && <code>{vm.instance_type}</code>}
-                />
-                <KV k="Architecture" v={vm.architecture} />
-                <KV k="Zone" v={vm.zone && <code>{vm.zone}</code>} />
-                <KV k="Region" v={vm.region && <code>{vm.region}</code>} />
-                <KV k="Image" v={vm.image_name} />
-                <KV k="Image ID" v={vm.image_id && <code>{vm.image_id}</code>} />
-                <KV k="Keypair" v={vm.keypair_name && <code>{vm.keypair_name}</code>} />
-                <KV k="Boot mode" v={vm.boot_mode} />
-                <KV
-                  k="Provider account"
-                  v={vm.provider_account_id && <code>{vm.provider_account_id}</code>}
-                />
-                <KV
-                  k="Created at provider"
-                  v={vm.provider_creation_date && formatTs(vm.provider_creation_date)}
-                />
-              </dl>
+                  <SectionTitle>Cloud identity</SectionTitle>
+                  <dl className="kv-list">
+                    <KV
+                      k="Instance type"
+                      v={vm.instance_type && <code>{vm.instance_type}</code>}
+                    />
+                    <KV k="Architecture" v={vm.architecture} />
+                    <KV k="Zone" v={vm.zone && <code>{vm.zone}</code>} />
+                    <KV k="Region" v={vm.region && <code>{vm.region}</code>} />
+                    <KV k="Image" v={vm.image_name} />
+                    <KV k="Image ID" v={vm.image_id && <code>{vm.image_id}</code>} />
+                    <KV k="Keypair" v={vm.keypair_name && <code>{vm.keypair_name}</code>} />
+                    <KV k="Boot mode" v={vm.boot_mode} />
+                    <KV
+                      k="Provider account"
+                      v={vm.provider_account_id && <code>{vm.provider_account_id}</code>}
+                    />
+                    <KV
+                      k="Created at provider"
+                      v={vm.provider_creation_date && formatTs(vm.provider_creation_date)}
+                    />
+                  </dl>
 
-              <SectionTitle>Power</SectionTitle>
-              <dl className="kv-list">
-                <KV k="Power state" v={<PowerStatePill state={vm.power_state} />} />
-                <KV k="Ready" v={vm.ready ? 'yes' : 'no'} />
-                <KV k="Deletion protection" v={vm.deletion_protection ? 'enabled' : 'disabled'} />
-                <KV k="State reason" v={vm.state_reason} />
-              </dl>
+                  <SectionTitle>Power</SectionTitle>
+                  <dl className="kv-list">
+                    <KV k="Power state" v={<PowerStatePill state={vm.power_state} />} />
+                    <KV k="Ready" v={vm.ready ? 'yes' : 'no'} />
+                    <KV k="Deletion protection" v={vm.deletion_protection ? 'enabled' : 'disabled'} />
+                    <KV k="State reason" v={vm.state_reason} />
+                  </dl>
 
-              <SectionTitle>OS stack</SectionTitle>
-              <dl className="kv-list">
-                <KV
-                  k="Kernel"
-                  v={vm.kernel_version ? <code>{vm.kernel_version}</code> : <Dash />}
-                />
-                <KV
-                  k="Operating system"
-                  v={vm.operating_system ? vm.operating_system : <Dash />}
-                />
-              </dl>
+                  <SectionTitle>OS stack</SectionTitle>
+                  <dl className="kv-list">
+                    <KV
+                      k="Kernel"
+                      v={vm.kernel_version ? <code>{vm.kernel_version}</code> : <Dash />}
+                    />
+                    <KV
+                      k="Operating system"
+                      v={vm.operating_system ? vm.operating_system : <Dash />}
+                    />
+                  </dl>
 
-              <CapacityCard
-                showAllocatable={false}
-                rows={[
-                  { dimension: 'CPU', capacity: vm.capacity_cpu },
-                  { dimension: 'Memory', capacity: vm.capacity_memory },
-                ]}
-                emptyMessage={
-                  vm.instance_type
-                    ? `Unknown (instance type ${vm.instance_type} not in capacity table)`
-                    : 'Unknown'
-                }
-              />
+                  <CapacityCard
+                    showAllocatable={false}
+                    rows={[
+                      { dimension: 'CPU', capacity: vm.capacity_cpu },
+                      { dimension: 'Memory', capacity: vm.capacity_memory },
+                    ]}
+                    emptyMessage={
+                      vm.instance_type
+                        ? `Unknown (instance type ${vm.instance_type} not in capacity table)`
+                        : 'Unknown'
+                    }
+                  />
 
-              <SectionTitle>Storage</SectionTitle>
-              <dl className="kv-list">
-                <KV
-                  k="Root device type"
-                  v={vm.root_device_type && <code>{vm.root_device_type}</code>}
-                />
-                <KV
-                  k="Root device name"
-                  v={vm.root_device_name && <code>{vm.root_device_name}</code>}
-                />
-              </dl>
-              <BlockDevicesTable devices={vm.block_devices} />
+                  <SectionTitle>Storage</SectionTitle>
+                  <dl className="kv-list">
+                    <KV
+                      k="Root device type"
+                      v={vm.root_device_type && <code>{vm.root_device_type}</code>}
+                    />
+                    <KV
+                      k="Root device name"
+                      v={vm.root_device_name && <code>{vm.root_device_name}</code>}
+                    />
+                  </dl>
+                  <BlockDevicesTable devices={vm.block_devices} />
 
-              <ApplicationsCard
-                applications={vm.applications}
-                onSave={(apps) =>
-                  api
-                    .updateVirtualMachine(vm.id, { applications: apps })
-                    .then(() => undefined)
-                }
-                onSaved={reload}
-              />
+                  <SectionTitle>Lifecycle</SectionTitle>
+                  <dl className="kv-list">
+                    <KV k="Created" v={formatTs(vm.created_at)} />
+                    <KV k="Updated" v={formatTs(vm.updated_at)} />
+                    <KV k="Last seen" v={formatTs(vm.last_seen_at)} />
+                    <KV
+                      k="Terminated"
+                      v={
+                        vm.terminated_at ? (
+                          <span className="vm-terminated-ts">{formatTs(vm.terminated_at)}</span>
+                        ) : undefined
+                      }
+                    />
+                  </dl>
+                </div>
+                <div>
+                  <ApplicationsCard
+                    applications={vm.applications}
+                    onSave={(apps) =>
+                      api
+                        .updateVirtualMachine(vm.id, { applications: apps })
+                        .then(() => undefined)
+                    }
+                    onSaved={reload}
+                  />
 
-              <LabelsCard labels={vm.tags} title="Tags (provider)" />
-              <LabelsCard labels={vm.labels} title="Labels" />
-              <AnnotationsCard annotations={vm.annotations} />
+                  <LabelsCard labels={vm.tags} title="Tags (provider)" />
+                  <LabelsCard labels={vm.labels} title="Labels" />
+                  <AnnotationsCard annotations={vm.annotations} />
 
-              <SectionTitle>Lifecycle</SectionTitle>
-              <dl className="kv-list">
-                <KV k="Created" v={formatTs(vm.created_at)} />
-                <KV k="Updated" v={formatTs(vm.updated_at)} />
-                <KV k="Last seen" v={formatTs(vm.last_seen_at)} />
-                <KV
-                  k="Terminated"
-                  v={
-                    vm.terminated_at ? (
-                      <span className="vm-terminated-ts">{formatTs(vm.terminated_at)}</span>
-                    ) : undefined
-                  }
-                />
-              </dl>
+                  <ImpactSection entityType="virtual-machines" entityId={id} />
+                </div>
+              </div>
             </>
           );
         }}

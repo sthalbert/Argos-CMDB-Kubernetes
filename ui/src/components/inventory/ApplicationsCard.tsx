@@ -37,11 +37,11 @@ export function ApplicationsCard({
   }
 
   return (
-    <section className="curated-card">
-      <div className="curated-card-header">
-        <h3>Applications</h3>
+    <div className="lv-card">
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">Applications</h3>
         {canEdit(me) && (
-          <button type="button" className="primary" onClick={() => setEditing(true)}>
+          <button type="button" className="lv-btn lv-btn-ghost" onClick={() => setEditing(true)}>
             Edit
           </button>
         )}
@@ -90,7 +90,7 @@ export function ApplicationsCard({
           </tbody>
         </table>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -193,9 +193,9 @@ function ApplicationsForm({
   };
 
   return (
-    <section className="curated-card">
-      <div className="curated-card-header">
-        <h3>Edit applications</h3>
+    <div className="lv-card">
+      <div className="lv-card-header">
+        <h3 className="lv-card-title">Edit applications</h3>
       </div>
       <form className="admin-form" onSubmit={onSubmit}>
         <p className="muted" style={{ marginTop: 0 }}>
@@ -254,7 +254,7 @@ function ApplicationsForm({
                   <td>
                     <button
                       type="button"
-                      className="danger"
+                      className="lv-btn lv-btn-ghost"
                       onClick={() => remove(i)}
                       disabled={busy}
                     >
@@ -273,10 +273,10 @@ function ApplicationsForm({
         </div>
         {error && <div className="error">{error}</div>}
         <div className="admin-form-actions">
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="submit" className="lv-btn lv-btn-primary" disabled={busy}>
             {busy ? 'Saving…' : 'Save'}
           </button>
-          <button type="button" className="danger" onClick={onCancel} disabled={busy}>
+          <button type="button" className="lv-btn lv-btn-ghost" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         </div>
@@ -287,6 +287,6 @@ function ApplicationsForm({
         on the VM with lifecycle status, latest available version, and EOL date. Run a manual
         enrichment cycle from <strong>Admin &gt; Settings</strong>, or wait for the next tick.
       </p>
-    </section>
+    </div>
   );
 }
