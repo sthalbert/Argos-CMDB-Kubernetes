@@ -1,6 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError, changePassword } from '../api';
+import { PageHead } from '../components/lv/PageHead';
+import { Callout } from '../components/lv/Callout';
 
 // Forced-rotation page per ADR-0007. Reached automatically on first
 // login for the bootstrap admin (must_change_password=true) and for
@@ -48,51 +50,56 @@ export default function ChangePassword({ forced }: { forced?: boolean }) {
   };
 
   return (
-    <form className="login" onSubmit={onSubmit}>
-      <h2>{forced ? 'Rotate your password' : 'Change password'}</h2>
-      {forced && (
-        <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-          Your account was flagged <code>must_change_password</code>. Rotate
-          it now — this is the only page available until you do.
-        </p>
-      )}
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 1.5rem' }}>
+      <div className="lv-card" style={{ width: '100%', maxWidth: 460 }}>
+        <PageHead
+          title={forced ? 'Rotate your password' : 'Change password'}
+          sub={forced ? 'You must rotate before continuing.' : undefined}
+        />
+        {forced && (
+          <Callout title="Rotation required" status="warn">
+            Your administrator requires you to set a new password.
+          </Callout>
+        )}
+        <form className="login" onSubmit={onSubmit}>
+          <label htmlFor="current">Current password</label>
+          <input
+            id="current"
+            type="password"
+            autoComplete="current-password"
+            autoFocus
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+          />
 
-      <label htmlFor="current">Current password</label>
-      <input
-        id="current"
-        type="password"
-        autoComplete="current-password"
-        autoFocus
-        value={current}
-        onChange={(e) => setCurrent(e.target.value)}
-      />
+          <label htmlFor="next" style={{ marginTop: '0.75rem' }}>
+            New password (12+ characters)
+          </label>
+          <input
+            id="next"
+            type="password"
+            autoComplete="new-password"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+          />
 
-      <label htmlFor="next" style={{ marginTop: '0.75rem' }}>
-        New password (12+ characters)
-      </label>
-      <input
-        id="next"
-        type="password"
-        autoComplete="new-password"
-        value={next}
-        onChange={(e) => setNext(e.target.value)}
-      />
+          <label htmlFor="confirm" style={{ marginTop: '0.75rem' }}>
+            Confirm new password
+          </label>
+          <input
+            id="confirm"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
 
-      <label htmlFor="confirm" style={{ marginTop: '0.75rem' }}>
-        Confirm new password
-      </label>
-      <input
-        id="confirm"
-        type="password"
-        autoComplete="new-password"
-        value={confirm}
-        onChange={(e) => setConfirm(e.target.value)}
-      />
-
-      <button type="submit" disabled={busy}>
-        {busy ? 'Rotating…' : 'Change password'}
-      </button>
-      {error && <div className="error">{error}</div>}
-    </form>
+          <button type="submit" disabled={busy}>
+            {busy ? 'Rotating…' : 'Change password'}
+          </button>
+          {error && <div className="error">{error}</div>}
+        </form>
+      </div>
+    </div>
   );
 }

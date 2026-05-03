@@ -27,4 +27,10 @@ describe('LogomarkLarge', () => {
     const lines = container.querySelectorAll('svg line');
     expect(lines.length).toBe(9);
   });
+
+  it('forwards className to the svg element', () => {
+    const { container } = render(<LogomarkLarge className="lv-login-mark" />);
+    const svg = container.querySelector('svg')!;
+    expect(svg.classList.contains('lv-login-mark')).toBe(true);
+  });
 });

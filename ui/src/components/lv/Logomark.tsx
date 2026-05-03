@@ -41,7 +41,7 @@ export function Logomark({ size = 28, className }: { size?: number; className?: 
   );
 }
 
-export function LogomarkLarge({ size = 180 }: { size?: number }) {
+export function LogomarkLarge({ size = 180, className }: { size?: number; className?: string }) {
   return (
     <svg
       viewBox="0 0 180 180"
@@ -51,6 +51,7 @@ export function LogomarkLarge({ size = 180 }: { size?: number }) {
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
+      className={className}
       aria-hidden="true"
     >
       <circle cx={90} cy={90} r={75} strokeWidth={1.5} />

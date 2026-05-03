@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError, getAuthConfig, login } from '../api';
-import { ClusterIcon } from '../icons';
+import { LogomarkLarge } from '../components/lv/Logomark';
 
 // Username + password login per ADR-0007. A successful POST sets the
 // session cookie server-side; we never see the cookie value in JS.
@@ -80,57 +80,65 @@ export default function Login() {
   };
 
   return (
-    <form className="login" onSubmit={onSubmit}>
-      <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-        <ClusterIcon size={32} style={{ color: 'var(--accent)' }} />
-        <div style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '0.02em', marginTop: '0.5rem' }}>
-          longue-vue CMDB
+    <div className="lv-login-page">
+      <aside className="lv-login-side">
+        <LogomarkLarge size={160} className="lv-login-mark" />
+        <div className="lv-login-tagline">
+          The <em>long view</em> on your Kubernetes estate.
         </div>
-      </div>
-      <h2>Sign in</h2>
-      <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        First install? Read the <code>LONGUE-VUE FIRST-RUN BOOTSTRAP</code> banner
-        in the longue-vue startup log for the initial admin password.
-      </p>
+        <div className="lv-login-foot">
+          <span>longue-vue CMDB</span>
+          <span>SecNumCloud-aligned</span>
+        </div>
+      </aside>
+      <section className="lv-login-form-wrap">
+        <div className="lv-login-form">
+          <h2>Sign in</h2>
+          <form onSubmit={onSubmit}>
+            <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+              First install? Read the <code>LONGUE-VUE FIRST-RUN BOOTSTRAP</code> banner
+              in the longue-vue startup log for the initial admin password.
+            </p>
 
-      {oidcErrorMessage && <div className="error">{oidcErrorMessage}</div>}
+            {oidcErrorMessage && <div className="error">{oidcErrorMessage}</div>}
 
-      <label htmlFor="username">Username</label>
-      <input
-        id="username"
-        type="text"
-        autoComplete="username"
-        autoFocus
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-      />
+            <label htmlFor="username">Username</label>
+            <input
+              id="username"
+              type="text"
+              autoComplete="username"
+              autoFocus
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
 
-      <label htmlFor="password" style={{ marginTop: '0.75rem' }}>
-        Password
-      </label>
-      <input
-        id="password"
-        type="password"
-        autoComplete="current-password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
+            <label htmlFor="password" style={{ marginTop: '0.75rem' }}>
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
 
-      <button type="submit" disabled={busy}>
-        {busy ? 'Signing in…' : 'Sign in'}
-      </button>
-      {error && <div className="error">{error}</div>}
+            <button type="submit" disabled={busy}>
+              {busy ? 'Signing in…' : 'Sign in'}
+            </button>
+            {error && <div className="error">{error}</div>}
 
-      {oidc?.enabled && (
-        <>
-          <div className="login-divider">
-            <span>or</span>
-          </div>
-          <button type="button" className="login-oidc" onClick={startOidc}>
-            Sign in with {oidc.label || 'OIDC'}
-          </button>
-        </>
-      )}
-    </form>
+            {oidc?.enabled && (
+              <>
+                <div className="lv-login-divider">or</div>
+                <button type="button" className="login-oidc" onClick={startOidc}>
+                  Sign in with {oidc.label || 'OIDC'}
+                </button>
+              </>
+            )}
+          </form>
+        </div>
+      </section>
+    </div>
   );
 }
