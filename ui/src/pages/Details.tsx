@@ -96,7 +96,7 @@ export function ClusterDetail() {
   return (
     <>
       <div className="breadcrumb">
-        <Link to="/clusters">Clusters</Link> / <span>this cluster</span>
+        <Link to="/clusters" aria-label="Back to clusters">Clusters</Link> / <span>this cluster</span>
       </div>
       <AsyncView state={state}>
         {([cluster, nodes, namespaces, pvs]) => {

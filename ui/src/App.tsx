@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import * as api from './api';
 import Login from './pages/Login';
@@ -35,11 +35,11 @@ import SettingsPage from './pages/admin/Settings';
 import CloudAccountsPage from './pages/admin/CloudAccounts';
 import CloudAccountDetail from './pages/admin/CloudAccountDetail';
 import { MeProvider } from './me';
-import {
-  ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon,
-  ServiceIcon, IngressIcon, VolumeIcon, SearchIcon, EolIcon, AdminIcon,
-  VirtualMachineIcon,
-} from './icons';
+import { Brand } from './components/lv/Brand';
+import { Pill } from './components/lv/Pill';
+import { Disclosure } from './components/lv/Disclosure';
+import { UiPrefsProvider } from './ui-prefs';
+import { UiPrefsPanel } from './components/lv/UiPrefsPanel';
 
 // --- auth gate ----------------------------------------------------------
 
@@ -99,73 +99,150 @@ function RequireAdmin({ auth, children }: { auth: AuthState; children: React.Rea
 
 // --- chrome -------------------------------------------------------------
 
+const PRIMARY_NAV: Array<{ to: string; label: string; roles?: api.Me['role'][] }> = [
+  { to: '/clusters',         label: 'Clusters' },
+  { to: '/workloads',        label: 'Workloads' },
+  { to: '/nodes',            label: 'Nodes' },
+  { to: '/virtual-machines', label: 'Virtual Machines' },
+  { to: '/eol',              label: 'Lifecycle' },
+  { to: '/search/image',     label: 'Search' },
+];
+
+const MORE_ITEMS: Array<{ to: string; label: string }> = [
+  { to: '/namespaces',             label: 'Namespaces' },
+  { to: '/pods',                   label: 'Pods' },
+  { to: '/services',               label: 'Services' },
+  { to: '/ingresses',              label: 'Ingresses' },
+  { to: '/persistentvolumes',      label: 'PVs' },
+  { to: '/persistentvolumeclaims', label: 'PVCs' },
+];
+
+function pathPrefix(pathname: string): string {
+  const m = /^\/[^/]+/.exec(pathname);
+  return m ? m[0] : '/';
+}
+
 function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState(false);
-  const toggle = useCallback(() => setCollapsed((c) => !c), []);
+  const location = useLocation();
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const ts = now.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const activePrefix = pathPrefix(location.pathname);
 
   const signOut = async () => {
-    try {
-      await api.logout();
-    } catch {
-      // Ignore; we're clearing local state either way.
-    }
+    try { await api.logout(); } catch { /* ignore */ }
     navigate('/login', { replace: true });
   };
-  const link = (to: string, label: string, Icon?: React.FC<{ size?: number }>) => (
-    <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} title={collapsed ? label : undefined}>
-      {Icon && <Icon size={16} />}
-      {!collapsed && <span>{label}</span>}
-    </NavLink>
-  );
+
+  const adminEntry = me.role === 'admin'
+    ? { to: '/admin/users', label: 'Admin' }
+    : me.role === 'auditor'
+    ? { to: '/admin/audit', label: 'Admin' }
+    : null;
+
+  const auditNavEntry = (me.role === 'admin' || me.role === 'auditor');
+
   return (
-    <div className={`app-layout${collapsed ? ' sidebar-collapsed' : ''}`}>
-      <aside className="sidebar">
-        <button className="sidebar-toggle" onClick={toggle} title={collapsed ? 'Expand' : 'Collapse'}>
-          <svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-            <line x1={4} y1={6} x2={20} y2={6} />
-            <line x1={4} y1={12} x2={20} y2={12} />
-            <line x1={4} y1={18} x2={20} y2={18} />
-          </svg>
-        </button>
-        <nav className="sidebar-nav">
-          <span className="sidebar-section-label">Kubernetes</span>
-          {link('/clusters', 'Clusters', ClusterIcon)}
-          {link('/namespaces', 'Namespaces', NamespaceIcon)}
-          {link('/nodes', 'Nodes', NodeIcon)}
-          {link('/workloads', 'Workloads', WorkloadIcon)}
-          {link('/pods', 'Pods', PodIcon)}
-          {link('/services', 'Services', ServiceIcon)}
-          {link('/ingresses', 'Ingresses', IngressIcon)}
-          {link('/persistentvolumes', 'PVs', VolumeIcon)}
-          {link('/persistentvolumeclaims', 'PVCs', VolumeIcon)}
-          <div className="sidebar-divider" />
-          <span className="sidebar-section-label">Cloud Infrastructure</span>
-          {link('/virtual-machines', 'Virtual Machines', VirtualMachineIcon)}
-          <div className="sidebar-divider" />
-          <span className="sidebar-section-label">Tools</span>
-          {link('/search/image', 'Search', SearchIcon)}
-          {link('/eol', 'EOL', EolIcon)}
-          {(me.role === 'admin' || me.role === 'auditor') && (
-            <>
-              <div className="sidebar-divider" />
-              {link(me.role === 'admin' ? '/admin/users' : '/admin/audit', 'Admin', AdminIcon)}
-            </>
+    <div className="lv-app">
+      <header className="lv-header">
+        <Brand />
+        <nav className="lv-nav">
+          {PRIMARY_NAV.map((it) => (
+            <NavLink
+              key={it.to}
+              to={it.to}
+              className={() => `lv-nav-link ${pathPrefix(it.to) === activePrefix ? 'active' : ''}`}
+            >
+              {it.label}
+            </NavLink>
+          ))}
+          <Disclosure
+            trigger={({ open, toggle }) => (
+              <button
+                type="button"
+                className={`lv-nav-link${open ? ' active' : ''}`}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={toggle}
+              >
+                More ▾
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div role="menu">
+                {MORE_ITEMS.map((it) => (
+                  <NavLink
+                    key={it.to}
+                    to={it.to}
+                    className="lv-popover-item"
+                    onClick={close}
+                  >
+                    {it.label}
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </Disclosure>
+          {auditNavEntry && (
+            <NavLink
+              to="/admin/audit"
+              className={() => `lv-nav-link ${activePrefix === '/admin' ? 'active' : ''}`}
+            >
+              Audit
+            </NavLink>
           )}
         </nav>
-      </aside>
-      <div className="app-main">
-        <header className="app-header">
-          <h1>longue-vue CMDB</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span className="muted" style={{ fontSize: 'var(--fs-base)' }}>
-              {me.username} <span className="pill">{me.role}</span>
-            </span>
-            <button onClick={signOut}>Sign out</button>
-          </div>
-        </header>
-        <main>{children}</main>
-      </div>
+        <div className="lv-header-right">
+          <span className="lv-time" aria-label={`polled ${ts}`}>
+            <span className="lv-time-dot" />
+            polled {ts}
+          </span>
+          <Disclosure
+            trigger={({ open, toggle }) => (
+              <button
+                type="button"
+                className="lv-iconbtn"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={toggle}
+              >
+                <span className="lv-user">
+                  <span>{me.username}</span>
+                  <Pill status="accent">{me.role}</Pill>
+                </span>
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div role="menu">
+                <div className="lv-popover-section-label">Signed in as {me.username}</div>
+                <div className="lv-popover-divider" />
+                <UiPrefsPanel />
+                {adminEntry && (
+                  <>
+                    <div className="lv-popover-divider" />
+                    <NavLink to={adminEntry.to} className="lv-popover-item" onClick={close}>
+                      {adminEntry.label}
+                    </NavLink>
+                  </>
+                )}
+                <div className="lv-popover-divider" />
+                <button type="button" className="lv-popover-item" onClick={() => { close(); signOut(); }}>
+                  Sign out
+                </button>
+              </div>
+            )}
+          </Disclosure>
+        </div>
+      </header>
+      <main className="lv-main">{children}</main>
     </div>
   );
 }
@@ -179,7 +256,9 @@ export default function App() {
     <RequireAuth auth={auth}>
       {auth.status === 'ready' && (
         <MeProvider value={auth.me}>
-          <Chrome me={auth.me}>{el}</Chrome>
+          <UiPrefsProvider>
+            <Chrome me={auth.me}>{el}</Chrome>
+          </UiPrefsProvider>
         </MeProvider>
       )}
     </RequireAuth>
