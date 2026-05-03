@@ -4,7 +4,8 @@ import * as api from '../api';
 import { useResource } from '../hooks';
 import { isAdmin, useMe } from '../me';
 import { AsyncView, Dash } from '../components';
-import { VirtualMachineIcon } from '../icons';
+import { PageHead } from '../components/lv/PageHead';
+import { Pill } from '../components/lv/Pill';
 
 // VirtualMachines is the top-level list page for ADR-0015 VMs. It mirrors
 // the shape of the EOL Inventory dashboard: filterable summary cards
@@ -47,26 +48,24 @@ function classify(state: string): PowerStateGroup {
   }
 }
 
-// powerStateClass returns the CSS class for a coloured pill matching the
-// state group. Tokens come from styles.css (--ok-* / --warn-* / --bad-*).
-function powerStateClass(state: string): string {
+// powerStatePillStatus maps a power state string to a Pill status prop.
+function powerStatePillStatus(state: string): 'ok' | 'warn' | 'bad' | undefined {
   const g = classify(state);
   switch (g) {
     case 'running':
-      return 'pill status-ok';
+      return 'ok';
     case 'stopped':
-      return 'pill status-warn';
     case 'error':
-      return 'pill status-warn';
+      return 'warn';
     case 'terminated':
-      return 'pill status-bad';
+      return 'bad';
     default:
-      return 'pill';
+      return undefined;
   }
 }
 
 export function PowerStatePill({ state }: { state: string }) {
-  return <span className={powerStateClass(state)}>{state}</span>;
+  return <Pill status={powerStatePillStatus(state)}>{state}</Pill>;
 }
 
 function formatTs(ts?: string | null): string {
@@ -212,14 +211,15 @@ export default function VirtualMachines() {
 
   const accountList = accountsState.status === 'ready' ? accountsState.data?.items ?? [] : [];
 
+  const sub =
+    vmsState.status === 'ready' ? `${vmsState.data.items.length} total` : undefined;
+
   return (
     <>
-      <h2>
-        <VirtualMachineIcon size={20} /> Virtual Machines
-      </h2>
-      <p className="muted" style={{ marginBottom: '1rem' }}>
-        Non-Kubernetes platform VMs catalogued by longue-vue-vm-collector (ADR-0015).
-      </p>
+      <PageHead
+        title="Virtual machines"
+        sub={sub}
+      />
 
       <AsyncView state={vmsState}>
         {(vms) => {
@@ -454,14 +454,14 @@ export default function VirtualMachines() {
                 <div className="vm-filter-actions">
                   <button
                     type="button"
-                    className="primary"
+                    className="lv-btn lv-btn-primary"
                     onClick={handleSearchSubmit}
                     disabled={!dirty && !appliedName && !appliedImage}
                   >
                     Search
                   </button>
                   {(appliedName || appliedImage || nameInput || imageInput) && (
-                    <button type="button" onClick={handleClearSearch}>
+                    <button type="button" className="lv-btn lv-btn-ghost" onClick={handleClearSearch}>
                       Clear
                     </button>
                   )}
@@ -573,9 +573,7 @@ export default function VirtualMachines() {
                             {splitRoles(vm.role).length > 0 ? (
                               <span style={{ display: 'inline-flex', gap: '0.25rem', flexWrap: 'wrap' }}>
                                 {splitRoles(vm.role).map((r) => (
-                                  <span key={r} className="pill">
-                                    {r}
-                                  </span>
+                                  <Pill key={r}>{r}</Pill>
                                 ))}
                               </span>
                             ) : (

@@ -4,7 +4,6 @@ import * as api from '../api';
 import { useResource } from '../hooks';
 import { isAdmin, useMe } from '../me';
 import { AsyncView, Dash, KV, SectionTitle, Empty } from '../components';
-import { VirtualMachineIcon } from '../icons';
 import { PowerStatePill } from './VirtualMachines';
 import { IdentityCard } from '../components/inventory/IdentityCard';
 import { NetworkingCard } from '../components/inventory/NetworkingCard';
@@ -13,6 +12,9 @@ import { LabelsCard } from '../components/inventory/LabelsCard';
 import { AnnotationsCard } from '../components/inventory/AnnotationsCard';
 import { ApplicationsCard } from '../components/inventory/ApplicationsCard';
 import { CuratedMetadataCard } from '../components/inventory/CuratedMetadataCard';
+import { Breadcrumb } from '../components/lv/Breadcrumb';
+import { PageHead } from '../components/lv/PageHead';
+import { Pill } from '../components/lv/Pill';
 
 // VirtualMachineDetail is the per-VM drill-down page. Card layout mirrors
 // the Node detail page, with extra cards for cloud-native fields (image,
@@ -52,29 +54,33 @@ export default function VirtualMachineDetail() {
 
   return (
     <>
-      <div className="breadcrumb">
-        <Link to="/virtual-machines">Virtual Machines</Link> / <span>this VM</span>
-      </div>
       <AsyncView state={vmState}>
         {(vm) => {
           const acct = acctState.status === 'ready' ? acctState.data : null;
           return (
             <>
-              <h2>
-                <VirtualMachineIcon size={20} /> {vm.display_name || vm.name}{' '}
-                <PowerStatePill state={vm.power_state} />
-                {vm.terminated_at && (
-                  <span className="pill status-bad" style={{ marginLeft: '0.4rem' }}>
-                    Terminated
-                  </span>
-                )}
-              </h2>
+              <Breadcrumb
+                parts={[
+                  { label: 'Virtual machines', to: '/virtual-machines', ariaLabel: 'Back to virtual machines' },
+                  { label: vm.display_name || vm.name },
+                ]}
+              />
+              <PageHead
+                title={vm.display_name || vm.name}
+                sub={vm.instance_type ?? undefined}
+                actions={<>
+                  <PowerStatePill state={vm.power_state} />
+                  {vm.terminated_at && (
+                    <Pill status="bad">Terminated</Pill>
+                  )}
+                </>}
+              />
 
               <IdentityCard
                 rows={[
                   { label: 'Name', value: <code>{vm.name}</code> },
                   { label: 'Display name', value: vm.display_name },
-                  { label: 'Role', value: vm.role && <span className="pill">{vm.role}</span> },
+                  { label: 'Role', value: vm.role && <Pill>{vm.role}</Pill> },
                   {
                     label: 'Provider VM ID',
                     value: <code>{vm.provider_vm_id}</code>,
@@ -116,7 +122,7 @@ export default function VirtualMachineDetail() {
                   { label: 'Display name', value: vm.display_name },
                   {
                     label: 'Role',
-                    value: vm.role ? <span className="pill">{vm.role}</span> : null,
+                    value: vm.role ? <Pill>{vm.role}</Pill> : null,
                   },
                 ]}
                 extraFields={[
