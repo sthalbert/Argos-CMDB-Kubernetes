@@ -243,7 +243,7 @@ function NamespaceLink({
 export function Workloads() {
   const index = useNamespaceIndex();
   const workloads = useResource(() => api.listWorkloads(), []);
-  const sub = workloads.status === 'ready' ? `${workloads.data.items.length} active` : undefined;
+  const sub = workloads.status === 'ready' ? `${workloads.data.items.length} total` : undefined;
 
   return (
     <>
@@ -516,7 +516,7 @@ export function PersistentVolumes() {
       })),
     [],
   );
-  const sub = state.status === 'ready' ? `${state.data.pvs.length} active` : undefined;
+  const sub = state.status === 'ready' ? `${state.data.pvs.length} total` : undefined;
   return (
     <>
       <PageHead title="Persistent Volumes" sub={sub} />
@@ -566,7 +566,7 @@ export function PersistentVolumes() {
 export function PersistentVolumeClaims() {
   const index = useNamespaceIndex();
   const pvcs = useResource(() => api.listPersistentVolumeClaims(), []);
-  const sub = pvcs.status === 'ready' ? `${pvcs.data.items.length} active` : undefined;
+  const sub = pvcs.status === 'ready' ? `${pvcs.data.items.length} total` : undefined;
   return (
     <>
       <PageHead title="Persistent Volume Claims" sub={sub} />
