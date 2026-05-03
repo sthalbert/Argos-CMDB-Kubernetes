@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
-import { Callout } from '../../components/lv/Callout';
 import { Pill } from '../../components/lv/Pill';
 
 // Token presets per ADR-0007 + ADR-0015.
@@ -63,8 +62,12 @@ function MintedReveal({
     }
   };
 
+  // Callout primitive is single-line by design (title + inline child).
+  // This reveal needs multi-block layout (intro, code + copy button, metadata),
+  // so we use the lv-callout CSS class directly instead of the Callout component.
   return (
-    <Callout title="Token minted — shown once, copy it now" status="ok">
+    <div className="lv-callout ok">
+      <strong>Token minted (copy now — you won&apos;t see it again)</strong>
       <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
         longue-vue stores only the argon2id hash. Once you dismiss this banner the
         plaintext is gone — if you lose it, revoke the token and mint a new one.
@@ -82,7 +85,7 @@ function MintedReveal({
       <div style={{ marginTop: '0.5rem' }}>
         <button onClick={onDismiss} className="lv-btn lv-btn-ghost">Dismiss</button>
       </div>
-    </Callout>
+    </div>
   );
 }
 

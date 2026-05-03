@@ -4,6 +4,8 @@ import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, KV, SectionTitle } from '../../components';
 import { CuratedMetadataCard } from '../../components/inventory/CuratedMetadataCard';
+import { Pill } from '../../components/lv/Pill';
+import { PowerStatePill } from '../VirtualMachines';
 import { CloudAccountStatusBadge } from './CloudAccounts';
 
 // CloudAccountDetail — admin-only drill-down for one cloud_account row.
@@ -77,7 +79,7 @@ export default function CloudAccountDetail() {
               <SectionTitle>Identity</SectionTitle>
               <dl className="kv-list">
                 <KV k="Name" v={<code>{account.name}</code>} />
-                <KV k="Provider" v={<span className="pill">{account.provider}</span>} />
+                <KV k="Provider" v={<Pill>{account.provider}</Pill>} />
                 <KV k="Region" v={<code>{account.region}</code>} />
                 <KV k="Status" v={<CloudAccountStatusBadge status={account.status} />} />
                 <KV
@@ -196,7 +198,7 @@ export default function CloudAccountDetail() {
                               </Link>
                             </td>
                             <td>
-                              <span className="pill">{vm.power_state}</span>
+                              <PowerStatePill state={vm.power_state} />
                             </td>
                             <td>
                               {vm.region ? <code>{vm.region}</code> : <Dash />}

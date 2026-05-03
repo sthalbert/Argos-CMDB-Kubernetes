@@ -2,8 +2,8 @@ import { FormEvent, useState } from 'react';
 import type { ReactNode } from 'react';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
-import { AsyncView, SectionTitle } from '../../components';
-import { AuditRow } from '../../components/lv/AuditRow';
+import { AsyncView, Dash, SectionTitle } from '../../components';
+import { AuditHeader, AuditRow } from '../../components/lv/AuditRow';
 import { Pill } from '../../components/lv/Pill';
 
 // Admin Audit page. Read-only, newest-first list of recorded API
@@ -91,6 +91,7 @@ export default function AuditPage() {
             <p className="muted">No audit events match.</p>
           ) : (
             <div role="table">
+              <AuditHeader />
               {resp.items.map((e) => (
                 <AuditRow
                   key={e.id}
@@ -98,6 +99,7 @@ export default function AuditPage() {
                   actor={actorLabel(e)}
                   message={renderMessage(e)}
                   result={statusPill(e.http_status)}
+                  meta={e.source_ip ? <code>{e.source_ip}</code> : <Dash />}
                 />
               ))}
             </div>
@@ -108,10 +110,14 @@ export default function AuditPage() {
   );
 }
 
-function actorLabel(e: api.AuditEvent): string {
-  if (e.actor_username) return e.actor_username;
-  if (e.actor_id) return e.actor_id;
-  return e.actor_kind;
+function actorLabel(e: api.AuditEvent): ReactNode {
+  const name = e.actor_username ?? e.actor_id ?? e.actor_kind;
+  if (!e.actor_role) return name;
+  return (
+    <>
+      {name} <Pill>{e.actor_role}</Pill>
+    </>
+  );
 }
 
 function renderMessage(e: api.AuditEvent): ReactNode {

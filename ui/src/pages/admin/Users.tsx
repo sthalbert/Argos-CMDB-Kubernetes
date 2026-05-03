@@ -215,10 +215,10 @@ function UserRow({ user, reload }: { user: api.User; reload: Reload }) {
       <td>{user.last_login_at ? formatTs(user.last_login_at) : <Dash />}</td>
       <td>{formatTs(user.created_at)}</td>
       <td style={{ textAlign: 'right' }}>
-        <button onClick={resetPassword} disabled={busy}>
+        <button onClick={resetPassword} disabled={busy} className="lv-btn lv-btn-ghost">
           Reset pw
         </button>{' '}
-        <button onClick={toggleDisable} disabled={busy}>
+        <button onClick={toggleDisable} disabled={busy} className="lv-btn lv-btn-ghost">
           {user.disabled_at ? 'Enable' : 'Disable'}
         </button>{' '}
         <button onClick={deleteUser} disabled={busy} className="lv-btn lv-btn-ghost">
