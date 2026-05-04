@@ -6,9 +6,12 @@ package mcp
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -21,9 +24,11 @@ import (
 // errDisabled is returned to MCP clients when the administrator has
 // toggled the MCP feature off via the settings table.
 var (
-	errDisabled         = errors.New("MCP server is disabled by administrator")
-	errUnauthorized     = errors.New("authentication required — provide a valid bearer token")
-	errUnknownTransport = errors.New("unknown MCP transport (want \"stdio\" or \"sse\")")
+	errDisabled            = errors.New("MCP server is disabled by administrator")
+	errUnauthorized        = errors.New("authentication required — provide a valid bearer token")
+	errUnknownTransport    = errors.New("unknown MCP transport (want \"stdio\" or \"sse\")")
+	errRateLimited         = errors.New("rate limit exceeded — slow down or split into smaller batches")
+	errMCPPlaintextRefused = errors.New("mcp sse: TLS not configured and AllowPlaintext=false — refusing to start (CRIT-01)")
 )
 
 // maxTotalItems caps the total number of items collectAll returns to
@@ -74,9 +79,30 @@ type Store interface {
 	ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolumeClaim, string, error)
 }
 
-// AuthFunc validates a bearer token and returns an error if invalid.
-// The MCP server calls this on every tool invocation for SSE transport.
-type AuthFunc func(ctx context.Context, token string) error
+// Caller carries the resolved identity of a tool-call initiator.
+// For SSE transport, it is populated from the verified bearer token.
+// For stdio transport (no per-request auth), TokenID is nil and Name
+// is "mcp-stdio".
+type Caller struct {
+	TokenID *uuid.UUID // nil for stdio
+	Name    string     // "mcp-stdio" for stdio, token name otherwise
+	UserID  *uuid.UUID // creator of the token, if any
+	Scopes  []string
+}
+
+type ctxKeyCaller struct{}
+
+// mcpCallerFromContext retrieves the resolved caller stored by checkAccess.
+// Returns nil when no caller is present (e.g. disabled-before-auth path).
+func mcpCallerFromContext(ctx context.Context) *Caller {
+	v, _ := ctx.Value(ctxKeyCaller{}).(*Caller)
+	return v
+}
+
+// AuthFunc validates a bearer token and returns the resolved caller on
+// success, or an error if the token is invalid. The MCP server calls this on
+// every tool invocation for SSE transport.
+type AuthFunc func(ctx context.Context, token string) (*Caller, error)
 
 // Config holds the MCP server configuration.
 type Config struct {
@@ -88,19 +114,38 @@ type Config struct {
 	Token string
 	// Auth validates bearer tokens on SSE transport. Required for SSE.
 	Auth AuthFunc
+	// Recorder records one audit_events row per tool call. Optional; nil
+	// disables MCP audit logging (tests / stdio without DB).
+	Recorder api.AuditRecorder
+	// TLSGetCertificate enables TLS 1.3 on the SSE listener when non-nil.
+	// The hook is the standard tls.Config.GetCertificate callback,
+	// produced by the parent's cert-reloader so cert rotation is
+	// transparent (no listener restart).
+	TLSGetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+	// AllowPlaintext, when true, lets the SSE transport start without
+	// TLS. Required for tests, dev loops, and environments that
+	// terminate TLS upstream (e.g. an in-cluster service mesh sidecar).
+	// Refused unless explicitly opted in — bearer tokens flow over the
+	// wire and must not be exposed in plaintext on a network interface.
+	AllowPlaintext bool
+	// RateLimiter enforces per-token rate limiting on tool calls.
+	// Optional; nil disables rate limiting.
+	RateLimiter *RateLimiter
 }
 
 // Server wraps an MCP server backed by the longue-vue CMDB store.
 type Server struct {
-	store     Store
-	traverser *impact.Traverser
-	cfg       Config
-	mcp       *server.MCPServer
+	store       Store
+	traverser   *impact.Traverser
+	cfg         Config
+	mcp         *server.MCPServer
+	stdioCaller *Caller // set after successful stdio token verification
+	isStdio     bool    // true when transport=="stdio"; skips per-call bearer auth
 }
 
 // NewServer creates a Server. The traverser is used for the
 // get_impact_graph tool; pass nil if impact analysis is not needed.
-func NewServer(store Store, traverser *impact.Traverser, cfg Config) *Server {
+func NewServer(store Store, traverser *impact.Traverser, cfg *Config) *Server {
 	mcpSrv := server.NewMCPServer(
 		"longue-vue CMDB",
 		"0.1.0",
@@ -110,8 +155,9 @@ func NewServer(store Store, traverser *impact.Traverser, cfg Config) *Server {
 	s := &Server{
 		store:     store,
 		traverser: traverser,
-		cfg:       cfg,
+		cfg:       *cfg,
 		mcp:       mcpSrv,
+		isStdio:   cfg.Transport == "stdio",
 	}
 	s.registerTools()
 	return s
@@ -131,8 +177,35 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+// verifyStdioToken validates cfg.Token at stdio startup (MED-01).
+// If Token is non-empty and Auth is configured, the token is verified once;
+// the resolved caller is stored on s.stdioCaller for subsequent tool-call
+// attribution. If Token is empty, a loud warning is emitted and the server
+// falls back to process-level trust (audit rows tagged "mcp-stdio").
+func (s *Server) verifyStdioToken(ctx context.Context) error {
+	if s.cfg.Token == "" {
+		slog.Warn("mcp stdio: LONGUE_VUE_MCP_TOKEN not set — caller inherits process-level trust; audit rows will be tagged as 'mcp-stdio'")
+		return nil
+	}
+	if s.cfg.Auth == nil {
+		// Auth function not wired for stdio — no verification possible.
+		return nil
+	}
+	caller, err := s.cfg.Auth(ctx, s.cfg.Token)
+	if err != nil {
+		return fmt.Errorf("mcp stdio: token verification failed: %w", err)
+	}
+	s.stdioCaller = caller
+	slog.Info("mcp stdio: token verified", slog.String("caller", caller.Name))
+	return nil
+}
+
 func (s *Server) runStdio(ctx context.Context) error {
 	slog.Info("mcp server starting", slog.String("transport", "stdio"))
+
+	if err := s.verifyStdioToken(ctx); err != nil {
+		return err
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -149,26 +222,68 @@ func (s *Server) runStdio(ctx context.Context) error {
 }
 
 func (s *Server) runSSE(ctx context.Context) error {
-	slog.Info("mcp server starting", slog.String("transport", "sse"), slog.String("addr", s.cfg.Addr))
+	if s.cfg.TLSGetCertificate == nil && !s.cfg.AllowPlaintext {
+		return errMCPPlaintextRefused
+	}
 
-	sseSrv := server.NewSSEServer(s.mcp)
+	useTLS := s.cfg.TLSGetCertificate != nil
+
+	// Build our own http.Server so we can attach a TLS config.
+	// We pass it to the SDK via WithHTTPServer so that sseSrv.Shutdown()
+	// can drain sessions and then call httpSrv.Shutdown internally.
+	httpSrv := &http.Server{
+		Addr:              s.cfg.Addr,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	if useTLS {
+		httpSrv.TLSConfig = &tls.Config{
+			MinVersion:     tls.VersionTLS13,
+			GetCertificate: s.cfg.TLSGetCertificate,
+		}
+	}
+
+	sseSrv := server.NewSSEServer(s.mcp, server.WithHTTPServer(httpSrv))
+	// SSEServer implements http.Handler; wire it as the handler so that
+	// both Start() (plaintext) and our direct ListenAndServeTLS (TLS) path
+	// use the same SSE route mux.
+	httpSrv.Handler = sseSrv
+
+	slog.Info("mcp server starting", slog.String("transport", "sse"), slog.String("addr", s.cfg.Addr),
+		slog.Bool("tls", useTLS))
 
 	errCh := make(chan error, 1)
 	go func() {
-		if serveErr := sseSrv.Start(s.cfg.Addr); serveErr != nil {
+		var serveErr error
+		if useTLS {
+			// ListenAndServeTLS with empty cert/key files — the keypair is
+			// supplied exclusively via TLSConfig.GetCertificate.
+			serveErr = httpSrv.ListenAndServeTLS("", "")
+		} else {
+			slog.Warn("mcp sse: starting plaintext (LONGUE_VUE_MCP_ALLOW_PLAINTEXT=true) — bearer tokens are NOT protected on the wire",
+				slog.String("addr", s.cfg.Addr))
+			serveErr = httpSrv.ListenAndServe()
+		}
+		if !errors.Is(serveErr, http.ErrServerClosed) {
 			errCh <- serveErr
+		} else {
+			errCh <- nil
 		}
 	}()
 
 	select {
 	case <-ctx.Done():
 		slog.Info("mcp server shutting down (sse)")
-		if shutErr := sseSrv.Shutdown(ctx); shutErr != nil {
+		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if shutErr := sseSrv.Shutdown(shutCtx); shutErr != nil {
 			slog.Warn("mcp sse shutdown error", slog.Any("error", shutErr))
 		}
 		return fmt.Errorf("mcp server: %w", ctx.Err())
 	case err := <-errCh:
-		return fmt.Errorf("mcp sse serve: %w", err)
+		if err != nil {
+			return fmt.Errorf("mcp sse serve: %w", err)
+		}
+		return nil
 	}
 }
 
@@ -186,25 +301,75 @@ func (s *Server) checkEnabled(ctx context.Context) error {
 }
 
 // checkAccess validates that the MCP server is enabled and the caller
-// is authenticated. Called at the top of every tool handler.
+// is authenticated. On success it stores the resolved mcpCaller in ctx
+// and returns the updated context. Called at the top of every tool handler.
 //
 //nolint:gocritic // hugeParam: CallToolRequest passed by value per MCP SDK handler signature.
-func (s *Server) checkAccess(ctx context.Context, request mcp.CallToolRequest) error {
+func (s *Server) checkAccess(ctx context.Context, request mcp.CallToolRequest) (context.Context, error) {
 	if err := s.checkEnabled(ctx); err != nil {
-		return err
+		return ctx, err
 	}
-	if s.cfg.Auth == nil {
-		return nil // stdio transport — no per-request auth
+	if s.isStdio {
+		return s.checkAccessStdio(ctx)
 	}
-	token := request.Header.Get("Authorization")
+	return s.checkAccessSSE(ctx, request.Header.Get("Authorization"))
+}
+
+// checkAccessStdio resolves the caller for stdio transport (no per-request
+// auth) and applies the shared-bucket rate limit.
+func (s *Server) checkAccessStdio(ctx context.Context) (context.Context, error) {
+	caller := &Caller{Name: "mcp-stdio"}
+	if s.stdioCaller != nil {
+		caller = s.stdioCaller
+	}
+	ctx = context.WithValue(ctx, ctxKeyCaller{}, caller)
+	if s.cfg.RateLimiter != nil && !s.cfg.RateLimiter.Allow(ctx, "stdio") {
+		return ctx, errRateLimited
+	}
+	return ctx, nil
+}
+
+// checkAccessSSE validates the bearer token on the SSE transport and applies
+// per-token rate limiting.
+func (s *Server) checkAccessSSE(ctx context.Context, header string) (context.Context, error) {
+	token := stripBearer(header)
 	if token == "" {
-		return errUnauthorized
+		return ctx, errUnauthorized
 	}
-	// Strip "Bearer " prefix if present.
+	caller, err := s.cfg.Auth(ctx, token)
+	if err != nil {
+		return ctx, err
+	}
+	ctx = context.WithValue(ctx, ctxKeyCaller{}, caller)
+	if s.cfg.RateLimiter != nil && caller != nil && caller.TokenID != nil {
+		if !s.cfg.RateLimiter.Allow(ctx, caller.TokenID.String()) {
+			return ctx, errRateLimited
+		}
+	}
+	return ctx, nil
+}
+
+// stripBearer removes a leading "Bearer " prefix from an Authorization header
+// value. Returns the input unchanged when no prefix is present.
+func stripBearer(token string) string {
 	if len(token) > 7 && token[:7] == "Bearer " {
-		token = token[7:]
+		return token[7:]
 	}
-	return s.cfg.Auth(ctx, token)
+	return token
+}
+
+// recordCheckAccessFailure records either a 401 (auth denial) or 429
+// (rate limit) audit row based on the error type, then returns the
+// error wrapped as an MCP tool result. It should be called immediately
+// after checkAccess returns an error, before installing the deferred
+// finish handler.
+func (s *Server) recordCheckAccessFailure(ctx context.Context, tool string, args map[string]any, err error) *mcp.CallToolResult {
+	if errors.Is(err, errRateLimited) {
+		s.recordRateLimit(ctx, tool, args)
+	} else {
+		s.recordDenial(ctx, tool, args)
+	}
+	return mcp.NewToolResultError(err.Error())
 }
 
 // collectAll paginates through results up to maxTotalItems to prevent
