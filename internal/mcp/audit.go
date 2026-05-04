@@ -18,10 +18,11 @@ import (
 
 // sensitiveArgKeys lists args whose raw values must NOT appear in audit
 // logs because they may contain PII or secret-like substrings.
-var sensitiveArgKeys = map[string]bool{
-	"image": true,
-	"query": true,
-	"name":  true,
+var sensitiveArgKeys = map[string]struct{}{
+	"image":     {},
+	"query":     {},
+	"name":      {},
+	"node_name": {}, // may embed cloud instance IDs / internal hostnames
 }
 
 // presence returns "<set>" when s is non-empty, "<unset>" otherwise.
@@ -39,7 +40,7 @@ func presence(s string) string {
 func filterArgs(args map[string]any) map[string]any {
 	out := make(map[string]any, len(args))
 	for k, v := range args {
-		if sensitiveArgKeys[k] {
+		if _, sensitive := sensitiveArgKeys[k]; sensitive {
 			// Coerce to string for presence check.
 			s, _ := v.(string)
 			out[k] = presence(s)
@@ -52,7 +53,7 @@ func filterArgs(args map[string]any) map[string]any {
 
 // recordToolCall writes one audit_events row for the given tool call.
 // status is an HTTP-like status code: 200 (success), 400 (tool error /
-// bad input), 401 (auth denied), 500 (internal error).
+// bad input), 401 (auth denied), 500 (internal error / panic).
 func (s *Server) recordToolCall(ctx context.Context, tool string, args map[string]any, status int) {
 	if s.cfg.Recorder == nil {
 		return
@@ -93,19 +94,36 @@ func (s *Server) recordToolCall(ctx context.Context, tool string, args map[strin
 	}
 }
 
-// finish emits one audit_events row. Designed for use in a named-return defer:
+// recordDenial emits a 401 audit row for an auth/enable failure. It is
+// the only call site that should produce status 401. Handlers must call
+// this BEFORE installing the deferred finish so there is no double-record.
+func (s *Server) recordDenial(ctx context.Context, tool string, args map[string]any) {
+	s.recordToolCall(ctx, tool, args, 401)
+}
+
+// finishDeferred is intended for use as a named-return defer:
 //
 //	func (s *Server) handleFoo(...) (resp *mcp.CallToolResult, retErr error) {
 //	    args := map[string]any{...}
-//	    defer func() { s.finish(ctx, "foo", args, resp, retErr) }()
+//	    // checkAccess / recordDenial / early-return first …
+//	    defer s.finishDeferred(ctx, "foo", args, &resp, &retErr)
 //	    ...
 //	}
-func (s *Server) finish(ctx context.Context, tool string, args map[string]any, result *mcp.CallToolResult, retErr error) {
+//
+// It recovers panics from the handler body, records a 500 row, then
+// re-raises the panic so the MCP SDK can handle/log it. For normal
+// returns it maps retErr→500, result.IsError→400, else 200.
+func (s *Server) finishDeferred(ctx context.Context, tool string, args map[string]any, result **mcp.CallToolResult, retErr *error) {
+	if r := recover(); r != nil {
+		s.recordToolCall(ctx, tool, args, 500)
+		panic(r) // re-raise — MCP SDK will handle/log
+	}
+
 	status := 200
 	switch {
-	case retErr != nil:
+	case retErr != nil && *retErr != nil:
 		status = 500
-	case result != nil && result.IsError:
+	case *result != nil && (*result).IsError:
 		status = 400
 	}
 	s.recordToolCall(ctx, tool, args, status)
