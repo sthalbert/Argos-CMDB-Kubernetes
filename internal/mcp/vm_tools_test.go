@@ -164,9 +164,9 @@ func TestHandleSearchImages_IncludesVMs(t *testing.T) {
 	if len(got.VirtualMachines) != 1 || got.VirtualMachines[0].Name != "bastion" {
 		t.Errorf("virtual_machines = %+v; want [bastion]", got.VirtualMachines)
 	}
-	// Existing keys must still be present and empty (not omitted).
-	if got.Pods == nil || got.Workloads == nil {
-		t.Error("pods/workloads keys must be present even when empty")
+	// Existing keys must still appear in the JSON envelope.
+	if !strings.Contains(resultText(t, r), `"pods"`) || !strings.Contains(resultText(t, r), `"workloads"`) {
+		t.Errorf("pods/workloads keys must remain in the response: %s", resultText(t, r))
 	}
 }
 
