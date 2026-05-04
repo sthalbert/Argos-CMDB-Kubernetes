@@ -1111,6 +1111,7 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 		type cachedAuth struct {
 			validUntil time.Time
 			fullToken  string // last verified full token for this prefix
+			caller     *argmcp.MCPCaller
 		}
 		var (
 			cacheMu sync.Mutex
@@ -1118,27 +1119,28 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 		)
 		const cacheTTL = 5 * time.Minute
 
-		authFn = func(ctx context.Context, rawToken string) error {
+		authFn = func(ctx context.Context, rawToken string) (*argmcp.MCPCaller, error) {
 			prefix, full, err := auth.ParseToken(rawToken)
 			if err != nil {
-				return fmt.Errorf("invalid token: %w", err)
+				return nil, fmt.Errorf("invalid token: %w", err)
 			}
 
 			// Check cache — skip argon2id if recently verified.
 			cacheMu.Lock()
 			if entry, ok := cache[prefix]; ok && time.Now().Before(entry.validUntil) && entry.fullToken == full {
+				cached := entry.caller
 				cacheMu.Unlock()
-				return nil
+				return cached, nil
 			}
 			cacheMu.Unlock()
 
 			// Full verification: DB lookup + argon2id.
 			tok, err := s.GetActiveTokenByPrefix(ctx, prefix)
 			if err != nil {
-				return fmt.Errorf("token lookup failed: %w", err)
+				return nil, fmt.Errorf("token lookup failed: %w", err)
 			}
 			if verr := auth.VerifyPassword(full, tok.Hash); verr != nil {
-				return fmt.Errorf("token verification failed: %w", verr)
+				return nil, fmt.Errorf("token verification failed: %w", verr)
 			}
 			hasRead := false
 			for _, scope := range tok.Scopes {
@@ -1148,14 +1150,23 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 				}
 			}
 			if !hasRead {
-				return errors.New("token lacks read scope") //nolint:err113 // one-off auth error
+				return nil, errors.New("token lacks read scope") //nolint:err113 // one-off auth error
+			}
+
+			tokenID := tok.ID
+			userID := tok.CreatedByUserID
+			caller := &argmcp.MCPCaller{
+				TokenID: &tokenID,
+				Name:    tok.Name,
+				UserID:  &userID,
+				Scopes:  tok.Scopes,
 			}
 
 			// Cache the verified result.
 			cacheMu.Lock()
-			cache[prefix] = cachedAuth{validUntil: time.Now().Add(cacheTTL), fullToken: full}
+			cache[prefix] = cachedAuth{validUntil: time.Now().Add(cacheTTL), fullToken: full, caller: caller}
 			cacheMu.Unlock()
-			return nil
+			return caller, nil
 		}
 	}
 
@@ -1164,6 +1175,7 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 		Addr:      addr,
 		Token:     token,
 		Auth:      authFn,
+		Recorder:  s,
 	}
 
 	traverser := impact.NewTraverser(s)

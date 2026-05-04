@@ -62,7 +62,7 @@ func TestCheckAccess_DisabledByAdmin(t *testing.T) {
 	store.settings.MCPEnabled = false
 	s := NewServer(store, nil, Config{Transport: "stdio"})
 
-	err := s.checkAccess(context.Background(), makeRequest("", nil))
+	_, err := s.checkAccess(context.Background(), makeRequest("", nil))
 	if !errors.Is(err, errDisabled) {
 		t.Errorf("err = %v; want errDisabled", err)
 	}
@@ -72,7 +72,7 @@ func TestCheckAccess_StdioNoAuth(t *testing.T) {
 	// No Auth callback configured (stdio transport) → access granted.
 	t.Parallel()
 	s := NewServer(newFakeStore(), nil, Config{Transport: "stdio"})
-	if err := s.checkAccess(context.Background(), makeRequest("", nil)); err != nil {
+	if _, err := s.checkAccess(context.Background(), makeRequest("", nil)); err != nil {
 		t.Errorf("stdio (Auth=nil) should permit access; got %v", err)
 	}
 }
@@ -88,31 +88,31 @@ func TestCheckAccess_SSE(t *testing.T) {
 		{
 			name:      "missing header",
 			authz:     "",
-			authFunc:  func(context.Context, string) error { return errors.New("never called") },
+			authFunc:  func(context.Context, string) (*MCPCaller, error) { return nil, errors.New("never called") },
 			wantErrIs: errUnauthorized,
 		},
 		{
 			name:      "valid token",
 			authz:     "Bearer good-token",
-			authFunc:  func(_ context.Context, tok string) error { return nil },
+			authFunc:  func(_ context.Context, tok string) (*MCPCaller, error) { return &MCPCaller{Name: "test"}, nil },
 			wantErrIs: nil,
 		},
 		{
 			name:  "invalid token",
 			authz: "Bearer bad-token",
-			authFunc: func(_ context.Context, _ string) error {
-				return errors.New("denied")
+			authFunc: func(_ context.Context, _ string) (*MCPCaller, error) {
+				return nil, errors.New("denied")
 			},
 			wantErrIs: nil, // wrapper error not exported; just check non-nil
 		},
 		{
 			name:  "bare token without Bearer prefix",
 			authz: "abc-not-bearer",
-			authFunc: func(_ context.Context, tok string) error {
+			authFunc: func(_ context.Context, tok string) (*MCPCaller, error) {
 				if tok != "abc-not-bearer" {
-					return errors.New("token mismatch: expected raw token")
+					return nil, errors.New("token mismatch: expected raw token")
 				}
-				return nil
+				return &MCPCaller{Name: "test"}, nil
 			},
 			wantErrIs: nil,
 		},
@@ -121,7 +121,7 @@ func TestCheckAccess_SSE(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			s := NewServer(newFakeStore(), nil, Config{Transport: "sse", Auth: tc.authFunc})
-			err := s.checkAccess(context.Background(), makeRequest(tc.authz, nil))
+			_, err := s.checkAccess(context.Background(), makeRequest(tc.authz, nil))
 
 			switch tc.name {
 			case "missing header":
@@ -147,7 +147,7 @@ func TestCheckAccess_SettingsReadFails(t *testing.T) {
 	store.errOn["GetSettings"] = errors.New("db unreachable")
 	s := NewServer(store, nil, Config{Transport: "stdio"})
 
-	err := s.checkAccess(context.Background(), makeRequest("", nil))
+	_, err := s.checkAccess(context.Background(), makeRequest("", nil))
 	if err == nil || !strings.Contains(err.Error(), "read settings") {
 		t.Errorf("err = %v; want wrapping read settings", err)
 	}
