@@ -1117,37 +1117,38 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 
 	// For SSE transport, validate bearer tokens on every tool call using
 	// the same auth store that the REST API uses.
-	// For SSE transport, validate bearer tokens on every tool call.
-	// Argon2id verification is expensive (~100-500ms, 64 MiB), so we
-	// cache verified prefixes for 5 minutes to avoid re-hashing on
-	// every tool call in a conversation.
+	// Argon2id verification is expensive (~100-500ms, 64 MiB), so we use a
+	// bounded LRU cache (cap 1024, TTL 30 s) to amortise cost across a
+	// typical AI conversation's tool calls. 30 s is deliberate: short enough
+	// that a revoked token is unusable within a typical incident-response
+	// window even without the revocation channel, long enough to cover a full
+	// burst of MCP tool calls in one conversation turn (HIGH-01, HIGH-03,
+	// MED-03 — audit 2026-05-04).
+	//
+	// cap=1024 and ttl=30s are intentionally not configurable in this pass.
+	authCache := argmcp.NewAuthCache(1024, 30*time.Second)
+
+	// Subscribe to token revocations: invalidate the MCP cache immediately so
+	// a revoked token cannot continue making MCP calls (HIGH-01). The goroutine
+	// exits when the channel is garbage-collected at shutdown.
+	go func() {
+		for prefix := range s.RevocationChan() {
+			authCache.Invalidate(prefix)
+		}
+	}()
+
 	var authFn argmcp.AuthFunc
 	if transport == "sse" {
-		type cachedAuth struct {
-			validUntil time.Time
-			fullToken  string // last verified full token for this prefix
-			caller     *argmcp.MCPCaller
-		}
-		var (
-			cacheMu sync.Mutex
-			cache   = make(map[string]cachedAuth)
-		)
-		const cacheTTL = 5 * time.Minute
-
 		authFn = func(ctx context.Context, rawToken string) (*argmcp.MCPCaller, error) {
 			prefix, full, err := auth.ParseToken(rawToken)
 			if err != nil {
 				return nil, fmt.Errorf("invalid token: %w", err)
 			}
 
-			// Check cache — skip argon2id if recently verified.
-			cacheMu.Lock()
-			if entry, ok := cache[prefix]; ok && time.Now().Before(entry.validUntil) && entry.fullToken == full {
-				cached := entry.caller
-				cacheMu.Unlock()
-				return cached, nil
+			// Check bounded LRU cache — skip argon2id if recently verified.
+			if caller, ok := authCache.Get(prefix, full); ok {
+				return caller, nil
 			}
-			cacheMu.Unlock()
 
 			// Full verification: DB lookup + argon2id.
 			tok, err := s.GetActiveTokenByPrefix(ctx, prefix)
@@ -1173,9 +1174,7 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 			}
 
 			// Cache the verified result.
-			cacheMu.Lock()
-			cache[prefix] = cachedAuth{validUntil: time.Now().Add(cacheTTL), fullToken: full, caller: caller}
-			cacheMu.Unlock()
+			authCache.Put(prefix, full, caller)
 			return caller, nil
 		}
 	}
