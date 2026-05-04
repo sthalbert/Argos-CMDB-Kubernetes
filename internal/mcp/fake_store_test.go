@@ -34,7 +34,8 @@ type fakeStore struct {
 	// so handler tests can assert on filter wiring.
 	lastVMFilter api.VirtualMachineListFilter
 
-	errOn map[string]error
+	errOn             map[string]error
+	panicOnGetCluster bool // triggers a panic inside GetCluster for panic-recovery tests
 }
 
 func newFakeStore() *fakeStore {
@@ -65,6 +66,9 @@ func (f *fakeStore) ListClusters(_ context.Context, _ int, _ string) ([]api.Clus
 }
 
 func (f *fakeStore) GetCluster(_ context.Context, id uuid.UUID) (api.Cluster, error) {
+	if f.panicOnGetCluster {
+		panic("simulated store panic in GetCluster")
+	}
 	if err := f.errOn["GetCluster"]; err != nil {
 		return api.Cluster{}, err
 	}
