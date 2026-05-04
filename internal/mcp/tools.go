@@ -172,10 +172,14 @@ func (s *Server) registerTools() {
 
 // --- tool handlers ----------------------------------------------------------
 
-func (s *Server) handleListClusters(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleListClusters(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"name": presence(request.GetString("name", ""))}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_clusters", args, err), nil
 	}
+	defer s.finishDeferred(ctx, "list_clusters", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_clusters", time.Since(start)) }()
 
@@ -201,10 +205,15 @@ func (s *Server) handleListClusters(ctx context.Context, request mcp.CallToolReq
 	return jsonResult(items)
 }
 
-func (s *Server) handleGetCluster(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleGetCluster(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": request.GetString("id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_cluster", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "get_cluster", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_cluster", time.Since(start)) }()
 
@@ -220,10 +229,15 @@ func (s *Server) handleGetCluster(ctx context.Context, request mcp.CallToolReque
 	return jsonResult(cluster)
 }
 
-func (s *Server) handleListNodes(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleListNodes(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"cluster_id": request.GetString("cluster_id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "list_nodes", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "list_nodes", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_nodes", time.Since(start)) }()
 
@@ -241,10 +255,15 @@ func (s *Server) handleListNodes(ctx context.Context, request mcp.CallToolReques
 	return jsonResult(items)
 }
 
-func (s *Server) handleGetNode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleGetNode(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": request.GetString("id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_node", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "get_node", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_node", time.Since(start)) }()
 
@@ -260,10 +279,15 @@ func (s *Server) handleGetNode(ctx context.Context, request mcp.CallToolRequest)
 	return jsonResult(node)
 }
 
-func (s *Server) handleListNamespaces(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleListNamespaces(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"cluster_id": request.GetString("cluster_id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "list_namespaces", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "list_namespaces", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_namespaces", time.Since(start)) }()
 
@@ -281,10 +305,15 @@ func (s *Server) handleListNamespaces(ctx context.Context, request mcp.CallToolR
 	return jsonResult(items)
 }
 
-func (s *Server) handleGetNamespace(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleGetNamespace(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": request.GetString("id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_namespace", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "get_namespace", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_namespace", time.Since(start)) }()
 
@@ -300,10 +329,19 @@ func (s *Server) handleGetNamespace(ctx context.Context, request mcp.CallToolReq
 	return jsonResult(ns)
 }
 
-func (s *Server) handleListWorkloads(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleListWorkloads(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{
+		"namespace_id": request.GetString("namespace_id", ""),
+		"kind":         request.GetString("kind", ""),
+		"image":        presence(request.GetString("image", "")),
+	}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "list_workloads", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "list_workloads", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_workloads", time.Since(start)) }()
 
@@ -332,10 +370,15 @@ func (s *Server) handleListWorkloads(ctx context.Context, request mcp.CallToolRe
 	return jsonResult(items)
 }
 
-func (s *Server) handleGetWorkload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleGetWorkload(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": request.GetString("id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_workload", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "get_workload", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_workload", time.Since(start)) }()
 
@@ -351,10 +394,20 @@ func (s *Server) handleGetWorkload(ctx context.Context, request mcp.CallToolRequ
 	return jsonResult(w)
 }
 
-func (s *Server) handleListPods(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleListPods(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{
+		"namespace_id": request.GetString("namespace_id", ""),
+		"node_name":    presence(request.GetString("node_name", "")), // node names may embed cloud instance IDs
+		"workload_id":  request.GetString("workload_id", ""),
+		"image":        presence(request.GetString("image", "")),
+	}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "list_pods", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "list_pods", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_pods", time.Since(start)) }()
 
@@ -388,10 +441,15 @@ func (s *Server) handleListPods(ctx context.Context, request mcp.CallToolRequest
 	return jsonResult(items)
 }
 
-func (s *Server) handleGetPod(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleGetPod(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": request.GetString("id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_pod", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "get_pod", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_pod", time.Since(start)) }()
 
@@ -407,10 +465,15 @@ func (s *Server) handleGetPod(ctx context.Context, request mcp.CallToolRequest) 
 	return jsonResult(pod)
 }
 
-func (s *Server) handleListServices(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleListServices(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"namespace_id": request.GetString("namespace_id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "list_services", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "list_services", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_services", time.Since(start)) }()
 
@@ -428,10 +491,15 @@ func (s *Server) handleListServices(ctx context.Context, request mcp.CallToolReq
 	return jsonResult(items)
 }
 
-func (s *Server) handleListIngresses(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleListIngresses(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"namespace_id": request.GetString("namespace_id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "list_ingresses", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "list_ingresses", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_ingresses", time.Since(start)) }()
 
@@ -449,10 +517,15 @@ func (s *Server) handleListIngresses(ctx context.Context, request mcp.CallToolRe
 	return jsonResult(items)
 }
 
-func (s *Server) handleListPersistentVolumes(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleListPersistentVolumes(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"cluster_id": request.GetString("cluster_id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "list_persistent_volumes", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "list_persistent_volumes", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_persistent_volumes", time.Since(start)) }()
 
@@ -470,10 +543,15 @@ func (s *Server) handleListPersistentVolumes(ctx context.Context, request mcp.Ca
 	return jsonResult(items)
 }
 
-func (s *Server) handleListPersistentVolumeClaims(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleListPersistentVolumeClaims(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"namespace_id": request.GetString("namespace_id", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "list_persistent_volume_claims", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "list_persistent_volume_claims", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_persistent_volume_claims", time.Since(start)) }()
 
@@ -491,10 +569,19 @@ func (s *Server) handleListPersistentVolumeClaims(ctx context.Context, request m
 	return jsonResult(items)
 }
 
-func (s *Server) handleGetImpactGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleGetImpactGraph(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{
+		"entity_type": request.GetString("entity_type", ""),
+		"id":          request.GetString("id", ""),
+		"depth":       request.GetFloat("depth", 2),
+	}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_impact_graph", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "get_impact_graph", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_impact_graph", time.Since(start)) }()
 
@@ -532,6 +619,9 @@ func (s *Server) handleGetImpactGraph(ctx context.Context, request mcp.CallToolR
 	return jsonResult(graph)
 }
 
+// eolStatusEOL is the JSON status value for an end-of-life product.
+const eolStatusEOL = "eol"
+
 // eolSummaryEntry represents one entity's EOL status in the summary.
 type eolSummaryEntry struct {
 	ID      string `json:"id"`
@@ -553,10 +643,15 @@ type eolSummary struct {
 	Entries        []eolSummaryEntry `json:"entries"`
 }
 
-func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_eol_summary", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "get_eol_summary", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_eol_summary", time.Since(start)) }()
 
@@ -603,10 +698,15 @@ type imageSearchResult struct {
 	Pods      []api.Pod      `json:"pods"`
 }
 
-func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
+func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"query": presence(request.GetString("query", ""))}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "search_images", args)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer s.finishDeferred(ctx, "search_images", args, &resp, &retErr)
+
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("search_images", time.Since(start)) }()
 
@@ -732,7 +832,7 @@ func extractEOLEntry(id, name, entityType string, annotations *map[string]string
 		entry.Status = ann.Status
 		entry.EOLDate = ann.EOLDate
 		// Take the worst status if multiple EOL annotations exist.
-		if ann.Status == "eol" {
+		if ann.Status == eolStatusEOL {
 			break
 		}
 	}
@@ -743,7 +843,7 @@ func extractEOLEntry(id, name, entityType string, annotations *map[string]string
 // countEOLStatus increments the appropriate counter in the summary.
 func countEOLStatus(summary *eolSummary, status string) {
 	switch status {
-	case "eol":
+	case eolStatusEOL:
 		summary.EOL++
 	case "approaching_eol":
 		summary.ApproachingEOL++
