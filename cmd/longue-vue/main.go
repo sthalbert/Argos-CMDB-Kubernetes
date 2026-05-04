@@ -1093,7 +1093,7 @@ type mcpTokenStore interface {
 // bearer tokens. It is extracted from maybeStartMCPServer to enable unit
 // testing without a real database (MED-04).
 func buildMCPAuthFn(tokenStore mcpTokenStore, cache *argmcp.AuthCache) argmcp.AuthFunc {
-	return func(ctx context.Context, rawToken string) (*argmcp.MCPCaller, error) {
+	return func(ctx context.Context, rawToken string) (*argmcp.Caller, error) {
 		prefix, full, err := auth.ParseToken(rawToken)
 		if err != nil {
 			slog.Warn("mcp auth failed: invalid token format", slog.Any("error", err))
@@ -1124,7 +1124,7 @@ func buildMCPAuthFn(tokenStore mcpTokenStore, cache *argmcp.AuthCache) argmcp.Au
 
 		tokenID := tok.ID
 		userID := tok.CreatedByUserID
-		caller := &argmcp.MCPCaller{
+		caller := &argmcp.Caller{
 			TokenID: &tokenID,
 			Name:    tok.Name,
 			UserID:  &userID,
@@ -1156,8 +1156,6 @@ func mcpScopeAllowed(scopes []string) bool {
 // The goroutine always starts; tool calls are gated by the `mcp_enabled`
 // setting in the database (toggled by admins via the UI).
 // LONGUE_VUE_MCP_ENABLED seeds the DB setting on first boot when present.
-//
-//nolint:gocyclo,gocognit // auth setup + env parsing + goroutine lifecycle is inherently branchy.
 func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 	if envVal := os.Getenv("LONGUE_VUE_MCP_ENABLED"); envVal != "" {
 		enabled, err := strconv.ParseBool(envVal)
@@ -1218,7 +1216,7 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 	// tight enough to prevent pathological fanout (HIGH-02).
 	limiter := argmcp.NewRateLimiter(30, 60)
 
-	cfg := argmcp.Config{
+	cfg := &argmcp.Config{
 		Transport:         transport,
 		Addr:              addr,
 		Token:             token,
