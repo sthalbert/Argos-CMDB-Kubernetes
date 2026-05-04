@@ -143,6 +143,43 @@ func TestHandleListVirtualMachines_RejectsOversizedName(t *testing.T) {
 	}
 }
 
+func TestHandleGetEOLSummary_IncludesVMs(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	acct := uuid.New()
+	vm := newVM(uuid.New(), acct, "vault-1", []api.VMApplication{{Product: "vault", Version: "1.10.0"}})
+	vm.Annotations = map[string]string{
+		"longue-vue.io/eol.vault": `{"status":"eol","product":"vault","eol_date":"2024-04-30"}`,
+	}
+	store.vms = []api.VirtualMachine{vm}
+	s := newServer(t, store)
+
+	r, err := s.handleGetEOLSummary(context.Background(), makeRequest("", nil))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	var summary eolSummary
+	if err := json.Unmarshal([]byte(resultText(t, r)), &summary); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if summary.TotalVirtualMachines != 1 {
+		t.Errorf("total_virtual_machines = %d; want 1", summary.TotalVirtualMachines)
+	}
+	if summary.EOL < 1 {
+		t.Errorf("eol = %d; want >= 1 (vault EOL annotation)", summary.EOL)
+	}
+	foundVM := false
+	for _, e := range summary.Entries {
+		if e.Type == "vm" && e.Name == "vault-1" && e.Status == "eol" {
+			foundVM = true
+			break
+		}
+	}
+	if !foundVM {
+		t.Errorf("expected vm entry for vault-1; got entries=%+v", summary.Entries)
+	}
+}
+
 func TestHandleSearchImages_IncludesVMs(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()

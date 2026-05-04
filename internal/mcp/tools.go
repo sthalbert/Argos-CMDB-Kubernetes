@@ -591,13 +591,14 @@ type eolSummaryEntry struct {
 
 // eolSummary is the response for the get_eol_summary tool.
 type eolSummary struct {
-	TotalClusters  int               `json:"total_clusters"`
-	TotalNodes     int               `json:"total_nodes"`
-	EOL            int               `json:"eol"`
-	ApproachingEOL int               `json:"approaching_eol"`
-	Supported      int               `json:"supported"`
-	Unknown        int               `json:"unknown"`
-	Entries        []eolSummaryEntry `json:"entries"`
+	TotalClusters        int               `json:"total_clusters"`
+	TotalNodes           int               `json:"total_nodes"`
+	TotalVirtualMachines int               `json:"total_virtual_machines"`
+	EOL                  int               `json:"eol"`
+	ApproachingEOL       int               `json:"approaching_eol"`
+	Supported            int               `json:"supported"`
+	Unknown              int               `json:"unknown"`
+	Entries              []eolSummaryEntry `json:"entries"`
 }
 
 func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -621,9 +622,17 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 		return nil, fmt.Errorf("list nodes for eol: %w", err)
 	}
 
+	vms, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
+		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, maxPageSize, cursor)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list virtual machines for eol: %w", err)
+	}
+
 	summary := eolSummary{
-		TotalClusters: len(clusters),
-		TotalNodes:    len(nodes),
+		TotalClusters:        len(clusters),
+		TotalNodes:           len(nodes),
+		TotalVirtualMachines: len(vms),
 	}
 
 	// Scan cluster annotations for EOL data.
@@ -636,6 +645,20 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 	// Scan node annotations for EOL data.
 	for _, n := range nodes {
 		entry := extractEOLEntry(idStr(n.Id), n.Name, "node", n.Annotations)
+		countEOLStatus(&summary, entry.Status)
+		summary.Entries = append(summary.Entries, entry)
+	}
+
+	// Scan virtual machine annotations for EOL data. VMs use a value-type
+	// annotations map (not a pointer like clusters/nodes); adapt with
+	// a local pointer so extractEOLEntry's signature is reused.
+	for i := range vms {
+		vm := &vms[i]
+		var annPtr *map[string]string
+		if vm.Annotations != nil {
+			annPtr = &vm.Annotations
+		}
+		entry := extractEOLEntry(vm.ID.String(), vm.Name, "vm", annPtr)
 		countEOLStatus(&summary, entry.Status)
 		summary.Entries = append(summary.Entries, entry)
 	}
