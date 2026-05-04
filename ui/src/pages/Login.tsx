@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError, getAuthConfig, login } from '../api';
-import { ClusterIcon } from '../icons';
+import { LogoIcon } from '../Logo';
 
 // Username + password login per ADR-0007. A successful POST sets the
 // session cookie server-side; we never see the cookie value in JS.
@@ -28,24 +28,14 @@ export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // Hit /v1/auth/config once on mount to learn whether OIDC is
-  // configured and which label to show on the button. Failures are
-  // silent — worst case the OIDC button just doesn't render.
   useEffect(() => {
     let cancelled = false;
     getAuthConfig()
-      .then((cfg) => {
-        if (!cancelled) setOidc(cfg.oidc);
-      })
-      .catch(() => {
-        if (!cancelled) setOidc({ enabled: false });
-      });
-    return () => {
-      cancelled = true;
-    };
+      .then((cfg) => { if (!cancelled) setOidc(cfg.oidc); })
+      .catch(() => { if (!cancelled) setOidc({ enabled: false }); });
+    return () => { cancelled = true; };
   }, []);
 
-  // Surface any `oidc_error=…` the callback bounced us back with.
   const oidcError = searchParams.get('oidc_error');
   const oidcErrorMessage = oidcError
     ? OIDC_ERROR_MESSAGES[oidcError] || `OIDC sign-in failed: ${oidcError}`
@@ -74,63 +64,98 @@ export default function Login() {
   };
 
   const startOidc = () => {
-    // Full-page navigation — we need the browser to follow the 302 the
-    // backend emits, and the IdP's page will redirect back on its own.
     window.location.href = '/v1/auth/oidc/authorize';
   };
 
   return (
-    <form className="login" onSubmit={onSubmit}>
-      <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-        <ClusterIcon size={32} style={{ color: 'var(--accent)' }} />
-        <div style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '0.02em', marginTop: '0.5rem' }}>
-          longue-vue CMDB
-        </div>
-      </div>
-      <h2>Sign in</h2>
-      <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        First install? Read the <code>LONGUE-VUE FIRST-RUN BOOTSTRAP</code> banner
-        in the longue-vue startup log for the initial admin password.
-      </p>
+    <div className="auth-page">
+      <form className="auth-card" onSubmit={onSubmit} noValidate>
 
-      {oidcErrorMessage && <div className="error">{oidcErrorMessage}</div>}
-
-      <label htmlFor="username">Username</label>
-      <input
-        id="username"
-        type="text"
-        autoComplete="username"
-        autoFocus
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-      />
-
-      <label htmlFor="password" style={{ marginTop: '0.75rem' }}>
-        Password
-      </label>
-      <input
-        id="password"
-        type="password"
-        autoComplete="current-password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
-
-      <button type="submit" disabled={busy}>
-        {busy ? 'Signing in…' : 'Sign in'}
-      </button>
-      {error && <div className="error">{error}</div>}
-
-      {oidc?.enabled && (
-        <>
-          <div className="login-divider">
-            <span>or</span>
+        {/* ── Header ─────────────────────────────────────── */}
+        <div className="auth-header">
+          <div className="auth-logo-ring">
+            <LogoIcon size={48} />
           </div>
-          <button type="button" className="login-oidc" onClick={startOidc}>
-            Sign in with {oidc.label || 'OIDC'}
+          <div className="auth-brand">
+            <span className="auth-brand-light">longue</span>
+            <span className="auth-brand-bold">-vue</span>
+          </div>
+          <div className="auth-tagline">CMDB · SecNumCloud</div>
+        </div>
+
+        {/* ── Body ───────────────────────────────────────── */}
+        <div className="auth-body">
+          <h2 className="auth-title">Sign in</h2>
+
+          <p className="auth-hint">
+            First install? Check the <code>LONGUE-VUE FIRST-RUN BOOTSTRAP</code> banner
+            in the startup log for the initial admin password.
+          </p>
+
+          {oidcErrorMessage && (
+            <div className="auth-error">{oidcErrorMessage}</div>
+          )}
+
+          <div className="auth-field">
+            <label htmlFor="username">Username</label>
+            <div className="auth-input-wrap">
+              <svg className="auth-input-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" />
+              </svg>
+              <input
+                id="username"
+                type="text"
+                autoComplete="username"
+                autoFocus
+                placeholder="your username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="password">Password</label>
+            <div className="auth-input-wrap">
+              <svg className="auth-input-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+              </svg>
+              <input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="••••••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <button className="auth-submit" type="submit" disabled={busy}>
+            {busy ? (
+              <>
+                <span className="auth-spinner" aria-hidden="true" />
+                Signing in…
+              </>
+            ) : 'Sign in'}
           </button>
-        </>
-      )}
-    </form>
+
+          {error && <div className="auth-error">{error}</div>}
+
+          {oidc?.enabled && (
+            <>
+              <div className="auth-divider"><span>or</span></div>
+              <button type="button" className="auth-oidc" onClick={startOidc}>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+                  <circle cx="10" cy="10" r="8" />
+                  <path d="M10 2a8 8 0 010 16M2 10h16" strokeLinecap="round" />
+                </svg>
+                Sign in with {oidc.label || 'OIDC'}
+              </button>
+            </>
+          )}
+        </div>
+      </form>
+    </div>
   );
 }

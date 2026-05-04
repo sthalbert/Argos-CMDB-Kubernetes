@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # How to deploy the DMZ ingest gateway
 
 This guide walks through deploying `longue-vue-ingest-gw` in a DMZ so that push-mode Kubernetes collectors can reach longue-vue from outside the trusted zone without exposing longue-vue to the internet.

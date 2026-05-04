@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 ---
 title: "ADR-0008: Asset-management data model for SecNumCloud v3.2 chapter 8"
 status: "Proposed"

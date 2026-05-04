@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Deploy the Push Collector (Air-Gapped Clusters)
 
 The push collector (`longue-vue-collector`) runs inside a cluster that longue-vue cannot reach -- air-gapped environments, dedicated administration zones (ZAD), or clusters behind strict egress firewalls. It polls the local Kubernetes API and pushes observations to a remote longue-vue instance over HTTPS.
