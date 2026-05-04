@@ -72,6 +72,15 @@ type Store interface {
 
 	// PersistentVolumeClaims
 	ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolumeClaim, string, error)
+
+	// CloudAccounts (ADR-0015)
+	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]api.CloudAccount, string, error)
+	GetCloudAccount(ctx context.Context, id uuid.UUID) (api.CloudAccount, error)
+
+	// VirtualMachines (ADR-0015 / ADR-0019)
+	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error)
+	GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMachine, error)
+	ListDistinctVMApplications(ctx context.Context) ([]api.VMApplicationDistinct, error)
 }
 
 // AuthFunc validates a bearer token and returns an error if invalid.
