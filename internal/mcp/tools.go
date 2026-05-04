@@ -759,7 +759,7 @@ func buildVMListFilter(request mcp.CallToolRequest) (api.VirtualMachineListFilte
 	if v := request.GetString("cloud_account_id", ""); v != "" {
 		id, err := uuid.Parse(v)
 		if err != nil {
-			return f, "invalid cloud_account_id", err
+			return f, "invalid cloud_account_id", fmt.Errorf("parse cloud_account_id: %w", err)
 		}
 		f.CloudAccountID = &id
 	}

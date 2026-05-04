@@ -281,6 +281,7 @@ func (f *fakeStore) GetCloudAccount(_ context.Context, id uuid.UUID) (api.CloudA
 
 // --- VirtualMachines ----
 
+//nolint:gocognit,gocyclo // each filter clause is independent; flatness is the point.
 func (f *fakeStore) ListVirtualMachines(_ context.Context, filter api.VirtualMachineListFilter, _ int, _ string) ([]api.VirtualMachine, string, error) {
 	f.lastVMFilter = filter
 	if err := f.errOn["ListVirtualMachines"]; err != nil {

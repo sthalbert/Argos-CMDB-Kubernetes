@@ -11,6 +11,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+//nolint:gocyclo // sequential field assertions are clearer than a table-driven split.
 func TestRedactCloudAccount_NilsAccessKey(t *testing.T) {
 	t.Parallel()
 	ak := "AKIAEXAMPLEPUBLICID"
