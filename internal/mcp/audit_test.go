@@ -78,7 +78,7 @@ func TestAudit_ListClusters_Success(t *testing.T) {
 }
 
 // TestAudit_GetCluster_BadUUID verifies a bad-UUID get_cluster call emits a
-// row with HTTPStatus=400 (tool error).
+// row with HTTPStatus=400 (tool error / bad input).
 func TestAudit_GetCluster_BadUUID(t *testing.T) {
 	t.Parallel()
 	rec := &fakeRecorder{}
@@ -153,7 +153,7 @@ func TestAudit_SensitiveArgsFiltered(t *testing.T) {
 }
 
 // TestAudit_DisabledMCP_DenialRecorded verifies that when MCPEnabled=false
-// the denial is recorded (status=400, since it is a tool-level error result).
+// the denial is recorded with HTTPStatus=401 (auth denial, not bad input).
 func TestAudit_DisabledMCP_DenialRecorded(t *testing.T) {
 	t.Parallel()
 	rec := &fakeRecorder{}
@@ -175,11 +175,11 @@ func TestAudit_DisabledMCP_DenialRecorded(t *testing.T) {
 
 	events := rec.captured()
 	if len(events) != 1 {
-		t.Fatalf("want 1 audit event, got %d", len(events))
+		t.Fatalf("want exactly 1 audit event, got %d", len(events))
 	}
-	// Denial before auth → status 400 (IsError=true result path).
-	if events[0].HTTPStatus != 400 {
-		t.Errorf("HTTPStatus = %d; want 400", events[0].HTTPStatus)
+	// Denial → status 401, not 400.
+	if events[0].HTTPStatus != 401 {
+		t.Errorf("HTTPStatus = %d; want 401", events[0].HTTPStatus)
 	}
 }
 
@@ -198,5 +198,76 @@ func TestAudit_RecorderError_NoClientError(t *testing.T) {
 	}
 	if result != nil && result.IsError {
 		t.Error("recorder error must not surface as MCP tool error")
+	}
+}
+
+// TestAudit_NodeName_NotLoggedVerbatim verifies that node_name is replaced
+// with presence("<set>"|"<unset>") in the audit log (it may embed cloud
+// instance IDs / internal hostnames, making it PII).
+func TestAudit_NodeName_NotLoggedVerbatim(t *testing.T) {
+	t.Parallel()
+	rec := &fakeRecorder{}
+	s := makeServerWithRecorder(rec)
+
+	req := makeRequest("", map[string]any{
+		"node_name": "ip-10-0-1-42.eu-west-1.compute.internal",
+	})
+	_, err := s.handleListPods(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handleListPods: %v", err)
+	}
+
+	events := rec.captured()
+	if len(events) != 1 {
+		t.Fatalf("want 1 event, got %d", len(events))
+	}
+	nn, ok := events[0].Details["node_name"]
+	if !ok {
+		t.Fatal("node_name key missing from Details")
+	}
+	if nn == "ip-10-0-1-42.eu-west-1.compute.internal" {
+		t.Error("raw node_name must not appear verbatim in audit Details")
+	}
+	if nn != "<set>" {
+		t.Errorf("node_name = %q; want <set>", nn)
+	}
+}
+
+// TestAudit_Panic_Records500 verifies that a panic inside a handler body
+// causes a 500 audit row to be recorded before the panic is re-raised.
+func TestAudit_Panic_Records500(t *testing.T) {
+	t.Parallel()
+	rec := &fakeRecorder{}
+	store := newFakeStore()
+	store.settings.MCPEnabled = true
+	store.panicOnGetCluster = true
+	s := NewServer(store, nil, Config{
+		Transport: "stdio",
+		Recorder:  rec,
+	})
+
+	req := makeRequest("", map[string]any{"id": "00000000-0000-0000-0000-000000000001"})
+
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		//nolint:errcheck
+		s.handleGetCluster(context.Background(), req) //nolint:errcheck
+	}()
+
+	if !panicked {
+		t.Fatal("expected panic to propagate")
+	}
+
+	events := rec.captured()
+	if len(events) != 1 {
+		t.Fatalf("want 1 audit event after panic, got %d", len(events))
+	}
+	if events[0].HTTPStatus != 500 {
+		t.Errorf("HTTPStatus = %d; want 500", events[0].HTTPStatus)
 	}
 }
