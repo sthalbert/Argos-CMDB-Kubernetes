@@ -819,10 +819,13 @@ func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolReq
 
 // --- cloud-account & VM tool handlers --------------------------------------
 
-func (s *Server) handleListCloudAccounts(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleListCloudAccounts(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_cloud_accounts", args, err), nil
 	}
+	defer s.finishDeferred(ctx, "list_cloud_accounts", args, &resp, &retErr)
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_cloud_accounts", time.Since(start)) }()
 
@@ -915,10 +918,24 @@ func buildVMListFilter(request mcp.CallToolRequest) (api.VirtualMachineListFilte
 	return f, "", nil
 }
 
-func (s *Server) handleListVirtualMachines(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleListVirtualMachines(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{
+		"cloud_account_id":    presence(request.GetString("cloud_account_id", "")),
+		"cloud_account_name":  presence(request.GetString("cloud_account_name", "")),
+		"region":              presence(request.GetString("region", "")),
+		"role":                presence(request.GetString("role", "")),
+		"power_state":         presence(request.GetString("power_state", "")),
+		"name":                presence(request.GetString("name", "")),
+		"image":               presence(request.GetString("image", "")),
+		"application":         presence(request.GetString("application", "")),
+		"application_version": presence(request.GetString("application_version", "")),
+		"include_terminated":  request.GetBool("include_terminated", false),
 	}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_virtual_machines", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "list_virtual_machines", args, &resp, &retErr)
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_virtual_machines", time.Since(start)) }()
 
@@ -936,10 +953,13 @@ func (s *Server) handleListVirtualMachines(ctx context.Context, request mcp.Call
 	return jsonResult(items)
 }
 
-func (s *Server) handleGetVirtualMachine(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleGetVirtualMachine(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": presence(request.GetString("id", ""))}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "get_virtual_machine", args, err), nil
 	}
+	defer s.finishDeferred(ctx, "get_virtual_machine", args, &resp, &retErr)
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_virtual_machine", time.Since(start)) }()
 
@@ -960,10 +980,13 @@ type vmApplicationsResponse struct {
 	Products []api.VMApplicationDistinct `json:"products"`
 }
 
-func (s *Server) handleListVMApplicationsDistinct(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleListVMApplicationsDistinct(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_vm_applications_distinct", args, err), nil
 	}
+	defer s.finishDeferred(ctx, "list_vm_applications_distinct", args, &resp, &retErr)
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("list_vm_applications_distinct", time.Since(start)) }()
 
@@ -974,10 +997,13 @@ func (s *Server) handleListVMApplicationsDistinct(ctx context.Context, request m
 	return jsonResult(vmApplicationsResponse{Products: products})
 }
 
-func (s *Server) handleGetCloudAccount(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.checkAccess(ctx, request); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleGetCloudAccount(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": presence(request.GetString("id", ""))}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "get_cloud_account", args, err), nil
 	}
+	defer s.finishDeferred(ctx, "get_cloud_account", args, &resp, &retErr)
 	start := time.Now()
 	defer func() { metrics.ObserveMCPToolCall("get_cloud_account", time.Since(start)) }()
 
