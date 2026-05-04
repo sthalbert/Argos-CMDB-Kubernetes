@@ -643,11 +643,14 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 	return jsonResult(summary)
 }
 
-// imageSearchResult aggregates workloads and pods matching an image query.
+// imageSearchResult aggregates workloads, pods, and platform VMs matching
+// an image query. The virtual_machines section was added alongside the
+// VM coverage tools; existing pods/workloads keys are preserved.
 type imageSearchResult struct {
-	Query     string         `json:"query"`
-	Workloads []api.Workload `json:"workloads"`
-	Pods      []api.Pod      `json:"pods"`
+	Query           string               `json:"query"`
+	Workloads       []api.Workload       `json:"workloads"`
+	Pods            []api.Pod            `json:"pods"`
+	VirtualMachines []api.VirtualMachine `json:"virtual_machines"`
 }
 
 func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -676,10 +679,18 @@ func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolReq
 		return nil, fmt.Errorf("search pods by image: %w", err)
 	}
 
+	vms, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
+		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{Image: &query}, maxPageSize, cursor)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search virtual machines by image: %w", err)
+	}
+
 	return jsonResult(imageSearchResult{
-		Query:     query,
-		Workloads: workloads,
-		Pods:      pods,
+		Query:           query,
+		Workloads:       workloads,
+		Pods:            pods,
+		VirtualMachines: vms,
 	})
 }
 
