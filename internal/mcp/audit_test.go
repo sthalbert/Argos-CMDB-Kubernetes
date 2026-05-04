@@ -271,3 +271,71 @@ func TestAudit_Panic_Records500(t *testing.T) {
 		t.Errorf("HTTPStatus = %d; want 500", events[0].HTTPStatus)
 	}
 }
+
+// TestAudit_RateLimit_Records429 verifies that a rate-limited call emits a
+// 429 audit row (distinct from 401 auth denial).
+func TestAudit_RateLimit_Records429(t *testing.T) {
+	t.Parallel()
+	rec := &fakeRecorder{}
+	store := newFakeStore()
+	store.settings.MCPEnabled = true
+
+	// Tight limiter: 2 rps, burst 2.
+	limiter := NewRateLimiter(2, 2)
+
+	s := NewServer(store, nil, Config{
+		Transport:   "stdio",
+		Recorder:    rec,
+		RateLimiter: limiter,
+	})
+
+	// Call list_clusters 3 times. First 2 succeed (burst), 3rd is rate-limited.
+	req := makeRequest("", map[string]any{"name": ""})
+	ctx := context.Background()
+
+	// First call: succeeds.
+	result, err := s.handleListClusters(ctx, req)
+	if err != nil {
+		t.Fatalf("1st call: %v", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatal("1st call should succeed")
+	}
+
+	// Second call: succeeds (within burst).
+	result, err = s.handleListClusters(ctx, req)
+	if err != nil {
+		t.Fatalf("2nd call: %v", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatal("2nd call should succeed (within burst)")
+	}
+
+	// Third call: rate-limited.
+	result, err = s.handleListClusters(ctx, req)
+	if err != nil {
+		t.Fatalf("3rd call: %v", err)
+	}
+	if result == nil || !result.IsError {
+		t.Fatal("3rd call should be rate-limited")
+	}
+
+	// Inspect audit events.
+	events := rec.captured()
+	if len(events) != 3 {
+		t.Fatalf("want 3 audit events, got %d", len(events))
+	}
+
+	// First two should be 200 (success).
+	if events[0].HTTPStatus != 200 {
+		t.Errorf("event[0].HTTPStatus = %d; want 200", events[0].HTTPStatus)
+	}
+	if events[1].HTTPStatus != 200 {
+		t.Errorf("event[1].HTTPStatus = %d; want 200", events[1].HTTPStatus)
+	}
+
+	// Third should be 429 (rate-limited).
+	if events[2].HTTPStatus != 429 {
+		t.Errorf("event[2].HTTPStatus = %d; want 429", events[2].HTTPStatus)
+	}
+}
