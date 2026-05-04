@@ -823,28 +823,34 @@ func (p *PG) ListAPITokens(ctx context.Context, limit int, cursor string) ([]api
 
 // RevokeAPIToken marks a token as revoked. Idempotent if already revoked; returns ErrNotFound if absent.
 func (p *PG) RevokeAPIToken(ctx context.Context, id uuid.UUID, now time.Time) error {
-	tag, err := p.pool.Exec(ctx,
-		`UPDATE api_tokens SET revoked_at = $1 WHERE id = $2 AND revoked_at IS NULL`,
+	var prefix string
+	err := p.pool.QueryRow(ctx,
+		`UPDATE api_tokens SET revoked_at = $1 WHERE id = $2 AND revoked_at IS NULL RETURNING prefix`,
 		now, id,
-	)
-	if err != nil {
-		return fmt.Errorf("revoke token: %w", err)
+	).Scan(&prefix)
+	if err == nil {
+		// Successfully revoked — notify cache subscribers (non-blocking).
+		select {
+		case p.revokedTokens <- prefix:
+		default:
+		}
+		return nil
 	}
-	if tag.RowsAffected() == 0 {
-		// Either the id doesn't exist or it's already revoked. The
-		// latter is idempotent success; check which.
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Either already revoked (idempotent success) or row absent.
 		var exists bool
-		if err := p.pool.QueryRow(ctx,
+		if err2 := p.pool.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM api_tokens WHERE id = $1)`,
 			id,
-		).Scan(&exists); err != nil {
-			return fmt.Errorf("check token existence: %w", err)
+		).Scan(&exists); err2 != nil {
+			return fmt.Errorf("check token existence: %w", err2)
 		}
 		if !exists {
 			return api.ErrNotFound
 		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("revoke token: %w", err)
 }
 
 // --- OIDC identities + auth states --------------------------------------
