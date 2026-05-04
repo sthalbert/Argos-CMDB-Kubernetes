@@ -273,7 +273,11 @@ func TestHandleGetCloudAccount_HappyPathRedacts(t *testing.T) {
 	ak := "AKIASECRETPUBLICID"
 	now := time.Now().UTC()
 	store.accounts = []api.CloudAccount{
-		{ID: id, Provider: "outscale", Name: "prod", Region: "eu-west-2", Status: api.CloudAccountStatusActive, AccessKey: &ak, CreatedAt: now, UpdatedAt: now},
+		{
+			ID: id, Provider: "outscale", Name: "prod", Region: "eu-west-2",
+			Status: api.CloudAccountStatusActive, AccessKey: &ak,
+			CreatedAt: now, UpdatedAt: now,
+		},
 	}
 	s := newServer(t, store)
 
@@ -311,8 +315,16 @@ func TestHandleListCloudAccounts_RedactsAccessKey(t *testing.T) {
 	ak1, ak2 := "AKIA0000PUBLIC0001", "AKIA0000PUBLIC0002"
 	now := time.Now().UTC()
 	store.accounts = []api.CloudAccount{
-		{ID: uuid.New(), Provider: "outscale", Name: "prod-eu", Region: "eu-west-2", Status: api.CloudAccountStatusActive, AccessKey: &ak1, CreatedAt: now, UpdatedAt: now},
-		{ID: uuid.New(), Provider: "outscale", Name: "prod-us", Region: "us-east-2", Status: api.CloudAccountStatusActive, AccessKey: &ak2, CreatedAt: now, UpdatedAt: now},
+		{
+			ID: uuid.New(), Provider: "outscale", Name: "prod-eu", Region: "eu-west-2",
+			Status: api.CloudAccountStatusActive, AccessKey: &ak1,
+			CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			ID: uuid.New(), Provider: "outscale", Name: "prod-us", Region: "us-east-2",
+			Status: api.CloudAccountStatusActive, AccessKey: &ak2,
+			CreatedAt: now, UpdatedAt: now,
+		},
 	}
 	s := newServer(t, store)
 
