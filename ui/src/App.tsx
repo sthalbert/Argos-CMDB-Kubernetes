@@ -100,11 +100,13 @@ function RequireAdmin({ auth, children }: { auth: AuthState; children: React.Rea
 // --- chrome -------------------------------------------------------------
 
 type NavItem = { to: string; label: string };
-type NavGroup = { label: string; items: NavItem[] };
+type GroupSlug = 'kubernetes' | 'cloud' | 'tools' | 'admin';
+type NavGroup = { label: string; slug: GroupSlug; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Kubernetes',
+    slug: 'kubernetes',
     items: [
       { to: '/clusters',               label: 'Clusters' },
       { to: '/workloads',              label: 'Workloads' },
@@ -119,12 +121,14 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Cloud infra',
+    slug: 'cloud',
     items: [
       { to: '/virtual-machines', label: 'Virtual Machines' },
     ],
   },
   {
     label: 'Tools',
+    slug: 'tools',
     items: [
       { to: '/search/image', label: 'Search' },
       { to: '/eol',          label: 'Lifecycle' },
@@ -136,6 +140,7 @@ function adminGroup(role: api.Me['role']): NavGroup | null {
   if (role === 'admin') {
     return {
       label: 'Admin',
+      slug: 'admin',
       items: [
         { to: '/admin/users',          label: 'Users' },
         { to: '/admin/tokens',         label: 'Tokens' },
@@ -149,6 +154,7 @@ function adminGroup(role: api.Me['role']): NavGroup | null {
   if (role === 'auditor') {
     return {
       label: 'Admin',
+      slug: 'admin',
       items: [{ to: '/admin/audit', label: 'Audit' }],
     };
   }
@@ -196,8 +202,11 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
         </div>
         <nav className="lv-sidebar-nav" aria-label="Primary">
           {groups.map((g) => (
-            <div key={g.label} className="lv-sidebar-group">
-              <div className="lv-sidebar-group-label">{g.label}</div>
+            <div key={g.label} className="lv-sidebar-group" data-group={g.slug}>
+              <div className="lv-sidebar-group-label">
+                <span className="lv-sidebar-group-marker" aria-hidden />
+                {g.label}
+              </div>
               {g.items.map((it) => (
                 <NavLink
                   key={it.to}

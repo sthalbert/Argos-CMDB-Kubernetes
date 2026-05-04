@@ -1036,14 +1036,35 @@ th.sortable:hover {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  --lv-group-accent: var(--accent);
+}
+.lv-sidebar-group[data-group="kubernetes"] { --lv-group-accent: var(--accent); }
+.lv-sidebar-group[data-group="cloud"]      { --lv-group-accent: var(--mod-mark); }
+.lv-sidebar-group[data-group="tools"]      { --lv-group-accent: var(--ok-fg); }
+.lv-sidebar-group[data-group="admin"]      { --lv-group-accent: var(--danger); }
+.lv-sidebar-group + .lv-sidebar-group {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 0.85rem;
+  margin-top: 0.15rem;
 }
 .lv-sidebar-group-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   font-family: var(--font-mono);
   font-size: 0.66rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--fg-muted);
   padding: 0.1rem 0.75rem 0.4rem;
+}
+.lv-sidebar-group-marker {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--lv-group-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lv-group-accent) 18%, transparent);
+  flex-shrink: 0;
 }
 .lv-sidebar-link {
   display: block;
