@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Authentication and Authorization
 
 longue-vue uses dual-path authentication: humans authenticate via session cookies, machines authenticate via bearer tokens. Both paths feed the same role-based access control (RBAC) system.

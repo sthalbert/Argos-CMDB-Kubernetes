@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import * as api from './api';
+import { Logo } from './Logo';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import ImageSearch from './pages/Search';
@@ -121,6 +122,9 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
   return (
     <div className={`app-layout${collapsed ? ' sidebar-collapsed' : ''}`}>
       <aside className="sidebar">
+        <div className="sidebar-brand">
+          <Logo iconOnly={collapsed} size={22} />
+        </div>
         <button className="sidebar-toggle" onClick={toggle} title={collapsed ? 'Expand' : 'Collapse'}>
           <svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
             <line x1={4} y1={6} x2={20} y2={6} />
@@ -156,8 +160,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
       </aside>
       <div className="app-main">
         <header className="app-header">
-          <h1>longue-vue CMDB</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginLeft: 'auto' }}>
             <span className="muted" style={{ fontSize: 'var(--fs-base)' }}>
               {me.username} <span className="pill">{me.role}</span>
             </span>

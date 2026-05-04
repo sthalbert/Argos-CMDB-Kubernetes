@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 ---
 title: "ADR-0002: Kubernetes-to-ANSSI cartography layer mapping"
 status: "Proposed"

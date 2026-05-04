@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Deploy the VM Collector
 
 `longue-vue-vm-collector` is a standalone push-mode binary that catalogues platform VMs running **outside** any Kubernetes cluster — VPN gateways, DNS servers, bastions, Vault clusters, build runners. It polls a cloud provider's management API, deduplicates against the kube-node inventory, and pushes the rest to longue-vue over HTTPS.

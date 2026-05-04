@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # How to securely provide kubeconfigs to longue-vue
 
 This guide shows how to supply Kubernetes credentials to the longue-vue collector without exposing them in environment variables, pod specs, or version control.

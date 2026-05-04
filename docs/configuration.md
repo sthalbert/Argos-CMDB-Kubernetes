@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Configuration Reference
 
 All longue-vue configuration is environment-variable based. There are no config files.

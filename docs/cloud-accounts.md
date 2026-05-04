@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Cloud Accounts
 
 A **cloud account** is longue-vue's record of a single cloud-provider account that hosts platform infrastructure outside Kubernetes — VPN gateways, DNS servers, bastions, Vault clusters, and other supporting VMs. Each account stores the AK/SK that lets a [vm-collector](vm-collector.md) list its VMs, plus the curated metadata that completes the SecNumCloud chapter 8 asset cartography.
