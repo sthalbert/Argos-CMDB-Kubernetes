@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Impact Analysis
 
 longue-vue provides an interactive dependency graph that lets you assess the blast radius of a change before you make it. Select any entity in the CMDB and see what depends on it — and what it depends on — in a single view.

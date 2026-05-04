@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # VM Applications
 
 Platform VMs catalogued by the vm-collector arrive in longue-vue carrying cloud-provider metadata: AMI, instance type, IPs, VPC, security groups. That tells you the *machine*, but not what software runs inside it. Operators who need to answer "what version of Vault runs on this bastion?" today have to SSH in or check an Ansible inventory. SecNumCloud chapter 8 (asset management) requires a complete software inventory, not just hardware.

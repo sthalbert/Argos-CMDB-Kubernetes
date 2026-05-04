@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Getting Started
 
 This guide walks you from zero to a working longue-vue installation with data flowing in. By the end you will have longue-vue running, the web UI accessible, and at least one cluster registered.

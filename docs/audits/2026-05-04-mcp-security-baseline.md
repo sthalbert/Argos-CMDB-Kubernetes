@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # MCP Security Baseline Audit
 
 **Date:** 2026-05-04

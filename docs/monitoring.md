@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Monitoring
 
 longue-vue exposes Prometheus metrics for HTTP request tracking, collector health, and build information.
