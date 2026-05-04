@@ -22,7 +22,7 @@ var errRequiredField = errors.New("required field missing")
 
 // registerTools adds all read-only CMDB tools to the MCP server.
 //
-//nolint:funlen // registering 17 tools in one function is inherently long.
+//nolint:funlen // registering 22 tools in one function is inherently long.
 func (s *Server) registerTools() {
 	s.mcp.AddTool(
 		mcp.NewTool("list_clusters",
@@ -159,6 +159,13 @@ func (s *Server) registerTools() {
 			mcp.WithDescription("Get a summary of end-of-life status across all clusters and nodes, with counts by EOL status"),
 		),
 		s.handleGetEOLSummary,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("list_cloud_accounts",
+			mcp.WithDescription("List cloud-provider accounts registered in the CMDB (credentials redacted)"),
+		),
+		s.handleListCloudAccounts,
 	)
 
 	s.mcp.AddTool(
@@ -634,6 +641,27 @@ func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolReq
 		Workloads: workloads,
 		Pods:      pods,
 	})
+}
+
+// --- cloud-account & VM tool handlers --------------------------------------
+
+func (s *Server) handleListCloudAccounts(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := s.checkAccess(ctx, request); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("list_cloud_accounts", time.Since(start)) }()
+
+	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.CloudAccount, string, error) {
+		return s.store.ListCloudAccounts(ctx, maxPageSize, cursor)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list cloud accounts: %w", err)
+	}
+	for i := range items {
+		items[i] = redactCloudAccount(items[i])
+	}
+	return jsonResult(items)
 }
 
 // --- helpers ----------------------------------------------------------------
