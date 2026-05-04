@@ -27,6 +27,7 @@ var (
 	errDisabled         = errors.New("MCP server is disabled by administrator")
 	errUnauthorized     = errors.New("authentication required — provide a valid bearer token")
 	errUnknownTransport = errors.New("unknown MCP transport (want \"stdio\" or \"sse\")")
+	errRateLimited      = errors.New("rate limit exceeded — slow down or split into smaller batches")
 )
 
 // maxTotalItems caps the total number of items collectAll returns to
@@ -126,6 +127,9 @@ type Config struct {
 	// Refused unless explicitly opted in — bearer tokens flow over the
 	// wire and must not be exposed in plaintext on a network interface.
 	AllowPlaintext bool
+	// RateLimiter enforces per-token rate limiting on tool calls.
+	// Optional; nil disables rate limiting.
+	RateLimiter *RateLimiter
 }
 
 // Server wraps an MCP server backed by the longue-vue CMDB store.
@@ -277,7 +281,12 @@ func (s *Server) checkAccess(ctx context.Context, request mcp.CallToolRequest) (
 	if s.cfg.Auth == nil {
 		// stdio transport — no per-request auth; use a synthetic caller.
 		caller := &MCPCaller{Name: "mcp-stdio"}
-		return context.WithValue(ctx, ctxKeyMCPCaller{}, caller), nil
+		ctx = context.WithValue(ctx, ctxKeyMCPCaller{}, caller)
+		// stdio falls into a single shared bucket for rate limiting.
+		if s.cfg.RateLimiter != nil && !s.cfg.RateLimiter.Allow(ctx, "stdio") {
+			return ctx, errRateLimited
+		}
+		return ctx, nil
 	}
 	token := request.Header.Get("Authorization")
 	if token == "" {
@@ -291,7 +300,29 @@ func (s *Server) checkAccess(ctx context.Context, request mcp.CallToolRequest) (
 	if err != nil {
 		return ctx, err
 	}
-	return context.WithValue(ctx, ctxKeyMCPCaller{}, caller), nil
+	ctx = context.WithValue(ctx, ctxKeyMCPCaller{}, caller)
+	// Apply rate limiting AFTER successful auth.
+	if s.cfg.RateLimiter != nil && caller != nil && caller.TokenID != nil {
+		key := caller.TokenID.String()
+		if !s.cfg.RateLimiter.Allow(ctx, key) {
+			return ctx, errRateLimited
+		}
+	}
+	return ctx, nil
+}
+
+// recordCheckAccessFailure records either a 401 (auth denial) or 429
+// (rate limit) audit row based on the error type, then returns the
+// error wrapped as an MCP tool result. It should be called immediately
+// after checkAccess returns an error, before installing the deferred
+// finish handler.
+func (s *Server) recordCheckAccessFailure(ctx context.Context, tool string, args map[string]any, err error) *mcp.CallToolResult {
+	if errors.Is(err, errRateLimited) {
+		s.recordRateLimit(ctx, tool, args)
+	} else {
+		s.recordDenial(ctx, tool, args)
+	}
+	return mcp.NewToolResultError(err.Error())
 }
 
 // collectAll paginates through results up to maxTotalItems to prevent
