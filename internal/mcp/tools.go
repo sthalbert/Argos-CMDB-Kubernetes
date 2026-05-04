@@ -619,6 +619,9 @@ func (s *Server) handleGetImpactGraph(ctx context.Context, request mcp.CallToolR
 	return jsonResult(graph)
 }
 
+// eolStatusEOL is the JSON status value for an end-of-life product.
+const eolStatusEOL = "eol"
+
 // eolSummaryEntry represents one entity's EOL status in the summary.
 type eolSummaryEntry struct {
 	ID      string `json:"id"`
@@ -829,7 +832,7 @@ func extractEOLEntry(id, name, entityType string, annotations *map[string]string
 		entry.Status = ann.Status
 		entry.EOLDate = ann.EOLDate
 		// Take the worst status if multiple EOL annotations exist.
-		if ann.Status == "eol" {
+		if ann.Status == eolStatusEOL {
 			break
 		}
 	}
@@ -840,7 +843,7 @@ func extractEOLEntry(id, name, entityType string, annotations *map[string]string
 // countEOLStatus increments the appropriate counter in the summary.
 func countEOLStatus(summary *eolSummary, status string) {
 	switch status {
-	case "eol":
+	case eolStatusEOL:
 		summary.EOL++
 	case "approaching_eol":
 		summary.ApproachingEOL++

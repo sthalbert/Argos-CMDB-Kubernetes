@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
@@ -15,6 +17,7 @@ type fakeRecorder struct {
 	errOn  error // if non-nil, InsertAuditEvent returns this error
 }
 
+//nolint:gocritic // hugeParam: api.AuditRecorder interface requires by-value AuditEventInsert.
 func (f *fakeRecorder) InsertAuditEvent(_ context.Context, in api.AuditEventInsert) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -38,7 +41,7 @@ func (f *fakeRecorder) captured() []api.AuditEventInsert {
 func makeServerWithRecorder(rec *fakeRecorder) *Server {
 	store := newFakeStore()
 	store.settings.MCPEnabled = true
-	return NewServer(store, nil, Config{
+	return NewServer(store, nil, &Config{
 		Transport: "stdio",
 		Recorder:  rec,
 	})
@@ -106,7 +109,7 @@ func TestAudit_GetCluster_BadUUID(t *testing.T) {
 // and no error.
 func TestAudit_NilRecorder_NoPanic(t *testing.T) {
 	t.Parallel()
-	s := NewServer(newFakeStore(), nil, Config{
+	s := NewServer(newFakeStore(), nil, &Config{
 		Transport: "stdio",
 		Recorder:  nil, // explicitly nil
 	})
@@ -159,7 +162,7 @@ func TestAudit_DisabledMCP_DenialRecorded(t *testing.T) {
 	rec := &fakeRecorder{}
 	store := newFakeStore()
 	store.settings.MCPEnabled = false
-	s := NewServer(store, nil, Config{
+	s := NewServer(store, nil, &Config{
 		Transport: "stdio",
 		Recorder:  rec,
 	})
@@ -241,7 +244,7 @@ func TestAudit_Panic_Records500(t *testing.T) {
 	store := newFakeStore()
 	store.settings.MCPEnabled = true
 	store.panicOnGetCluster = true
-	s := NewServer(store, nil, Config{
+	s := NewServer(store, nil, &Config{
 		Transport: "stdio",
 		Recorder:  rec,
 	})
@@ -255,8 +258,7 @@ func TestAudit_Panic_Records500(t *testing.T) {
 				panicked = true
 			}
 		}()
-		//nolint:errcheck
-		s.handleGetCluster(context.Background(), req) //nolint:errcheck
+		s.handleGetCluster(context.Background(), req) //nolint:errcheck // test asserts side effect (audit row on panic), not handler return
 	}()
 
 	if !panicked {
@@ -283,59 +285,57 @@ func TestAudit_RateLimit_Records429(t *testing.T) {
 	// Tight limiter: 2 rps, burst 2.
 	limiter := NewRateLimiter(2, 2)
 
-	s := NewServer(store, nil, Config{
+	s := NewServer(store, nil, &Config{
 		Transport:   "stdio",
 		Recorder:    rec,
 		RateLimiter: limiter,
 	})
 
-	// Call list_clusters 3 times. First 2 succeed (burst), 3rd is rate-limited.
 	req := makeRequest("", map[string]any{"name": ""})
 	ctx := context.Background()
 
-	// First call: succeeds.
-	result, err := s.handleListClusters(ctx, req)
-	if err != nil {
-		t.Fatalf("1st call: %v", err)
-	}
-	if result == nil || result.IsError {
-		t.Fatal("1st call should succeed")
-	}
+	callListClustersExpectSuccess(t, s, ctx, req, "1st")
+	callListClustersExpectSuccess(t, s, ctx, req, "2nd")
+	callListClustersExpectRateLimited(t, s, ctx, req, "3rd")
 
-	// Second call: succeeds (within burst).
-	result, err = s.handleListClusters(ctx, req)
-	if err != nil {
-		t.Fatalf("2nd call: %v", err)
-	}
-	if result == nil || result.IsError {
-		t.Fatal("2nd call should succeed (within burst)")
-	}
-
-	// Third call: rate-limited.
-	result, err = s.handleListClusters(ctx, req)
-	if err != nil {
-		t.Fatalf("3rd call: %v", err)
-	}
-	if result == nil || !result.IsError {
-		t.Fatal("3rd call should be rate-limited")
-	}
-
-	// Inspect audit events.
 	events := rec.captured()
 	if len(events) != 3 {
 		t.Fatalf("want 3 audit events, got %d", len(events))
 	}
-
-	// First two should be 200 (success).
-	if events[0].HTTPStatus != 200 {
-		t.Errorf("event[0].HTTPStatus = %d; want 200", events[0].HTTPStatus)
+	wantStatuses := []int{200, 200, 429}
+	for i, want := range wantStatuses {
+		if events[i].HTTPStatus != want {
+			t.Errorf("event[%d].HTTPStatus = %d; want %d", i, events[i].HTTPStatus, want)
+		}
 	}
-	if events[1].HTTPStatus != 200 {
-		t.Errorf("event[1].HTTPStatus = %d; want 200", events[1].HTTPStatus)
-	}
+}
 
-	// Third should be 429 (rate-limited).
-	if events[2].HTTPStatus != 429 {
-		t.Errorf("event[2].HTTPStatus = %d; want 429", events[2].HTTPStatus)
+// callListClustersExpectSuccess invokes handleListClusters and asserts the
+// call returned a non-error tool result.
+//
+//nolint:gocritic // hugeParam: CallToolRequest is heavy but matches the MCP SDK handler signature.
+func callListClustersExpectSuccess(t *testing.T, s *Server, ctx context.Context, req mcp.CallToolRequest, label string) {
+	t.Helper()
+	result, err := s.handleListClusters(ctx, req)
+	if err != nil {
+		t.Fatalf("%s call: %v", label, err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("%s call should succeed", label)
+	}
+}
+
+// callListClustersExpectRateLimited invokes handleListClusters and asserts
+// the call returned an MCP tool error (rate-limited).
+//
+//nolint:gocritic // hugeParam: CallToolRequest is heavy but matches the MCP SDK handler signature.
+func callListClustersExpectRateLimited(t *testing.T, s *Server, ctx context.Context, req mcp.CallToolRequest, label string) {
+	t.Helper()
+	result, err := s.handleListClusters(ctx, req)
+	if err != nil {
+		t.Fatalf("%s call: %v", label, err)
+	}
+	if result == nil || !result.IsError {
+		t.Fatalf("%s call should be rate-limited", label)
 	}
 }

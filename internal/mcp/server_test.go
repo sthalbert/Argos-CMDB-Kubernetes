@@ -33,7 +33,7 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
 	tr := impact.NewTraverser(store)
-	s := NewServer(store, tr, Config{Transport: "stdio"})
+	s := NewServer(store, tr, &Config{Transport: "stdio"})
 
 	if s == nil || s.mcp == nil {
 		t.Fatal("NewServer returned nil server or nil mcp")
@@ -46,7 +46,7 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 
 func TestRun_UnknownTransport(t *testing.T) {
 	t.Parallel()
-	s := NewServer(newFakeStore(), nil, Config{Transport: "carrier-pigeon"})
+	s := NewServer(newFakeStore(), nil, &Config{Transport: "carrier-pigeon"})
 
 	err := s.Run(context.Background())
 	if err == nil {
@@ -61,7 +61,7 @@ func TestCheckAccess_DisabledByAdmin(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
 	store.settings.MCPEnabled = false
-	s := NewServer(store, nil, Config{Transport: "stdio"})
+	s := NewServer(store, nil, &Config{Transport: "stdio"})
 
 	_, err := s.checkAccess(context.Background(), makeRequest("", nil))
 	if !errors.Is(err, errDisabled) {
@@ -72,7 +72,7 @@ func TestCheckAccess_DisabledByAdmin(t *testing.T) {
 func TestCheckAccess_StdioNoAuth(t *testing.T) {
 	// No Auth callback configured (stdio transport) → access granted.
 	t.Parallel()
-	s := NewServer(newFakeStore(), nil, Config{Transport: "stdio"})
+	s := NewServer(newFakeStore(), nil, &Config{Transport: "stdio"})
 	if _, err := s.checkAccess(context.Background(), makeRequest("", nil)); err != nil {
 		t.Errorf("stdio (Auth=nil) should permit access; got %v", err)
 	}
@@ -89,19 +89,19 @@ func TestCheckAccess_SSE(t *testing.T) {
 		{
 			name:      "missing header",
 			authz:     "",
-			authFunc:  func(context.Context, string) (*MCPCaller, error) { return nil, errors.New("never called") },
+			authFunc:  func(context.Context, string) (*Caller, error) { return nil, errors.New("never called") },
 			wantErrIs: errUnauthorized,
 		},
 		{
 			name:      "valid token",
 			authz:     "Bearer good-token",
-			authFunc:  func(_ context.Context, tok string) (*MCPCaller, error) { return &MCPCaller{Name: "test"}, nil },
+			authFunc:  func(_ context.Context, tok string) (*Caller, error) { return &Caller{Name: "test"}, nil },
 			wantErrIs: nil,
 		},
 		{
 			name:  "invalid token",
 			authz: "Bearer bad-token",
-			authFunc: func(_ context.Context, _ string) (*MCPCaller, error) {
+			authFunc: func(_ context.Context, _ string) (*Caller, error) {
 				return nil, errors.New("denied")
 			},
 			wantErrIs: nil, // wrapper error not exported; just check non-nil
@@ -109,11 +109,11 @@ func TestCheckAccess_SSE(t *testing.T) {
 		{
 			name:  "bare token without Bearer prefix",
 			authz: "abc-not-bearer",
-			authFunc: func(_ context.Context, tok string) (*MCPCaller, error) {
+			authFunc: func(_ context.Context, tok string) (*Caller, error) {
 				if tok != "abc-not-bearer" {
 					return nil, errors.New("token mismatch: expected raw token")
 				}
-				return &MCPCaller{Name: "test"}, nil
+				return &Caller{Name: "test"}, nil
 			},
 			wantErrIs: nil,
 		},
@@ -121,7 +121,7 @@ func TestCheckAccess_SSE(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := NewServer(newFakeStore(), nil, Config{Transport: "sse", Auth: tc.authFunc})
+			s := NewServer(newFakeStore(), nil, &Config{Transport: "sse", Auth: tc.authFunc})
 			_, err := s.checkAccess(context.Background(), makeRequest(tc.authz, nil))
 
 			switch tc.name {
@@ -146,7 +146,7 @@ func TestCheckAccess_SettingsReadFails(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
 	store.errOn["GetSettings"] = errors.New("db unreachable")
-	s := NewServer(store, nil, Config{Transport: "stdio"})
+	s := NewServer(store, nil, &Config{Transport: "stdio"})
 
 	_, err := s.checkAccess(context.Background(), makeRequest("", nil))
 	if err == nil || !strings.Contains(err.Error(), "read settings") {
@@ -193,10 +193,10 @@ func TestCollectAll_TruncatesAtMaxTotalItems(t *testing.T) {
 func TestStdio_RejectsInvalidToken(t *testing.T) {
 	t.Parallel()
 	authErr := errors.New("bad-token-sentinel")
-	authFn := func(_ context.Context, _ string) (*MCPCaller, error) {
+	authFn := func(_ context.Context, _ string) (*Caller, error) {
 		return nil, authErr
 	}
-	s := NewServer(newFakeStore(), nil, Config{
+	s := NewServer(newFakeStore(), nil, &Config{
 		Transport: "stdio",
 		Token:     "longue_vue_pat_deadbeef_anything",
 		Auth:      authFn,
@@ -217,11 +217,11 @@ func TestStdio_RejectsInvalidToken(t *testing.T) {
 func TestStdio_AcceptsValidToken(t *testing.T) {
 	t.Parallel()
 	id := uuid.New()
-	wantCaller := &MCPCaller{Name: "test-caller", TokenID: &id}
-	authFn := func(_ context.Context, _ string) (*MCPCaller, error) {
+	wantCaller := &Caller{Name: "test-caller", TokenID: &id}
+	authFn := func(_ context.Context, _ string) (*Caller, error) {
 		return wantCaller, nil
 	}
-	s := NewServer(newFakeStore(), nil, Config{
+	s := NewServer(newFakeStore(), nil, &Config{
 		Transport: "stdio",
 		Token:     "longue_vue_pat_deadbeef_anything",
 		Auth:      authFn,
@@ -242,7 +242,7 @@ func TestStdio_NoTokenWarnsOnly(t *testing.T) {
 	// Token is empty: verifyStdioToken should succeed (just warn) and leave
 	// stdioCaller nil so checkAccess falls back to the synthetic "mcp-stdio" caller.
 	t.Parallel()
-	s := NewServer(newFakeStore(), nil, Config{Transport: "stdio"})
+	s := NewServer(newFakeStore(), nil, &Config{Transport: "stdio"})
 	if err := s.verifyStdioToken(context.Background()); err != nil {
 		t.Fatalf("verifyStdioToken with empty token must not error: %v", err)
 	}
@@ -256,11 +256,11 @@ func TestStdio_CallerAttachedAfterVerify(t *testing.T) {
 	// (not the synthetic "mcp-stdio") to the context.
 	t.Parallel()
 	id := uuid.New()
-	wantCaller := &MCPCaller{Name: "verified-stdio", TokenID: &id}
-	s := NewServer(newFakeStore(), nil, Config{
+	wantCaller := &Caller{Name: "verified-stdio", TokenID: &id}
+	s := NewServer(newFakeStore(), nil, &Config{
 		Transport: "stdio",
 		Token:     "tok",
-		Auth:      func(_ context.Context, _ string) (*MCPCaller, error) { return wantCaller, nil },
+		Auth:      func(_ context.Context, _ string) (*Caller, error) { return wantCaller, nil },
 	})
 	if err := s.verifyStdioToken(context.Background()); err != nil {
 		t.Fatalf("verifyStdioToken: %v", err)

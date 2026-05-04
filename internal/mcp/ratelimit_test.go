@@ -12,7 +12,7 @@ func TestRateLimiter_AllowsBurst(t *testing.T) {
 	// rps=2, burst=3 — first 3 calls succeed instantly, 4th denied.
 	lim := NewRateLimiter(2, 3)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if !lim.Allow(context.Background(), "tok-a") {
 			t.Fatalf("call %d should be allowed (within burst)", i+1)
 		}
@@ -28,7 +28,7 @@ func TestRateLimiter_PerKey(t *testing.T) {
 	lim := NewRateLimiter(2, 2)
 
 	// Exhaust tok-A's burst.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if !lim.Allow(context.Background(), "tok-a") {
 			t.Fatalf("tok-a call %d should be allowed (within burst)", i+1)
 		}
@@ -40,7 +40,7 @@ func TestRateLimiter_PerKey(t *testing.T) {
 	}
 
 	// tok-B should still have full burst.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if !lim.Allow(context.Background(), "tok-b") {
 			t.Fatalf("tok-b call %d should be allowed (fresh key)", i+1)
 		}
@@ -56,7 +56,7 @@ func TestRateLimiter_RecoversOverTime(t *testing.T) {
 	lim := NewRateLimiter(10, 2) // 10 rps = 0.1 tokens/ms
 
 	// Exhaust burst.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if !lim.Allow(context.Background(), "tok-x") {
 			t.Fatalf("call %d should be allowed (within burst)", i+1)
 		}
@@ -85,11 +85,11 @@ func TestRateLimiter_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// 10 goroutines, each calling Allow 50 times rapidly.
-	for g := 0; g < 10; g++ {
+	for range 10 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 50; i++ {
+			for range 50 {
 				if lim.Allow(ctx, "shared-key") {
 					allowed.Add(1)
 				}
@@ -114,7 +114,7 @@ func TestRateLimiter_Concurrent(t *testing.T) {
 	// Verify burst is respected: burst size is 2, so initially 2 are available.
 	lim2 := NewRateLimiter(10, 2)
 	var burst atomic.Int32
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		if lim2.Allow(ctx, "burst-test") {
 			burst.Add(1)
 		} else {
