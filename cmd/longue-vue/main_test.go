@@ -666,3 +666,65 @@ func TestLoadRunConfig_InvalidRequireHTTPS(t *testing.T) {
 		t.Fatal("expected error on invalid LONGUE_VUE_REQUIRE_HTTPS")
 	}
 }
+
+func TestMCPScopeAllowed(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		scopes  []string
+		allowed bool
+		desc    string
+	}{
+		{
+			name:    "read scope alone",
+			scopes:  []string{auth.ScopeRead},
+			allowed: true,
+			desc:    "read scope must permit access",
+		},
+		{
+			name:    "admin scope alone",
+			scopes:  []string{auth.ScopeAdmin},
+			allowed: true,
+			desc:    "admin scope must permit access (admin implies read)",
+		},
+		{
+			name:    "vm-collector scope alone",
+			scopes:  []string{auth.ScopeVMCollector},
+			allowed: false,
+			desc:    "vm-collector scope must be denied (ADR-0015 §5)",
+		},
+		{
+			name:    "admin plus vm-collector",
+			scopes:  []string{auth.ScopeAdmin, auth.ScopeVMCollector},
+			allowed: false,
+			desc:    "admin+vm-collector must be denied (regression test for HIGH-04)",
+		},
+		{
+			name:    "audit scope alone",
+			scopes:  []string{auth.ScopeAudit},
+			allowed: false,
+			desc:    "audit scope without read must be denied",
+		},
+		{
+			name:    "empty scopes",
+			scopes:  []string{},
+			allowed: false,
+			desc:    "empty scopes must be denied",
+		},
+		{
+			name:    "read plus vm-collector",
+			scopes:  []string{auth.ScopeRead, auth.ScopeVMCollector},
+			allowed: false,
+			desc:    "read+vm-collector must be denied (defense in depth)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mcpScopeAllowed(tc.scopes)
+			if got != tc.allowed {
+				t.Errorf("%s: got %v, want %v", tc.desc, got, tc.allowed)
+			}
+		})
+	}
+}

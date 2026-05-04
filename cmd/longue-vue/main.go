@@ -1079,6 +1079,21 @@ func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 	return wg.Wait, nil
 }
 
+// mcpScopeAllowed checks whether a token's scopes permit MCP access.
+// Returns true only if the token has the read scope (or admin scope,
+// which implies read per ADR-0007) AND does not carry the vm-collector
+// scope. Per ADR-0015 §5, vm-collector tokens must never access CMDB
+// data through MCP, even if mis-issued with additional scopes.
+func mcpScopeAllowed(scopes []string) bool {
+	caller := &auth.Caller{Scopes: scopes}
+	// Check for vm-collector scope first — deny if present (ADR-0015 §5).
+	if caller.HasScope(auth.ScopeVMCollector) {
+		return false
+	}
+	// Require read scope (admin implies read per ADR-0007).
+	return caller.HasScope(auth.ScopeRead)
+}
+
 // maybeStartMCPServer spawns the MCP server goroutine (ADR-0014).
 // The goroutine always starts; tool calls are gated by the `mcp_enabled`
 // setting in the database (toggled by admins via the UI).
@@ -1142,14 +1157,9 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 			if verr := auth.VerifyPassword(full, tok.Hash); verr != nil {
 				return nil, fmt.Errorf("token verification failed: %w", verr)
 			}
-			hasRead := false
-			for _, scope := range tok.Scopes {
-				if scope == "read" || scope == "admin" {
-					hasRead = true
-					break
-				}
-			}
-			if !hasRead {
+			// Per ADR-0015 §5, reject any token carrying vm-collector scope
+			// (a mis-issued admin+vm-collector token must NOT access MCP).
+			if !mcpScopeAllowed(tok.Scopes) {
 				return nil, errors.New("token lacks read scope") //nolint:err113 // one-off auth error
 			}
 
