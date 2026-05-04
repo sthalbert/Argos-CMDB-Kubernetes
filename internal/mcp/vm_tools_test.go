@@ -13,6 +13,45 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+func TestHandleGetCloudAccount_HappyPathRedacts(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	id := uuid.New()
+	ak := "AKIASECRETPUBLICID"
+	now := time.Now().UTC()
+	store.accounts = []api.CloudAccount{
+		{ID: id, Provider: "outscale", Name: "prod", Region: "eu-west-2", Status: api.CloudAccountStatusActive, AccessKey: &ak, CreatedAt: now, UpdatedAt: now},
+	}
+	s := newServer(t, store)
+
+	r, err := s.handleGetCloudAccount(context.Background(), makeRequest("", map[string]any{"id": id.String()}))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	text := resultText(t, r)
+	if strings.Contains(text, "access_key") {
+		t.Errorf("response contains access_key: %s", text)
+	}
+	if strings.Contains(text, ak) {
+		t.Errorf("response leaks AK value")
+	}
+}
+
+func TestHandleGetCloudAccount_NotFound(t *testing.T) {
+	t.Parallel()
+	s := newServer(t, newFakeStore())
+	r, err := s.handleGetCloudAccount(context.Background(), makeRequest("", map[string]any{"id": uuid.New().String()}))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !r.IsError {
+		t.Error("missing account should produce IsError")
+	}
+	if !strings.Contains(resultText(t, r), "cloud account not found") {
+		t.Errorf("text = %q; want 'cloud account not found'", resultText(t, r))
+	}
+}
+
 func TestHandleListCloudAccounts_RedactsAccessKey(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()

@@ -169,6 +169,14 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
+		mcp.NewTool("get_cloud_account",
+			mcp.WithDescription("Get a single cloud-provider account by its UUID (credentials redacted)"),
+			mcp.WithString("id", mcp.Required(), mcp.Description("Cloud account UUID")),
+		),
+		s.handleGetCloudAccount,
+	)
+
+	s.mcp.AddTool(
 		mcp.NewTool("search_images",
 			mcp.WithDescription("Search for workloads and pods running a specific container image"),
 			mcp.WithString("query", mcp.Required(), mcp.Description("Container image name or substring to search for")),
@@ -662,6 +670,24 @@ func (s *Server) handleListCloudAccounts(ctx context.Context, request mcp.CallTo
 		items[i] = redactCloudAccount(items[i])
 	}
 	return jsonResult(items)
+}
+
+func (s *Server) handleGetCloudAccount(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := s.checkAccess(ctx, request); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("get_cloud_account", time.Since(start)) }()
+
+	id, err := parseID(request)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	acct, err := s.store.GetCloudAccount(ctx, id)
+	if err != nil {
+		return storeError("cloud account", err)
+	}
+	return jsonResult(redactCloudAccount(acct))
 }
 
 // --- helpers ----------------------------------------------------------------
