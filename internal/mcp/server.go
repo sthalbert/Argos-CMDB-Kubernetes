@@ -6,9 +6,12 @@ package mcp
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -112,6 +115,17 @@ type Config struct {
 	// Recorder records one audit_events row per tool call. Optional; nil
 	// disables MCP audit logging (tests / stdio without DB).
 	Recorder api.AuditRecorder
+	// TLSGetCertificate enables TLS 1.3 on the SSE listener when non-nil.
+	// The hook is the standard tls.Config.GetCertificate callback,
+	// produced by the parent's cert-reloader so cert rotation is
+	// transparent (no listener restart).
+	TLSGetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+	// AllowPlaintext, when true, lets the SSE transport start without
+	// TLS. Required for tests, dev loops, and environments that
+	// terminate TLS upstream (e.g. an in-cluster service mesh sidecar).
+	// Refused unless explicitly opted in — bearer tokens flow over the
+	// wire and must not be exposed in plaintext on a network interface.
+	AllowPlaintext bool
 }
 
 // Server wraps an MCP server backed by the longue-vue CMDB store.
@@ -173,26 +187,68 @@ func (s *Server) runStdio(ctx context.Context) error {
 }
 
 func (s *Server) runSSE(ctx context.Context) error {
-	slog.Info("mcp server starting", slog.String("transport", "sse"), slog.String("addr", s.cfg.Addr))
+	if s.cfg.TLSGetCertificate == nil && !s.cfg.AllowPlaintext {
+		return errors.New("mcp sse: TLS not configured and AllowPlaintext=false — refusing to start (CRIT-01)")
+	}
 
-	sseSrv := server.NewSSEServer(s.mcp)
+	useTLS := s.cfg.TLSGetCertificate != nil
+
+	// Build our own http.Server so we can attach a TLS config.
+	// We pass it to the SDK via WithHTTPServer so that sseSrv.Shutdown()
+	// can drain sessions and then call httpSrv.Shutdown internally.
+	httpSrv := &http.Server{
+		Addr:              s.cfg.Addr,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	if useTLS {
+		httpSrv.TLSConfig = &tls.Config{
+			MinVersion:     tls.VersionTLS13,
+			GetCertificate: s.cfg.TLSGetCertificate,
+		}
+	}
+
+	sseSrv := server.NewSSEServer(s.mcp, server.WithHTTPServer(httpSrv))
+	// SSEServer implements http.Handler; wire it as the handler so that
+	// both Start() (plaintext) and our direct ListenAndServeTLS (TLS) path
+	// use the same SSE route mux.
+	httpSrv.Handler = sseSrv
+
+	slog.Info("mcp server starting", slog.String("transport", "sse"), slog.String("addr", s.cfg.Addr),
+		slog.Bool("tls", useTLS))
 
 	errCh := make(chan error, 1)
 	go func() {
-		if serveErr := sseSrv.Start(s.cfg.Addr); serveErr != nil {
+		var serveErr error
+		if useTLS {
+			// ListenAndServeTLS with empty cert/key files — the keypair is
+			// supplied exclusively via TLSConfig.GetCertificate.
+			serveErr = httpSrv.ListenAndServeTLS("", "")
+		} else {
+			slog.Warn("mcp sse: starting plaintext (LONGUE_VUE_MCP_ALLOW_PLAINTEXT=true) — bearer tokens are NOT protected on the wire",
+				slog.String("addr", s.cfg.Addr))
+			serveErr = httpSrv.ListenAndServe()
+		}
+		if !errors.Is(serveErr, http.ErrServerClosed) {
 			errCh <- serveErr
+		} else {
+			errCh <- nil
 		}
 	}()
 
 	select {
 	case <-ctx.Done():
 		slog.Info("mcp server shutting down (sse)")
-		if shutErr := sseSrv.Shutdown(ctx); shutErr != nil {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if shutErr := sseSrv.Shutdown(shutCtx); shutErr != nil {
 			slog.Warn("mcp sse shutdown error", slog.Any("error", shutErr))
 		}
 		return fmt.Errorf("mcp server: %w", ctx.Err())
 	case err := <-errCh:
-		return fmt.Errorf("mcp sse serve: %w", err)
+		if err != nil {
+			return fmt.Errorf("mcp sse serve: %w", err)
+		}
+		return nil
 	}
 }
 
