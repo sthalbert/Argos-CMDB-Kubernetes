@@ -143,6 +143,65 @@ func TestHandleListVirtualMachines_RejectsOversizedName(t *testing.T) {
 	}
 }
 
+func TestHandleGetVirtualMachine_HappyPath(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	id := uuid.New()
+	acct := uuid.New()
+	apps := []api.VMApplication{{Product: "vault", Version: "1.15.4"}}
+	store.vms = []api.VirtualMachine{newVM(id, acct, "vault-1", apps)}
+	s := newServer(t, store)
+
+	r, err := s.handleGetVirtualMachine(context.Background(), makeRequest("", map[string]any{"id": id.String()}))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	var got api.VirtualMachine
+	if err := json.Unmarshal([]byte(resultText(t, r)), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Name != "vault-1" || len(got.Applications) != 1 || got.Applications[0].Product != "vault" {
+		t.Errorf("got = %+v; want vault-1 with vault app", got)
+	}
+}
+
+func TestHandleGetVirtualMachine_NotFound(t *testing.T) {
+	t.Parallel()
+	s := newServer(t, newFakeStore())
+	r, _ := s.handleGetVirtualMachine(context.Background(), makeRequest("", map[string]any{"id": uuid.New().String()}))
+	if !r.IsError {
+		t.Error("missing VM should produce IsError")
+	}
+	if !strings.Contains(resultText(t, r), "virtual machine not found") {
+		t.Errorf("text = %q", resultText(t, r))
+	}
+}
+
+func TestHandleListVMApplicationsDistinct(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.vmApps = []api.VMApplicationDistinct{
+		{Product: "vault", Versions: []string{"1.15.4", "1.16.0"}},
+		{Product: "bind", Versions: []string{"9.18"}},
+	}
+	s := newServer(t, store)
+
+	r, err := s.handleListVMApplicationsDistinct(context.Background(), makeRequest("", nil))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	var got vmApplicationsResponse
+	if err := json.Unmarshal([]byte(resultText(t, r)), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Products) != 2 {
+		t.Errorf("len = %d; want 2", len(got.Products))
+	}
+	if got.Products[0].Product != "vault" || len(got.Products[0].Versions) != 2 {
+		t.Errorf("first = %+v; want vault with 2 versions", got.Products[0])
+	}
+}
+
 func TestHandleGetCloudAccount_HappyPathRedacts(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
