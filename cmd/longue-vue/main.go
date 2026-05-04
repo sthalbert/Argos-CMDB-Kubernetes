@@ -51,6 +51,10 @@ var (
 	errEncryptedCredentials   = errors.New("secrets master key missing but cloud_accounts rows carry encrypted credentials")
 	errIngestMissingTLSConfig = errors.New("LONGUE_VUE_INGEST_LISTEN_ADDR is set but LONGUE_VUE_INGEST_LISTEN_TLS_CERT, " +
 		"LONGUE_VUE_INGEST_LISTEN_TLS_KEY, or LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE is missing — see ADR-0016 §4")
+	// errMCPAuthFailed is the generic sentinel returned to MCP clients when
+	// authentication fails for any reason. Internal details are logged at
+	// Warn level and never forwarded to the client (MED-04).
+	errMCPAuthFailed           = errors.New("authentication failed")
 	errTransportPostureRefused = errors.New("LONGUE_VUE_REQUIRE_HTTPS=true but neither native TLS " +
 		"(LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT + _KEY) nor a trusted-proxy + always-secure-cookie posture " +
 		"(LONGUE_VUE_TRUSTED_PROXIES non-empty AND LONGUE_VUE_SESSION_SECURE_COOKIE=always) is configured — see ADR-0017 §3")
@@ -1079,6 +1083,60 @@ func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 	return wg.Wait, nil
 }
 
+// mcpTokenStore is the narrow store interface needed by buildMCPAuthFn.
+// Extracted so the function can be unit-tested without a real *store.PG.
+type mcpTokenStore interface {
+	GetActiveTokenByPrefix(ctx context.Context, prefix string) (auth.APIToken, error)
+}
+
+// buildMCPAuthFn constructs the AuthFunc used by the MCP server to verify
+// bearer tokens. It is extracted from maybeStartMCPServer to enable unit
+// testing without a real database (MED-04).
+func buildMCPAuthFn(tokenStore mcpTokenStore, cache *argmcp.AuthCache) argmcp.AuthFunc {
+	return func(ctx context.Context, rawToken string) (*argmcp.MCPCaller, error) {
+		prefix, full, err := auth.ParseToken(rawToken)
+		if err != nil {
+			slog.Warn("mcp auth failed: invalid token format", slog.Any("error", err))
+			return nil, errMCPAuthFailed
+		}
+
+		// Check bounded LRU cache — skip argon2id if recently verified.
+		if caller, ok := cache.Get(prefix, full); ok {
+			return caller, nil
+		}
+
+		// Full verification: DB lookup + argon2id.
+		tok, err := tokenStore.GetActiveTokenByPrefix(ctx, prefix)
+		if err != nil {
+			slog.Warn("mcp auth failed: token lookup error", slog.Any("error", err))
+			return nil, errMCPAuthFailed
+		}
+		if verr := auth.VerifyPassword(full, tok.Hash); verr != nil {
+			slog.Warn("mcp auth failed: token verification error", slog.Any("error", verr))
+			return nil, errMCPAuthFailed
+		}
+		// Per ADR-0015 §5, reject any token carrying vm-collector scope
+		// (a mis-issued admin+vm-collector token must NOT access MCP).
+		if !mcpScopeAllowed(tok.Scopes) {
+			slog.Warn("mcp auth failed: token scope not permitted for MCP access")
+			return nil, errMCPAuthFailed
+		}
+
+		tokenID := tok.ID
+		userID := tok.CreatedByUserID
+		caller := &argmcp.MCPCaller{
+			TokenID: &tokenID,
+			Name:    tok.Name,
+			UserID:  &userID,
+			Scopes:  tok.Scopes,
+		}
+
+		// Cache the verified result.
+		cache.Put(prefix, full, caller)
+		return caller, nil
+	}
+}
+
 // mcpScopeAllowed checks whether a token's scopes permit MCP access.
 // Returns true only if the token has the read scope (or admin scope,
 // which implies read per ADR-0007) AND does not carry the vm-collector
@@ -1137,47 +1195,10 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 		}
 	}()
 
-	var authFn argmcp.AuthFunc
-	if transport == "sse" {
-		authFn = func(ctx context.Context, rawToken string) (*argmcp.MCPCaller, error) {
-			prefix, full, err := auth.ParseToken(rawToken)
-			if err != nil {
-				return nil, fmt.Errorf("invalid token: %w", err)
-			}
-
-			// Check bounded LRU cache — skip argon2id if recently verified.
-			if caller, ok := authCache.Get(prefix, full); ok {
-				return caller, nil
-			}
-
-			// Full verification: DB lookup + argon2id.
-			tok, err := s.GetActiveTokenByPrefix(ctx, prefix)
-			if err != nil {
-				return nil, fmt.Errorf("token lookup failed: %w", err)
-			}
-			if verr := auth.VerifyPassword(full, tok.Hash); verr != nil {
-				return nil, fmt.Errorf("token verification failed: %w", verr)
-			}
-			// Per ADR-0015 §5, reject any token carrying vm-collector scope
-			// (a mis-issued admin+vm-collector token must NOT access MCP).
-			if !mcpScopeAllowed(tok.Scopes) {
-				return nil, errors.New("token lacks read scope") //nolint:err113 // one-off auth error
-			}
-
-			tokenID := tok.ID
-			userID := tok.CreatedByUserID
-			caller := &argmcp.MCPCaller{
-				TokenID: &tokenID,
-				Name:    tok.Name,
-				UserID:  &userID,
-				Scopes:  tok.Scopes,
-			}
-
-			// Cache the verified result.
-			authCache.Put(prefix, full, caller)
-			return caller, nil
-		}
-	}
+	// authFn is used for SSE per-call verification and for stdio one-shot
+	// startup verification (MED-01). Always built so verifyStdioToken can
+	// call it when LONGUE_VUE_MCP_TOKEN is set.
+	authFn := buildMCPAuthFn(s, authCache)
 
 	mcpCertFile := os.Getenv("LONGUE_VUE_MCP_TLS_CERT")
 	mcpKeyFile := os.Getenv("LONGUE_VUE_MCP_TLS_KEY")
