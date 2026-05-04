@@ -74,9 +74,30 @@ type Store interface {
 	ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolumeClaim, string, error)
 }
 
-// AuthFunc validates a bearer token and returns an error if invalid.
-// The MCP server calls this on every tool invocation for SSE transport.
-type AuthFunc func(ctx context.Context, token string) error
+// MCPCaller carries the resolved identity of a tool-call initiator.
+// For SSE transport, it is populated from the verified bearer token.
+// For stdio transport (no per-request auth), TokenID is nil and Name
+// is "mcp-stdio".
+type MCPCaller struct {
+	TokenID *uuid.UUID // nil for stdio
+	Name    string     // "mcp-stdio" for stdio, token name otherwise
+	UserID  *uuid.UUID // creator of the token, if any
+	Scopes  []string
+}
+
+type ctxKeyMCPCaller struct{}
+
+// mcpCallerFromContext retrieves the resolved caller stored by checkAccess.
+// Returns nil when no caller is present (e.g. disabled-before-auth path).
+func mcpCallerFromContext(ctx context.Context) *MCPCaller {
+	v, _ := ctx.Value(ctxKeyMCPCaller{}).(*MCPCaller)
+	return v
+}
+
+// AuthFunc validates a bearer token and returns the resolved caller on
+// success, or an error if the token is invalid. The MCP server calls this on
+// every tool invocation for SSE transport.
+type AuthFunc func(ctx context.Context, token string) (*MCPCaller, error)
 
 // Config holds the MCP server configuration.
 type Config struct {
@@ -88,6 +109,9 @@ type Config struct {
 	Token string
 	// Auth validates bearer tokens on SSE transport. Required for SSE.
 	Auth AuthFunc
+	// Recorder records one audit_events row per tool call. Optional; nil
+	// disables MCP audit logging (tests / stdio without DB).
+	Recorder api.AuditRecorder
 }
 
 // Server wraps an MCP server backed by the longue-vue CMDB store.
@@ -186,25 +210,32 @@ func (s *Server) checkEnabled(ctx context.Context) error {
 }
 
 // checkAccess validates that the MCP server is enabled and the caller
-// is authenticated. Called at the top of every tool handler.
+// is authenticated. On success it stores the resolved mcpCaller in ctx
+// and returns the updated context. Called at the top of every tool handler.
 //
 //nolint:gocritic // hugeParam: CallToolRequest passed by value per MCP SDK handler signature.
-func (s *Server) checkAccess(ctx context.Context, request mcp.CallToolRequest) error {
+func (s *Server) checkAccess(ctx context.Context, request mcp.CallToolRequest) (context.Context, error) {
 	if err := s.checkEnabled(ctx); err != nil {
-		return err
+		return ctx, err
 	}
 	if s.cfg.Auth == nil {
-		return nil // stdio transport — no per-request auth
+		// stdio transport — no per-request auth; use a synthetic caller.
+		caller := &MCPCaller{Name: "mcp-stdio"}
+		return context.WithValue(ctx, ctxKeyMCPCaller{}, caller), nil
 	}
 	token := request.Header.Get("Authorization")
 	if token == "" {
-		return errUnauthorized
+		return ctx, errUnauthorized
 	}
 	// Strip "Bearer " prefix if present.
 	if len(token) > 7 && token[:7] == "Bearer " {
 		token = token[7:]
 	}
-	return s.cfg.Auth(ctx, token)
+	caller, err := s.cfg.Auth(ctx, token)
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, ctxKeyMCPCaller{}, caller), nil
 }
 
 // collectAll paginates through results up to maxTotalItems to prevent
