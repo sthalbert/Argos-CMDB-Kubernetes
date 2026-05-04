@@ -176,8 +176,7 @@ func (s *Server) handleListClusters(ctx context.Context, request mcp.CallToolReq
 	args := map[string]any{"name": presence(request.GetString("name", ""))}
 	var err error
 	if ctx, err = s.checkAccess(ctx, request); err != nil {
-		s.recordDenial(ctx, "list_clusters", args)
-		return mcp.NewToolResultError(err.Error()), nil
+		return s.recordCheckAccessFailure(ctx, "list_clusters", args, err), nil
 	}
 	defer s.finishDeferred(ctx, "list_clusters", args, &resp, &retErr)
 

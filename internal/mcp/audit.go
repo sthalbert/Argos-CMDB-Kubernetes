@@ -101,6 +101,13 @@ func (s *Server) recordDenial(ctx context.Context, tool string, args map[string]
 	s.recordToolCall(ctx, tool, args, 401)
 }
 
+// recordRateLimit emits a 429 audit row for a rate-limit failure. It is
+// the only call site that should produce status 429. Handlers must call
+// this BEFORE installing the deferred finish so there is no double-record.
+func (s *Server) recordRateLimit(ctx context.Context, tool string, args map[string]any) {
+	s.recordToolCall(ctx, tool, args, 429)
+}
+
 // finishDeferred is intended for use as a named-return defer:
 //
 //	func (s *Server) handleFoo(...) (resp *mcp.CallToolResult, retErr error) {
