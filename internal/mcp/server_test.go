@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -182,6 +183,95 @@ func TestCollectAll_TruncatesAtMaxTotalItems(t *testing.T) {
 	}
 	if len(got) != maxTotalItems {
 		t.Errorf("len = %d; want exactly maxTotalItems (%d)", len(got), maxTotalItems)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T6 — stdio token enforcement (MED-01)
+// ---------------------------------------------------------------------------
+
+func TestStdio_RejectsInvalidToken(t *testing.T) {
+	t.Parallel()
+	authErr := errors.New("bad-token-sentinel")
+	authFn := func(_ context.Context, _ string) (*MCPCaller, error) {
+		return nil, authErr
+	}
+	s := NewServer(newFakeStore(), nil, Config{
+		Transport: "stdio",
+		Token:     "longue_vue_pat_deadbeef_anything",
+		Auth:      authFn,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := s.verifyStdioToken(ctx)
+	if err == nil {
+		t.Fatal("expected verifyStdioToken to return error for invalid token")
+	}
+	if !errors.Is(err, authErr) {
+		t.Errorf("err = %v; want wrapping authErr", err)
+	}
+}
+
+func TestStdio_AcceptsValidToken(t *testing.T) {
+	t.Parallel()
+	id := uuid.New()
+	wantCaller := &MCPCaller{Name: "test-caller", TokenID: &id}
+	authFn := func(_ context.Context, _ string) (*MCPCaller, error) {
+		return wantCaller, nil
+	}
+	s := NewServer(newFakeStore(), nil, Config{
+		Transport: "stdio",
+		Token:     "longue_vue_pat_deadbeef_anything",
+		Auth:      authFn,
+	})
+
+	if err := s.verifyStdioToken(context.Background()); err != nil {
+		t.Fatalf("verifyStdioToken: %v", err)
+	}
+	if s.stdioCaller == nil {
+		t.Fatal("stdioCaller not set after successful verify")
+	}
+	if s.stdioCaller.Name != wantCaller.Name {
+		t.Errorf("stdioCaller.Name = %q; want %q", s.stdioCaller.Name, wantCaller.Name)
+	}
+}
+
+func TestStdio_NoTokenWarnsOnly(t *testing.T) {
+	// Token is empty: verifyStdioToken should succeed (just warn) and leave
+	// stdioCaller nil so checkAccess falls back to the synthetic "mcp-stdio" caller.
+	t.Parallel()
+	s := NewServer(newFakeStore(), nil, Config{Transport: "stdio"})
+	if err := s.verifyStdioToken(context.Background()); err != nil {
+		t.Fatalf("verifyStdioToken with empty token must not error: %v", err)
+	}
+	if s.stdioCaller != nil {
+		t.Error("stdioCaller should remain nil when no token provided")
+	}
+}
+
+func TestStdio_CallerAttachedAfterVerify(t *testing.T) {
+	// After a successful verifyStdioToken, checkAccess must attach stdioCaller
+	// (not the synthetic "mcp-stdio") to the context.
+	t.Parallel()
+	id := uuid.New()
+	wantCaller := &MCPCaller{Name: "verified-stdio", TokenID: &id}
+	s := NewServer(newFakeStore(), nil, Config{
+		Transport: "stdio",
+		Token:     "tok",
+		Auth:      func(_ context.Context, _ string) (*MCPCaller, error) { return wantCaller, nil },
+	})
+	if err := s.verifyStdioToken(context.Background()); err != nil {
+		t.Fatalf("verifyStdioToken: %v", err)
+	}
+	ctx, err := s.checkAccess(context.Background(), makeRequest("", nil))
+	if err != nil {
+		t.Fatalf("checkAccess: %v", err)
+	}
+	got := mcpCallerFromContext(ctx)
+	if got == nil || got.Name != wantCaller.Name {
+		t.Errorf("caller in context = %v; want %q", got, wantCaller.Name)
 	}
 }
 

@@ -134,10 +134,12 @@ type Config struct {
 
 // Server wraps an MCP server backed by the longue-vue CMDB store.
 type Server struct {
-	store     Store
-	traverser *impact.Traverser
-	cfg       Config
-	mcp       *server.MCPServer
+	store       Store
+	traverser   *impact.Traverser
+	cfg         Config
+	mcp         *server.MCPServer
+	stdioCaller *MCPCaller // set after successful stdio token verification
+	isStdio     bool       // true when transport=="stdio"; skips per-call bearer auth
 }
 
 // NewServer creates a Server. The traverser is used for the
@@ -154,6 +156,7 @@ func NewServer(store Store, traverser *impact.Traverser, cfg Config) *Server {
 		traverser: traverser,
 		cfg:       cfg,
 		mcp:       mcpSrv,
+		isStdio:   cfg.Transport == "stdio",
 	}
 	s.registerTools()
 	return s
@@ -173,8 +176,35 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+// verifyStdioToken validates cfg.Token at stdio startup (MED-01).
+// If Token is non-empty and Auth is configured, the token is verified once;
+// the resolved caller is stored on s.stdioCaller for subsequent tool-call
+// attribution. If Token is empty, a loud warning is emitted and the server
+// falls back to process-level trust (audit rows tagged "mcp-stdio").
+func (s *Server) verifyStdioToken(ctx context.Context) error {
+	if s.cfg.Token == "" {
+		slog.Warn("mcp stdio: LONGUE_VUE_MCP_TOKEN not set — caller inherits process-level trust; audit rows will be tagged as 'mcp-stdio'")
+		return nil
+	}
+	if s.cfg.Auth == nil {
+		// Auth function not wired for stdio — no verification possible.
+		return nil
+	}
+	caller, err := s.cfg.Auth(ctx, s.cfg.Token)
+	if err != nil {
+		return fmt.Errorf("mcp stdio: token verification failed: %w", err)
+	}
+	s.stdioCaller = caller
+	slog.Info("mcp stdio: token verified", slog.String("caller", caller.Name))
+	return nil
+}
+
 func (s *Server) runStdio(ctx context.Context) error {
 	slog.Info("mcp server starting", slog.String("transport", "stdio"))
+
+	if err := s.verifyStdioToken(ctx); err != nil {
+		return err
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -278,9 +308,14 @@ func (s *Server) checkAccess(ctx context.Context, request mcp.CallToolRequest) (
 	if err := s.checkEnabled(ctx); err != nil {
 		return ctx, err
 	}
-	if s.cfg.Auth == nil {
-		// stdio transport — no per-request auth; use a synthetic caller.
+	if s.isStdio {
+		// stdio transport — no per-request auth; use the pre-verified
+		// stdioCaller when a token was validated at startup, otherwise a
+		// synthetic caller tagged "mcp-stdio" (process-level trust fallback).
 		caller := &MCPCaller{Name: "mcp-stdio"}
+		if s.stdioCaller != nil {
+			caller = s.stdioCaller
+		}
 		ctx = context.WithValue(ctx, ctxKeyMCPCaller{}, caller)
 		// stdio falls into a single shared bucket for rate limiting.
 		if s.cfg.RateLimiter != nil && !s.cfg.RateLimiter.Allow(ctx, "stdio") {
