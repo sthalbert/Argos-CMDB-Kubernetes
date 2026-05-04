@@ -22,7 +22,7 @@ var errRequiredField = errors.New("required field missing")
 
 // registerTools adds all read-only CMDB tools to the MCP server.
 //
-//nolint:funlen // registering 17 tools in one function is inherently long.
+//nolint:funlen // registering 22 tools in one function is inherently long.
 func (s *Server) registerTools() {
 	s.mcp.AddTool(
 		mcp.NewTool("list_clusters",
@@ -159,6 +159,53 @@ func (s *Server) registerTools() {
 			mcp.WithDescription("Get a summary of end-of-life status across all clusters and nodes, with counts by EOL status"),
 		),
 		s.handleGetEOLSummary,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("list_cloud_accounts",
+			mcp.WithDescription("List cloud-provider accounts registered in the CMDB (credentials redacted)"),
+		),
+		s.handleListCloudAccounts,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("list_virtual_machines",
+			mcp.WithDescription("List non-Kubernetes platform VMs (Vault, DNS, Bastion, ...) registered in the CMDB"),
+			mcp.WithString("cloud_account_id", mcp.Description("Filter by cloud account UUID (optional)")),
+			mcp.WithString("cloud_account_name", mcp.Description("Filter by cloud account name (optional)")),
+			mcp.WithString("region", mcp.Description("Filter by region (optional)")),
+			mcp.WithString("role", mcp.Description("Filter by operator-curated role (optional)")),
+			mcp.WithString("power_state", mcp.Description("Filter by power state, e.g. running / stopped / terminated (optional)")),
+			mcp.WithString("name", mcp.Description("Filter by VM name substring, case-insensitive (optional)")),
+			mcp.WithString("image", mcp.Description("Filter by image_id or image_name substring, case-insensitive (optional)")),
+			mcp.WithString("application", mcp.Description("Filter to VMs running this product (normalized server-side, optional)")),
+			mcp.WithString("application_version", mcp.Description("Narrow `application` to this version (optional, ignored without application)")),
+			mcp.WithBoolean("include_terminated", mcp.Description("Include soft-deleted VMs (default false)")),
+		),
+		s.handleListVirtualMachines,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("get_virtual_machine",
+			mcp.WithDescription("Get a single platform VM by its UUID, including curated applications list"),
+			mcp.WithString("id", mcp.Required(), mcp.Description("Virtual machine UUID")),
+		),
+		s.handleGetVirtualMachine,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("list_vm_applications_distinct",
+			mcp.WithDescription("List the distinct (product, versions[]) tuples seen across non-terminated platform VMs"),
+		),
+		s.handleListVMApplicationsDistinct,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("get_cloud_account",
+			mcp.WithDescription("Get a single cloud-provider account by its UUID (credentials redacted)"),
+			mcp.WithString("id", mcp.Required(), mcp.Description("Cloud account UUID")),
+		),
+		s.handleGetCloudAccount,
 	)
 
 	s.mcp.AddTool(
@@ -634,13 +681,14 @@ type eolSummaryEntry struct {
 
 // eolSummary is the response for the get_eol_summary tool.
 type eolSummary struct {
-	TotalClusters  int               `json:"total_clusters"`
-	TotalNodes     int               `json:"total_nodes"`
-	EOL            int               `json:"eol"`
-	ApproachingEOL int               `json:"approaching_eol"`
-	Supported      int               `json:"supported"`
-	Unknown        int               `json:"unknown"`
-	Entries        []eolSummaryEntry `json:"entries"`
+	TotalClusters        int               `json:"total_clusters"`
+	TotalNodes           int               `json:"total_nodes"`
+	TotalVirtualMachines int               `json:"total_virtual_machines"`
+	EOL                  int               `json:"eol"`
+	ApproachingEOL       int               `json:"approaching_eol"`
+	Supported            int               `json:"supported"`
+	Unknown              int               `json:"unknown"`
+	Entries              []eolSummaryEntry `json:"entries"`
 }
 
 func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
@@ -669,9 +717,17 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 		return nil, fmt.Errorf("list nodes for eol: %w", err)
 	}
 
+	vms, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
+		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, maxPageSize, cursor)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list virtual machines for eol: %w", err)
+	}
+
 	summary := eolSummary{
-		TotalClusters: len(clusters),
-		TotalNodes:    len(nodes),
+		TotalClusters:        len(clusters),
+		TotalNodes:           len(nodes),
+		TotalVirtualMachines: len(vms),
 	}
 
 	// Scan cluster annotations for EOL data.
@@ -688,14 +744,31 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 		summary.Entries = append(summary.Entries, entry)
 	}
 
+	// Scan virtual machine annotations for EOL data. VMs use a value-type
+	// annotations map (not a pointer like clusters/nodes); adapt with
+	// a local pointer so extractEOLEntry's signature is reused.
+	for i := range vms {
+		vm := &vms[i]
+		var annPtr *map[string]string
+		if vm.Annotations != nil {
+			annPtr = &vm.Annotations
+		}
+		entry := extractEOLEntry(vm.ID.String(), vm.Name, "vm", annPtr)
+		countEOLStatus(&summary, entry.Status)
+		summary.Entries = append(summary.Entries, entry)
+	}
+
 	return jsonResult(summary)
 }
 
-// imageSearchResult aggregates workloads and pods matching an image query.
+// imageSearchResult aggregates workloads, pods, and platform VMs matching
+// an image query. The virtual_machines section was added alongside the
+// VM coverage tools; existing pods/workloads keys are preserved.
 type imageSearchResult struct {
-	Query     string         `json:"query"`
-	Workloads []api.Workload `json:"workloads"`
-	Pods      []api.Pod      `json:"pods"`
+	Query           string               `json:"query"`
+	Workloads       []api.Workload       `json:"workloads"`
+	Pods            []api.Pod            `json:"pods"`
+	VirtualMachines []api.VirtualMachine `json:"virtual_machines"`
 }
 
 func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
@@ -729,11 +802,220 @@ func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolReq
 		return nil, fmt.Errorf("search pods by image: %w", err)
 	}
 
-	return jsonResult(imageSearchResult{
-		Query:     query,
-		Workloads: workloads,
-		Pods:      pods,
+	vms, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
+		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{Image: &query}, maxPageSize, cursor)
 	})
+	if err != nil {
+		return nil, fmt.Errorf("search virtual machines by image: %w", err)
+	}
+
+	return jsonResult(imageSearchResult{
+		Query:           query,
+		Workloads:       workloads,
+		Pods:            pods,
+		VirtualMachines: vms,
+	})
+}
+
+// --- cloud-account & VM tool handlers --------------------------------------
+
+func (s *Server) handleListCloudAccounts(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_cloud_accounts", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "list_cloud_accounts", args, &resp, &retErr)
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("list_cloud_accounts", time.Since(start)) }()
+
+	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.CloudAccount, string, error) {
+		return s.store.ListCloudAccounts(ctx, maxPageSize, cursor)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list cloud accounts: %w", err)
+	}
+	for i := range items {
+		items[i] = redactCloudAccount(items[i])
+	}
+	return jsonResult(items)
+}
+
+// VM filter length caps mirror internal/api/virtual_machine_handlers.go.
+const (
+	mcpVMNameMaxLen      = 100
+	mcpVMImageMaxLen     = 100
+	mcpVMAccountMaxLen   = 200
+	mcpVMEnumMaxLen      = 64
+	mcpVMAppFilterMaxLen = 64
+	mcpVMAppVersionMaxLn = 64
+)
+
+// buildVMListFilter parses optional MCP request args into a VirtualMachineListFilter,
+// applying the same length caps used by the REST handler. Returns a user-facing
+// error message on the first violation (so the handler can surface it via
+// NewToolResultError).
+//
+//nolint:gocyclo,gocritic // each parameter is an independent branch; CallToolRequest is by value per SDK signature.
+func buildVMListFilter(request mcp.CallToolRequest) (api.VirtualMachineListFilter, string, error) {
+	var f api.VirtualMachineListFilter
+	if v := request.GetString("cloud_account_id", ""); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return f, "invalid cloud_account_id", fmt.Errorf("parse cloud_account_id: %w", err)
+		}
+		f.CloudAccountID = &id
+	}
+	if v := request.GetString("cloud_account_name", ""); v != "" {
+		if len(v) > mcpVMAccountMaxLen {
+			return f, "cloud_account_name too long", errRequiredField
+		}
+		f.CloudAccountName = &v
+	}
+	if v := request.GetString("region", ""); v != "" {
+		if len(v) > mcpVMEnumMaxLen {
+			return f, "region too long", errRequiredField
+		}
+		f.Region = &v
+	}
+	if v := request.GetString("role", ""); v != "" {
+		if len(v) > mcpVMEnumMaxLen {
+			return f, "role too long", errRequiredField
+		}
+		f.Role = &v
+	}
+	if v := request.GetString("power_state", ""); v != "" {
+		if len(v) > mcpVMEnumMaxLen {
+			return f, "power_state too long", errRequiredField
+		}
+		f.PowerState = &v
+	}
+	if v := request.GetString("name", ""); v != "" {
+		if len(v) > mcpVMNameMaxLen {
+			return f, "name too long", errRequiredField
+		}
+		f.Name = &v
+	}
+	if v := request.GetString("image", ""); v != "" {
+		if len(v) > mcpVMImageMaxLen {
+			return f, "image too long", errRequiredField
+		}
+		f.Image = &v
+	}
+	if v := request.GetString("application", ""); v != "" {
+		if len(v) > mcpVMAppFilterMaxLen {
+			return f, "application too long", errRequiredField
+		}
+		f.Application = &v
+	}
+	if v := request.GetString("application_version", ""); v != "" {
+		if len(v) > mcpVMAppVersionMaxLn {
+			return f, "application_version too long", errRequiredField
+		}
+		f.ApplicationVersion = &v
+	}
+	f.IncludeTerminated = request.GetBool("include_terminated", false)
+	return f, "", nil
+}
+
+func (s *Server) handleListVirtualMachines(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{
+		"cloud_account_id":    presence(request.GetString("cloud_account_id", "")),
+		"cloud_account_name":  presence(request.GetString("cloud_account_name", "")),
+		"region":              presence(request.GetString("region", "")),
+		"role":                presence(request.GetString("role", "")),
+		"power_state":         presence(request.GetString("power_state", "")),
+		"name":                presence(request.GetString("name", "")),
+		"image":               presence(request.GetString("image", "")),
+		"application":         presence(request.GetString("application", "")),
+		"application_version": presence(request.GetString("application_version", "")),
+		"include_terminated":  request.GetBool("include_terminated", false),
+	}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_virtual_machines", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "list_virtual_machines", args, &resp, &retErr)
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("list_virtual_machines", time.Since(start)) }()
+
+	filter, problem, err := buildVMListFilter(request)
+	if err != nil {
+		return mcp.NewToolResultError(problem), nil
+	}
+
+	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
+		return s.store.ListVirtualMachines(ctx, filter, maxPageSize, cursor)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list virtual machines: %w", err)
+	}
+	return jsonResult(items)
+}
+
+func (s *Server) handleGetVirtualMachine(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": presence(request.GetString("id", ""))}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "get_virtual_machine", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "get_virtual_machine", args, &resp, &retErr)
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("get_virtual_machine", time.Since(start)) }()
+
+	id, err := parseID(request)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	vm, err := s.store.GetVirtualMachine(ctx, id)
+	if err != nil {
+		return storeError("virtual machine", err)
+	}
+	return jsonResult(vm)
+}
+
+// vmApplicationsResponse wraps the distinct list under a stable top-level
+// key so future fields can be added without breaking MCP clients.
+type vmApplicationsResponse struct {
+	Products []api.VMApplicationDistinct `json:"products"`
+}
+
+func (s *Server) handleListVMApplicationsDistinct(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_vm_applications_distinct", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "list_vm_applications_distinct", args, &resp, &retErr)
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("list_vm_applications_distinct", time.Since(start)) }()
+
+	products, err := s.store.ListDistinctVMApplications(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list distinct vm applications: %w", err)
+	}
+	return jsonResult(vmApplicationsResponse{Products: products})
+}
+
+func (s *Server) handleGetCloudAccount(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"id": presence(request.GetString("id", ""))}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "get_cloud_account", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "get_cloud_account", args, &resp, &retErr)
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("get_cloud_account", time.Since(start)) }()
+
+	id, err := parseID(request)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	acct, err := s.store.GetCloudAccount(ctx, id)
+	if err != nil {
+		return storeError("cloud account", err)
+	}
+	return jsonResult(redactCloudAccount(acct))
 }
 
 // --- helpers ----------------------------------------------------------------

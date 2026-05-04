@@ -3,6 +3,7 @@ package mcp
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,13 @@ type fakeStore struct {
 	ings     []api.Ingress
 	pvs      []api.PersistentVolume
 	pvcs     []api.PersistentVolumeClaim
+	accounts []api.CloudAccount
+	vms      []api.VirtualMachine
+	vmApps   []api.VMApplicationDistinct
+
+	// lastVMFilter records the last filter passed to ListVirtualMachines
+	// so handler tests can assert on filter wiring.
+	lastVMFilter api.VirtualMachineListFilter
 
 	errOn             map[string]error
 	panicOnGetCluster bool // triggers a panic inside GetCluster for panic-recovery tests
@@ -250,6 +258,101 @@ func (f *fakeStore) GetPersistentVolumeClaim(_ context.Context, id uuid.UUID) (a
 		}
 	}
 	return api.PersistentVolumeClaim{}, api.ErrNotFound
+}
+
+// --- CloudAccounts ----
+
+func (f *fakeStore) ListCloudAccounts(_ context.Context, _ int, _ string) ([]api.CloudAccount, string, error) {
+	if err := f.errOn["ListCloudAccounts"]; err != nil {
+		return nil, "", err
+	}
+	out := make([]api.CloudAccount, len(f.accounts))
+	copy(out, f.accounts)
+	return out, "", nil
+}
+
+func (f *fakeStore) GetCloudAccount(_ context.Context, id uuid.UUID) (api.CloudAccount, error) {
+	if err := f.errOn["GetCloudAccount"]; err != nil {
+		return api.CloudAccount{}, err
+	}
+	for i := range f.accounts {
+		if f.accounts[i].ID == id {
+			return f.accounts[i], nil
+		}
+	}
+	return api.CloudAccount{}, api.ErrNotFound
+}
+
+// --- VirtualMachines ----
+
+//nolint:gocognit,gocyclo // each filter clause is independent; flatness is the point.
+func (f *fakeStore) ListVirtualMachines(_ context.Context, filter api.VirtualMachineListFilter, _ int, _ string) ([]api.VirtualMachine, string, error) {
+	f.lastVMFilter = filter
+	if err := f.errOn["ListVirtualMachines"]; err != nil {
+		return nil, "", err
+	}
+	out := make([]api.VirtualMachine, 0, len(f.vms))
+	for _, vm := range f.vms {
+		if !filter.IncludeTerminated && vm.TerminatedAt != nil {
+			continue
+		}
+		if filter.CloudAccountID != nil && vm.CloudAccountID != *filter.CloudAccountID {
+			continue
+		}
+		if filter.Image != nil {
+			needle := strings.ToLower(*filter.Image)
+			img := ""
+			if vm.ImageID != nil {
+				img += strings.ToLower(*vm.ImageID)
+			}
+			if vm.ImageName != nil {
+				img += " " + strings.ToLower(*vm.ImageName)
+			}
+			if !strings.Contains(img, needle) {
+				continue
+			}
+		}
+		if filter.Application != nil {
+			want := api.NormalizeProductName(*filter.Application)
+			matched := false
+			for _, app := range vm.Applications {
+				if app.Product != want {
+					continue
+				}
+				if filter.ApplicationVersion != nil && app.Version != *filter.ApplicationVersion {
+					continue
+				}
+				matched = true
+				break
+			}
+			if !matched {
+				continue
+			}
+		}
+		out = append(out, vm)
+	}
+	return out, "", nil
+}
+
+func (f *fakeStore) GetVirtualMachine(_ context.Context, id uuid.UUID) (api.VirtualMachine, error) {
+	if err := f.errOn["GetVirtualMachine"]; err != nil {
+		return api.VirtualMachine{}, err
+	}
+	for i := range f.vms {
+		if f.vms[i].ID == id {
+			return f.vms[i], nil
+		}
+	}
+	return api.VirtualMachine{}, api.ErrNotFound
+}
+
+func (f *fakeStore) ListDistinctVMApplications(_ context.Context) ([]api.VMApplicationDistinct, error) {
+	if err := f.errOn["ListDistinctVMApplications"]; err != nil {
+		return nil, err
+	}
+	out := make([]api.VMApplicationDistinct, len(f.vmApps))
+	copy(out, f.vmApps)
+	return out, nil
 }
 
 // helpers
