@@ -143,6 +143,33 @@ func TestHandleListVirtualMachines_RejectsOversizedName(t *testing.T) {
 	}
 }
 
+func TestHandleSearchImages_IncludesVMs(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	acct := uuid.New()
+	imageName := "ubuntu-22.04-2024.01"
+	vm := newVM(uuid.New(), acct, "bastion", nil)
+	vm.ImageName = &imageName
+	store.vms = []api.VirtualMachine{vm}
+	s := newServer(t, store)
+
+	r, err := s.handleSearchImages(context.Background(), makeRequest("", map[string]any{"query": "ubuntu"}))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	var got imageSearchResult
+	if err := json.Unmarshal([]byte(resultText(t, r)), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.VirtualMachines) != 1 || got.VirtualMachines[0].Name != "bastion" {
+		t.Errorf("virtual_machines = %+v; want [bastion]", got.VirtualMachines)
+	}
+	// Existing keys must still be present and empty (not omitted).
+	if got.Pods == nil || got.Workloads == nil {
+		t.Error("pods/workloads keys must be present even when empty")
+	}
+}
+
 func TestHandleGetVirtualMachine_HappyPath(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
