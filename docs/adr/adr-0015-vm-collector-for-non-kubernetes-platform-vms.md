@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 ---
 title: "ADR-0015: VM collector for non-Kubernetes platform infrastructure"
 status: "Proposed"

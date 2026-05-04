@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 ---
 title: "ADR-0006: Web UI for audit and curated asset metadata"
 status: "Proposed"
