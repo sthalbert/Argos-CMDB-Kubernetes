@@ -51,6 +51,10 @@ var (
 	errEncryptedCredentials   = errors.New("secrets master key missing but cloud_accounts rows carry encrypted credentials")
 	errIngestMissingTLSConfig = errors.New("LONGUE_VUE_INGEST_LISTEN_ADDR is set but LONGUE_VUE_INGEST_LISTEN_TLS_CERT, " +
 		"LONGUE_VUE_INGEST_LISTEN_TLS_KEY, or LONGUE_VUE_INGEST_LISTEN_CLIENT_CA_FILE is missing — see ADR-0016 §4")
+	// errMCPAuthFailed is the generic sentinel returned to MCP clients when
+	// authentication fails for any reason. Internal details are logged at
+	// Warn level and never forwarded to the client (MED-04).
+	errMCPAuthFailed           = errors.New("authentication failed")
 	errTransportPostureRefused = errors.New("LONGUE_VUE_REQUIRE_HTTPS=true but neither native TLS " +
 		"(LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT + _KEY) nor a trusted-proxy + always-secure-cookie posture " +
 		"(LONGUE_VUE_TRUSTED_PROXIES non-empty AND LONGUE_VUE_SESSION_SECURE_COOKIE=always) is configured — see ADR-0017 §3")
@@ -1079,12 +1083,79 @@ func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 	return wg.Wait, nil
 }
 
+// mcpTokenStore is the narrow store interface needed by buildMCPAuthFn.
+// Extracted so the function can be unit-tested without a real *store.PG.
+type mcpTokenStore interface {
+	GetActiveTokenByPrefix(ctx context.Context, prefix string) (auth.APIToken, error)
+}
+
+// buildMCPAuthFn constructs the AuthFunc used by the MCP server to verify
+// bearer tokens. It is extracted from maybeStartMCPServer to enable unit
+// testing without a real database (MED-04).
+func buildMCPAuthFn(tokenStore mcpTokenStore, cache *argmcp.AuthCache) argmcp.AuthFunc {
+	return func(ctx context.Context, rawToken string) (*argmcp.Caller, error) {
+		prefix, full, err := auth.ParseToken(rawToken)
+		if err != nil {
+			slog.Warn("mcp auth failed: invalid token format", slog.Any("error", err))
+			return nil, errMCPAuthFailed
+		}
+
+		// Check bounded LRU cache — skip argon2id if recently verified.
+		if caller, ok := cache.Get(prefix, full); ok {
+			return caller, nil
+		}
+
+		// Full verification: DB lookup + argon2id.
+		tok, err := tokenStore.GetActiveTokenByPrefix(ctx, prefix)
+		if err != nil {
+			slog.Warn("mcp auth failed: token lookup error", slog.Any("error", err))
+			return nil, errMCPAuthFailed
+		}
+		if verr := auth.VerifyPassword(full, tok.Hash); verr != nil {
+			slog.Warn("mcp auth failed: token verification error", slog.Any("error", verr))
+			return nil, errMCPAuthFailed
+		}
+		// Per ADR-0015 §5, reject any token carrying vm-collector scope
+		// (a mis-issued admin+vm-collector token must NOT access MCP).
+		if !mcpScopeAllowed(tok.Scopes) {
+			slog.Warn("mcp auth failed: token scope not permitted for MCP access")
+			return nil, errMCPAuthFailed
+		}
+
+		tokenID := tok.ID
+		userID := tok.CreatedByUserID
+		caller := &argmcp.Caller{
+			TokenID: &tokenID,
+			Name:    tok.Name,
+			UserID:  &userID,
+			Scopes:  tok.Scopes,
+		}
+
+		// Cache the verified result.
+		cache.Put(prefix, full, caller)
+		return caller, nil
+	}
+}
+
+// mcpScopeAllowed checks whether a token's scopes permit MCP access.
+// Returns true only if the token has the read scope (or admin scope,
+// which implies read per ADR-0007) AND does not carry the vm-collector
+// scope. Per ADR-0015 §5, vm-collector tokens must never access CMDB
+// data through MCP, even if mis-issued with additional scopes.
+func mcpScopeAllowed(scopes []string) bool {
+	caller := &auth.Caller{Scopes: scopes}
+	// Check for vm-collector scope first — deny if present (ADR-0015 §5).
+	if caller.HasScope(auth.ScopeVMCollector) {
+		return false
+	}
+	// Require read scope (admin implies read per ADR-0007).
+	return caller.HasScope(auth.ScopeRead)
+}
+
 // maybeStartMCPServer spawns the MCP server goroutine (ADR-0014).
 // The goroutine always starts; tool calls are gated by the `mcp_enabled`
 // setting in the database (toggled by admins via the UI).
 // LONGUE_VUE_MCP_ENABLED seeds the DB setting on first boot when present.
-//
-//nolint:gocyclo,gocognit // auth setup + env parsing + goroutine lifecycle is inherently branchy.
 func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 	if envVal := os.Getenv("LONGUE_VUE_MCP_ENABLED"); envVal != "" {
 		enabled, err := strconv.ParseBool(envVal)
@@ -1097,73 +1168,63 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 	}
 
 	transport := envOr("LONGUE_VUE_MCP_TRANSPORT", "sse")
-	addr := envOr("LONGUE_VUE_MCP_ADDR", ":8090")
+	addr := envOr("LONGUE_VUE_MCP_ADDR", "127.0.0.1:8090")
 	token := os.Getenv("LONGUE_VUE_MCP_TOKEN")
 
 	// For SSE transport, validate bearer tokens on every tool call using
 	// the same auth store that the REST API uses.
-	// For SSE transport, validate bearer tokens on every tool call.
-	// Argon2id verification is expensive (~100-500ms, 64 MiB), so we
-	// cache verified prefixes for 5 minutes to avoid re-hashing on
-	// every tool call in a conversation.
-	var authFn argmcp.AuthFunc
-	if transport == "sse" {
-		type cachedAuth struct {
-			validUntil time.Time
-			fullToken  string // last verified full token for this prefix
+	// Argon2id verification is expensive (~100-500ms, 64 MiB), so we use a
+	// bounded LRU cache (cap 1024, TTL 30 s) to amortise cost across a
+	// typical AI conversation's tool calls. 30 s is deliberate: short enough
+	// that a revoked token is unusable within a typical incident-response
+	// window even without the revocation channel, long enough to cover a full
+	// burst of MCP tool calls in one conversation turn (HIGH-01, HIGH-03,
+	// MED-03 — audit 2026-05-04).
+	//
+	// cap=1024 and ttl=30s are intentionally not configurable in this pass.
+	authCache := argmcp.NewAuthCache(1024, 30*time.Second)
+
+	// Subscribe to token revocations: invalidate the MCP cache immediately so
+	// a revoked token cannot continue making MCP calls (HIGH-01). The goroutine
+	// exits when the channel is garbage-collected at shutdown.
+	go func() {
+		for prefix := range s.RevocationChan() {
+			authCache.Invalidate(prefix)
 		}
-		var (
-			cacheMu sync.Mutex
-			cache   = make(map[string]cachedAuth)
-		)
-		const cacheTTL = 5 * time.Minute
+	}()
 
-		authFn = func(ctx context.Context, rawToken string) error {
-			prefix, full, err := auth.ParseToken(rawToken)
-			if err != nil {
-				return fmt.Errorf("invalid token: %w", err)
-			}
+	// authFn is used for SSE per-call verification and for stdio one-shot
+	// startup verification (MED-01). Always built so verifyStdioToken can
+	// call it when LONGUE_VUE_MCP_TOKEN is set.
+	authFn := buildMCPAuthFn(s, authCache)
 
-			// Check cache — skip argon2id if recently verified.
-			cacheMu.Lock()
-			if entry, ok := cache[prefix]; ok && time.Now().Before(entry.validUntil) && entry.fullToken == full {
-				cacheMu.Unlock()
-				return nil
-			}
-			cacheMu.Unlock()
+	mcpCertFile := os.Getenv("LONGUE_VUE_MCP_TLS_CERT")
+	mcpKeyFile := os.Getenv("LONGUE_VUE_MCP_TLS_KEY")
+	allowPlain := os.Getenv("LONGUE_VUE_MCP_ALLOW_PLAINTEXT") == "true"
 
-			// Full verification: DB lookup + argon2id.
-			tok, err := s.GetActiveTokenByPrefix(ctx, prefix)
-			if err != nil {
-				return fmt.Errorf("token lookup failed: %w", err)
-			}
-			if verr := auth.VerifyPassword(full, tok.Hash); verr != nil {
-				return fmt.Errorf("token verification failed: %w", verr)
-			}
-			hasRead := false
-			for _, scope := range tok.Scopes {
-				if scope == "read" || scope == "admin" {
-					hasRead = true
-					break
-				}
-			}
-			if !hasRead {
-				return errors.New("token lacks read scope") //nolint:err113 // one-off auth error
-			}
-
-			// Cache the verified result.
-			cacheMu.Lock()
-			cache[prefix] = cachedAuth{validUntil: time.Now().Add(cacheTTL), fullToken: full}
-			cacheMu.Unlock()
-			return nil
+	var getCert func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+	if mcpCertFile != "" && mcpKeyFile != "" {
+		var err error
+		getCert, err = newCertReloader(mcpCertFile, mcpKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load mcp listener cert: %w", err)
 		}
+		slog.Info("mcp sse listener tls enabled", slog.String("cert", mcpCertFile))
 	}
 
-	cfg := argmcp.Config{
-		Transport: transport,
-		Addr:      addr,
-		Token:     token,
-		Auth:      authFn,
+	// 30 rps, burst 60 — generous for an interactive AI conversation,
+	// tight enough to prevent pathological fanout (HIGH-02).
+	limiter := argmcp.NewRateLimiter(30, 60)
+
+	cfg := &argmcp.Config{
+		Transport:         transport,
+		Addr:              addr,
+		Token:             token,
+		Auth:              authFn,
+		Recorder:          s,
+		TLSGetCertificate: getCert,
+		AllowPlaintext:    allowPlain,
+		RateLimiter:       limiter,
 	}
 
 	traverser := impact.NewTraverser(s)

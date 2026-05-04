@@ -225,7 +225,7 @@ func TestIDStr(t *testing.T) {
 func newServer(t *testing.T, store *fakeStore) *Server {
 	t.Helper()
 	tr := impact.NewTraverser(store)
-	return NewServer(store, tr, Config{Transport: "stdio"})
+	return NewServer(store, tr, &Config{Transport: "stdio"})
 }
 
 func TestHandleListClusters_NameFilter(t *testing.T) {
@@ -353,7 +353,7 @@ func TestHandleGetImpactGraph_NoTraverser(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
 	// Build a Server with traverser nil to exercise the guard branch.
-	s := NewServer(store, nil, Config{Transport: "stdio"})
+	s := NewServer(store, nil, &Config{Transport: "stdio"})
 
 	r, _ := s.handleGetImpactGraph(context.Background(), makeRequest("", map[string]any{
 		"entity_type": "cluster",
