@@ -27,7 +27,8 @@ var errCursorFormatInvalid = errors.New("cursor format invalid")
 
 // PG is a PostgreSQL-backed implementation of api.Store.
 type PG struct {
-	pool *pgxpool.Pool
+	pool          *pgxpool.Pool
+	revokedTokens chan string
 }
 
 // Open connects to PostgreSQL via the given DSN and verifies the connection.
@@ -40,7 +41,14 @@ func Open(ctx context.Context, dsn string) (*PG, error) {
 		pool.Close()
 		return nil, fmt.Errorf("ping: %w", err)
 	}
-	return &PG{pool: pool}, nil
+	return &PG{pool: pool, revokedTokens: make(chan string, 64)}, nil
+}
+
+// RevocationChan returns a channel that emits the prefix of each token that is
+// revoked via RevokeAPIToken. The channel is buffered (cap 64); sends are
+// non-blocking so a slow consumer never stalls token revocation.
+func (p *PG) RevocationChan() <-chan string {
+	return p.revokedTokens
 }
 
 // Close releases the connection pool.
