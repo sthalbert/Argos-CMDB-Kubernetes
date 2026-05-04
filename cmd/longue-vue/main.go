@@ -1193,6 +1193,10 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 		slog.Info("mcp sse listener tls enabled", slog.String("cert", mcpCertFile))
 	}
 
+	// 30 rps, burst 60 — generous for an interactive AI conversation,
+	// tight enough to prevent pathological fanout (HIGH-02).
+	limiter := argmcp.NewRateLimiter(30, 60)
+
 	cfg := argmcp.Config{
 		Transport:         transport,
 		Addr:              addr,
@@ -1201,6 +1205,7 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 		Recorder:          s,
 		TLSGetCertificate: getCert,
 		AllowPlaintext:    allowPlain,
+		RateLimiter:       limiter,
 	}
 
 	traverser := impact.NewTraverser(s)
