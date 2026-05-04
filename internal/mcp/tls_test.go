@@ -54,7 +54,7 @@ func selfSignedCert(t *testing.T) tls.Certificate {
 // error immediately when TLS is not configured and AllowPlaintext=false.
 func TestSSE_RefusesToStartWithoutTLS(t *testing.T) {
 	t.Parallel()
-	s := NewServer(newFakeStore(), nil, Config{
+	s := NewServer(newFakeStore(), nil, &Config{
 		Transport:         "sse",
 		Addr:              "127.0.0.1:0",
 		AllowPlaintext:    false,
@@ -78,15 +78,9 @@ func TestSSE_RefusesToStartWithoutTLS(t *testing.T) {
 func TestSSE_StartsPlaintextWhenAllowed(t *testing.T) {
 	t.Parallel()
 
-	// Pick a free port by binding a temporary listener.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("find free port: %v", err)
-	}
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := pickFreePort(t)
 
-	s := NewServer(newFakeStore(), nil, Config{
+	s := NewServer(newFakeStore(), nil, &Config{
 		Transport:      "sse",
 		Addr:           addr,
 		AllowPlaintext: true,
@@ -103,12 +97,13 @@ func TestSSE_StartsPlaintextWhenAllowed(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Verify it's actually listening.
-	conn, dialErr := net.DialTimeout("tcp", addr, time.Second)
+	dialer := &net.Dialer{Timeout: time.Second}
+	conn, dialErr := dialer.DialContext(ctx, "tcp", addr)
 	if dialErr != nil {
 		cancel()
 		t.Fatalf("server not listening: %v", dialErr)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	// Cancel and wait for clean exit.
 	cancel()
@@ -133,15 +128,9 @@ func TestSSE_StartsWithTLS(t *testing.T) {
 		return &cert, nil
 	}
 
-	// Pick a free port.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("find free port: %v", err)
-	}
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := pickFreePort(t)
 
-	s := NewServer(newFakeStore(), nil, Config{
+	s := NewServer(newFakeStore(), nil, &Config{
 		Transport:         "sse",
 		Addr:              addr,
 		TLSGetCertificate: getCert,
@@ -157,44 +146,80 @@ func TestSSE_StartsWithTLS(t *testing.T) {
 		}
 	}()
 
-	// Wait for listener to be ready.
-	deadline := time.Now().Add(3 * time.Second)
+	waitForListener(ctx, addr, 3*time.Second)
+	checkTLSHandshake(ctx, t, addr)
+	checkPlainRejected(ctx, t, addr)
+}
+
+// pickFreePort binds and immediately closes a listener to discover a free
+// 127.0.0.1 port for tests.
+func pickFreePort(t *testing.T) string {
+	t.Helper()
+	lc := &net.ListenConfig{}
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("find free port: %v", err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	return addr
+}
+
+// waitForListener polls addr until a TCP connection succeeds or deadline
+// elapses.
+func waitForListener(ctx context.Context, addr string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	dialer := &net.Dialer{Timeout: 100 * time.Millisecond}
 	for time.Now().Before(deadline) {
-		conn, e := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		conn, e := dialer.DialContext(ctx, "tcp", addr)
 		if e == nil {
-			conn.Close()
-			break
+			_ = conn.Close()
+			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
 
-	// HTTPS client with InsecureSkipVerify should complete the TLS handshake.
+// checkTLSHandshake asserts that an HTTPS client can complete a TLS
+// handshake against addr (any HTTP response code = success).
+func checkTLSHandshake(ctx context.Context, t *testing.T, addr string) {
+	t.Helper()
 	tlsClient := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test-only
 		},
 		Timeout: 2 * time.Second,
 	}
-	resp, err := tlsClient.Get("https://" + addr + "/sse")
-	if err == nil {
-		resp.Body.Close()
-		// Any HTTP response (even 4xx) means TLS handshake succeeded.
-	} else if strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "connection reset") {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+addr+"/sse", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := tlsClient.Do(req)
+	switch {
+	case err == nil:
+		_ = resp.Body.Close()
+	case strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "connection reset"):
 		// Server closed SSE stream immediately — handshake still completed.
-	} else {
+	default:
 		t.Fatalf("HTTPS client failed (expected TLS handshake to succeed): %v", err)
 	}
+}
 
-	// Plain HTTP client must either error or receive a non-2xx response
-	// (Go's TLS server responds with 400 "Client sent an HTTP request to an HTTPS server").
+// checkPlainRejected asserts that a plain HTTP request to a TLS listener
+// either errors at transport level or returns a non-2xx response.
+func checkPlainRejected(ctx context.Context, t *testing.T, addr string) {
+	t.Helper()
 	plainClient := &http.Client{Timeout: 2 * time.Second}
-	plainResp, plainErr := plainClient.Get("http://" + addr + "/sse")
-	if plainErr == nil {
-		plainResp.Body.Close()
-		if plainResp.StatusCode >= 200 && plainResp.StatusCode < 300 {
-			t.Fatal("plain HTTP client got 2xx — TLS not enforced")
-		}
-		// Non-2xx (e.g. 400) from the TLS server is expected.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/sse", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
 	}
-	// A transport-level error is also acceptable (e.g. malformed TLS record).
+	plainResp, plainErr := plainClient.Do(req)
+	if plainErr != nil {
+		return // transport-level error is acceptable
+	}
+	defer func() { _ = plainResp.Body.Close() }()
+	if plainResp.StatusCode >= 200 && plainResp.StatusCode < 300 {
+		t.Fatal("plain HTTP client got 2xx — TLS not enforced")
+	}
 }

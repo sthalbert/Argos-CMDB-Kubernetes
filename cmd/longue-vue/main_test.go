@@ -709,7 +709,7 @@ func TestMCPAuthFn_MasksErrors(t *testing.T) {
 
 // containsString is a simple substring check helper for the test above.
 func containsString(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
+	return len(s) >= len(sub) && (s == sub || sub == "" ||
 		func() bool {
 			for i := 0; i <= len(s)-len(sub); i++ {
 				if s[i:i+len(sub)] == sub {

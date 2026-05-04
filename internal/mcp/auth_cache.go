@@ -23,7 +23,7 @@ type AuthCache struct {
 type authCacheEntry struct {
 	prefix     string
 	fullToken  string
-	caller     *MCPCaller
+	caller     *Caller
 	validUntil time.Time
 	elem       *list.Element
 }
@@ -41,7 +41,7 @@ func NewAuthCache(capacity int, ttl time.Duration) *AuthCache {
 // Get returns (caller, true) when the prefix is cached, the full token
 // matches in constant time, AND the entry is not expired. Hits are
 // promoted to the front of the LRU.
-func (c *AuthCache) Get(prefix, full string) (*MCPCaller, bool) {
+func (c *AuthCache) Get(prefix, full string) (*Caller, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.items[prefix]
@@ -70,7 +70,7 @@ func (c *AuthCache) Get(prefix, full string) (*MCPCaller, bool) {
 
 // Put inserts or refreshes an entry. Evicts the oldest entry when the
 // cap is exceeded.
-func (c *AuthCache) Put(prefix, full string, caller *MCPCaller) {
+func (c *AuthCache) Put(prefix, full string, caller *Caller) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if entry, ok := c.items[prefix]; ok {
@@ -85,9 +85,10 @@ func (c *AuthCache) Put(prefix, full string, caller *MCPCaller) {
 	if len(c.items) >= c.cap {
 		oldest := c.lru.Back()
 		if oldest != nil {
-			e := oldest.Value.(*authCacheEntry)
+			if e, ok := oldest.Value.(*authCacheEntry); ok {
+				delete(c.items, e.prefix)
+			}
 			c.lru.Remove(oldest)
-			delete(c.items, e.prefix)
 		}
 	}
 	entry := &authCacheEntry{

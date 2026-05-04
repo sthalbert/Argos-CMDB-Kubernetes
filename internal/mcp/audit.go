@@ -16,6 +16,12 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+// Audit-log placeholders for sensitive string args.
+const (
+	sentinelSet   = "<set>"
+	sentinelUnset = "<unset>"
+)
+
 // sensitiveArgKeys lists args whose raw values must NOT appear in audit
 // logs because they may contain PII or secret-like substrings.
 var sensitiveArgKeys = map[string]struct{}{
@@ -29,9 +35,9 @@ var sensitiveArgKeys = map[string]struct{}{
 // Used for sensitive string args that should not be logged verbatim.
 func presence(s string) string {
 	if s != "" {
-		return "<set>"
+		return sentinelSet
 	}
-	return "<unset>"
+	return sentinelUnset
 }
 
 // filterArgs returns a copy of args safe for audit-log insertion.
@@ -120,6 +126,8 @@ func (s *Server) recordRateLimit(ctx context.Context, tool string, args map[stri
 // It recovers panics from the handler body, records a 500 row, then
 // re-raises the panic so the MCP SDK can handle/log it. For normal
 // returns it maps retErr→500, result.IsError→400, else 200.
+//
+//nolint:gocritic // pointer-to-error required: defer reads the named return value, which is only mutable via &retErr.
 func (s *Server) finishDeferred(ctx context.Context, tool string, args map[string]any, result **mcp.CallToolResult, retErr *error) {
 	if r := recover(); r != nil {
 		s.recordToolCall(ctx, tool, args, 500)
