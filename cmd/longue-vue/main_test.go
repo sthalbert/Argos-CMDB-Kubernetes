@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/sthalbert/longue-vue/internal/auth"
 	"github.com/sthalbert/longue-vue/internal/httputil"
+	argmcp "github.com/sthalbert/longue-vue/internal/mcp"
 )
 
 func TestLoadCollectorClustersJSONPrecedence(t *testing.T) {
@@ -665,6 +667,57 @@ func TestLoadRunConfig_InvalidRequireHTTPS(t *testing.T) {
 	if _, err := loadRunConfig(); err == nil {
 		t.Fatal("expected error on invalid LONGUE_VUE_REQUIRE_HTTPS")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// T7 — MCP auth error masking (MED-04)
+// ---------------------------------------------------------------------------
+
+// fakeTokenStore is a minimal mcpTokenStore that returns a canned error.
+type fakeTokenStore struct {
+	err error
+}
+
+func (f *fakeTokenStore) GetActiveTokenByPrefix(_ context.Context, _ string) (auth.APIToken, error) {
+	return auth.APIToken{}, f.err
+}
+
+func TestMCPAuthFn_MasksErrors(t *testing.T) {
+	t.Parallel()
+
+	decoyErr := errors.New("pq: connection reset by peer — decoy DB internals")
+	store := &fakeTokenStore{err: decoyErr}
+	cache := argmcp.NewAuthCache(1, time.Second)
+	fn := buildMCPAuthFn(store, cache)
+
+	// Use a valid-format PAT so ParseToken succeeds and we reach the DB call.
+	_, err := fn(context.Background(), "longue_vue_pat_deadbeef_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, errMCPAuthFailed) {
+		t.Errorf("err = %v; want errors.Is(err, errMCPAuthFailed)", err)
+	}
+	if errors.Is(err, decoyErr) {
+		t.Error("internal DB error must NOT be wrapped into the returned error")
+	}
+	// The decoy string must not appear in the error message.
+	if contains := err.Error(); containsString(contains, "pq:") || containsString(contains, "decoy") {
+		t.Errorf("error message leaks internals: %q", err.Error())
+	}
+}
+
+// containsString is a simple substring check helper for the test above.
+func containsString(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(sub); i++ {
+				if s[i:i+len(sub)] == sub {
+					return true
+				}
+			}
+			return false
+		}())
 }
 
 func TestMCPScopeAllowed(t *testing.T) {
