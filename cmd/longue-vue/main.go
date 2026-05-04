@@ -1112,7 +1112,7 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 	}
 
 	transport := envOr("LONGUE_VUE_MCP_TRANSPORT", "sse")
-	addr := envOr("LONGUE_VUE_MCP_ADDR", ":8090")
+	addr := envOr("LONGUE_VUE_MCP_ADDR", "127.0.0.1:8090")
 	token := os.Getenv("LONGUE_VUE_MCP_TOKEN")
 
 	// For SSE transport, validate bearer tokens on every tool call using
@@ -1179,12 +1179,28 @@ func maybeStartMCPServer(ctx context.Context, s *store.PG) (func(), error) {
 		}
 	}
 
+	mcpCertFile := os.Getenv("LONGUE_VUE_MCP_TLS_CERT")
+	mcpKeyFile := os.Getenv("LONGUE_VUE_MCP_TLS_KEY")
+	allowPlain := os.Getenv("LONGUE_VUE_MCP_ALLOW_PLAINTEXT") == "true"
+
+	var getCert func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+	if mcpCertFile != "" && mcpKeyFile != "" {
+		var err error
+		getCert, err = newCertReloader(mcpCertFile, mcpKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load mcp listener cert: %w", err)
+		}
+		slog.Info("mcp sse listener tls enabled", slog.String("cert", mcpCertFile))
+	}
+
 	cfg := argmcp.Config{
-		Transport: transport,
-		Addr:      addr,
-		Token:     token,
-		Auth:      authFn,
-		Recorder:  s,
+		Transport:         transport,
+		Addr:              addr,
+		Token:             token,
+		Auth:              authFn,
+		Recorder:          s,
+		TLSGetCertificate: getCert,
+		AllowPlaintext:    allowPlain,
 	}
 
 	traverser := impact.NewTraverser(s)
