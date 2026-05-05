@@ -206,4 +206,5 @@ curl -H "Authorization: Bearer longue_vue_pat_..." http://localhost:8080/v1/clus
 - [Deploy with Kustomize](deployment/kubernetes.md) -- production deployment with plain manifests.
 - [Push collector for air-gapped clusters](deployment/push-collector.md) -- deploy longue-vue-collector.
 - [Authentication guide](authentication.md) -- OIDC, roles, tokens.
+- [Audit log](audit-log.md) -- what gets recorded, how to query it, and retention guidance.
 - [API reference](api-reference.md) -- every endpoint with curl examples.
