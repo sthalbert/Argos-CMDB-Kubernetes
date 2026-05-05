@@ -207,6 +207,7 @@ curl -H "Authorization: Bearer longue_vue_pat_..." http://localhost:8080/v1/clus
 - [Kubernetes pull collector](collector-kubernetes.md) -- configuration, multi-cluster setup, reconciliation semantics, RBAC, and metrics.
 - [Push collector for air-gapped clusters](deployment/push-collector.md) -- deploy longue-vue-collector.
 - [Authentication guide](authentication.md) -- OIDC, roles, tokens.
+- [Operations runbook](operations.md) -- first-run bootstrap, credential rotation, backup/restore, upgrade procedure, incident response.
 - [Audit log](audit-log.md) -- what gets recorded, how to query it, and retention guidance.
 - [API reference](api-reference.md) -- every endpoint with curl examples.
 - [UI guide](ui-guide.md) -- walkthrough of the web interface: navigation, search, EOL dashboard, admin panel, and roles.
