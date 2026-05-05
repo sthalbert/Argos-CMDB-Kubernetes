@@ -30,12 +30,10 @@ type fakeStore struct {
 	vms      []api.VirtualMachine
 	vmApps   []api.VMApplicationDistinct
 
-	// lastVMFilter records the last filter passed to ListVirtualMachines
-	// so handler tests can assert on filter wiring.
-	lastVMFilter api.VirtualMachineListFilter
-
 	errOn             map[string]error
 	panicOnGetCluster bool // triggers a panic inside GetCluster for panic-recovery tests
+
+	lastVMFilter api.VirtualMachineListFilter
 }
 
 func newFakeStore() *fakeStore {
