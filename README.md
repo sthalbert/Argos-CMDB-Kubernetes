@@ -1,14 +1,38 @@
-# longue-vue
+<div align="center">
 
-[![CI](https://img.shields.io/github/actions/workflow/status/sthalbert/longue-vue/ci.yml?branch=main&label=CI)](https://github.com/sthalbert/longue-vue/actions/workflows/ci.yml)
-[![Latest Release](https://img.shields.io/github/v/release/sthalbert/longue-vue?sort=semver&label=Latest%20Release)](https://github.com/sthalbert/longue-vue/releases)
+<img src="docs/logo.svg" alt="longue-vue — CMDB for Kubernetes · SecNumCloud" width="460" />
+
+<br/>
+
+[![CI](https://img.shields.io/github/actions/workflow/status/sthalbert/longue-vue/ci.yml?branch=main&label=CI&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/sthalbert/longue-vue?sort=semver&label=Release&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/releases)
 [![License](https://img.shields.io/github/license/sthalbert/longue-vue?label=License)](LICENSE)
-[![Contributors](https://img.shields.io/github/contributors/sthalbert/longue-vue?label=Contributors)](https://github.com/sthalbert/longue-vue/graphs/contributors)
-[![Stars](https://img.shields.io/github/stars/sthalbert/longue-vue?style=flat&label=Stars)](https://github.com/sthalbert/longue-vue/stargazers)
+[![Stars](https://img.shields.io/github/stars/sthalbert/longue-vue?style=flat&label=Stars&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/stargazers)
+[![Contributors](https://img.shields.io/github/contributors/sthalbert/longue-vue?label=Contributors&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/graphs/contributors)
+[![Issues](https://img.shields.io/github/issues/sthalbert/longue-vue?label=Issues&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/issues)
+[![Forks](https://img.shields.io/github/forks/sthalbert/longue-vue?style=flat&label=Forks&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/network/members)
+
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.28+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io)
+[![React](https://img.shields.io/badge/React-SPA-61DAFB?logo=react&logoColor=black)](ui/)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-6BA539?logo=openapiinitiative&logoColor=white)](api/openapi/openapi.yaml)
+[![Helm](https://img.shields.io/badge/Helm-chart-0F1689?logo=helm&logoColor=white)](charts/)
+[![Docker](https://img.shields.io/badge/Docker-distroless-2496ED?logo=docker&logoColor=white)](Dockerfile)
+
+[![ANSSI SecNumCloud](https://img.shields.io/badge/ANSSI-SecNumCloud-00356B?style=flat)](https://cyber.gouv.fr/enjeux-technologiques/cloud/)
+[![MCP Server](https://img.shields.io/badge/MCP-server-7C3AED?style=flat)](docs/mcp-server.md)
+[![Prometheus](https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white)](docs/monitoring.md)
+[![EOL Enrichment](https://img.shields.io/badge/EOL-enrichment-F59E0B?style=flat)](docs/eol-enrichment.md)
+[![Audit Log](https://img.shields.io/badge/Audit-log-10B981?style=flat)](docs/authentication.md)
+
+<br/>
 
 A Configuration Management Database (CMDB) for Kubernetes environments, aligned with the [ANSSI SecNumCloud](https://cyber.gouv.fr/enjeux-technologiques/cloud/) (SNC) qualification framework. longue-vue polls one or more Kubernetes clusters, mirrors the inventory into PostgreSQL, and exposes a REST API and web UI so auditors can see the cartography and operators can annotate assets with business context.
 
-**Status:** alpha -- data model and HTTP contract are stable; expect additive changes until 1.0.
+**Status:** alpha — data model and HTTP contract are stable; expect additive changes until 1.0.
+
+</div>
 
 ## Features
 

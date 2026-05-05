@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # MCP Server
 
 longue-vue exposes its CMDB inventory through the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), allowing AI agents to query clusters, nodes, workloads, and other Kubernetes entities conversationally. The server is strictly read-only and authenticates callers with the same bearer tokens used by the REST API.

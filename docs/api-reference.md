@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # API Reference
 
 longue-vue exposes a REST API at `/v1/`. The authoritative schema is the OpenAPI 3.1 spec at `api/openapi/openapi.yaml`. This page provides a concise reference with curl examples.

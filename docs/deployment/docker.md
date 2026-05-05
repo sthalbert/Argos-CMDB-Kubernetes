@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Run longue-vue with Docker
 
 This guide covers running longue-vue locally with Docker for development, testing, and demos.

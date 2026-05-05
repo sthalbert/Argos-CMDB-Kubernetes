@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # End-of-Life Enrichment
 
 longue-vue can automatically flag software running past its end-of-life date. The EOL enricher periodically queries [endoflife.date](https://endoflife.date) and annotates clusters, nodes, and non-Kubernetes platform VMs with lifecycle status so you can spot obsolescence risk at a glance.

@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 ---
 title: "ADR-0017: Public listener TLS posture and proxy trust model"
 status: "Accepted"
