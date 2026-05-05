@@ -15,7 +15,7 @@ Regardless of the path you choose below, you need:
 
 For the "build from source" path you also need:
 
-- **Go** (version pinned in `go.mod` -- currently 1.25+)
+- **Go** (version pinned in `go.mod` -- currently 1.23+)
 - **Node.js 22+** and **npm** (for the UI build)
 - **golangci-lint** (optional, for `make lint`)
 
@@ -173,7 +173,7 @@ LONGUE_VUE_DATABASE_URL="postgres://..." \
 
 This uses the in-cluster ServiceAccount by default. For remote clusters, mount kubeconfig files from a Kubernetes Secret and use `LONGUE_VUE_COLLECTOR_CLUSTERS` — see [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md).
 
-On the next tick (default: 60 seconds) the collector populates nodes, namespaces, pods, workloads, services, ingresses, persistent volumes, and PVCs.
+On the next tick (default: 5 minutes) the collector populates nodes, namespaces, pods, workloads, services, ingresses, persistent volumes, and PVCs.
 
 ### Verify data appears
 
