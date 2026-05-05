@@ -113,7 +113,7 @@ The MCP (Model Context Protocol) server is disabled by default. It exposes read-
 |----------|----------|---------|-------------|
 | `LONGUE_VUE_MCP_ENABLED` | no | `false` | Enable the MCP server. When set, its value is also written to the `mcp_enabled` database setting on boot. The admin can override it at runtime via Admin > Settings. |
 | `LONGUE_VUE_MCP_TRANSPORT` | no | `sse` | Transport protocol. Values: `sse` (Server-Sent Events over HTTP) or `stdio` (standard I/O, for local tool integration). |
-| `LONGUE_VUE_MCP_ADDR` | no | `:3001` | Listen address for the SSE transport. Ignored when transport is `stdio`. |
+| `LONGUE_VUE_MCP_ADDR` | no | `127.0.0.1:8090` | Listen address for the SSE transport. Ignored when transport is `stdio`. |
 | `LONGUE_VUE_MCP_TOKEN` | no | -- | Bearer token required for MCP requests (stdio transport). When unset for the SSE transport, the standard longue-vue bearer token authentication applies. |
 | `LONGUE_VUE_MCP_TLS_CERT` | no | -- | Path to a PEM-encoded TLS certificate for the MCP SSE listener. When set with `LONGUE_VUE_MCP_TLS_KEY`, the SSE server terminates TLS. |
 | `LONGUE_VUE_MCP_TLS_KEY` | no | -- | Path to the private key matching `LONGUE_VUE_MCP_TLS_CERT`. |
