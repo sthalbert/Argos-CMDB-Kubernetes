@@ -86,6 +86,7 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 | [Configuration](docs/configuration.md) | All environment variables for longue-vue and longue-vue-collector. |
 | [Deploy with Helm](docs/deployment/helm.md) | One-command Kubernetes install with optional bundled PostgreSQL. |
 | [Deploy with Kustomize](docs/deployment/kubernetes.md) | Production deployment with plain manifests. |
+| [Kubernetes Pull Collector](docs/collector-kubernetes.md) | In-process pull collector: configuration, multi-cluster setup, reconciliation, RBAC, and metrics. |
 | [Push Collector](docs/deployment/push-collector.md) | Deploy longue-vue-collector in air-gapped clusters (Helm or Kustomize). |
 | [VM Collector](docs/vm-collector.md) | Deploy longue-vue-vm-collector to inventory non-Kubernetes platform VMs (Helm or Kustomize). |
 | [DMZ Ingest Gateway](docs/how-to-deploy-dmz-ingest-gateway.md) | Deploy longue-vue-ingest-gw in a perimeter network to front collector push traffic (ADR-0016). |
