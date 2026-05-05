@@ -27,7 +27,7 @@ Add the longue-vue MCP server to your Claude Code settings (`.claude/settings.js
   "mcpServers": {
     "longue-vue": {
       "type": "sse",
-      "url": "http://longue-vue.example.com:8090/sse",
+      "url": "https://longue-vue.example.com:8090/sse",
       "headers": {
         "Authorization": "Bearer longue_vue_pat_<prefix>_<suffix>"
       }
@@ -43,7 +43,7 @@ Replace the URL with your longue-vue SSE endpoint and the token with a valid PAT
 Any MCP client that supports the SSE transport can connect. Point it at:
 
 ```
-http://<longue-vue-host>:8090/sse
+https://<longue-vue-host>:8090/sse
 ```
 
 Set the HTTP header `Authorization: Bearer longue_vue_pat_<prefix>_<suffix>` on the connection. The token must have at least `read` scope.
@@ -52,7 +52,9 @@ For the **stdio** transport (local agent on the same machine), set `LONGUE_VUE_M
 
 ## Available tools
 
-All tools are read-only. List tools return up to 1000 items (silently truncated beyond that).
+All tools are read-only. List tools return up to 1000 items (silently truncated beyond that). There are 22 tools total.
+
+### Kubernetes inventory
 
 | Tool | Parameters | Returns |
 |------|-----------|---------|
@@ -70,9 +72,24 @@ All tools are read-only. List tools return up to 1000 items (silently truncated 
 | `list_ingresses` | `namespace_id` (optional, UUID) | Ingresses, optionally scoped to a namespace |
 | `list_persistent_volumes` | `cluster_id` (optional, UUID) | PVs, optionally scoped to a cluster |
 | `list_persistent_volume_claims` | `namespace_id` (optional, UUID) | PVCs, optionally scoped to a namespace |
+
+### Cross-cutting
+
+| Tool | Parameters | Returns |
+|------|-----------|---------|
 | `get_impact_graph` | `entity_type` (required), `id` (required, UUID), `depth` (optional, 1-3, default 2) | Upstream and downstream dependency graph |
-| `get_eol_summary` | _(none)_ | EOL status counts and per-entity breakdown across all clusters and nodes |
+| `get_eol_summary` | _(none)_ | EOL status counts and per-entity breakdown across all clusters, nodes, and VMs |
 | `search_images` | `query` (required, substring) | Workloads and pods running a matching container image |
+
+### Cloud accounts and platform VMs (ADR-0015 / ADR-0019)
+
+| Tool | Parameters | Returns |
+|------|-----------|---------|
+| `list_cloud_accounts` | _(none)_ | All registered cloud accounts with status |
+| `get_cloud_account` | `id` (required, UUID) | Single cloud account detail |
+| `list_virtual_machines` | `cloud_account_id` (optional, UUID), `power_state` (optional), `name` (optional, substring), `application` (optional, normalized product) | Platform VMs matching filters |
+| `get_virtual_machine` | `id` (required, UUID) | Single VM detail including applications list and EOL annotations |
+| `list_vm_applications_distinct` | _(none)_ | Distinct normalized product names across the fleet with their declared version strings |
 
 `entity_type` for `get_impact_graph` accepts: `cluster`, `node`, `namespace`, `pod`, `workload`, `service`, `ingress`, `persistentvolume`, `persistentvolumeclaim`.
 
@@ -82,8 +99,11 @@ All tools are read-only. List tools return up to 1000 items (silently truncated 
 |----------|---------|-------------|
 | `LONGUE_VUE_MCP_ENABLED` | -- | Seeds the `mcp_enabled` database setting on startup. The UI toggle overrides it at runtime. |
 | `LONGUE_VUE_MCP_TRANSPORT` | `sse` | MCP transport: `sse` or `stdio`. |
-| `LONGUE_VUE_MCP_ADDR` | `:8090` | Listen address for the SSE transport. Ignored when transport is `stdio`. |
+| `LONGUE_VUE_MCP_ADDR` | `127.0.0.1:8090` | Listen address for the SSE transport. Ignored when transport is `stdio`. |
 | `LONGUE_VUE_MCP_TOKEN` | -- | PAT for stdio transport authentication. Required when transport is `stdio`. |
+| `LONGUE_VUE_MCP_TLS_CERT` | -- | Path to a PEM-encoded TLS certificate. When set with `LONGUE_VUE_MCP_TLS_KEY`, the SSE listener terminates TLS. Strongly recommended for production. |
+| `LONGUE_VUE_MCP_TLS_KEY` | -- | Path to the private key matching `LONGUE_VUE_MCP_TLS_CERT`. |
+| `LONGUE_VUE_MCP_ALLOW_PLAINTEXT` | `false` | When `true`, allows the SSE transport to start without TLS. Intended for local development only; bearer tokens are not protected on the wire. |
 
 ## Monitoring
 
