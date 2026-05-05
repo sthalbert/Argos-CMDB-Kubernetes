@@ -113,6 +113,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeTerminated'
         - name: name
           in: query
           required: false
@@ -263,6 +264,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeTerminated'
         - $ref: '#/components/parameters/NodeClusterIdFilter'
       responses:
         '200':
@@ -394,6 +396,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeTerminated'
         - $ref: '#/components/parameters/NamespaceClusterIdFilter'
       responses:
         '200':
@@ -659,6 +662,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeTerminated'
         - $ref: '#/components/parameters/WorkloadNamespaceIdFilter'
         - $ref: '#/components/parameters/WorkloadKindFilter'
         - $ref: '#/components/parameters/WorkloadImageFilter'
@@ -2409,6 +2413,18 @@ components:
       schema:
         type: string
         maxLength: 512
+
+    IncludeTerminated:
+      name: include_terminated
+      in: query
+      required: false
+      description: |
+        When true, include rows whose `terminated_at` is set (soft-deleted by
+        the collector reconcile pass). Defaults to false: only live entities
+        are returned. ADR-0021 §5 / §6.
+      schema:
+        type: boolean
+        default: false
 
   responses:
 
