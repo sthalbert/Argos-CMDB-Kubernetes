@@ -251,8 +251,10 @@ a:hover {
 
 main {
   padding: 1.75rem 1.5rem;
-  max-width: var(--container-max);
+  width: var(--container-max);
+  max-width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 /* Page title — flex so inline SVG icons align vertically */
@@ -1408,18 +1410,19 @@ th.sortable:hover {
 
 /* --- Impact Graph -------------------------------------------------------- */
 .impact-graph-container {
-  overflow-x: auto;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-0);
   padding: 1rem;
   margin-bottom: 1rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  user-select: none;
 }
 .impact-graph-svg {
   width: 100%;
-  min-height: 200px;
-  max-height: 600px;
+  height: 600px;
+  display: block;
 }
 .impact-graph-svg a { cursor: pointer; }
 .impact-graph-svg a:hover rect { stroke-width: 2.5; }

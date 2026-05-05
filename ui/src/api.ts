@@ -614,8 +614,8 @@ export interface PersistentVolumeClaim {
 
 // Endpoints ---------------------------------------------------------------
 
-export function listClusters() {
-  return request<PagedResponse<Cluster>>('/v1/clusters?limit=200');
+export function listClusters(filter?: { cursor?: string; limit?: number }) {
+  return request<PagedResponse<Cluster>>('/v1/clusters' + query({ limit: 200, ...filter }));
 }
 export function getCluster(id: string) {
   return request<Cluster>(`/v1/clusters/${id}`);
@@ -631,7 +631,7 @@ export function getNode(id: string) {
   return request<Node>(`/v1/nodes/${id}`);
 }
 
-export function listNamespaces(filter?: { cluster_id?: string }) {
+export function listNamespaces(filter?: { cluster_id?: string; cursor?: string; limit?: number }) {
   return request<PagedResponse<Namespace>>('/v1/namespaces' + query({ limit: 200, ...filter }));
 }
 export function getNamespace(id: string) {
@@ -642,6 +642,8 @@ export function listWorkloads(filter?: {
   namespace_id?: string;
   kind?: WorkloadKind;
   image?: string;
+  cursor?: string;
+  limit?: number;
 }) {
   return request<PagedResponse<Workload>>('/v1/workloads' + query({ limit: 200, ...filter }));
 }
