@@ -209,3 +209,4 @@ curl -H "Authorization: Bearer longue_vue_pat_..." http://localhost:8080/v1/clus
 - [Authentication guide](authentication.md) -- OIDC, roles, tokens.
 - [Audit log](audit-log.md) -- what gets recorded, how to query it, and retention guidance.
 - [API reference](api-reference.md) -- every endpoint with curl examples.
+- [UI guide](ui-guide.md) -- walkthrough of the web interface: navigation, search, EOL dashboard, admin panel, and roles.
