@@ -1031,10 +1031,11 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 			labels, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
 		ON CONFLICT (cluster_id, name) DO UPDATE SET
-			display_name = EXCLUDED.display_name,
-			phase        = EXCLUDED.phase,
-			labels       = EXCLUDED.labels,
-			updated_at   = EXCLUDED.updated_at
+			display_name  = EXCLUDED.display_name,
+			phase         = EXCLUDED.phase,
+			labels        = EXCLUDED.labels,
+			terminated_at = NULL,
+			updated_at    = EXCLUDED.updated_at
 		RETURNING id, cluster_id, name, display_name, phase, labels,
 		          owner, criticality, notes, runbook_url, annotations,
 		          created_at, updated_at
@@ -1619,6 +1620,7 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 			containers     = EXCLUDED.containers,
 			labels         = EXCLUDED.labels,
 			spec           = EXCLUDED.spec,
+			terminated_at  = NULL,
 			updated_at     = EXCLUDED.updated_at
 		RETURNING id, namespace_id, kind, name, replicas, ready_replicas,
 		          containers, labels, spec, created_at, updated_at
@@ -2612,6 +2614,7 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 			unschedulable                 = EXCLUDED.unschedulable,
 			ready                         = EXCLUDED.ready,
 			labels                        = EXCLUDED.labels,
+			terminated_at                 = NULL,
 			updated_at                    = EXCLUDED.updated_at
 		RETURNING ` + nodeColumns + `
 	`

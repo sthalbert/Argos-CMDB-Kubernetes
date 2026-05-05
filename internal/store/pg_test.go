@@ -454,6 +454,149 @@ func TestPGDeleteNodesNotIn_SoftDeletesAndIdempotent(t *testing.T) {
 	}
 }
 
+// TestPGUpsertNode_ResurrectsTerminated verifies ADR-0021 §5: when a
+// previously soft-deleted node reappears in a collector tick, the upsert
+// path clears terminated_at so the row returns to live state.
+func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-node"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	first, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	if _, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, nil); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	var terminated *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM nodes WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at: %v", err)
+	}
+	if terminated == nil {
+		t.Fatalf("terminated_at should be non-NULL after soft-delete")
+	}
+
+	resurrected, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	if err != nil {
+		t.Fatalf("resurrect upsert: %v", err)
+	}
+	if *resurrected.Id != *first.Id {
+		t.Errorf("id changed across resurrect upsert")
+	}
+
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM nodes WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at post-upsert: %v", err)
+	}
+	if terminated != nil {
+		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
+	}
+}
+
+// TestPGUpsertNamespace_ResurrectsTerminated mirrors the node test for
+// namespaces.
+func TestPGUpsertNamespace_ResurrectsTerminated(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-ns"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	first, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	if _, err := pg.DeleteNamespacesNotIn(ctx, *cluster.Id, nil); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	var terminated *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM namespaces WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at: %v", err)
+	}
+	if terminated == nil {
+		t.Fatalf("terminated_at should be non-NULL after soft-delete")
+	}
+
+	resurrected, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("resurrect upsert: %v", err)
+	}
+	if *resurrected.Id != *first.Id {
+		t.Errorf("id changed across resurrect upsert")
+	}
+
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM namespaces WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at post-upsert: %v", err)
+	}
+	if terminated != nil {
+		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
+	}
+}
+
+// TestPGUpsertWorkload_ResurrectsTerminated mirrors the node test for
+// workloads, keyed on (namespace_id, kind, name).
+func TestPGUpsertWorkload_ResurrectsTerminated(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-wl"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	first, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	if _, err := pg.DeleteWorkloadsNotIn(ctx, *ns.Id, nil, nil); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	var terminated *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM workloads WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at: %v", err)
+	}
+	if terminated == nil {
+		t.Fatalf("terminated_at should be non-NULL after soft-delete")
+	}
+
+	resurrected, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	if err != nil {
+		t.Fatalf("resurrect upsert: %v", err)
+	}
+	if *resurrected.Id != *first.Id {
+		t.Errorf("id changed across resurrect upsert")
+	}
+
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM workloads WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at post-upsert: %v", err)
+	}
+	if terminated != nil {
+		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
+	}
+}
+
 func TestPGDeleteNamespacesNotIn(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
