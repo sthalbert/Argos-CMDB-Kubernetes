@@ -90,6 +90,7 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 | [Push Collector](docs/deployment/push-collector.md) | Deploy longue-vue-collector in air-gapped clusters (Helm or Kustomize). |
 | [VM Collector](docs/vm-collector.md) | Deploy longue-vue-vm-collector to inventory non-Kubernetes platform VMs (Helm or Kustomize). |
 | [DMZ Ingest Gateway](docs/how-to-deploy-dmz-ingest-gateway.md) | Deploy longue-vue-ingest-gw in a perimeter network to front collector push traffic (ADR-0016). |
+| [Secure kubeconfig delivery](docs/how-to-secure-kubeconfig.md) | Mount kubeconfigs from Kubernetes Secrets for multi-cluster pull-collector deployments. |
 | [Cloud Accounts](docs/cloud-accounts.md) | Register cloud-provider accounts, manage AK/SK rotation, master key handling. |
 | [Docker (local dev)](docs/deployment/docker.md) | Run locally with Docker. |
 | [Authentication](docs/authentication.md) | Local users, OIDC, tokens, roles, sessions. |
@@ -150,6 +151,8 @@ longue-vue ships as **four binaries**: `longue-vue` (the central server with API
 | [0017](docs/adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) | Public-listener TLS posture and proxy trust — native TLS / trusted-proxy switch, secure cookies, HSTS, transactional last-admin guard. |
 | [0018](docs/adr/adr-0018-helm-chart-per-deployable-binary.md) | Helm chart per deployable binary — every longue-vue binary ships with a sibling chart under `charts/`, independently versioned, sharing the hardening conventions of `charts/longue-vue-ingest-gw`. |
 | [0019](docs/adr/adr-0019-vm-applications-and-eol-and-search.md) | VM applications inventory, EOL enrichment for platform software, and extended VM list search filters. |
+| [0020](docs/adr/adr-0020-rename-argos-to-longue-vue.md) | Rename Argos → longue-vue: product name, token prefix, env vars, and migration guidance. |
+| [0021](docs/adr/adr-0021-time-travel-snapshots.md) | Time-travel snapshots for SecNumCloud asset history (soft-delete foundation). |
 
 ## Contributing
 
