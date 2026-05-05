@@ -467,3 +467,8 @@ Expected. The gateway enforces a strict 18-route write-only allowlist. `GET /v1/
 - Token revocation propagates within 60 s worst case. For immediate revocation, delete the token in longue-vue's admin UI; longue-vue will return 401 on the next forwarded request and the gateway will evict the cache entry.
 - The gateway never buffers or spools requests. If longue-vue is unreachable, collectors receive 503 and retry with backoff. No inventory data is lost — the next successful collector tick reconciles the gap.
 - The ingest listener on longue-vue registers only 19 routes (the 18 allowed writes + `POST /v1/auth/verify`). Any other path returns 404 on this listener even if the route exists on `:8080`.
+
+## References
+
+- [ADR-0016](adr/adr-0016-dmz-ingest-gateway.md) — DMZ ingest gateway design, allowlist, mTLS, token verify cache
+- [ADR-0009](adr/adr-0009-push-collector-for-airgapped-clusters.md) — push-based collector for air-gapped clusters

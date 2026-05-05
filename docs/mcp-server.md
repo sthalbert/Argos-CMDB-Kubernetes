@@ -129,3 +129,7 @@ histogram_quantile(0.95, rate(longue_vue_mcp_tool_duration_seconds_bucket[5m])) 
 - **Admin toggle.** An administrator can disable the MCP server at runtime from the UI. When disabled, all tool calls are rejected with an error; the listener stays alive so re-enabling does not require a restart.
 - **Result cap.** List tools paginate internally but cap total results at 1000 items to prevent memory exhaustion on large clusters. Results beyond the cap are silently truncated.
 - **Separate port.** The SSE transport listens on its own port (default `:8090`), independent of the main API on `:8080`. Network policies can restrict MCP access without affecting human users or the collector.
+
+## References
+
+- [ADR-0014](adr/adr-0014-mcp-server.md) — MCP server design, transport options, tool catalogue, auth, and runtime toggle

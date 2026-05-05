@@ -141,8 +141,8 @@ longue-vue ships as **four binaries**: `longue-vue` (the central server with API
 | [0007](docs/adr/adr-0007-auth-and-rbac.md) | Dual-path auth (session + bearer) and four-role RBAC. |
 | [0008](docs/adr/adr-0008-secnumcloud-chapter-8-asset-management.md) | SecNumCloud chapter 8 asset management alignment. |
 | [0009](docs/adr/adr-0009-push-collector-for-airgapped-clusters.md) | Push-based collector for air-gapped clusters. |
-| [0010](docs/adr/adr-0010-pre-deletion-cascade-audit.md) | Pre-deletion cascade audit enrichment. |
-| [0011](docs/adr/adr-0011-persistent-volumes-and-claims.md) | PersistentVolumes and PVCs in the CMDB. |
+| [0010](docs/adr/adr-0010-admin-only-cluster-deletion-with-audit.md) | Admin-only cluster deletion with audit. |
+| [0011](docs/adr/adr-0011-collector-auto-creates-cluster.md) | Collector auto-creates cluster on first contact. |
 | [0012](docs/adr/adr-0012-eol-enrichment-via-endoflife-date.md) | End-of-life enrichment via endoflife.date. |
 | [0013](docs/adr/adr-0013-impact-analysis-graph.md) | Impact analysis graph for blast-radius assessment. |
 | [0014](docs/adr/adr-0014-mcp-server.md) | MCP server for AI agent access to the CMDB. |

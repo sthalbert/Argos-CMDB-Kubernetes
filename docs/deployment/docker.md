@@ -164,3 +164,8 @@ docker stop longue-vue-pg
 ```
 
 This removes the PostgreSQL container and all its data (the `--rm` flag was set at creation).
+
+## References
+
+- [ADR-0001](../adr/adr-0001-cmdb-for-snc-using-kube.md) — foundational CMDB design and deployment model
+- [ADR-0007](../adr/adr-0007-auth-and-rbac.md) — bootstrap admin, session configuration

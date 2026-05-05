@@ -311,3 +311,11 @@ The gateway verifies each collector PAT against longue-vue once and caches the r
 | `LONGUE_VUE_INGEST_GW_LOG_LEVEL` | no | `info` | Structured log verbosity. One of `debug`, `info`, `warn`, `error`. |
 | `LONGUE_VUE_INGEST_GW_REQUIRED_SCOPE` | no | `write` | Minimum scope a verified token must carry for the gateway to forward the request. Change only for non-standard collector deployments. |
 | `LONGUE_VUE_INGEST_GW_SHUTDOWN_TIMEOUT` | no | `30s` | Graceful drain budget after SIGTERM. In-flight proxied requests complete up to this deadline.
+
+
+## References
+
+- [ADR-0007](adr/adr-0007-auth-and-rbac.md) — auth configuration: OIDC, session, PAT
+- [ADR-0015](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) — VM collector env vars, AK/SK encryption
+- [ADR-0016](adr/adr-0016-dmz-ingest-gateway.md) — ingest gateway configuration
+- [ADR-0017](adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) — TLS, trusted proxies, REQUIRE_HTTPS

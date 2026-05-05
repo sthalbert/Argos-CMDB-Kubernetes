@@ -182,3 +182,8 @@ The enricher makes outbound HTTPS requests to `endoflife.date`. In environments 
 - **VM application data is operator-curated.** The enricher annotates whatever version was last written to the `applications` field. If a VM's Vault version is upgraded without updating longue-vue, the EOL annotation reflects the old version. The `added_at` timestamp on each application entry is shown in the UI to help spot stale records. An in-guest agent for automatic discovery is planned for a future version.
 - **Data accuracy depends on endoflife.date.** The project is community-maintained. Verify critical EOL decisions against vendor documentation.
 - **A typo in `LONGUE_VUE_CLUSTER_NAME` creates a new cluster.** The auto-created cluster will be enriched, but with the wrong name. Verify cluster names after first deployment.
+
+## References
+
+- [ADR-0012](adr/adr-0012-eol-enrichment-via-endoflife-date.md) — EOL enrichment design, matcher coverage, annotation format
+- [ADR-0019](adr/adr-0019-vm-applications-and-eol-and-search.md) — VM applications field and per-VM EOL enrichment

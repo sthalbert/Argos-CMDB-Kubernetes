@@ -243,3 +243,8 @@ Define Grafana template variables for:
 - `resource` sourced from `label_values(longue_vue_collector_last_poll_timestamp_seconds, resource)`
 
 This lets operators drill into a specific cluster or resource kind.
+
+## References
+
+- [ADR-0001](adr/adr-0001-cmdb-for-snc-using-kube.md) — foundational CMDB design (Prometheus metrics are part of the operational posture)
+- [ADR-0005](adr/adr-0005-multi-cluster-collector.md) — multi-cluster topology reflected in collector metric labels
