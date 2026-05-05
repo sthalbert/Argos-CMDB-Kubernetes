@@ -100,6 +100,7 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 | [Impact Analysis](docs/impact-analysis.md) | Dependency graph: assess blast radius of a change. |
 | [MCP Server](docs/mcp-server.md) | Model Context Protocol server for AI agent integrations. |
 | [Monitoring](docs/monitoring.md) | Prometheus metrics, alerts, Grafana tips. |
+| [UI Guide](docs/ui-guide.md) | End-user walkthrough of the web interface: login, navigation, search, EOL dashboard, admin panel. |
 | [Architecture](docs/architecture.md) | How longue-vue works internally. |
 
 ## Architecture
