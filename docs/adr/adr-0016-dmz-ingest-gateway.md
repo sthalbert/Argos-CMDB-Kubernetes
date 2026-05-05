@@ -4,7 +4,7 @@
 
 ---
 title: "ADR-0016: DMZ ingest gateway for collector push traffic"
-status: "Proposed"
+status: "Accepted"
 date: "2026-04-28"
 authors: "Steve ALBERT"
 tags: ["architecture", "decision", "dmz", "gateway", "security", "mtls", "network", "secnumcloud", "ingestion", "collector", "vault", "pki"]
@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed** | Accepted | Rejected | Superseded | Deprecated
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
 
 ## Context
 

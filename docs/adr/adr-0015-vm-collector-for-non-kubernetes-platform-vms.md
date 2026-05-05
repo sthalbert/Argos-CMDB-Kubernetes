@@ -4,7 +4,7 @@
 
 ---
 title: "ADR-0015: VM collector for non-Kubernetes platform infrastructure"
-status: "Proposed"
+status: "Accepted"
 date: "2026-04-26"
 authors: "Steve ALBERT"
 tags: ["architecture", "decision", "collector", "vm", "cloud-providers", "outscale", "secnumcloud", "asset-management", "binary"]
@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed** | Accepted | Rejected | Superseded | Deprecated
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
 
 ## Context
 
