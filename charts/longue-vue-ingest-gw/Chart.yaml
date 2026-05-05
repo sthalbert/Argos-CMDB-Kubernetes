@@ -9,7 +9,7 @@ description: >-
   DMZ release contains only what should be in the DMZ.
 type: application
 version: 0.1.3
-appVersion: "0.12.2"
+appVersion: "0.14.0"
 home: https://github.com/sthalbert/longue-vue
 sources:
   - https://github.com/sthalbert/longue-vue
