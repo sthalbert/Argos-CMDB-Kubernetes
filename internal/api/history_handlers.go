@@ -134,17 +134,22 @@ func resolveAsOfKind(path string) (kind, idStr string) {
 // segment), the middleware resolves the snapshot from the history table and
 // responds directly; otherwise it delegates to next.
 //
-// The middleware is mounted in main.go to wrap the entire mux so it runs
-// before the generated router's route-dispatch. Auth middleware must already
-// have run so auth.CallerFromContext is populated.
-func AsOfMiddleware(store Store) func(next http.Handler) http.Handler {
+// authMiddleware is applied to the intercepted path so that auth.CallerFromContext
+// is populated before serveAsOf checks it. Non-intercepted requests pass through
+// to next (which has its own auth middleware via the generated router).
+func AsOfMiddleware(store Store, authMiddleware func(http.Handler) http.Handler) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
+		// Wrap the actual serveAsOf terminal handler with auth so that the
+		// caller context is populated before we check it.
+		asOfTerminal := authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			serveAsOf(w, r, store)
+		}))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !shouldInterceptAsOf(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			serveAsOf(w, r, store)
+			asOfTerminal.ServeHTTP(w, r)
 		})
 	}
 }
