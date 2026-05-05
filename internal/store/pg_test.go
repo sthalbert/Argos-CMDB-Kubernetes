@@ -2406,3 +2406,104 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 		t.Errorf("owner clobbered by hardware_model patch")
 	}
 }
+
+// TestPGSoftDeleteCluster_CascadesToChildren verifies ADR-0021 §IMP-007:
+// SoftDeleteCluster soft-deletes the cluster plus its live namespaces,
+// nodes, and workloads in a single transaction.
+func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "soft-delete-cascade"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+	node, err := pg.CreateNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	if err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	if err != nil {
+		t.Fatalf("workload: %v", err)
+	}
+
+	if err := pg.SoftDeleteCluster(ctx, *cluster.Id); err != nil {
+		t.Fatalf("SoftDeleteCluster: %v", err)
+	}
+
+	var clusterTerm, nsTerm, nodeTerm, wlTerm bool
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM clusters WHERE id=$1`, *cluster.Id).Scan(&clusterTerm); err != nil {
+		t.Fatalf("scan cluster: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM namespaces WHERE id=$1`, *ns.Id).Scan(&nsTerm); err != nil {
+		t.Fatalf("scan namespace: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM nodes WHERE id=$1`, *node.Id).Scan(&nodeTerm); err != nil {
+		t.Fatalf("scan node: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM workloads WHERE id=$1`, *wl.Id).Scan(&wlTerm); err != nil {
+		t.Fatalf("scan workload: %v", err)
+	}
+	if !clusterTerm || !nsTerm || !nodeTerm || !wlTerm {
+		t.Fatalf("cascade missed: cluster=%v ns=%v node=%v wl=%v", clusterTerm, nsTerm, nodeTerm, wlTerm)
+	}
+
+	// Idempotent: a second call on an already-terminated cluster returns nil.
+	if err := pg.SoftDeleteCluster(ctx, *cluster.Id); err != nil {
+		t.Fatalf("second SoftDeleteCluster should be idempotent: %v", err)
+	}
+
+	// Unknown id returns ErrNotFound.
+	if err := pg.SoftDeleteCluster(ctx, uuid.New()); !errors.Is(err, api.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
+	}
+}
+
+// TestPGSoftDeleteNamespace_CascadesToWorkloads verifies the namespace
+// soft-delete cascade soft-deletes its live workloads.
+func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "soft-delete-ns-cascade"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	if err != nil {
+		t.Fatalf("workload: %v", err)
+	}
+
+	if err := pg.SoftDeleteNamespace(ctx, *ns.Id); err != nil {
+		t.Fatalf("SoftDeleteNamespace: %v", err)
+	}
+
+	var nsTerm, wlTerm bool
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM namespaces WHERE id=$1`, *ns.Id).Scan(&nsTerm); err != nil {
+		t.Fatalf("scan namespace: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM workloads WHERE id=$1`, *wl.Id).Scan(&wlTerm); err != nil {
+		t.Fatalf("scan workload: %v", err)
+	}
+	if !nsTerm || !wlTerm {
+		t.Fatalf("cascade missed: ns=%v wl=%v", nsTerm, wlTerm)
+	}
+
+	if err := pg.SoftDeleteNamespace(ctx, uuid.New()); !errors.Is(err, api.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
+	}
+}

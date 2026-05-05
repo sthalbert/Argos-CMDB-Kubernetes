@@ -283,7 +283,7 @@ func (s *Server) DeleteCluster(ctx context.Context, req DeleteClusterRequestObje
 		)
 	}
 
-	if err := s.store.DeleteCluster(ctx, req.Id); err != nil {
+	if err := s.store.SoftDeleteCluster(ctx, req.Id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return DeleteCluster404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
@@ -565,7 +565,7 @@ func (s *Server) UpdateNamespace(ctx context.Context, req UpdateNamespaceRequest
 
 // DeleteNamespace removes a namespace.
 func (s *Server) DeleteNamespace(ctx context.Context, req DeleteNamespaceRequestObject) (DeleteNamespaceResponseObject, error) {
-	if err := s.store.DeleteNamespace(ctx, req.Id); err != nil {
+	if err := s.store.SoftDeleteNamespace(ctx, req.Id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return DeleteNamespace404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),

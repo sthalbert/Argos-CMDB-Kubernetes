@@ -96,6 +96,12 @@ type Store interface {
 	// DeleteCluster removes a cluster by id. Returns ErrNotFound if absent.
 	DeleteCluster(ctx context.Context, id uuid.UUID) error
 
+	// SoftDeleteCluster marks the cluster and its live children
+	// (namespaces, nodes, workloads) as terminated in a single transaction.
+	// See ADR-0021 §IMP-007. Idempotent on already-terminated rows; returns
+	// ErrNotFound when the cluster does not exist.
+	SoftDeleteCluster(ctx context.Context, id uuid.UUID) error
+
 	// CountClusterChildren counts child resources that will be cascade-deleted
 	// when the given cluster is removed. Returns ErrNotFound if the cluster
 	// does not exist. Used to build the pre-deletion audit snapshot (ADR-0010).
@@ -149,6 +155,10 @@ type Store interface {
 
 	// DeleteNamespace removes a namespace by id. Returns ErrNotFound if absent.
 	DeleteNamespace(ctx context.Context, id uuid.UUID) error
+
+	// SoftDeleteNamespace marks the namespace and its live workloads as
+	// terminated in a single transaction. See ADR-0021 §IMP-007.
+	SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error
 
 	// UpsertNamespace mirrors UpsertNode for namespaces.
 	UpsertNamespace(ctx context.Context, in NamespaceCreate) (Namespace, error)
