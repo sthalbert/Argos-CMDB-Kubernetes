@@ -204,6 +204,7 @@ curl -H "Authorization: Bearer longue_vue_pat_..." http://localhost:8080/v1/clus
 - [Configuration reference](configuration.md) -- all environment variables for longue-vue and longue-vue-collector.
 - [Deploy with Helm](deployment/helm.md) -- one-command Kubernetes install with optional bundled PostgreSQL.
 - [Deploy with Kustomize](deployment/kubernetes.md) -- production deployment with plain manifests.
+- [Kubernetes pull collector](collector-kubernetes.md) -- configuration, multi-cluster setup, reconciliation semantics, RBAC, and metrics.
 - [Push collector for air-gapped clusters](deployment/push-collector.md) -- deploy longue-vue-collector.
 - [Authentication guide](authentication.md) -- OIDC, roles, tokens.
 - [Audit log](audit-log.md) -- what gets recorded, how to query it, and retention guidance.
