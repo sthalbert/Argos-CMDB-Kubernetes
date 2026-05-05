@@ -28,9 +28,9 @@ var errCursorFormatInvalid = errors.New("cursor format invalid")
 
 // change type constants for time-travel history capture.
 const (
-	changeTypeCreate    = "create"
-	changeTypeUpdate    = "update"
-	changeTypeRestore   = "restore"
+	changeTypeCreate     = "create"
+	changeTypeUpdate     = "update"
+	changeTypeRestore    = "restore"
 	changeTypeSoftDelete = "soft_delete"
 )
 
