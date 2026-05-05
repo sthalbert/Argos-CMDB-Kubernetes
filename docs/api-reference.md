@@ -888,4 +888,4 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 
 ## MCP server (alternative query interface)
 
-longue-vue also exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with 17 read-only tools that mirror the REST query surface. The MCP interface is designed for AI agents and supports SSE and stdio transports. It is **not** part of the REST API -- see [MCP Server](mcp-server.md) for setup, tool catalogue, and authentication details.
+longue-vue also exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with 22 read-only tools that mirror the REST query surface. The MCP interface is designed for AI agents and supports SSE and stdio transports. It is **not** part of the REST API -- see [MCP Server](mcp-server.md) for setup, tool catalogue, and authentication details.
