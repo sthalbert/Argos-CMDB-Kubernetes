@@ -117,7 +117,13 @@ type Store interface {
 
 	// ListNodes returns up to limit nodes after the given opaque cursor. When
 	// clusterID is non-nil, results are filtered to that cluster.
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) (items []Node, nextCursor string, err error)
+	ListNodes(
+		ctx context.Context,
+		clusterID *uuid.UUID,
+		limit int,
+		cursor string,
+		includeTerminated bool,
+	) (items []Node, nextCursor string, err error)
 
 	// UpdateNode applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the node does not exist.
@@ -147,7 +153,13 @@ type Store interface {
 
 	// ListNamespaces returns up to limit namespaces after the given opaque
 	// cursor. When clusterID is non-nil, results are filtered to that cluster.
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) (items []Namespace, nextCursor string, err error)
+	ListNamespaces(
+		ctx context.Context,
+		clusterID *uuid.UUID,
+		limit int,
+		cursor string,
+		includeTerminated bool,
+	) (items []Namespace, nextCursor string, err error)
 
 	// UpdateNamespace applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the namespace does not exist.

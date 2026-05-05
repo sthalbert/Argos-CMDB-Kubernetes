@@ -403,6 +403,8 @@ func TestPGDeleteNodesNotIn(t *testing.T) {
 // TestPGDeleteNodesNotIn_SoftDeletesAndIdempotent verifies ADR-0021 §5
 // soft-delete semantics: rows stay in the table with terminated_at set, and
 // repeated reconcile calls are no-ops on rows already terminated.
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestPGDeleteNodesNotIn_SoftDeletesAndIdempotent(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -586,6 +588,8 @@ func TestPGUpsertNamespace_ResurrectsTerminated(t *testing.T) {
 
 // TestPGUpsertWorkload_ResurrectsTerminated mirrors the node test for
 // workloads, keyed on (namespace_id, kind, name).
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestPGUpsertWorkload_ResurrectsTerminated(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -2410,6 +2414,8 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 // TestPGSoftDeleteCluster_CascadesToChildren verifies ADR-0021 §IMP-007:
 // SoftDeleteCluster soft-deletes the cluster plus its live namespaces,
 // nodes, and workloads in a single transaction.
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

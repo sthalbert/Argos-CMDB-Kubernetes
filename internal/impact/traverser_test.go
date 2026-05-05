@@ -1,4 +1,3 @@
-//nolint:goconst // duplicated literals in assertions are clearer than named constants.
 package impact
 
 import (

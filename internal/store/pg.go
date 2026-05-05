@@ -401,14 +401,17 @@ func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
 		var exists bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM clusters WHERE id = $1)`, id).Scan(&exists); err != nil {
-			return err
+			return fmt.Errorf("check cluster exists: %w", err)
 		}
 		if !exists {
 			return api.ErrNotFound
 		}
 		// Already terminated → idempotent success.
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit soft-delete cluster: %w", err)
+	}
+	return nil
 }
 
 // CountClusterChildren counts every child resource that ON DELETE CASCADE
@@ -929,7 +932,13 @@ func (p *PG) GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, err
 // ListNamespaces returns up to limit namespaces sorted (created_at DESC, id DESC).
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Namespace, string, error) {
+func (p *PG) ListNamespaces(
+	ctx context.Context,
+	clusterID *uuid.UUID,
+	limit int,
+	cursor string,
+	includeTerminated bool,
+) ([]api.Namespace, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1096,13 +1105,16 @@ func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
 		var exists bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM namespaces WHERE id = $1)`, id).Scan(&exists); err != nil {
-			return err
+			return fmt.Errorf("check namespace exists: %w", err)
 		}
 		if !exists {
 			return api.ErrNotFound
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit soft-delete namespace: %w", err)
+	}
+	return nil
 }
 
 // UpsertNamespace inserts-or-updates a namespace keyed by (cluster_id, name).

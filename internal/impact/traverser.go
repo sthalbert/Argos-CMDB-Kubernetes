@@ -9,7 +9,11 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-const maxPageSize = 500
+const (
+	maxPageSize    = 500
+	statusReady    = "Ready"
+	statusNotReady = "NotReady"
+)
 
 // TraverserStore is the narrow store interface the traverser needs.
 type TraverserStore interface {
@@ -139,9 +143,9 @@ func (b *builder) fetchNode(ctx context.Context, t EntityType, id uuid.UUID) (*G
 		if err != nil {
 			return nil, err
 		}
-		status := "NotReady"
+		status := statusNotReady
 		if n.Ready != nil && *n.Ready {
-			status = "Ready"
+			status = statusReady
 		}
 		return &GraphNode{ID: idStr(n.Id), Type: TypeNode, Name: displayOrName(n.DisplayName, n.Name), Status: status}, nil
 
@@ -673,9 +677,9 @@ func displayOrName(display *string, name string) string {
 
 func readyStatus(ready *bool) string {
 	if ready != nil && *ready {
-		return "Ready"
+		return statusReady
 	}
-	return "NotReady"
+	return statusNotReady
 }
 
 // collectAll paginates through all results for a list query.
