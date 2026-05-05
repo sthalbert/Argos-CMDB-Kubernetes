@@ -47,15 +47,15 @@ type Store interface {
 	GetSettings(ctx context.Context) (api.Settings, error)
 
 	// Clusters
-	ListClusters(ctx context.Context, limit int, cursor string) ([]api.Cluster, string, error)
+	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]api.Cluster, string, error)
 	GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error)
 
 	// Nodes
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Node, string, error)
+	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Node, string, error)
 	GetNode(ctx context.Context, id uuid.UUID) (api.Node, error)
 
 	// Namespaces
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Namespace, string, error)
+	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Namespace, string, error)
 	GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, error)
 
 	// Workloads

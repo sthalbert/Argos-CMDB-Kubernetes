@@ -231,7 +231,7 @@ func (s *Server) handleListClusters(ctx context.Context, request mcp.CallToolReq
 	defer func() { metrics.ObserveMCPToolCall("list_clusters", time.Since(start)) }()
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Cluster, string, error) {
-		return s.store.ListClusters(ctx, maxPageSize, cursor)
+		return s.store.ListClusters(ctx, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list clusters: %w", err)
@@ -294,7 +294,7 @@ func (s *Server) handleListNodes(ctx context.Context, request mcp.CallToolReques
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-		return s.store.ListNodes(ctx, clusterID, maxPageSize, cursor)
+		return s.store.ListNodes(ctx, clusterID, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
@@ -344,7 +344,7 @@ func (s *Server) handleListNamespaces(ctx context.Context, request mcp.CallToolR
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Namespace, string, error) {
-		return s.store.ListNamespaces(ctx, clusterID, maxPageSize, cursor)
+		return s.store.ListNamespaces(ctx, clusterID, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list namespaces: %w", err)
@@ -704,14 +704,14 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 	defer func() { metrics.ObserveMCPToolCall("get_eol_summary", time.Since(start)) }()
 
 	clusters, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Cluster, string, error) {
-		return s.store.ListClusters(ctx, maxPageSize, cursor)
+		return s.store.ListClusters(ctx, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list clusters for eol: %w", err)
 	}
 
 	nodes, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-		return s.store.ListNodes(ctx, nil, maxPageSize, cursor)
+		return s.store.ListNodes(ctx, nil, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list nodes for eol: %w", err)

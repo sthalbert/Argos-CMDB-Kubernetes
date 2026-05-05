@@ -200,7 +200,7 @@ func (p *PG) GetClusterByName(ctx context.Context, name string) (api.Cluster, er
 // starting after the opaque cursor if non-empty.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListClusters(ctx context.Context, limit int, cursor string) ([]api.Cluster, string, error) {
+func (p *PG) ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]api.Cluster, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -219,10 +219,11 @@ func (p *PG) ListClusters(ctx context.Context, limit int, cursor string) ([]api.
 			       owner, criticality, notes, runbook_url, annotations,
 			       created_at, updated_at
 			FROM clusters
+			WHERE ($1 OR terminated_at IS NULL)
 			ORDER BY created_at DESC, id DESC
-			LIMIT $1
+			LIMIT $2
 		`
-		rows, err = p.pool.Query(ctx, q, limit+1)
+		rows, err = p.pool.Query(ctx, q, includeTerminated, limit+1)
 	} else {
 		ts, id, cerr := decodeCursor(cursor)
 		if cerr != nil {
@@ -235,10 +236,11 @@ func (p *PG) ListClusters(ctx context.Context, limit int, cursor string) ([]api.
 			       created_at, updated_at
 			FROM clusters
 			WHERE (created_at, id) < ($1, $2)
+			  AND ($3 OR terminated_at IS NULL)
 			ORDER BY created_at DESC, id DESC
-			LIMIT $3
+			LIMIT $4
 		`
-		rows, err = p.pool.Query(ctx, q, ts, id, limit+1)
+		rows, err = p.pool.Query(ctx, q, ts, id, includeTerminated, limit+1)
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("query clusters: %w", err)
@@ -520,7 +522,7 @@ func (p *PG) GetNode(ctx context.Context, id uuid.UUID) (api.Node, error) {
 // optionally filtered by cluster id.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Node, string, error) {
+func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Node, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -533,8 +535,11 @@ func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cur
 	sb.WriteString(nodeColumns)
 	sb.WriteString(` FROM nodes`)
 	args := make([]any, 0, 4)
-	conds := make([]string, 0, 2)
+	conds := make([]string, 0, 3)
 
+	if !includeTerminated {
+		conds = append(conds, "terminated_at IS NULL")
+	}
 	if clusterID != nil {
 		args = append(args, *clusterID)
 		conds = append(conds, fmt.Sprintf("cluster_id = $%d", len(args)))
@@ -873,7 +878,7 @@ func (p *PG) GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, err
 // ListNamespaces returns up to limit namespaces sorted (created_at DESC, id DESC).
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Namespace, string, error) {
+func (p *PG) ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Namespace, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -887,8 +892,11 @@ func (p *PG) ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int
 	                       created_at, updated_at
 	                FROM namespaces`)
 	args := make([]any, 0, 4)
-	conds := make([]string, 0, 2)
+	conds := make([]string, 0, 3)
 
+	if !includeTerminated {
+		conds = append(conds, "terminated_at IS NULL")
+	}
 	if clusterID != nil {
 		args = append(args, *clusterID)
 		conds = append(conds, fmt.Sprintf("cluster_id = $%d", len(args)))
@@ -1459,8 +1467,11 @@ func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, l
 	                       containers, labels, spec, created_at, updated_at
 	                FROM workloads`)
 	args := make([]any, 0, 6)
-	conds := make([]string, 0, 4)
+	conds := make([]string, 0, 5)
 
+	if !filter.IncludeTerminated {
+		conds = append(conds, "terminated_at IS NULL")
+	}
 	if filter.NamespaceID != nil {
 		args = append(args, *filter.NamespaceID)
 		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))

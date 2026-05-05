@@ -166,7 +166,7 @@ func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListClusters(ctx, limit, cursor)
+	items, next, err := s.store.ListClusters(ctx, limit, cursor, false)
 	if err != nil {
 		return nil, fmt.Errorf("listClusters: %w", err)
 	}
@@ -336,7 +336,7 @@ func (s *Server) ListNodes(ctx context.Context, req ListNodesRequestObject) (Lis
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor)
+	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor, false)
 	if err != nil {
 		return nil, storeErr("listNodes", err)
 	}
@@ -455,7 +455,7 @@ func (s *Server) ListNamespaces(ctx context.Context, req ListNamespacesRequestOb
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor)
+	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor, false)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}

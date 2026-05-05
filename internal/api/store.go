@@ -41,6 +41,10 @@ type WorkloadListFilter struct {
 	NamespaceID    *uuid.UUID
 	Kind           *WorkloadKind
 	ImageSubstring *string
+	// IncludeTerminated, when true, returns soft-deleted workloads in addition
+	// to live ones. Default (false) hides rows whose terminated_at is set.
+	// ADR-0021 phase 1.
+	IncludeTerminated bool
 }
 
 // CascadeCounts holds the number of child resources that will be removed
@@ -83,7 +87,7 @@ type Store interface {
 
 	// ListClusters returns up to limit clusters after the given opaque cursor,
 	// plus the cursor for the next page (empty when exhausted).
-	ListClusters(ctx context.Context, limit int, cursor string) (items []Cluster, nextCursor string, err error)
+	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) (items []Cluster, nextCursor string, err error)
 
 	// UpdateCluster applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the cluster does not exist.
@@ -107,7 +111,7 @@ type Store interface {
 
 	// ListNodes returns up to limit nodes after the given opaque cursor. When
 	// clusterID is non-nil, results are filtered to that cluster.
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) (items []Node, nextCursor string, err error)
+	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) (items []Node, nextCursor string, err error)
 
 	// UpdateNode applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the node does not exist.
@@ -137,7 +141,7 @@ type Store interface {
 
 	// ListNamespaces returns up to limit namespaces after the given opaque
 	// cursor. When clusterID is non-nil, results are filtered to that cluster.
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) (items []Namespace, nextCursor string, err error)
+	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) (items []Namespace, nextCursor string, err error)
 
 	// UpdateNamespace applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the namespace does not exist.
