@@ -1012,3 +1012,41 @@ export function listDistinctVMApplications() {
     '/v1/virtual-machines/applications/distinct',
   );
 }
+
+// --- Time-travel history (ADR-0021 Phase 3) ---------------------------------
+
+export interface HistoryPatchOp {
+  op: 'replace' | 'add' | 'remove';
+  path: string;
+  from?: unknown;
+  to?: unknown;
+}
+
+export interface HistoryRow {
+  history_id: string;
+  entity_id: string;
+  valid_from: string; // RFC3339
+  valid_to?: string | null; // RFC3339, null for the current row
+  change_type: 'create' | 'update' | 'soft_delete' | 'restore';
+  actor_id?: string | null;
+  actor_kind?: string | null;
+  diff: HistoryPatchOp[];
+}
+
+export interface EntityHistoryPage {
+  items: HistoryRow[];
+  next_cursor: string;
+}
+
+export type HistoryKind = 'clusters' | 'namespaces' | 'nodes' | 'workloads';
+
+export function listEntityHistory(
+  kind: HistoryKind,
+  id: string,
+  cursor?: string,
+  limit?: number,
+): Promise<EntityHistoryPage> {
+  return request<EntityHistoryPage>(
+    `/v1/${kind}/${id}/history` + query({ cursor, limit }),
+  );
+}
