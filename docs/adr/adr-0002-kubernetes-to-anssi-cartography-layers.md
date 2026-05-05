@@ -4,7 +4,7 @@
 
 ---
 title: "ADR-0002: Kubernetes-to-ANSSI cartography layer mapping"
-status: "Proposed"
+status: "Accepted"
 date: "2026-04-18"
 authors: "Steve ALBERT"
 tags: ["architecture", "decision", "anssi", "cartography", "datamodel"]
@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed** | Accepted | Rejected | Superseded | Deprecated
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
 
 ## Context
 

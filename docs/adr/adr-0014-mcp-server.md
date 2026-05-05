@@ -4,7 +4,7 @@
 
 ---
 title: "ADR-0014: MCP server for AI-driven CMDB queries"
-status: "Proposed"
+status: "Accepted"
 date: "2026-04-25"
 authors: "Steve ALBERT"
 tags: ["architecture", "decision", "mcp", "ai", "integration", "api"]
@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed** | Accepted | Rejected | Superseded | Deprecated
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
 
 ## Context
 

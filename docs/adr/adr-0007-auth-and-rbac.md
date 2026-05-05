@@ -4,7 +4,7 @@
 
 ---
 title: "ADR-0007: Human authentication, roles, and admin-issued machine tokens"
-status: "Proposed"
+status: "Accepted"
 date: "2026-04-19"
 authors: "Steve ALBERT"
 tags: ["architecture", "decision", "auth", "rbac", "oidc", "security"]
@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed** | Accepted | Rejected | Superseded | Deprecated
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
 
 ## Context
 

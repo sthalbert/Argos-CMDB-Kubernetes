@@ -4,7 +4,7 @@
 
 ---
 title: "ADR-0009: Push-based collector for air-gapped clusters"
-status: "Proposed"
+status: "Accepted"
 date: "2026-04-21"
 authors: "Steve ALBERT"
 tags: ["architecture", "decision", "collector", "airgap", "snc", "deployment"]
@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed** | Accepted | Rejected | Superseded | Deprecated
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
 
 ## Context
 
