@@ -735,36 +735,47 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 	return p.GetNode(ctx, id)
 }
 
-// DeleteNodesNotIn removes every node of the given cluster whose name is not
-// in keepNames. Used by the collector to reconcile state after a polling
-// cycle. keepNames is allowed to be nil or empty (deletes all for the cluster).
+// DeleteNodesNotIn soft-deletes every node of the given cluster whose name
+// is not in keepNames AND that is not already terminated. Returns the number
+// of rows newly soft-deleted. Despite the name, this is a soft-delete: per
+// ADR-0021 §5 the row stays in the table with terminated_at = NOW() so list
+// queries can opt back in via include_terminated, history (Phase 2) can
+// reconstruct the lifecycle, and a re-appearing node resurrects via the
+// upsert path. keepNames may be nil or empty (soft-deletes every live node
+// for the cluster).
 //
 // COALESCE guards against pgx encoding a nil []string as SQL NULL: without
-// it, 'name <> ALL(NULL)' evaluates to NULL and the DELETE matches nothing
+// it, 'name <> ALL(NULL)' evaluates to NULL and the UPDATE matches nothing
 // instead of clearing the cluster's nodes.
 func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
 	tag, err := p.pool.Exec(ctx,
-		`DELETE FROM nodes
-		 WHERE cluster_id = $1
-		   AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))`,
+		`UPDATE nodes
+		    SET terminated_at = NOW(), updated_at = NOW()
+		  WHERE cluster_id = $1
+		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
+		    AND terminated_at IS NULL`,
 		clusterID, keepNames,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("delete nodes not in: %w", err)
+		return 0, fmt.Errorf("soft-delete nodes not in: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
 
-// DeleteNamespacesNotIn mirrors DeleteNodesNotIn for namespaces.
+// DeleteNamespacesNotIn mirrors DeleteNodesNotIn: soft-deletes namespaces of
+// the given cluster not in keepNames and not already terminated. Per
+// ADR-0021 §5.
 func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
 	tag, err := p.pool.Exec(ctx,
-		`DELETE FROM namespaces
-		 WHERE cluster_id = $1
-		   AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))`,
+		`UPDATE namespaces
+		    SET terminated_at = NOW(), updated_at = NOW()
+		  WHERE cluster_id = $1
+		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
+		    AND terminated_at IS NULL`,
 		clusterID, keepNames,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("delete namespaces not in: %w", err)
+		return 0, fmt.Errorf("soft-delete namespaces not in: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
@@ -1627,24 +1638,26 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	return w, nil
 }
 
-// DeleteWorkloadsNotIn removes workloads in the namespace whose (kind, name)
-// tuple is not in the parallel keep arrays. COALESCE guards against pgx
-// encoding nil slices as SQL NULL (same class of fix as node/namespace/pod
-// reconcile). An empty keep list clears every workload for that namespace.
+// DeleteWorkloadsNotIn soft-deletes workloads in the namespace whose
+// (kind, name) tuple is not in the parallel keep arrays and that are not
+// already terminated. Per ADR-0021 §5; same semantics as DeleteNodesNotIn.
+// COALESCE guards against pgx encoding nil slices as SQL NULL.
 func (p *PG) DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
 	tag, err := p.pool.Exec(ctx,
-		`DELETE FROM workloads
-		 WHERE namespace_id = $1
-		   AND (kind, name) NOT IN (
-		     SELECT k, n FROM UNNEST(
-		       COALESCE($2::text[], ARRAY[]::text[]),
-		       COALESCE($3::text[], ARRAY[]::text[])
-		     ) AS t(k, n)
-		   )`,
+		`UPDATE workloads
+		    SET terminated_at = NOW(), updated_at = NOW()
+		  WHERE namespace_id = $1
+		    AND (kind, name) NOT IN (
+		      SELECT k, n FROM UNNEST(
+		        COALESCE($2::text[], ARRAY[]::text[]),
+		        COALESCE($3::text[], ARRAY[]::text[])
+		      ) AS t(k, n)
+		    )
+		    AND terminated_at IS NULL`,
 		namespaceID, keepKinds, keepNames,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("delete workloads not in: %w", err)
+		return 0, fmt.Errorf("soft-delete workloads not in: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
