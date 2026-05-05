@@ -357,7 +357,7 @@ func TestPGDeleteNodesNotIn(t *testing.T) {
 		}
 	}
 
-	// Keep only "b"; a and c should be deleted.
+	// Keep only "b"; a and c should be soft-deleted.
 	deleted, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"b"})
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -366,16 +366,19 @@ func TestPGDeleteNodesNotIn(t *testing.T) {
 		t.Errorf("deleted=%d, want 2", deleted)
 	}
 
-	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	// Survivors (live rows): only "b" should remain non-terminated.
+	var live int
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM nodes WHERE cluster_id=$1 AND terminated_at IS NULL",
+		*cluster.Id).Scan(&live); err != nil {
+		t.Fatalf("count live: %v", err)
 	}
-	if len(items) != 1 || items[0].Name != "b" {
-		t.Errorf("survivors=%v, want [b]", items)
+	if live != 1 {
+		t.Errorf("live=%d, want 1", live)
 	}
 
-	// Nil keepNames must delete everything remaining (pgx encodes nil as NULL;
-	// the store's COALESCE handles that).
+	// Nil keepNames must soft-delete every live row remaining (pgx encodes nil
+	// as NULL; the store's COALESCE handles that).
 	deleted, err = pg.DeleteNodesNotIn(ctx, *cluster.Id, nil)
 	if err != nil {
 		t.Fatalf("reconcile nil keep: %v", err)
@@ -394,6 +397,60 @@ func TestPGDeleteNodesNotIn(t *testing.T) {
 	}
 	if deleted != 1 {
 		t.Errorf("deleted=%d (empty keep), want 1", deleted)
+	}
+}
+
+// TestPGDeleteNodesNotIn_SoftDeletesAndIdempotent verifies ADR-0021 §5
+// soft-delete semantics: rows stay in the table with terminated_at set, and
+// repeated reconcile calls are no-ops on rows already terminated.
+func TestPGDeleteNodesNotIn_SoftDeletesAndIdempotent(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "c-soft"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	for _, name := range []string{"node-a", "node-b", "node-c"} {
+		if _, err := pg.CreateNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: name}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+
+	affected, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"node-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected != 2 {
+		t.Fatalf("affected=%d want 2", affected)
+	}
+
+	var liveCount, termCount int
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM nodes WHERE cluster_id=$1 AND terminated_at IS NULL",
+		*cluster.Id).Scan(&liveCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM nodes WHERE cluster_id=$1 AND terminated_at IS NOT NULL",
+		*cluster.Id).Scan(&termCount); err != nil {
+		t.Fatal(err)
+	}
+	if liveCount != 1 {
+		t.Fatalf("liveCount=%d want 1", liveCount)
+	}
+	if termCount != 2 {
+		t.Fatalf("termCount=%d want 2", termCount)
+	}
+
+	// Idempotent: a second reconcile with the same keep list must not
+	// re-soft-delete already-terminated rows.
+	affected2, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"node-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected2 != 0 {
+		t.Fatalf("affected2=%d want 0", affected2)
 	}
 }
 
@@ -419,12 +476,15 @@ func TestPGDeleteNamespacesNotIn(t *testing.T) {
 		t.Errorf("deleted=%d, want 1", deleted)
 	}
 
-	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	// Soft-delete: live rows are those with terminated_at IS NULL.
+	var live int
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM namespaces WHERE cluster_id=$1 AND terminated_at IS NULL",
+		*cluster.Id).Scan(&live); err != nil {
+		t.Fatalf("count live: %v", err)
 	}
-	if len(items) != 2 {
-		t.Errorf("survivors=%d, want 2", len(items))
+	if live != 2 {
+		t.Errorf("live=%d, want 2", live)
 	}
 }
 
@@ -661,13 +721,26 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 		t.Errorf("deleted=%d, want 2 (sts/web + ds/fluent-bit)", deleted)
 	}
 
-	// Sanity: only Deployment/web remains.
-	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: ns.Id}, 10, "")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	// Sanity: soft-delete leaves rows in place with terminated_at set;
+	// only Deployment/web remains live.
+	var liveKind, liveName string
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT kind, name FROM workloads
+		  WHERE namespace_id=$1 AND terminated_at IS NULL`,
+		*ns.Id).Scan(&liveKind, &liveName); err != nil {
+		t.Fatalf("query live workload: %v", err)
 	}
-	if len(items) != 1 || items[0].Kind != api.Deployment || items[0].Name != "web" {
-		t.Errorf("after reconcile got %+v", items)
+	if liveKind != string(api.Deployment) || liveName != "web" {
+		t.Errorf("after reconcile live=(%s,%s), want (Deployment,web)", liveKind, liveName)
+	}
+	var liveCount int
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM workloads WHERE namespace_id=$1 AND terminated_at IS NULL",
+		*ns.Id).Scan(&liveCount); err != nil {
+		t.Fatalf("count live: %v", err)
+	}
+	if liveCount != 1 {
+		t.Errorf("live workloads=%d, want 1", liveCount)
 	}
 
 	// Nil keep clears everything remaining (pgx nil-array COALESCE guard).
