@@ -264,3 +264,8 @@ curl -sS -b /tmp/longue-vue.cookies 'http://localhost:8080/v1/admin/audit?resour
 ```
 
 See [API Reference](api-reference.md) for full filter options.
+
+## References
+
+- [ADR-0007](adr/adr-0007-auth-and-rbac.md) — dual-path auth (session + bearer), four-role RBAC, PAT format, OIDC flow, bootstrap admin
+- [ADR-0017](adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) — last-admin guard, trusted proxies, REQUIRE_HTTPS

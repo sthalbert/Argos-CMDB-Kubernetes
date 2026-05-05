@@ -889,3 +889,9 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 ## MCP server (alternative query interface)
 
 longue-vue also exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with 22 read-only tools that mirror the REST query surface. The MCP interface is designed for AI agents and supports SSE and stdio transports. It is **not** part of the REST API -- see [MCP Server](mcp-server.md) for setup, tool catalogue, and authentication details.
+
+## References
+
+- [ADR-0001](adr/adr-0001-cmdb-for-snc-using-kube.md) — foundational CMDB design and REST API rationale
+- [ADR-0007](adr/adr-0007-auth-and-rbac.md) — dual-path auth, roles, scopes, PAT format
+- [ADR-0003](adr/adr-0003-workload-polymorphism.md) — workload polymorphism and kind discriminator

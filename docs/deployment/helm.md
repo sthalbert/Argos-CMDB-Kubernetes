@@ -250,3 +250,8 @@ If you used the bundled PostgreSQL, the PVC persists by default. Delete it manua
 ```bash
 kubectl -n longue-vue-system delete pvc data-longue-vue-postgresql-0
 ```
+
+## References
+
+- [ADR-0018](../adr/adr-0018-helm-chart-per-deployable-binary.md) — one Helm chart per deployable binary, chart structure
+- [ADR-0017](../adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) — TLS configuration and trusted proxies wired via Helm values

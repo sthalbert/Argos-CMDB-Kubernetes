@@ -188,3 +188,8 @@ You should see successful poll entries for each configured cluster within one co
 | Kubeconfig files committed to Git | Credentials in history forever, even after removal |
 | Real cluster names in committed manifests | Leaks internal topology (zone names, environments, cluster roles) |
 | `stringData` Secrets committed to Git | Plaintext credentials in version control |
+
+## References
+
+- [ADR-0005](adr/adr-0005-multi-cluster-collector.md) — multi-cluster topology and kubeconfig-per-cluster model
+- [ADR-0009](adr/adr-0009-push-collector-for-airgapped-clusters.md) — push-based collector alternative for air-gapped clusters

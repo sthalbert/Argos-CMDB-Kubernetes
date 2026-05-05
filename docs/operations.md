@@ -394,9 +394,9 @@ Retrieve the key from your secrets manager and set the env var.
 
 ## References
 
-- [ADR-0007](adr/adr-0007-auth-tokens.md) — auth tokens, bootstrap admin, PAT format
-- [ADR-0015](adr/adr-0015-cloud-account-vm-collector.md) — cloud accounts, AK/SK encryption, vm-collector token scope
-- [ADR-0017](adr/adr-0017-security-hardening.md) — last-admin guard, trusted proxies, REQUIRE_HTTPS
+- [ADR-0007](adr/adr-0007-auth-and-rbac.md) — auth tokens, bootstrap admin, PAT format
+- [ADR-0015](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) — cloud accounts, AK/SK encryption, vm-collector token scope
+- [ADR-0017](adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) — last-admin guard, trusted proxies, REQUIRE_HTTPS
 - [Authentication](authentication.md) — full auth reference: local users, OIDC, roles, sessions
 - [Audit Log](audit-log.md) — what gets recorded, scrubbing rules, querying, retention
 - [Configuration](configuration.md) — all environment variables
