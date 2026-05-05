@@ -15,7 +15,7 @@ Regardless of the path you choose below, you need:
 
 For the "build from source" path you also need:
 
-- **Go** (version pinned in `go.mod` -- currently 1.25+)
+- **Go** (version pinned in `go.mod` -- currently 1.23+)
 - **Node.js 22+** and **npm** (for the UI build)
 - **golangci-lint** (optional, for `make lint`)
 
@@ -173,7 +173,7 @@ LONGUE_VUE_DATABASE_URL="postgres://..." \
 
 This uses the in-cluster ServiceAccount by default. For remote clusters, mount kubeconfig files from a Kubernetes Secret and use `LONGUE_VUE_COLLECTOR_CLUSTERS` — see [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md).
 
-On the next tick (default: 60 seconds) the collector populates nodes, namespaces, pods, workloads, services, ingresses, persistent volumes, and PVCs.
+On the next tick (default: 5 minutes) the collector populates nodes, namespaces, pods, workloads, services, ingresses, persistent volumes, and PVCs.
 
 ### Verify data appears
 
@@ -204,6 +204,10 @@ curl -H "Authorization: Bearer longue_vue_pat_..." http://localhost:8080/v1/clus
 - [Configuration reference](configuration.md) -- all environment variables for longue-vue and longue-vue-collector.
 - [Deploy with Helm](deployment/helm.md) -- one-command Kubernetes install with optional bundled PostgreSQL.
 - [Deploy with Kustomize](deployment/kubernetes.md) -- production deployment with plain manifests.
+- [Kubernetes pull collector](collector-kubernetes.md) -- configuration, multi-cluster setup, reconciliation semantics, RBAC, and metrics.
 - [Push collector for air-gapped clusters](deployment/push-collector.md) -- deploy longue-vue-collector.
 - [Authentication guide](authentication.md) -- OIDC, roles, tokens.
+- [Operations runbook](operations.md) -- first-run bootstrap, credential rotation, backup/restore, upgrade procedure, incident response.
+- [Audit log](audit-log.md) -- what gets recorded, how to query it, and retention guidance.
 - [API reference](api-reference.md) -- every endpoint with curl examples.
+- [UI guide](ui-guide.md) -- walkthrough of the web interface: navigation, search, EOL dashboard, admin panel, and roles.

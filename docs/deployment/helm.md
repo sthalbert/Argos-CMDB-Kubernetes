@@ -226,6 +226,9 @@ The table below lists the most common values. See [`charts/longue-vue/values.yam
 | `rbac.create` | `true` | Create ClusterRole and binding. |
 | `serviceAccount.create` | `true` | Create a ServiceAccount. |
 | `podSecurityContext.runAsUser` | `65532` | Non-root UID (distroless). |
+| `longue-vue.tls.existingSecret` | `""` | Name of a Secret containing `tls.crt` and `tls.key`. When set, longue-vue terminates TLS natively (TLS 1.3 floor, cert hot-reloaded on mtime change). |
+| `longue-vue.trustedProxies` | `""` | Comma-separated CIDR list of TLS-terminating proxies. When non-empty, longue-vue honors `X-Forwarded-For` and `X-Forwarded-Proto` from those peers. Empty = ignore both headers (secure default). |
+| `longue-vue.requireHTTPS` | `false` | When `true`, longue-vue refuses to start unless native TLS or a trusted-proxy posture is fully configured. |
 
 ## Upgrade
 
@@ -247,3 +250,8 @@ If you used the bundled PostgreSQL, the PVC persists by default. Delete it manua
 ```bash
 kubectl -n longue-vue-system delete pvc data-longue-vue-postgresql-0
 ```
+
+## References
+
+- [ADR-0018](../adr/adr-0018-helm-chart-per-deployable-binary.md) — one Helm chart per deployable binary, chart structure
+- [ADR-0017](../adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) — TLS configuration and trusted proxies wired via Helm values

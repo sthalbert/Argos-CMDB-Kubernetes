@@ -52,9 +52,13 @@ The main daemon, built from `cmd/longue-vue/main.go`. It combines several subsys
 
 - **REST API** -- generated from `api/openapi/openapi.yaml` via `oapi-codegen`. Handlers live in `internal/api/`. Errors follow RFC 7807.
 - **Auth middleware** -- resolves requests as either session-cookie (humans) or bearer-token (machines), attaching a `Caller{id, kind, role, scopes}` to the context. Implemented in `internal/auth/`.
-- **Audit middleware** -- records every state-changing request and every admin-panel read. Sensitive fields are scrubbed.
+- **Audit middleware** -- records every state-changing request and every admin-panel read. Sensitive fields are scrubbed. Implemented in `internal/api/audit.go`.
 - **Pull collector** -- one goroutine per configured cluster, polling the Kubernetes API at a configurable interval. Implemented in `internal/collector/`.
 - **PostgreSQL store** -- cursor-paginated CRUD with merge-patch updates. Implemented in `internal/store/`.
+- **EOL enricher** -- background goroutine that annotates clusters, nodes, and platform VMs with lifecycle status from [endoflife.date](https://endoflife.date). Implemented in `internal/eol/`. Toggled at runtime via the `eol_enabled` setting. See [ADR-0012](adr/adr-0012-eol-enrichment-via-endoflife-date.md) and [EOL Enrichment](eol-enrichment.md).
+- **Impact analysis** -- on-the-fly FK traversal producing a dependency graph for any CMDB entity. Serves `GET /v1/impact/{entity_type}/{id}`. Implemented in `internal/impact/`. See [ADR-0013](adr/adr-0013-impact-analysis-graph.md) and [Impact Analysis](impact-analysis.md).
+- **MCP server** -- Model Context Protocol server exposing 22 read-only CMDB tools for AI agents, over SSE or stdio transports. Implemented in `internal/mcp/`. Toggled at runtime via the `mcp_enabled` setting. See [ADR-0014](adr/adr-0014-mcp-server.md) and [MCP Server](mcp-server.md).
+- **Ingest listener** -- optional second mTLS-only listener (`:8443`) for push-mode collectors transiting through a DMZ ingest gateway. Registered via `api.NewIngestMux`. Disabled unless `LONGUE_VUE_INGEST_LISTEN_ADDR` is set. See [ADR-0016](adr/adr-0016-dmz-ingest-gateway.md).
 - **Metrics** -- Prometheus counters and gauges at `/metrics`. Implemented in `internal/metrics/`.
 - **Embedded UI** -- the React SPA built into the binary via `//go:embed` and served at `/ui/*`.
 
@@ -70,6 +74,14 @@ Key differences from the pull collector:
 - Supports gateway/proxy traversal: custom CA, mTLS, path prefix rewrite, extra headers.
 
 See [ADR-0009](adr/adr-0009-push-collector-for-airgapped-clusters.md) for the design rationale.
+
+### longue-vue-vm-collector
+
+A standalone push-mode binary (`cmd/longue-vue-vm-collector/`) that catalogues non-Kubernetes platform VMs (VPN gateways, DNS servers, bastions, Vault clusters). It polls a cloud provider's API (Outscale v1), deduplicates against the `nodes` table server-side, and pushes remaining VMs to `POST /v1/virtual-machines`. Credentials (AK/SK) live in longue-vue's `cloud_accounts` table and are fetched at runtime — never in env vars. One instance per cloud account. See [ADR-0015](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) and [vm-collector](vm-collector.md).
+
+### longue-vue-ingest-gw
+
+A stateless DMZ reverse-proxy binary (`cmd/longue-vue-ingest-gw/`) deployed between remote collectors and longue-vue's trusted zone. It enforces a hardcoded 18-route write-only allowlist, verifies bearer PATs against longue-vue via `POST /v1/auth/verify` (with an LRU cache), and forwards approved requests over mTLS to longue-vue's ingest listener. No database, no replay buffer. See [ADR-0016](adr/adr-0016-dmz-ingest-gateway.md) and [How to deploy the DMZ ingest gateway](how-to-deploy-dmz-ingest-gateway.md).
 
 ## Pull collector
 
@@ -150,6 +162,21 @@ Several columns use PostgreSQL JSONB for semi-structured data:
 
 Clusters carry operator-editable columns (`owner`, `criticality`, `notes`, `runbook_url`, `annotations`) that the collector never touches. The merge-patch update semantics in `UpdateCluster` leave unset fields alone, so a collector tick cannot overwrite operator annotations.
 
+### Cloud accounts and virtual machines (ADR-0015)
+
+Two top-level tables outside the Kubernetes entity hierarchy:
+
+- `cloud_accounts` — operator-editable records of cloud-provider accounts. Each row holds the AK (plaintext) and SK (AES-256-GCM encrypted, AAD-bound to the row UUID) for one account, plus curated metadata and a lifecycle status (`pending_credentials`, `active`, `error`, `disabled`). FK source for `virtual_machines`.
+- `virtual_machines` — non-Kubernetes platform VMs catalogued by the vm-collector. Top-level FK to `cloud_accounts(id)` `ON DELETE CASCADE`. Carries cloud-provider metadata (AMI, instance type, networking, security groups) plus an operator-curated `applications` JSONB array for platform software inventory. Soft-deleted via `terminated_at`; never hard-deleted by reconciliation.
+
+### Audit events
+
+`audit_events` — append-only table written by `AuditMiddleware`. Records every non-GET request and every `/v1/admin/*` read. Sensitive fields are scrubbed. Includes a `source` discriminator (`api`, `ingest_gw`, `system`). Accessible via `GET /v1/admin/audit` (requires `audit` scope). See [Audit log](audit-log.md).
+
+### Settings table
+
+`settings` — single-row table (`id=1 CHECK`) with runtime feature toggles: `eol_enabled`, `mcp_enabled`. Modified by `PATCH /v1/admin/settings` (admin scope). Env vars seed these values on first boot; the admin can override at runtime without restarting.
+
 ## ANSSI cartography layers
 
 Each Kubernetes kind maps to an ANSSI SecNumCloud cartography layer (per [ADR-0002](adr/adr-0002-kubernetes-to-anssi-cartography-layers.md)):
@@ -225,3 +252,11 @@ Detailed design rationale is recorded in ADRs under `docs/adr/`:
 | [0007](adr/adr-0007-auth-and-rbac.md) | Dual-path auth and RBAC. |
 | [0008](adr/adr-0008-secnumcloud-chapter-8-asset-management.md) | SecNumCloud chapter 8 asset management. |
 | [0009](adr/adr-0009-push-collector-for-airgapped-clusters.md) | Push-based collector for air-gapped clusters. |
+| [0012](adr/adr-0012-eol-enrichment-via-endoflife-date.md) | End-of-life enrichment from endoflife.date. |
+| [0013](adr/adr-0013-impact-analysis-graph.md) | On-the-fly FK traversal for dependency impact graphs. |
+| [0014](adr/adr-0014-mcp-server.md) | Model Context Protocol server for AI agent integration. |
+| [0015](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) | Cloud-account model, VM collector, AES-256-GCM SK encryption. |
+| [0016](adr/adr-0016-dmz-ingest-gateway.md) | DMZ ingest gateway for push collectors in restricted networks. |
+| [0017](adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) | Public-listener TLS posture, proxy trust, last-admin guard. |
+| [0018](adr/adr-0018-helm-chart-per-deployable-binary.md) | Helm charts as the supported production deployment surface. |
+| [0019](adr/adr-0019-vm-applications-and-eol-and-search.md) | Operator-curated applications on platform VMs for EOL enrichment. |

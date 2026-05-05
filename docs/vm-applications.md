@@ -176,3 +176,9 @@ The updated annotations are visible on the VM detail page under **Annotations**,
 Application declarations are operator-curated. The enricher uses whatever `version` was last written; it does not detect upgrades automatically. The `added_at` timestamp is shown in the read-mode Applications table to help operators spot entries that have not been updated in a long time.
 
 When a VM is decommissioned (soft-deleted via reconciliation), the enricher skips it. Terminated VMs' EOL rows gradually age out of the dashboard as the `checked_at` field stops advancing.
+
+## References
+
+- [ADR-0019](adr/adr-0019-vm-applications-and-eol-and-search.md) — VM applications field design, GIN index, distinct-products endpoint, search filters
+- [ADR-0015](adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md) — virtual_machines table, cloud accounts, VM collector
+- [ADR-0012](adr/adr-0012-eol-enrichment-via-endoflife-date.md) — EOL enrichment that consumes the applications field

@@ -6,7 +6,7 @@
 
 This guide deploys longue-vue into a Kubernetes cluster using the reference Kustomize manifests in `deploy/`. longue-vue catalogues the cluster it runs on (and optionally remote clusters) via its ServiceAccount.
 
-> **Prefer Helm?** See [Deploy with Helm](helm.md) for a one-command install with optional bundled PostgreSQL.
+> **Production note:** the `deploy/` manifests are a quickstart example, not the supported production surface. Per [ADR-0018](../adr/adr-0018-helm-chart-per-deployable-binary.md), Helm is the recommended deployment path. See [Deploy with Helm](helm.md) for a one-command install with optional bundled PostgreSQL.
 
 ## Prerequisites
 

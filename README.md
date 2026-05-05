@@ -24,7 +24,7 @@
 [![MCP Server](https://img.shields.io/badge/MCP-server-7C3AED?style=flat)](docs/mcp-server.md)
 [![Prometheus](https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white)](docs/monitoring.md)
 [![EOL Enrichment](https://img.shields.io/badge/EOL-enrichment-F59E0B?style=flat)](docs/eol-enrichment.md)
-[![Audit Log](https://img.shields.io/badge/Audit-log-10B981?style=flat)](docs/authentication.md)
+[![Audit Log](https://img.shields.io/badge/Audit-log-10B981?style=flat)](docs/audit-log.md)
 
 <br/>
 
@@ -86,18 +86,23 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 | [Configuration](docs/configuration.md) | All environment variables for longue-vue and longue-vue-collector. |
 | [Deploy with Helm](docs/deployment/helm.md) | One-command Kubernetes install with optional bundled PostgreSQL. |
 | [Deploy with Kustomize](docs/deployment/kubernetes.md) | Production deployment with plain manifests. |
+| [Kubernetes Pull Collector](docs/collector-kubernetes.md) | In-process pull collector: configuration, multi-cluster setup, reconciliation, RBAC, and metrics. |
 | [Push Collector](docs/deployment/push-collector.md) | Deploy longue-vue-collector in air-gapped clusters (Helm or Kustomize). |
 | [VM Collector](docs/vm-collector.md) | Deploy longue-vue-vm-collector to inventory non-Kubernetes platform VMs (Helm or Kustomize). |
 | [DMZ Ingest Gateway](docs/how-to-deploy-dmz-ingest-gateway.md) | Deploy longue-vue-ingest-gw in a perimeter network to front collector push traffic (ADR-0016). |
+| [Secure kubeconfig delivery](docs/how-to-secure-kubeconfig.md) | Mount kubeconfigs from Kubernetes Secrets for multi-cluster pull-collector deployments. |
 | [Cloud Accounts](docs/cloud-accounts.md) | Register cloud-provider accounts, manage AK/SK rotation, master key handling. |
 | [Docker (local dev)](docs/deployment/docker.md) | Run locally with Docker. |
 | [Authentication](docs/authentication.md) | Local users, OIDC, tokens, roles, sessions. |
+| [Audit Log](docs/audit-log.md) | What gets recorded, scrubbing rules, API queries, retention guidance. |
 | [API Reference](docs/api-reference.md) | REST endpoints with curl examples. |
 | [EOL Enrichment](docs/eol-enrichment.md) | End-of-life inventory: setup, dashboard, annotation format. |
 | [VM Applications](docs/vm-applications.md) | Declare platform software on non-Kubernetes VMs; EOL enrichment and search filters for `applications`. |
 | [Impact Analysis](docs/impact-analysis.md) | Dependency graph: assess blast radius of a change. |
 | [MCP Server](docs/mcp-server.md) | Model Context Protocol server for AI agent integrations. |
 | [Monitoring](docs/monitoring.md) | Prometheus metrics, alerts, Grafana tips. |
+| [Operations Runbook](docs/operations.md) | Day-1 bootstrap, credential rotation, backup/restore, incident response, upgrade procedure. |
+| [UI Guide](docs/ui-guide.md) | End-user walkthrough of the web interface: login, navigation, search, EOL dashboard, admin panel. |
 | [Architecture](docs/architecture.md) | How longue-vue works internally. |
 
 ## Architecture
@@ -136,8 +141,8 @@ longue-vue ships as **four binaries**: `longue-vue` (the central server with API
 | [0007](docs/adr/adr-0007-auth-and-rbac.md) | Dual-path auth (session + bearer) and four-role RBAC. |
 | [0008](docs/adr/adr-0008-secnumcloud-chapter-8-asset-management.md) | SecNumCloud chapter 8 asset management alignment. |
 | [0009](docs/adr/adr-0009-push-collector-for-airgapped-clusters.md) | Push-based collector for air-gapped clusters. |
-| [0010](docs/adr/adr-0010-pre-deletion-cascade-audit.md) | Pre-deletion cascade audit enrichment. |
-| [0011](docs/adr/adr-0011-persistent-volumes-and-claims.md) | PersistentVolumes and PVCs in the CMDB. |
+| [0010](docs/adr/adr-0010-admin-only-cluster-deletion-with-audit.md) | Admin-only cluster deletion with audit. |
+| [0011](docs/adr/adr-0011-collector-auto-creates-cluster.md) | Collector auto-creates cluster on first contact. |
 | [0012](docs/adr/adr-0012-eol-enrichment-via-endoflife-date.md) | End-of-life enrichment via endoflife.date. |
 | [0013](docs/adr/adr-0013-impact-analysis-graph.md) | Impact analysis graph for blast-radius assessment. |
 | [0014](docs/adr/adr-0014-mcp-server.md) | MCP server for AI agent access to the CMDB. |
@@ -146,6 +151,8 @@ longue-vue ships as **four binaries**: `longue-vue` (the central server with API
 | [0017](docs/adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) | Public-listener TLS posture and proxy trust — native TLS / trusted-proxy switch, secure cookies, HSTS, transactional last-admin guard. |
 | [0018](docs/adr/adr-0018-helm-chart-per-deployable-binary.md) | Helm chart per deployable binary — every longue-vue binary ships with a sibling chart under `charts/`, independently versioned, sharing the hardening conventions of `charts/longue-vue-ingest-gw`. |
 | [0019](docs/adr/adr-0019-vm-applications-and-eol-and-search.md) | VM applications inventory, EOL enrichment for platform software, and extended VM list search filters. |
+| [0020](docs/adr/adr-0020-rename-argos-to-longue-vue.md) | Rename Argos → longue-vue: product name, token prefix, env vars, and migration guidance. |
+| [0021](docs/adr/adr-0021-time-travel-snapshots.md) | Time-travel snapshots for SecNumCloud asset history (soft-delete foundation). |
 
 ## Contributing
 
