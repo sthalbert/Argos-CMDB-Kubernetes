@@ -24,7 +24,7 @@
 [![MCP Server](https://img.shields.io/badge/MCP-server-7C3AED?style=flat)](docs/mcp-server.md)
 [![Prometheus](https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white)](docs/monitoring.md)
 [![EOL Enrichment](https://img.shields.io/badge/EOL-enrichment-F59E0B?style=flat)](docs/eol-enrichment.md)
-[![Audit Log](https://img.shields.io/badge/Audit-log-10B981?style=flat)](docs/authentication.md)
+[![Audit Log](https://img.shields.io/badge/Audit-log-10B981?style=flat)](docs/audit-log.md)
 
 <br/>
 
@@ -92,6 +92,7 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 | [Cloud Accounts](docs/cloud-accounts.md) | Register cloud-provider accounts, manage AK/SK rotation, master key handling. |
 | [Docker (local dev)](docs/deployment/docker.md) | Run locally with Docker. |
 | [Authentication](docs/authentication.md) | Local users, OIDC, tokens, roles, sessions. |
+| [Audit Log](docs/audit-log.md) | What gets recorded, scrubbing rules, API queries, retention guidance. |
 | [API Reference](docs/api-reference.md) | REST endpoints with curl examples. |
 | [EOL Enrichment](docs/eol-enrichment.md) | End-of-life inventory: setup, dashboard, annotation format. |
 | [VM Applications](docs/vm-applications.md) | Declare platform software on non-Kubernetes VMs; EOL enrichment and search filters for `applications`. |
