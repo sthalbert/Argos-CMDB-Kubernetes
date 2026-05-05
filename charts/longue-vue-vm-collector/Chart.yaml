@@ -7,7 +7,7 @@ description: >-
   independently of the umbrella `longue-vue` chart so cloud-account collector
   releases stay decoupled from the central control-plane release.
 type: application
-version: 0.1.2
+version: 0.1.3
 appVersion: "0.14.0"
 home: https://github.com/sthalbert/longue-vue
 sources:
