@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -786,142 +787,100 @@ func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cur
 	return items, next, nil
 }
 
+// buildNodeUpdateSets converts a NodeUpdate merge-patch into the SET clause
+// fragments and positional arg slice consumed by UpdateNode. A trailing
+// updated_at set is always appended; the caller owns the id arg for the
+// WHERE clause and the surrounding transaction.
+func buildNodeUpdateSets(in *api.NodeUpdate) (sets []string, args []any, err error) {
+	sets = make([]string, 0, 24)
+	args = make([]any, 0, 26)
+	add := func(column string, value any) {
+		sets = append(sets, fmt.Sprintf("%s=$%d", column, len(sets)+1))
+		args = append(args, value)
+	}
+	addPtr := func(column string, ptr any) {
+		v := reflect.ValueOf(ptr)
+		if v.Kind() == reflect.Ptr && !v.IsNil() {
+			add(column, v.Elem().Interface())
+		}
+	}
+
+	addPtr("display_name", in.DisplayName)
+	addPtr("role", in.Role)
+	addPtr("kubelet_version", in.KubeletVersion)
+	addPtr("kube_proxy_version", in.KubeProxyVersion)
+	addPtr("container_runtime_version", in.ContainerRuntimeVersion)
+	addPtr("os_image", in.OsImage)
+	addPtr("operating_system", in.OperatingSystem)
+	addPtr("kernel_version", in.KernelVersion)
+	addPtr("architecture", in.Architecture)
+	addPtr("internal_ip", in.InternalIp)
+	addPtr("external_ip", in.ExternalIp)
+	addPtr("pod_cidr", in.PodCidr)
+	addPtr("provider_id", in.ProviderId)
+	addPtr("instance_type", in.InstanceType)
+	addPtr("zone", in.Zone)
+	addPtr("capacity_cpu", in.CapacityCpu)
+	addPtr("capacity_memory", in.CapacityMemory)
+	addPtr("capacity_pods", in.CapacityPods)
+	addPtr("capacity_ephemeral_storage", in.CapacityEphemeralStorage)
+	addPtr("allocatable_cpu", in.AllocatableCpu)
+	addPtr("allocatable_memory", in.AllocatableMemory)
+	addPtr("allocatable_pods", in.AllocatablePods)
+	addPtr("allocatable_ephemeral_storage", in.AllocatableEphemeralStorage)
+	var jsonErr error
+	addJSON := func(column string, ptr any, marshal func() ([]byte, error)) {
+		if jsonErr != nil {
+			return
+		}
+		v := reflect.ValueOf(ptr)
+		if v.Kind() != reflect.Ptr || v.IsNil() {
+			return
+		}
+		b, err := marshal()
+		if err != nil {
+			jsonErr = err
+			return
+		}
+		add(column, b)
+	}
+	addJSON("conditions", in.Conditions, func() ([]byte, error) { return marshalPorts(in.Conditions) })
+	addJSON("taints", in.Taints, func() ([]byte, error) { return marshalPorts(in.Taints) })
+	addPtr("unschedulable", in.Unschedulable)
+	addPtr("ready", in.Ready)
+	addJSON("labels", in.Labels, func() ([]byte, error) { return marshalLabels(in.Labels) })
+	// Curated metadata — collector never writes these, so merge-patch
+	// omission is enough to keep operator edits safe across polls.
+	addPtr("owner", in.Owner)
+	addPtr("criticality", in.Criticality)
+	addPtr("notes", in.Notes)
+	addPtr("runbook_url", in.RunbookUrl)
+	addJSON("annotations", in.Annotations, func() ([]byte, error) {
+		b, err := marshalLabels(in.Annotations)
+		if err != nil {
+			return nil, fmt.Errorf("marshal node annotations: %w", err)
+		}
+		return b, nil
+	})
+	if jsonErr != nil {
+		return nil, nil, jsonErr
+	}
+	addPtr("hardware_model", in.HardwareModel)
+	add("updated_at", time.Now().UTC())
+	return sets, args, nil
+}
+
 // UpdateNode applies merge-patch semantics on mutable fields only. Each
 // non-nil pointer on NodeUpdate translates to a single column set; omitted
 // fields keep their existing value.
 //
-//nolint:gocyclo,gocognit,gocritic // merge-patch nil checks are inherently repetitive; hugeParam: Store interface requires value param
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (api.Node, error) {
-	sets := make([]string, 0, 24)
-	args := make([]any, 0, 26)
-	idx := 1
-	appendSet := func(column string, value any) {
-		sets = append(sets, fmt.Sprintf("%s=$%d", column, idx))
-		args = append(args, value)
-		idx++
+	sets, args, err := buildNodeUpdateSets(&in)
+	if err != nil {
+		return api.Node{}, err
 	}
-
-	if in.DisplayName != nil {
-		appendSet("display_name", *in.DisplayName)
-	}
-	if in.Role != nil {
-		appendSet("role", *in.Role)
-	}
-	if in.KubeletVersion != nil {
-		appendSet("kubelet_version", *in.KubeletVersion)
-	}
-	if in.KubeProxyVersion != nil {
-		appendSet("kube_proxy_version", *in.KubeProxyVersion)
-	}
-	if in.ContainerRuntimeVersion != nil {
-		appendSet("container_runtime_version", *in.ContainerRuntimeVersion)
-	}
-	if in.OsImage != nil {
-		appendSet("os_image", *in.OsImage)
-	}
-	if in.OperatingSystem != nil {
-		appendSet("operating_system", *in.OperatingSystem)
-	}
-	if in.KernelVersion != nil {
-		appendSet("kernel_version", *in.KernelVersion)
-	}
-	if in.Architecture != nil {
-		appendSet("architecture", *in.Architecture)
-	}
-	if in.InternalIp != nil {
-		appendSet("internal_ip", *in.InternalIp)
-	}
-	if in.ExternalIp != nil {
-		appendSet("external_ip", *in.ExternalIp)
-	}
-	if in.PodCidr != nil {
-		appendSet("pod_cidr", *in.PodCidr)
-	}
-	if in.ProviderId != nil {
-		appendSet("provider_id", *in.ProviderId)
-	}
-	if in.InstanceType != nil {
-		appendSet("instance_type", *in.InstanceType)
-	}
-	if in.Zone != nil {
-		appendSet("zone", *in.Zone)
-	}
-	if in.CapacityCpu != nil {
-		appendSet("capacity_cpu", *in.CapacityCpu)
-	}
-	if in.CapacityMemory != nil {
-		appendSet("capacity_memory", *in.CapacityMemory)
-	}
-	if in.CapacityPods != nil {
-		appendSet("capacity_pods", *in.CapacityPods)
-	}
-	if in.CapacityEphemeralStorage != nil {
-		appendSet("capacity_ephemeral_storage", *in.CapacityEphemeralStorage)
-	}
-	if in.AllocatableCpu != nil {
-		appendSet("allocatable_cpu", *in.AllocatableCpu)
-	}
-	if in.AllocatableMemory != nil {
-		appendSet("allocatable_memory", *in.AllocatableMemory)
-	}
-	if in.AllocatablePods != nil {
-		appendSet("allocatable_pods", *in.AllocatablePods)
-	}
-	if in.AllocatableEphemeralStorage != nil {
-		appendSet("allocatable_ephemeral_storage", *in.AllocatableEphemeralStorage)
-	}
-	if in.Conditions != nil {
-		b, err := marshalPorts(in.Conditions)
-		if err != nil {
-			return api.Node{}, err
-		}
-		appendSet("conditions", b)
-	}
-	if in.Taints != nil {
-		b, err := marshalPorts(in.Taints)
-		if err != nil {
-			return api.Node{}, err
-		}
-		appendSet("taints", b)
-	}
-	if in.Unschedulable != nil {
-		appendSet("unschedulable", *in.Unschedulable)
-	}
-	if in.Ready != nil {
-		appendSet("ready", *in.Ready)
-	}
-	if in.Labels != nil {
-		b, err := marshalLabels(in.Labels)
-		if err != nil {
-			return api.Node{}, err
-		}
-		appendSet("labels", b)
-	}
-	// Curated metadata — collector never writes these, so merge-patch
-	// omission is enough to keep operator edits safe across polls.
-	if in.Owner != nil {
-		appendSet("owner", *in.Owner)
-	}
-	if in.Criticality != nil {
-		appendSet("criticality", *in.Criticality)
-	}
-	if in.Notes != nil {
-		appendSet("notes", *in.Notes)
-	}
-	if in.RunbookUrl != nil {
-		appendSet("runbook_url", *in.RunbookUrl)
-	}
-	if in.Annotations != nil {
-		b, err := marshalLabels(in.Annotations)
-		if err != nil {
-			return api.Node{}, fmt.Errorf("marshal node annotations: %w", err)
-		}
-		appendSet("annotations", b)
-	}
-	if in.HardwareModel != nil {
-		appendSet("hardware_model", *in.HardwareModel)
-	}
-	appendSet("updated_at", time.Now().UTC())
+	idx := len(sets) + 1
 	args = append(args, id)
 
 	tx, txErr := p.pool.Begin(ctx)
@@ -3065,6 +3024,28 @@ func scanNamespace(row pgx.Row) (api.Namespace, error) {
 	return n, nil
 }
 
+// detectNodeUpsertChangeType inspects the existing node row (if any) keyed
+// by (clusterID, name) and returns the timetravel change type to record:
+// create when no row exists, restore when a soft-deleted row will be revived,
+// update otherwise. Errors from the lookup are swallowed — capture is best-
+// effort and the caller treats a missing row as "create".
+func detectNodeUpsertChangeType(ctx context.Context, tx pgx.Tx, clusterID uuid.UUID, name string) string {
+	var prevTerminatedAt *time.Time
+	var prevNodeID *uuid.UUID
+	_ = tx.QueryRow(ctx,
+		`SELECT id, terminated_at FROM nodes WHERE cluster_id=$1 AND name=$2`,
+		clusterID, name,
+	).Scan(&prevNodeID, &prevTerminatedAt)
+	switch {
+	case prevNodeID == nil:
+		return changeTypeCreate
+	case prevTerminatedAt != nil:
+		return changeTypeRestore
+	default:
+		return changeTypeUpdate
+	}
+}
+
 // UpsertNode inserts-or-updates a node keyed by (cluster_id, name). The
 // unique index on (cluster_id, name) drives the ON CONFLICT target. On
 // conflict only mutable columns are overwritten so created_at is preserved.
@@ -3085,15 +3066,7 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Detect create vs update vs restore before the upsert.
-	var prevTerminatedAt *time.Time
-	var prevNodeID *uuid.UUID
-	_ = tx.QueryRow(ctx,
-		`SELECT id, terminated_at FROM nodes WHERE cluster_id=$1 AND name=$2`,
-		in.ClusterId, in.Name,
-	).Scan(&prevNodeID, &prevTerminatedAt)
-	isCreate := prevNodeID == nil
-	isRestore := prevNodeID != nil && prevTerminatedAt != nil
+	changeType := detectNodeUpsertChangeType(ctx, tx, in.ClusterId, in.Name)
 
 	const q = `
 		INSERT INTO nodes (` + nodeColumns + `)
@@ -3144,12 +3117,6 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 	actualID := *n.Id
 	if snap, err := nodeRowMapNoLock(ctx, tx, actualID); err == nil {
 		actor := timetravel.ActorFromContext(ctx)
-		changeType := changeTypeUpdate
-		if isCreate {
-			changeType = changeTypeCreate
-		} else if isRestore {
-			changeType = changeTypeRestore
-		}
 		_ = timetravel.Capture(ctx, tx, timetravel.KindNode, actualID, nil, snap, changeType, actor)
 	}
 
