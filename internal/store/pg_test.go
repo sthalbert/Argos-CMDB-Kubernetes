@@ -169,7 +169,7 @@ func TestPGNodeCRUD(t *testing.T) {
 		t.Errorf("architecture=%v", updated.Architecture)
 	}
 
-	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "")
+	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "", false)
 	if err != nil {
 		t.Fatalf("list filtered: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestPGNodeCRUD(t *testing.T) {
 	}
 
 	other := uuid.New()
-	items, _, err = pg.ListNodes(ctx, &other, 10, "")
+	items, _, err = pg.ListNodes(ctx, &other, 10, "", false)
 	if err != nil {
 		t.Fatalf("list foreign cluster: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestPGNamespaceCRUD(t *testing.T) {
 		t.Errorf("phase=%v", updated.Phase)
 	}
 
-	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "")
+	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "", false)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -451,6 +451,43 @@ func TestPGDeleteNodesNotIn_SoftDeletesAndIdempotent(t *testing.T) {
 	}
 	if affected2 != 0 {
 		t.Fatalf("affected2=%d want 0", affected2)
+	}
+}
+
+// TestPGListNodes_ExcludesTerminatedByDefault verifies ADR-0021 phase 1
+// task 4: ListNodes hides soft-deleted rows unless includeTerminated=true.
+func TestPGListNodes_ExcludesTerminatedByDefault(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "c-list-term"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	for _, name := range []string{"live-1", "live-2", "soon-dead"} {
+		if _, err := pg.CreateNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: name}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	if _, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"live-1", "live-2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cid := *cluster.Id
+	items, _, err := pg.ListNodes(ctx, &cid, 50, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("default len=%d, want 2", len(items))
+	}
+
+	items, _, err = pg.ListNodes(ctx, &cid, 50, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("include_terminated len=%d, want 3", len(items))
 	}
 }
 
@@ -1208,7 +1245,7 @@ func TestPGListPagination(t *testing.T) {
 		}
 	}
 
-	page1, next, err := pg.ListClusters(ctx, 2, "")
+	page1, next, err := pg.ListClusters(ctx, 2, "", false)
 	if err != nil {
 		t.Fatalf("list page1: %v", err)
 	}
@@ -1219,7 +1256,7 @@ func TestPGListPagination(t *testing.T) {
 		t.Fatal("next cursor empty after page1")
 	}
 
-	page2, next, err := pg.ListClusters(ctx, 2, next)
+	page2, next, err := pg.ListClusters(ctx, 2, next, false)
 	if err != nil {
 		t.Fatalf("list page2: %v", err)
 	}
@@ -1227,7 +1264,7 @@ func TestPGListPagination(t *testing.T) {
 		t.Fatalf("page2 len=%d, want 2", len(page2))
 	}
 
-	page3, next, err := pg.ListClusters(ctx, 2, next)
+	page3, next, err := pg.ListClusters(ctx, 2, next, false)
 	if err != nil {
 		t.Fatalf("list page3: %v", err)
 	}

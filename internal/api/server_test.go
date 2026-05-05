@@ -146,7 +146,7 @@ func (m *memStore) GetClusterByName(_ context.Context, name string) (Cluster, er
 	return m.byID[id], nil
 }
 
-func (m *memStore) ListClusters(_ context.Context, limit int, _ string) ([]Cluster, string, error) {
+func (m *memStore) ListClusters(_ context.Context, limit int, _ string, _ bool) ([]Cluster, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -375,7 +375,7 @@ func (m *memStore) GetNode(_ context.Context, id uuid.UUID) (Node, error) {
 	return n, nil
 }
 
-func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int, _ string) ([]Node, string, error) {
+func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int, _ string, _ bool) ([]Node, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -565,7 +565,7 @@ func (m *memStore) GetNamespace(_ context.Context, id uuid.UUID) (Namespace, err
 	return n, nil
 }
 
-func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit int, _ string) ([]Namespace, string, error) {
+func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit int, _ string, _ bool) ([]Namespace, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
