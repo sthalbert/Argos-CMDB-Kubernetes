@@ -76,3 +76,38 @@ func TestDiff_WatchedSubset(t *testing.T) {
 	assert.Len(t, ops, 1)
 	assert.Equal(t, "/kubernetes_version", ops[0].Path)
 }
+
+func TestDiff_StripsEOLAnnotationsFromBothSides(t *testing.T) {
+	prev := map[string]any{"annotations": map[string]any{
+		"longue-vue.io/eol.kubernetes": `{"checked_at":"T1"}`,
+		"team":                         "platform",
+	}}
+	next := map[string]any{"annotations": map[string]any{
+		"longue-vue.io/eol.kubernetes": `{"checked_at":"T2"}`,
+		"team":                         "platform",
+	}}
+	ops := Diff(prev, next, []string{"annotations"})
+	assert.Empty(t, ops, "EOL-only churn must not produce a history row")
+}
+
+func TestDiff_OperatorAnnotationStillTriggersHistory(t *testing.T) {
+	prev := map[string]any{"annotations": map[string]any{
+		"longue-vue.io/eol.kubernetes": `{"checked_at":"T1"}`,
+	}}
+	next := map[string]any{"annotations": map[string]any{
+		"longue-vue.io/eol.kubernetes": `{"checked_at":"T2"}`,
+		"team":                         "platform",
+	}}
+	ops := Diff(prev, next, []string{"annotations"})
+	assert.Len(t, ops, 1)
+	assert.Equal(t, "add", ops[0].Op)
+}
+
+func TestDiff_OnlyEOLAnnotationsTreatedAsAbsent(t *testing.T) {
+	prev := map[string]any{"annotations": map[string]any{}}
+	next := map[string]any{"annotations": map[string]any{
+		"longue-vue.io/eol.kubernetes": `{"checked_at":"T1"}`,
+	}}
+	ops := Diff(prev, next, []string{"annotations"})
+	assert.Empty(t, ops, "first EOL annotation populated must not trigger history")
+}

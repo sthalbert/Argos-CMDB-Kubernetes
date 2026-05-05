@@ -152,7 +152,10 @@ func insertClusterHistory(
 		strField(r, "owner"), strField(r, "criticality"), strField(r, "notes"), strField(r, "runbook_url"), jsonField(r, "annotations"),
 		timeField(r, "terminated_at"), timeField(r, "created_at"), timeField(r, "updated_at"),
 	)
-	if err != nil { return fmt.Errorf("insert cluster history: %w", err) }; return nil
+	if err != nil {
+		return fmt.Errorf("insert cluster history: %w", err)
+	}
+	return nil
 }
 
 func insertNamespaceHistory(
@@ -185,7 +188,10 @@ func insertNamespaceHistory(
 		strField(r, "owner"), strField(r, "criticality"), strField(r, "notes"), strField(r, "runbook_url"), jsonField(r, "annotations"),
 		timeField(r, "terminated_at"), timeField(r, "created_at"), timeField(r, "updated_at"),
 	)
-	if err != nil { return fmt.Errorf("insert namespace history: %w", err) }; return nil
+	if err != nil {
+		return fmt.Errorf("insert namespace history: %w", err)
+	}
+	return nil
 }
 
 func insertNodeHistory(
@@ -280,7 +286,10 @@ func insertNodeHistory(
 		timeField(r, "created_at"),
 		timeField(r, "updated_at"),
 	)
-	if err != nil { return fmt.Errorf("insert node history: %w", err) }; return nil
+	if err != nil {
+		return fmt.Errorf("insert node history: %w", err)
+	}
+	return nil
 }
 
 func insertWorkloadHistory(
@@ -313,7 +322,10 @@ func insertWorkloadHistory(
 		jsonField(r, "labels"), jsonField(r, "spec"), jsonField(r, "containers"),
 		timeField(r, "terminated_at"), timeField(r, "created_at"), timeField(r, "updated_at"),
 	)
-	if err != nil { return fmt.Errorf("insert workload history: %w", err) }; return nil
+	if err != nil {
+		return fmt.Errorf("insert workload history: %w", err)
+	}
+	return nil
 }
 
 // -- field helpers ------------------------------------------------------------
