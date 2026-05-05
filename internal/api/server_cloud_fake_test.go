@@ -587,3 +587,17 @@ func (m *memStore) ReconcileVirtualMachines(_ context.Context, accountID uuid.UU
 // silence the unused-import warning for `strings` which we keep for
 // future filter implementations.
 var _ = strings.HasPrefix
+
+// --- Time-travel stubs (ADR-0021 Phase 3) ---
+
+func (m *memStore) ListEntityHistory(_ context.Context, _ string, _ uuid.UUID, _ int, _ string) ([]HistoryRow, string, error) {
+	return nil, "", nil
+}
+
+func (m *memStore) GetEntityAsOf(_ context.Context, _ string, _ uuid.UUID, _ time.Time) (map[string]any, error) {
+	return nil, ErrNotFound
+}
+
+func (m *memStore) IsTimeTravelEnabled(_ context.Context) (bool, error) {
+	return true, nil
+}

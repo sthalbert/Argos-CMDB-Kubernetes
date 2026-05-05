@@ -565,6 +565,46 @@ type Store interface {
 	// non-terminated VM's applications array. Drives the cascading
 	// product → version dropdown in the VM list UI (ADR-0019 §3).
 	ListDistinctVMApplications(ctx context.Context) ([]VMApplicationDistinct, error)
+
+	// --- Time-travel history (ADR-0021 Phase 3) ----------------------------
+
+	// ListEntityHistory returns up to limit history rows for one entity,
+	// newest-first. kind must be one of "clusters", "namespaces", "nodes",
+	// "workloads". cursor is the opaque pagination token from a prior call
+	// (empty = first page). nextCursor is empty when there are no further pages.
+	ListEntityHistory(
+		ctx context.Context,
+		kind string,
+		entityID uuid.UUID,
+		limit int,
+		cursor string,
+	) (rows []HistoryRow, nextCursor string, err error)
+
+	// GetEntityAsOf returns the entity's history row that was valid at time t
+	// for the given kind and entityID. Returns ErrNotFound when no row covers t.
+	GetEntityAsOf(ctx context.Context, kind string, entityID uuid.UUID, t time.Time) (map[string]any, error)
+
+	// IsTimeTravelEnabled reports whether the time_travel_enabled setting is
+	// currently true. Used by history handlers to return 503 when disabled.
+	IsTimeTravelEnabled(ctx context.Context) (bool, error)
+}
+
+// HistoryRow is a single entry from a <kind>_history table, returned by
+// ListEntityHistory and surfaced through the GET /v1/{kind}/{id}/history endpoint.
+// Diff is a JSON-Patch-shaped slice describing watched-field changes relative
+// to the immediately prior row; empty for create/restore/soft_delete rows where
+// there is no meaningful prior row.
+type HistoryRow struct {
+	HistoryID  string     `json:"history_id"`
+	EntityID   string     `json:"entity_id"`
+	ValidFrom  time.Time  `json:"valid_from"`
+	ValidTo    *time.Time `json:"valid_to,omitempty"`
+	ChangeType string     `json:"change_type"`
+	ActorID    *string    `json:"actor_id,omitempty"`
+	ActorKind  *string    `json:"actor_kind,omitempty"`
+	// Diff is the JSON-Patch-shaped array of watched-field changes.
+	// Populated for "update" rows; empty slice for other change types.
+	Diff any `json:"diff"`
 }
 
 // UserIdentityInsert carries the federation tuple persisted on first

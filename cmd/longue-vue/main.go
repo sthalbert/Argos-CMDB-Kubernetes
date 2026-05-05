@@ -402,6 +402,17 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	impactAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
 	mux.Handle("GET /v1/impact/{entity_type}/{id}", requireReadScope(impactAuth(impact.HandleImpact(pg))))
 
+	// Time-travel history endpoints (ADR-0021 Phase 3) — hand-written routes.
+	// GET /v1/{kind}/{id}/history — paginated history list (newest first).
+	historyAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
+	for _, kindPath := range []string{"clusters", "namespaces", "nodes", "workloads"} {
+		kind := kindPath // capture loop variable
+		mux.Handle(
+			"GET /v1/"+kind+"/{id}/history",
+			requireReadScope(historyAuth(api.HandleEntityHistory(pg, kind))),
+		)
+	}
+
 	// Cloud-accounts + virtual-machines (ADR-0015) — hand-written
 	// handlers. Each route mounts the auth middleware after a scope
 	// declaration, mirroring the settings + impact pattern.
@@ -505,7 +516,16 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	// wires, so 404 it here on the public listener as defence in depth
 	// in case an operator runs longue-vue without configuring the ingest
 	// listener separately.
-	publicHandler := blockIngestOnlyPaths(mux)
+	// AsOfMiddleware intercepts GET /v1/{kind}/{id}?as_of= requests and serves
+	// point-in-time snapshots from history tables (ADR-0021 Phase 3). It must
+	// wrap the entire mux so it runs after auth (which is wired via the
+	// HandlerWithOptions Middlewares list) and before the generated router's
+	// route-dispatch. The auth middleware is re-applied via the requireReadScope
+	// + historyAuth pattern on the /history routes; for the as_of interceptor
+	// we rely on the generated router's AuthMiddleware that already ran at the
+	// mux level (via HandlerWithOptions Middlewares).
+	asOfHandler := api.AsOfMiddleware(pg)(mux)
+	publicHandler := blockIngestOnlyPaths(asOfHandler)
 
 	secureHandler := api.SecurityHeadersMiddleware(cfg.trustedProxies, cfg.requireHTTPS)(
 		http.MaxBytesHandler(publicHandler, 1<<20),
