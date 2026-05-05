@@ -227,6 +227,18 @@ func (m *memStore) DeleteCluster(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// SoftDeleteCluster on memStore is a no-op cascade: it only verifies the
+// cluster exists and returns nil. memStore does not track terminated_at,
+// so cascade semantics are exercised by the PG-backed test instead.
+func (m *memStore) SoftDeleteCluster(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byID[id]; !ok {
+		return ErrNotFound
+	}
+	return nil
+}
+
 //nolint:gocyclo // test fake mirrors PG multi-CTE shape
 func (m *memStore) CountClusterChildren(_ context.Context, clusterID uuid.UUID) (CascadeCounts, error) {
 	m.mu.Lock()
@@ -639,6 +651,18 @@ func (m *memStore) DeleteNamespace(_ context.Context, id uuid.UUID) error {
 	}
 	delete(m.nsByID, id)
 	delete(m.nsByNatKey, nsNatKey(n.ClusterId, n.Name))
+	return nil
+}
+
+// SoftDeleteNamespace on memStore is a no-op cascade: existence check
+// only. memStore does not track terminated_at; PG-backed tests cover
+// cascade semantics.
+func (m *memStore) SoftDeleteNamespace(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[id]; !ok {
+		return ErrNotFound
+	}
 	return nil
 }
 
@@ -2022,15 +2046,16 @@ func TestClusterCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test ex
 		t.Errorf("list len=%d", len(page.Items))
 	}
 
-	// Delete
+	// Delete (soft-delete per ADR-0021): row remains, marked terminated.
 	del := do(h, http.MethodDelete, getURL, "")
 	if del.Code != http.StatusNoContent {
 		t.Errorf("delete status=%d", del.Code)
 	}
 
-	// Delete again → 404
+	// Delete again is idempotent under soft-delete: cluster still exists
+	// (terminated), so a second DELETE also returns 204.
 	del2 := do(h, http.MethodDelete, getURL, "")
-	if del2.Code != http.StatusNotFound {
+	if del2.Code != http.StatusNoContent {
 		t.Errorf("second delete status=%d", del2.Code)
 	}
 }
@@ -2236,13 +2261,14 @@ func TestNamespaceCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test 
 		t.Errorf("filtered list len=%d", len(page.Items))
 	}
 
+	// Soft-delete (ADR-0021): row persists, second DELETE is idempotent.
 	del := do(h, http.MethodDelete, nsURL, "")
 	if del.Code != http.StatusNoContent {
 		t.Errorf("delete status=%d", del.Code)
 	}
 
 	del2 := do(h, http.MethodDelete, nsURL, "")
-	if del2.Code != http.StatusNotFound {
+	if del2.Code != http.StatusNoContent {
 		t.Errorf("second delete status=%d", del2.Code)
 	}
 }

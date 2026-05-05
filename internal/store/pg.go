@@ -360,6 +360,57 @@ func (p *PG) DeleteCluster(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// SoftDeleteCluster marks the cluster and all its live children
+// (namespaces, nodes, workloads) as terminated in a single transaction.
+// Mirrors ADR-0021 §IMP-007. Children that are already terminated are
+// skipped via the AND terminated_at IS NULL guard. Pods, services,
+// ingresses, PVs, and PVCs are unaffected here — they continue to be
+// reaped by the FK ON DELETE CASCADE chain only when the cluster is
+// hard-deleted; under soft-delete they remain attached to the (now
+// soft-deleted) parent. Phase 2 reconsiders pod-level reconciliation.
+func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)
+		     AND terminated_at IS NULL`, id); err != nil {
+		return fmt.Errorf("soft-delete workloads: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE namespaces SET terminated_at = NOW(), updated_at = NOW()
+		   WHERE cluster_id = $1 AND terminated_at IS NULL`, id); err != nil {
+		return fmt.Errorf("soft-delete namespaces: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE nodes SET terminated_at = NOW(), updated_at = NOW()
+		   WHERE cluster_id = $1 AND terminated_at IS NULL`, id); err != nil {
+		return fmt.Errorf("soft-delete nodes: %w", err)
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE clusters SET terminated_at = NOW(), updated_at = NOW()
+		   WHERE id = $1 AND terminated_at IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("soft-delete cluster: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM clusters WHERE id = $1)`, id).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return api.ErrNotFound
+		}
+		// Already terminated → idempotent success.
+	}
+	return tx.Commit(ctx)
+}
+
 // CountClusterChildren counts every child resource that ON DELETE CASCADE
 // will remove when the cluster is deleted. A single round-trip multi-CTE
 // query keeps the cost bounded regardless of how many resource types
@@ -1019,6 +1070,39 @@ func (p *PG) DeleteNamespace(ctx context.Context, id uuid.UUID) error {
 		return api.ErrNotFound
 	}
 	return nil
+}
+
+// SoftDeleteNamespace soft-deletes the namespace and its workloads.
+// Pods/services/ingresses/PVCs are not touched (Phase 2 follow-up).
+func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
+		   WHERE namespace_id = $1 AND terminated_at IS NULL`, id); err != nil {
+		return fmt.Errorf("soft-delete workloads: %w", err)
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE namespaces SET terminated_at = NOW(), updated_at = NOW()
+		   WHERE id = $1 AND terminated_at IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("soft-delete namespace: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM namespaces WHERE id = $1)`, id).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return api.ErrNotFound
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // UpsertNamespace inserts-or-updates a namespace keyed by (cluster_id, name).
