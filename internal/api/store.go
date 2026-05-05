@@ -671,16 +671,22 @@ type AuditEventInsert struct {
 // Settings holds runtime feature toggles stored in the single-row
 // settings table.
 type Settings struct {
-	EOLEnabled bool      `json:"eol_enabled"`
-	MCPEnabled bool      `json:"mcp_enabled"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	EOLEnabled              bool      `json:"eol_enabled"`
+	MCPEnabled              bool      `json:"mcp_enabled"`
+	TimeTravelEnabled       bool      `json:"time_travel_enabled"`
+	TimeTravelRetentionDays int       `json:"time_travel_retention_days"`
+	TimeTravelReaperEnabled bool      `json:"time_travel_reaper_enabled"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 // SettingsPatch is the merge-patch for UpdateSettings. Nil fields are
 // left unchanged.
 type SettingsPatch struct {
-	EOLEnabled *bool `json:"eol_enabled,omitempty"`
-	MCPEnabled *bool `json:"mcp_enabled,omitempty"`
+	EOLEnabled              *bool `json:"eol_enabled,omitempty"`
+	MCPEnabled              *bool `json:"mcp_enabled,omitempty"`
+	TimeTravelEnabled       *bool `json:"time_travel_enabled,omitempty"`
+	TimeTravelRetentionDays *int  `json:"time_travel_retention_days,omitempty"`
+	TimeTravelReaperEnabled *bool `json:"time_travel_reaper_enabled,omitempty"`
 }
 
 // AuditEventFilter collects the optional server-side filters. Nil

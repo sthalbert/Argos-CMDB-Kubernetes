@@ -19,11 +19,20 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/timetravel"
 	"github.com/sthalbert/longue-vue/migrations"
 )
 
 // errCursorFormatInvalid is returned when a pagination cursor cannot be decoded.
 var errCursorFormatInvalid = errors.New("cursor format invalid")
+
+// change type constants for time-travel history capture.
+const (
+	changeTypeCreate    = "create"
+	changeTypeUpdate    = "update"
+	changeTypeRestore   = "restore"
+	changeTypeSoftDelete = "soft_delete"
+)
 
 // PG is a PostgreSQL-backed implementation of api.Store.
 type PG struct {
@@ -115,15 +124,31 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 		ON CONFLICT (name) DO NOTHING
 		RETURNING id
 	`
+
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return api.Cluster{}, false, fmt.Errorf("begin ensure cluster: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	var insertedID uuid.UUID
-	err = p.pool.QueryRow(ctx, q,
+	scanErr := tx.QueryRow(ctx, q,
 		id, in.Name, in.DisplayName, in.Environment, in.Provider, in.Region,
 		in.KubernetesVersion, in.ApiEndpoint, labelsJSON,
 		in.Owner, in.Criticality, in.Notes, in.RunbookUrl, annotationsJSON,
 		now,
 	).Scan(&insertedID)
 	switch {
-	case err == nil:
+	case scanErr == nil:
+		// New row was inserted. Capture create history.
+		snap, snapErr := clusterRowMapNoLock(ctx, tx, insertedID)
+		if snapErr == nil {
+			actor := timetravel.ActorFromContext(ctx)
+			_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, insertedID, nil, snap, changeTypeCreate, actor)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster: %w", err)
+		}
 		return api.Cluster{
 			Id:                &insertedID,
 			Name:              in.Name,
@@ -142,15 +167,18 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 			CreatedAt:         &now,
 			UpdatedAt:         &now,
 		}, true, nil
-	case errors.Is(err, pgx.ErrNoRows):
-		// ON CONFLICT DO NOTHING — row already exists. Read it back.
+	case errors.Is(scanErr, pgx.ErrNoRows):
+		// ON CONFLICT DO NOTHING — row already exists. Commit (no-op tx) and read it back.
+		if err := tx.Commit(ctx); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (existing): %w", err)
+		}
 		existing, getErr := p.GetClusterByName(ctx, in.Name)
 		if getErr != nil {
 			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch existing: %w", in.Name, getErr)
 		}
 		return existing, false, nil
 	default:
-		return api.Cluster{}, false, fmt.Errorf("insert cluster: %w", err)
+		return api.Cluster{}, false, fmt.Errorf("insert cluster: %w", scanErr)
 	}
 }
 
@@ -336,8 +364,21 @@ func (p *PG) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpda
 
 	args = append(args, id)
 
+	// Wrap in a transaction so we can read prev, run the UPDATE, read next,
+	// and call Capture atomically.
+	tx, txErr := p.pool.Begin(ctx)
+	if txErr != nil {
+		return api.Cluster{}, fmt.Errorf("begin update cluster: %w", txErr)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	prev, prevErr := clusterRowMap(ctx, tx, id) // FOR UPDATE lock
+	if prevErr != nil {
+		return api.Cluster{}, api.ErrNotFound
+	}
+
 	q := fmt.Sprintf("UPDATE clusters SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
-	tag, err := p.pool.Exec(ctx, q, args...)
+	tag, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		return api.Cluster{}, fmt.Errorf("update cluster: %w", err)
 	}
@@ -345,6 +386,15 @@ func (p *PG) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpda
 		return api.Cluster{}, api.ErrNotFound
 	}
 
+	next, nextErr := clusterRowMapNoLock(ctx, tx, id)
+	if nextErr == nil {
+		actor := timetravel.ActorFromContext(ctx)
+		_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, id, prev, next, changeTypeUpdate, actor)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return api.Cluster{}, fmt.Errorf("commit update cluster: %w", err)
+	}
 	return p.GetCluster(ctx, id)
 }
 
@@ -368,12 +418,30 @@ func (p *PG) DeleteCluster(ctx context.Context, id uuid.UUID) error {
 // reaped by the FK ON DELETE CASCADE chain only when the cluster is
 // hard-deleted; under soft-delete they remain attached to the (now
 // soft-deleted) parent. Phase 2 reconsiders pod-level reconciliation.
+//
+//nolint:gocyclo // cascade + history capture per entity-kind add branches; acceptable here
 func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	actor := timetravel.ActorFromContext(ctx)
+
+	// Collect live workload IDs before soft-deleting them so we can write history.
+	wlIDs, err := liveWorkloadIDsForCluster(ctx, tx, id)
+	if err != nil {
+		return fmt.Errorf("list workloads for soft-delete cluster: %w", err)
+	}
+	nsIDs, err := liveNamespaceIDsForCluster(ctx, tx, id)
+	if err != nil {
+		return fmt.Errorf("list namespaces for soft-delete cluster: %w", err)
+	}
+	nodeIDs, err := liveNodeIDsForCluster(ctx, tx, id)
+	if err != nil {
+		return fmt.Errorf("list nodes for soft-delete cluster: %w", err)
+	}
 
 	if _, err := tx.Exec(ctx,
 		`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
@@ -408,10 +476,83 @@ func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
 		}
 		// Already terminated → idempotent success.
 	}
+
+	// Capture history for cascade-affected entities (after UPDATEs so
+	// the rows reflect terminated_at).
+	for _, wlID := range wlIDs {
+		if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+		}
+	}
+	for _, nsID := range nsIDs {
+		if snap, err := namespaceRowMapNoLock(ctx, tx, nsID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, nsID, nil, snap, changeTypeSoftDelete, actor)
+		}
+	}
+	for _, nodeID := range nodeIDs {
+		if snap, err := nodeRowMapNoLock(ctx, tx, nodeID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNode, nodeID, nil, snap, changeTypeSoftDelete, actor)
+		}
+	}
+	if snap, err := clusterRowMapNoLock(ctx, tx, id); err == nil {
+		_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, id, nil, snap, changeTypeSoftDelete, actor)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit soft-delete cluster: %w", err)
 	}
 	return nil
+}
+
+// liveWorkloadIDsForCluster returns ids of non-terminated workloads in namespaces of cluster.
+func liveWorkloadIDsForCluster(ctx context.Context, tx pgx.Tx, clusterID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT id FROM workloads
+		  WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)
+		    AND terminated_at IS NULL`,
+		clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("query live workloads for cluster: %w", err)
+	}
+	return scanUUIDs(rows)
+}
+
+// liveNamespaceIDsForCluster returns ids of non-terminated namespaces of cluster.
+func liveNamespaceIDsForCluster(ctx context.Context, tx pgx.Tx, clusterID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT id FROM namespaces WHERE cluster_id = $1 AND terminated_at IS NULL`,
+		clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("query live namespaces for cluster: %w", err)
+	}
+	return scanUUIDs(rows)
+}
+
+// liveNodeIDsForCluster returns ids of non-terminated nodes of cluster.
+func liveNodeIDsForCluster(ctx context.Context, tx pgx.Tx, clusterID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT id FROM nodes WHERE cluster_id = $1 AND terminated_at IS NULL`,
+		clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("query live nodes for cluster: %w", err)
+	}
+	return scanUUIDs(rows)
+}
+
+func scanUUIDs(rows pgx.Rows) ([]uuid.UUID, error) {
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan uuid: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate uuids: %w", err)
+	}
+	return ids, nil
 }
 
 // CountClusterChildren counts every child resource that ON DELETE CASCADE
@@ -783,13 +924,33 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)
 
+	tx, txErr := p.pool.Begin(ctx)
+	if txErr != nil {
+		return api.Node{}, fmt.Errorf("begin update node: %w", txErr)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	prev, _ := nodeRowMap(ctx, tx, id) // FOR UPDATE; ignore error for capture
+	if prev == nil {
+		return api.Node{}, api.ErrNotFound
+	}
+
 	q := fmt.Sprintf("UPDATE nodes SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
-	tag, err := p.pool.Exec(ctx, q, args...)
+	tag, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		return api.Node{}, fmt.Errorf("update node: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return api.Node{}, api.ErrNotFound
+	}
+
+	if next, err := nodeRowMapNoLock(ctx, tx, id); err == nil {
+		actor := timetravel.ActorFromContext(ctx)
+		_ = timetravel.Capture(ctx, tx, timetravel.KindNode, id, prev, next, changeTypeUpdate, actor)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return api.Node{}, fmt.Errorf("commit update node: %w", err)
 	}
 	return p.GetNode(ctx, id)
 }
@@ -807,7 +968,28 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 // it, 'name <> ALL(NULL)' evaluates to NULL and the UPDATE matches nothing
 // instead of clearing the cluster's nodes.
 func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
-	tag, err := p.pool.Exec(ctx,
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin delete nodes not in: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Collect IDs that will be soft-deleted so we can write history after the UPDATE.
+	toDeleteRows, err := tx.Query(ctx,
+		`SELECT id FROM nodes
+		  WHERE cluster_id = $1
+		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
+		    AND terminated_at IS NULL`,
+		clusterID, keepNames)
+	if err != nil {
+		return 0, fmt.Errorf("list nodes to soft-delete: %w", err)
+	}
+	toDelete, err := scanUUIDs(toDeleteRows)
+	if err != nil {
+		return 0, fmt.Errorf("scan nodes to soft-delete: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx,
 		`UPDATE nodes
 		    SET terminated_at = NOW(), updated_at = NOW()
 		  WHERE cluster_id = $1
@@ -818,6 +1000,17 @@ func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepName
 	if err != nil {
 		return 0, fmt.Errorf("soft-delete nodes not in: %w", err)
 	}
+
+	actor := timetravel.ActorFromContext(ctx)
+	for _, nodeID := range toDelete {
+		if snap, err := nodeRowMapNoLock(ctx, tx, nodeID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNode, nodeID, nil, snap, changeTypeSoftDelete, actor)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit delete nodes not in: %w", err)
+	}
 	return tag.RowsAffected(), nil
 }
 
@@ -825,7 +1018,27 @@ func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepName
 // the given cluster not in keepNames and not already terminated. Per
 // ADR-0021 §5.
 func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
-	tag, err := p.pool.Exec(ctx,
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin delete namespaces not in: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	toDeleteRows, err := tx.Query(ctx,
+		`SELECT id FROM namespaces
+		  WHERE cluster_id = $1
+		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
+		    AND terminated_at IS NULL`,
+		clusterID, keepNames)
+	if err != nil {
+		return 0, fmt.Errorf("list namespaces to soft-delete: %w", err)
+	}
+	toDelete, err := scanUUIDs(toDeleteRows)
+	if err != nil {
+		return 0, fmt.Errorf("scan namespaces to soft-delete: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx,
 		`UPDATE namespaces
 		    SET terminated_at = NOW(), updated_at = NOW()
 		  WHERE cluster_id = $1
@@ -835,6 +1048,17 @@ func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, kee
 	)
 	if err != nil {
 		return 0, fmt.Errorf("soft-delete namespaces not in: %w", err)
+	}
+
+	actor := timetravel.ActorFromContext(ctx)
+	for _, nsID := range toDelete {
+		if snap, err := namespaceRowMapNoLock(ctx, tx, nsID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, nsID, nil, snap, changeTypeSoftDelete, actor)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit delete namespaces not in: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
@@ -1058,13 +1282,32 @@ func (p *PG) UpdateNamespace(ctx context.Context, id uuid.UUID, in api.Namespace
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)
 
+	tx, txErr := p.pool.Begin(ctx)
+	if txErr != nil {
+		return api.Namespace{}, fmt.Errorf("begin update namespace: %w", txErr)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	prev, _ := namespaceRowMap(ctx, tx, id) // FOR UPDATE
+
 	q := fmt.Sprintf("UPDATE namespaces SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
-	tag, err := p.pool.Exec(ctx, q, args...)
+	tag, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		return api.Namespace{}, fmt.Errorf("update namespace: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return api.Namespace{}, api.ErrNotFound
+	}
+
+	if prev != nil {
+		if next, err := namespaceRowMapNoLock(ctx, tx, id); err == nil {
+			actor := timetravel.ActorFromContext(ctx)
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, id, prev, next, changeTypeUpdate, actor)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return api.Namespace{}, fmt.Errorf("commit update namespace: %w", err)
 	}
 	return p.GetNamespace(ctx, id)
 }
@@ -1083,12 +1326,21 @@ func (p *PG) DeleteNamespace(ctx context.Context, id uuid.UUID) error {
 
 // SoftDeleteNamespace soft-deletes the namespace and its workloads.
 // Pods/services/ingresses/PVCs are not touched (Phase 2 follow-up).
+//
+//nolint:gocyclo // history capture adds branches; acceptable here
 func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	actor := timetravel.ActorFromContext(ctx)
+
+	wlIDs, err := liveWorkloadIDsForNamespace(ctx, tx, id)
+	if err != nil {
+		return fmt.Errorf("list workloads for soft-delete namespace: %w", err)
+	}
 
 	if _, err := tx.Exec(ctx,
 		`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
@@ -1111,15 +1363,35 @@ func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
 			return api.ErrNotFound
 		}
 	}
+
+	for _, wlID := range wlIDs {
+		if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+		}
+	}
+	if snap, err := namespaceRowMapNoLock(ctx, tx, id); err == nil {
+		_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, id, nil, snap, changeTypeSoftDelete, actor)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit soft-delete namespace: %w", err)
 	}
 	return nil
 }
 
+func liveWorkloadIDsForNamespace(ctx context.Context, tx pgx.Tx, namespaceID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT id FROM workloads WHERE namespace_id = $1 AND terminated_at IS NULL`,
+		namespaceID)
+	if err != nil {
+		return nil, fmt.Errorf("query live workloads for namespace: %w", err)
+	}
+	return scanUUIDs(rows)
+}
+
 // UpsertNamespace inserts-or-updates a namespace keyed by (cluster_id, name).
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
+//nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; history capture adds branches
 func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1128,6 +1400,22 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	if err != nil {
 		return api.Namespace{}, err
 	}
+
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return api.Namespace{}, fmt.Errorf("begin upsert namespace: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Snapshot the row before the upsert to detect create vs update vs restore.
+	var prevTerminatedAt *time.Time
+	var prevID *uuid.UUID
+	_ = tx.QueryRow(ctx,
+		`SELECT id, terminated_at FROM namespaces WHERE cluster_id=$1 AND name=$2`,
+		in.ClusterId, in.Name,
+	).Scan(&prevID, &prevTerminatedAt)
+	isCreate := prevID == nil
+	isRestore := prevID != nil && prevTerminatedAt != nil
 
 	const q = `
 		INSERT INTO namespaces (
@@ -1144,7 +1432,7 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 		          owner, criticality, notes, runbook_url, annotations,
 		          created_at, updated_at
 	`
-	row := p.pool.QueryRow(ctx, q,
+	row := tx.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
 		labelsJSON, now,
 	)
@@ -1155,6 +1443,22 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 			return api.Namespace{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
 		return api.Namespace{}, fmt.Errorf("upsert namespace: %w", err)
+	}
+
+	actualID := *n.Id
+	if snap, err := namespaceRowMapNoLock(ctx, tx, actualID); err == nil {
+		actor := timetravel.ActorFromContext(ctx)
+		changeType := changeTypeUpdate
+		if isCreate {
+			changeType = changeTypeCreate
+		} else if isRestore {
+			changeType = changeTypeRestore
+		}
+		_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, actualID, nil, snap, changeType, actor)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return api.Namespace{}, fmt.Errorf("commit upsert namespace: %w", err)
 	}
 	return n, nil
 }
@@ -1673,13 +1977,32 @@ func (p *PG) UpdateWorkload(ctx context.Context, id uuid.UUID, in api.WorkloadUp
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)
 
+	tx, txErr := p.pool.Begin(ctx)
+	if txErr != nil {
+		return api.Workload{}, fmt.Errorf("begin update workload: %w", txErr)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	prev, _ := workloadRowMap(ctx, tx, id) // FOR UPDATE
+
 	q := fmt.Sprintf("UPDATE workloads SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
-	tag, err := p.pool.Exec(ctx, q, args...)
+	tag, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		return api.Workload{}, fmt.Errorf("update workload: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return api.Workload{}, api.ErrNotFound
+	}
+
+	if prev != nil {
+		if next, err := workloadRowMapNoLock(ctx, tx, id); err == nil {
+			actor := timetravel.ActorFromContext(ctx)
+			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, id, prev, next, changeTypeUpdate, actor)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return api.Workload{}, fmt.Errorf("commit update workload: %w", err)
 	}
 	return p.GetWorkload(ctx, id)
 }
@@ -1698,7 +2021,7 @@ func (p *PG) DeleteWorkload(ctx context.Context, id uuid.UUID) error {
 
 // UpsertWorkload inserts-or-updates a workload keyed by (namespace_id, kind, name).
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
+//nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; history capture adds branches
 func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -1716,6 +2039,21 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 		return api.Workload{}, err
 	}
 
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return api.Workload{}, fmt.Errorf("begin upsert workload: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var prevTerminatedAt *time.Time
+	var prevWLID *uuid.UUID
+	_ = tx.QueryRow(ctx,
+		`SELECT id, terminated_at FROM workloads WHERE namespace_id=$1 AND kind=$2 AND name=$3`,
+		in.NamespaceId, string(in.Kind), in.Name,
+	).Scan(&prevWLID, &prevTerminatedAt)
+	isCreate := prevWLID == nil
+	isRestore := prevWLID != nil && prevTerminatedAt != nil
+
 	const q = `
 		INSERT INTO workloads (
 			id, namespace_id, kind, name, replicas, ready_replicas,
@@ -1732,7 +2070,7 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 		RETURNING id, namespace_id, kind, name, replicas, ready_replicas,
 		          containers, labels, spec, created_at, updated_at
 	`
-	row := p.pool.QueryRow(ctx, q,
+	row := tx.QueryRow(ctx, q,
 		id, in.NamespaceId, string(in.Kind), in.Name, in.Replicas, in.ReadyReplicas,
 		containersJSON, labelsJSON, specJSON, now,
 	)
@@ -1744,6 +2082,22 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 		}
 		return api.Workload{}, fmt.Errorf("upsert workload: %w", err)
 	}
+
+	actualID := *w.Id
+	if snap, err := workloadRowMapNoLock(ctx, tx, actualID); err == nil {
+		actor := timetravel.ActorFromContext(ctx)
+		changeType := changeTypeUpdate
+		if isCreate {
+			changeType = changeTypeCreate
+		} else if isRestore {
+			changeType = changeTypeRestore
+		}
+		_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, actualID, nil, snap, changeType, actor)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return api.Workload{}, fmt.Errorf("commit upsert workload: %w", err)
+	}
 	return w, nil
 }
 
@@ -1752,7 +2106,32 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 // already terminated. Per ADR-0021 §5; same semantics as DeleteNodesNotIn.
 // COALESCE guards against pgx encoding nil slices as SQL NULL.
 func (p *PG) DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
-	tag, err := p.pool.Exec(ctx,
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin delete workloads not in: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	toDeleteRows, err := tx.Query(ctx,
+		`SELECT id FROM workloads
+		  WHERE namespace_id = $1
+		    AND (kind, name) NOT IN (
+		      SELECT k, n FROM UNNEST(
+		        COALESCE($2::text[], ARRAY[]::text[]),
+		        COALESCE($3::text[], ARRAY[]::text[])
+		      ) AS t(k, n)
+		    )
+		    AND terminated_at IS NULL`,
+		namespaceID, keepKinds, keepNames)
+	if err != nil {
+		return 0, fmt.Errorf("list workloads to soft-delete: %w", err)
+	}
+	toDelete, err := scanUUIDs(toDeleteRows)
+	if err != nil {
+		return 0, fmt.Errorf("scan workloads to soft-delete: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx,
 		`UPDATE workloads
 		    SET terminated_at = NOW(), updated_at = NOW()
 		  WHERE namespace_id = $1
@@ -1767,6 +2146,17 @@ func (p *PG) DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, ke
 	)
 	if err != nil {
 		return 0, fmt.Errorf("soft-delete workloads not in: %w", err)
+	}
+
+	actor := timetravel.ActorFromContext(ctx)
+	for _, wlID := range toDelete {
+		if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit delete workloads not in: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
@@ -2689,6 +3079,22 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 		return api.Node{}, err
 	}
 
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return api.Node{}, fmt.Errorf("begin upsert node: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Detect create vs update vs restore before the upsert.
+	var prevTerminatedAt *time.Time
+	var prevNodeID *uuid.UUID
+	_ = tx.QueryRow(ctx,
+		`SELECT id, terminated_at FROM nodes WHERE cluster_id=$1 AND name=$2`,
+		in.ClusterId, in.Name,
+	).Scan(&prevNodeID, &prevTerminatedAt)
+	isCreate := prevNodeID == nil
+	isRestore := prevNodeID != nil && prevTerminatedAt != nil
+
 	const q = `
 		INSERT INTO nodes (` + nodeColumns + `)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$38)
@@ -2725,7 +3131,7 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 			updated_at                    = EXCLUDED.updated_at
 		RETURNING ` + nodeColumns + `
 	`
-	row := p.pool.QueryRow(ctx, q, values...)
+	row := tx.QueryRow(ctx, q, values...)
 	n, err := scanNode(row)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -2733,6 +3139,22 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 			return api.Node{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
 		return api.Node{}, fmt.Errorf("upsert node: %w", err)
+	}
+
+	actualID := *n.Id
+	if snap, err := nodeRowMapNoLock(ctx, tx, actualID); err == nil {
+		actor := timetravel.ActorFromContext(ctx)
+		changeType := changeTypeUpdate
+		if isCreate {
+			changeType = changeTypeCreate
+		} else if isRestore {
+			changeType = changeTypeRestore
+		}
+		_ = timetravel.Capture(ctx, tx, timetravel.KindNode, actualID, nil, snap, changeType, actor)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return api.Node{}, fmt.Errorf("commit upsert node: %w", err)
 	}
 	return n, nil
 }
@@ -3710,9 +4132,15 @@ func scanPersistentVolumeClaim(row pgx.Row) (api.PersistentVolumeClaim, error) {
 // GetSettings returns the current runtime settings from the single-row
 // settings table.
 func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
-	const q = `SELECT eol_enabled, mcp_enabled, updated_at FROM settings WHERE id = 1`
+	const q = `SELECT eol_enabled, mcp_enabled,
+		time_travel_enabled, time_travel_retention_days, time_travel_reaper_enabled,
+		updated_at FROM settings WHERE id = 1`
 	var s api.Settings
-	if err := p.pool.QueryRow(ctx, q).Scan(&s.EOLEnabled, &s.MCPEnabled, &s.UpdatedAt); err != nil {
+	if err := p.pool.QueryRow(ctx, q).Scan(
+		&s.EOLEnabled, &s.MCPEnabled,
+		&s.TimeTravelEnabled, &s.TimeTravelRetentionDays, &s.TimeTravelReaperEnabled,
+		&s.UpdatedAt,
+	); err != nil {
 		return api.Settings{}, fmt.Errorf("get settings: %w", err)
 	}
 	return s, nil
@@ -3720,8 +4148,8 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 
 // UpdateSettings applies the merge-patch on the settings row.
 func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Settings, error) {
-	sets := make([]string, 0, 2)
-	args := make([]any, 0, 2)
+	sets := make([]string, 0, 5)
+	args := make([]any, 0, 5)
 	idx := 1
 
 	if in.EOLEnabled != nil {
@@ -3732,6 +4160,21 @@ func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Sett
 	if in.MCPEnabled != nil {
 		sets = append(sets, fmt.Sprintf("mcp_enabled=$%d", idx))
 		args = append(args, *in.MCPEnabled)
+		idx++
+	}
+	if in.TimeTravelEnabled != nil {
+		sets = append(sets, fmt.Sprintf("time_travel_enabled=$%d", idx))
+		args = append(args, *in.TimeTravelEnabled)
+		idx++
+	}
+	if in.TimeTravelRetentionDays != nil {
+		sets = append(sets, fmt.Sprintf("time_travel_retention_days=$%d", idx))
+		args = append(args, *in.TimeTravelRetentionDays)
+		idx++
+	}
+	if in.TimeTravelReaperEnabled != nil {
+		sets = append(sets, fmt.Sprintf("time_travel_reaper_enabled=$%d", idx))
+		args = append(args, *in.TimeTravelReaperEnabled)
 		idx++
 	}
 
