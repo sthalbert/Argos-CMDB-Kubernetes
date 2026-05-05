@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Architecture
 
 This document explains how longue-vue works internally -- its components, data flow, storage model, and design decisions.

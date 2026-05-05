@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Deploy longue-vue on Kubernetes
 
 This guide deploys longue-vue into a Kubernetes cluster using the reference Kustomize manifests in `deploy/`. longue-vue catalogues the cluster it runs on (and optionally remote clusters) via its ServiceAccount.

@@ -1,3 +1,7 @@
+<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Deploy longue-vue with Helm
 
 This guide deploys longue-vue on Kubernetes using the Helm chart in `charts/longue-vue/`. The chart bundles an optional PostgreSQL instance (official `postgres:17-alpine` image) so you can get a fully working longue-vue with a single `helm install` -- no external operator or dependency required.
