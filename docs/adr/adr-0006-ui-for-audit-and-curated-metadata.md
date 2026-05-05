@@ -4,7 +4,7 @@
 
 ---
 title: "ADR-0006: Web UI for audit and curated asset metadata"
-status: "Proposed"
+status: "Accepted"
 date: "2026-04-18"
 authors: "Steve ALBERT"
 tags: ["architecture", "decision", "ui", "audit", "curated-metadata"]
@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed** | Accepted | Rejected | Superseded | Deprecated
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
 
 ## Context
 

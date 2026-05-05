@@ -4,7 +4,7 @@
 
 ---
 title: "ADR-0008: Asset-management data model for SecNumCloud v3.2 chapter 8"
-status: "Proposed"
+status: "Accepted"
 date: "2026-04-20"
 authors: "Steve ALBERT"
 tags: ["architecture", "decision", "compliance", "snc", "data-model", "cmdb"]
@@ -16,7 +16,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed**
+**Accepted**
 
 ## Context
 
