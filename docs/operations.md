@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Operations Runbook
 
 This document is the SRE/operator runbook hub for longue-vue. It covers day-to-day operational procedures: first-run bootstrap, credential rotation, backup and restore, incident response, and upgrade steps.

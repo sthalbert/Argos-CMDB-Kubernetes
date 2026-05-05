@@ -1,3 +1,7 @@
+<div align="center"><img src="logo.svg" alt="longue-vue" height="38" /></div>
+
+---
+
 # Kubernetes Pull Collector
 
 The in-process Kubernetes pull collector is a goroutine that runs inside the `longue-vue` daemon. On every tick it calls the Kubernetes API server with `client-go`, upserts everything it finds into the CMDB, and deletes rows that have disappeared from the live cluster (reconciliation). No sidecar or separate binary is required: enable it with `LONGUE_VUE_COLLECTOR_ENABLED=true` and it starts alongside the API server.

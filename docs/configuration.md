@@ -65,7 +65,7 @@ The embedded pull-mode collector is disabled by default.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `LONGUE_VUE_COLLECTOR_ENABLED` | no | `false` | Enable the polling collector. Set to `true` to start ingesting data from Kubernetes. |
-| `LONGUE_VUE_COLLECTOR_INTERVAL` | no | `60s` | Time between polling ticks. Accepts Go duration syntax (`30s`, `5m`). |
+| `LONGUE_VUE_COLLECTOR_INTERVAL` | no | `5m` | Time between polling ticks. Accepts Go duration syntax (`30s`, `5m`). |
 | `LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT` | no | `20s` | Per-tick timeout for Kubernetes API calls. |
 | `LONGUE_VUE_COLLECTOR_RECONCILE` | no | `true` | Delete rows from the CMDB that no longer appear in the live Kubernetes listing. Required for ANSSI cartography fidelity. Set to `false` for append-only behavior. |
 
