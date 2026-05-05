@@ -32,6 +32,8 @@ type fakeStore struct {
 
 	errOn             map[string]error
 	panicOnGetCluster bool // triggers a panic inside GetCluster for panic-recovery tests
+
+	lastVMFilter api.VirtualMachineListFilter
 }
 
 func newFakeStore() *fakeStore {
