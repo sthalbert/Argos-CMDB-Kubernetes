@@ -37,6 +37,52 @@ The endpoint is unauthenticated to match standard Prometheus scraping. If your t
 
 The `resource` label is one of: `version`, `cluster`, `nodes`, `namespaces`, `pods`, `workloads`, `services`, `ingresses`, `persistentvolumes`, `persistentvolumeclaims`, `replicasets`.
 
+### EOL enricher
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `longue_vue_eol_enrichments_total` | counter | `cluster`, `resource`, `status` | EOL annotations written, per cluster, resource kind, and resulting EOL status. |
+| `longue_vue_eol_errors_total` | counter | `cluster`, `resource`, `phase` | Enrichment errors. `phase` is `list`, `resolve`, or `update`. |
+| `longue_vue_eol_last_run_timestamp_seconds` | gauge | -- | Unix timestamp of the last completed enrichment run. Use for freshness alerts. |
+
+### Impact analysis
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `longue_vue_impact_queries_total` | counter | `entity_type` | Impact graph queries, per entity type. |
+| `longue_vue_impact_query_duration_seconds` | histogram | `entity_type` | Impact graph query duration in seconds. |
+
+### MCP server
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `longue_vue_mcp_tool_calls_total` | counter | `tool` | MCP tool calls, per tool name. |
+| `longue_vue_mcp_tool_duration_seconds` | histogram | `tool` | MCP tool call duration in seconds, per tool name. |
+
+### Cloud accounts and virtual machines (ADR-0015)
+
+These metrics are exposed by longue-vue (not the vm-collector). For vm-collector metrics, see [vm-collector — Observability](vm-collector.md#observability).
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `longue_vue_cloud_accounts_total` | gauge | `status` | Number of registered cloud accounts, per status (`pending_credentials`, `active`, `error`, `disabled`). |
+| `longue_vue_cloud_accounts_pending_credentials` | gauge | -- | Count of accounts in `status=pending_credentials`. A non-zero value means a collector is registered but admin has not supplied AK/SK. |
+| `longue_vue_virtual_machines_total` | gauge | `cloud_account`, `terminated` | Number of virtual machines, per cloud account name and tombstone state. |
+| `longue_vue_cloud_accounts_credentials_reads_total` | counter | `cloud_account` | Successful credential fetches via `GET /v1/cloud-accounts/.../credentials`, per account. |
+
+### Auth verify (ingest gateway)
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `longue_vue_auth_verify_total` | counter | `result` | `POST /v1/auth/verify` calls, per outcome (`valid`, `invalid`, `rate_limited`). |
+| `longue_vue_ingest_listener_client_cert_failures_total` | counter | `reason` | Failed mTLS client-cert validations on the ingest listener. `reason` is `bad_ca`, `expired`, `cn_not_allowed`, or `none_provided`. |
+
+### Time-travel history (ADR-0021, Phase 1)
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `longue_vue_time_travel_writes_total` | counter | `kind`, `change_type` | History rows written (or suppressed as noop), per entity kind and change type. `change_type=noop` counts suppressed updates where no watched field changed. |
+
 ### Build
 
 | Metric | Type | Labels | Description |
@@ -46,6 +92,16 @@ The `resource` label is one of: `version`, `cluster`, `nodes`, `namespaces`, `po
 ### Go runtime
 
 The standard `go_*` and `process_*` collectors from `client_golang` are also registered (goroutine count, GC stats, memory stats, open file descriptors, etc.).
+
+---
+
+## vm-collector metrics
+
+The `longue-vue-vm-collector` binary exposes its own Prometheus metrics on a separate endpoint (default `127.0.0.1:9090`, configurable via `LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR`). These are not scraped by the main longue-vue `/metrics` endpoint. See [vm-collector — Observability](vm-collector.md#observability) for the full metric list and alert examples.
+
+## longue-vue-ingest-gw metrics
+
+The `longue-vue-ingest-gw` binary exposes its own Prometheus metrics on its health listener (default `:9090`, configurable via `LONGUE_VUE_INGEST_GW_HEALTH_ADDR`). Key metrics include request counters, upstream latency, token-cache hit/miss rates, body-bytes histograms, and cert expiry. See [How to deploy the DMZ ingest gateway](how-to-deploy-dmz-ingest-gateway.md) for scrape configuration.
 
 ## Scrape configuration
 
@@ -187,3 +243,8 @@ Define Grafana template variables for:
 - `resource` sourced from `label_values(longue_vue_collector_last_poll_timestamp_seconds, resource)`
 
 This lets operators drill into a specific cluster or resource kind.
+
+## References
+
+- [ADR-0001](adr/adr-0001-cmdb-for-snc-using-kube.md) — foundational CMDB design (Prometheus metrics are part of the operational posture)
+- [ADR-0005](adr/adr-0005-multi-cluster-collector.md) — multi-cluster topology reflected in collector metric labels

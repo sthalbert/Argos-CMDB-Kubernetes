@@ -73,3 +73,7 @@ The impact endpoint exports Prometheus metrics:
 |--------|------|--------|-------------|
 | `longue_vue_impact_queries_total` | counter | `entity_type` | Number of impact graph queries. |
 | `longue_vue_impact_query_duration_seconds` | histogram | `entity_type` | Query duration in seconds. |
+
+## References
+
+- [ADR-0013](adr/adr-0013-impact-analysis-graph.md) — impact analysis graph design, traversal algorithm, depth limits, entity types

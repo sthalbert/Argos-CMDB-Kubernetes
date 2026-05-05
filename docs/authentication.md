@@ -25,14 +25,15 @@ Every authenticated request resolves to a `Caller` with an identity, role, and s
 
 ## Roles and scopes
 
-longue-vue has four fixed roles. Roles are not customizable -- they map directly to scope sets.
+longue-vue has four fixed roles plus one machine-only token preset. Roles are not customizable -- they map directly to scope sets.
 
-| Role | Scopes | Typical use |
-|------|--------|-------------|
-| `admin` | `read`, `write`, `delete`, `admin`, `audit` | Full access. Manages users, tokens, sessions. |
+| Role / preset | Scopes | Typical use |
+|---------------|--------|-------------|
+| `admin` | `read`, `write`, `delete`, `admin`, `audit` | Full access. Manages users, tokens, sessions. Cannot carry `vm-collector` scope. |
 | `editor` | `read`, `write` | Creates and updates CMDB resources. Cannot manage users or tokens. |
 | `auditor` | `read`, `audit` | Read-only access plus the audit log. For compliance teams. |
 | `viewer` | `read` | Read-only access to all CMDB data. Default role for new OIDC users. |
+| `vm-collector` | `vm-collector` only | Token preset (not a user role). Bound to a single `cloud_account_id` at issuance. Only collector tokens can carry this scope — `admin` does **not** imply it. |
 
 Scope requirements per endpoint group:
 
@@ -68,6 +69,10 @@ curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/admin/users
 ```
 
 The new user must change their password on first login.
+
+### Last-admin guard
+
+`PATCH /v1/admin/users/{id}` and `DELETE /v1/admin/users/{id}` refuse to remove the last active admin from the system. Both operations are protected atomically inside a PostgreSQL transaction using `SELECT … FOR UPDATE` row locks across all active admins, so two concurrent demotions cannot both observe `n=2` and commit. When the guard fires, the response is `409 Conflict` with `{"error":"last_admin_protection"}`.
 
 ### Updating users
 
@@ -160,7 +165,7 @@ Store the `token` value in a secrets manager immediately. longue-vue persists on
 
 ### Token format
 
-Tokens follow the format `longue_vue_pat_<8-char-prefix>_<32-char-secret>`. The prefix is stored in plaintext for O(1) lookup; the secret is hashed with argon2id.
+Tokens follow the format `longue_vue_pat_<8hex>_<32urlb64>`. The 8-character hex prefix is stored in plaintext for O(1) lookup; the 32-character URL-safe base64 secret suffix is hashed with argon2id. Legacy `argos_pat_*` tokens are still accepted for backwards compatibility.
 
 ### Using tokens
 
@@ -179,6 +184,10 @@ curl -sS -b /tmp/longue-vue.cookies -X DELETE http://localhost:8080/v1/admin/tok
 ```
 
 Revocation is immediate. Subsequent requests bearing the revoked token receive 401. Token rows are retained for audit continuity.
+
+### vm-collector preset
+
+When minting a token with the `vm-collector` preset, the admin must select a bound cloud account. The token is locked to that account at issuance — it can only fetch credentials and push VMs for that one account. This binding is stored in `tokens.bound_cloud_account_id`. See [Cloud accounts](cloud-accounts.md) for the full workflow.
 
 ### Best practices
 
@@ -204,7 +213,8 @@ Changing the password clears the flag and invalidates all other active sessions 
 
 - Sessions are server-side, stored in the database.
 - The `longue_vue_session` cookie is `HttpOnly` + `SameSite=Strict` with an 8-hour sliding expiry.
-- The `Secure` flag is controlled by `LONGUE_VUE_SESSION_SECURE_COOKIE` (default: `auto`).
+- The `Secure` flag is set when the request arrived over TLS — either natively (`r.TLS != nil`) or via a TLS-terminating proxy listed in `LONGUE_VUE_TRUSTED_PROXIES` that sent `X-Forwarded-Proto: https`. With no trusted proxies configured, `X-Forwarded-Proto` is ignored entirely (secure default).
+- The `Secure` flag behaviour is overridden by `LONGUE_VUE_SESSION_SECURE_COOKIE` (default: `auto`): set to `always` when fronted by a TLS-terminating proxy so cookies never travel over plaintext; use `never` only for local HTTP development.
 
 ### Viewing and revoking sessions
 
@@ -254,3 +264,8 @@ curl -sS -b /tmp/longue-vue.cookies 'http://localhost:8080/v1/admin/audit?resour
 ```
 
 See [API Reference](api-reference.md) for full filter options.
+
+## References
+
+- [ADR-0007](adr/adr-0007-auth-and-rbac.md) — dual-path auth (session + bearer), four-role RBAC, PAT format, OIDC flow, bootstrap admin
+- [ADR-0017](adr/adr-0017-public-listener-tls-posture-and-proxy-trust.md) — last-admin guard, trusted proxies, REQUIRE_HTTPS
