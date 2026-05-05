@@ -524,7 +524,12 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	// + historyAuth pattern on the /history routes; for the as_of interceptor
 	// we rely on the generated router's AuthMiddleware that already ran at the
 	// mux level (via HandlerWithOptions Middlewares).
-	asOfHandler := api.AsOfMiddleware(pg)(mux)
+	// asOfAuthMiddleware wraps a terminal handler with read-scope injection + auth,
+	// mirroring the requireReadScope(historyAuth(...)) pattern used for /history routes.
+	asOfAuthMW := func(h http.Handler) http.Handler {
+		return requireReadScope(auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)(h))
+	}
+	asOfHandler := api.AsOfMiddleware(pg, asOfAuthMW)(mux)
 	publicHandler := blockIngestOnlyPaths(asOfHandler)
 
 	secureHandler := api.SecurityHeadersMiddleware(cfg.trustedProxies, cfg.requireHTTPS)(
