@@ -29,3 +29,4 @@ charts/*/charts/*.tgz
 
 # Operator-local Helm values (often contains secrets)
 values.yml
+ui/debug-*.mjs

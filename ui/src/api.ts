@@ -614,8 +614,8 @@ export interface PersistentVolumeClaim {
 
 // Endpoints ---------------------------------------------------------------
 
-export function listClusters() {
-  return request<PagedResponse<Cluster>>('/v1/clusters?limit=200');
+export function listClusters(filter?: { cursor?: string; limit?: number }) {
+  return request<PagedResponse<Cluster>>('/v1/clusters' + query({ limit: 200, ...filter }));
 }
 export function getCluster(id: string) {
   return request<Cluster>(`/v1/clusters/${id}`);
@@ -631,7 +631,7 @@ export function getNode(id: string) {
   return request<Node>(`/v1/nodes/${id}`);
 }
 
-export function listNamespaces(filter?: { cluster_id?: string }) {
+export function listNamespaces(filter?: { cluster_id?: string; cursor?: string; limit?: number }) {
   return request<PagedResponse<Namespace>>('/v1/namespaces' + query({ limit: 200, ...filter }));
 }
 export function getNamespace(id: string) {
@@ -642,6 +642,8 @@ export function listWorkloads(filter?: {
   namespace_id?: string;
   kind?: WorkloadKind;
   image?: string;
+  cursor?: string;
+  limit?: number;
 }) {
   return request<PagedResponse<Workload>>('/v1/workloads' + query({ limit: 200, ...filter }));
 }
@@ -1010,5 +1012,43 @@ export interface VMApplicationDistinct {
 export function listDistinctVMApplications() {
   return request<{ products: VMApplicationDistinct[] }>(
     '/v1/virtual-machines/applications/distinct',
+  );
+}
+
+// --- Time-travel history (ADR-0021 Phase 3) ---------------------------------
+
+export interface HistoryPatchOp {
+  op: 'replace' | 'add' | 'remove';
+  path: string;
+  from?: unknown;
+  to?: unknown;
+}
+
+export interface HistoryRow {
+  history_id: string;
+  entity_id: string;
+  valid_from: string; // RFC3339
+  valid_to?: string | null; // RFC3339, null for the current row
+  change_type: 'create' | 'update' | 'soft_delete' | 'restore';
+  actor_id?: string | null;
+  actor_kind?: string | null;
+  diff: HistoryPatchOp[];
+}
+
+export interface EntityHistoryPage {
+  items: HistoryRow[];
+  next_cursor: string;
+}
+
+export type HistoryKind = 'clusters' | 'namespaces' | 'nodes' | 'workloads';
+
+export function listEntityHistory(
+  kind: HistoryKind,
+  id: string,
+  cursor?: string,
+  limit?: number,
+): Promise<EntityHistoryPage> {
+  return request<EntityHistoryPage>(
+    `/v1/${kind}/${id}/history` + query({ cursor, limit }),
   );
 }

@@ -41,6 +41,10 @@ type WorkloadListFilter struct {
 	NamespaceID    *uuid.UUID
 	Kind           *WorkloadKind
 	ImageSubstring *string
+	// IncludeTerminated, when true, returns soft-deleted workloads in addition
+	// to live ones. Default (false) hides rows whose terminated_at is set.
+	// ADR-0021 phase 1.
+	IncludeTerminated bool
 }
 
 // CascadeCounts holds the number of child resources that will be removed
@@ -83,7 +87,7 @@ type Store interface {
 
 	// ListClusters returns up to limit clusters after the given opaque cursor,
 	// plus the cursor for the next page (empty when exhausted).
-	ListClusters(ctx context.Context, limit int, cursor string) (items []Cluster, nextCursor string, err error)
+	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) (items []Cluster, nextCursor string, err error)
 
 	// UpdateCluster applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the cluster does not exist.
@@ -91,6 +95,12 @@ type Store interface {
 
 	// DeleteCluster removes a cluster by id. Returns ErrNotFound if absent.
 	DeleteCluster(ctx context.Context, id uuid.UUID) error
+
+	// SoftDeleteCluster marks the cluster and its live children
+	// (namespaces, nodes, workloads) as terminated in a single transaction.
+	// See ADR-0021 §IMP-007. Idempotent on already-terminated rows; returns
+	// ErrNotFound when the cluster does not exist.
+	SoftDeleteCluster(ctx context.Context, id uuid.UUID) error
 
 	// CountClusterChildren counts child resources that will be cascade-deleted
 	// when the given cluster is removed. Returns ErrNotFound if the cluster
@@ -107,7 +117,13 @@ type Store interface {
 
 	// ListNodes returns up to limit nodes after the given opaque cursor. When
 	// clusterID is non-nil, results are filtered to that cluster.
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) (items []Node, nextCursor string, err error)
+	ListNodes(
+		ctx context.Context,
+		clusterID *uuid.UUID,
+		limit int,
+		cursor string,
+		includeTerminated bool,
+	) (items []Node, nextCursor string, err error)
 
 	// UpdateNode applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the node does not exist.
@@ -137,7 +153,13 @@ type Store interface {
 
 	// ListNamespaces returns up to limit namespaces after the given opaque
 	// cursor. When clusterID is non-nil, results are filtered to that cluster.
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) (items []Namespace, nextCursor string, err error)
+	ListNamespaces(
+		ctx context.Context,
+		clusterID *uuid.UUID,
+		limit int,
+		cursor string,
+		includeTerminated bool,
+	) (items []Namespace, nextCursor string, err error)
 
 	// UpdateNamespace applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the namespace does not exist.
@@ -145,6 +167,10 @@ type Store interface {
 
 	// DeleteNamespace removes a namespace by id. Returns ErrNotFound if absent.
 	DeleteNamespace(ctx context.Context, id uuid.UUID) error
+
+	// SoftDeleteNamespace marks the namespace and its live workloads as
+	// terminated in a single transaction. See ADR-0021 §IMP-007.
+	SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error
 
 	// UpsertNamespace mirrors UpsertNode for namespaces.
 	UpsertNamespace(ctx context.Context, in NamespaceCreate) (Namespace, error)
@@ -539,6 +565,46 @@ type Store interface {
 	// non-terminated VM's applications array. Drives the cascading
 	// product → version dropdown in the VM list UI (ADR-0019 §3).
 	ListDistinctVMApplications(ctx context.Context) ([]VMApplicationDistinct, error)
+
+	// --- Time-travel history (ADR-0021 Phase 3) ----------------------------
+
+	// ListEntityHistory returns up to limit history rows for one entity,
+	// newest-first. kind must be one of "clusters", "namespaces", "nodes",
+	// "workloads". cursor is the opaque pagination token from a prior call
+	// (empty = first page). nextCursor is empty when there are no further pages.
+	ListEntityHistory(
+		ctx context.Context,
+		kind string,
+		entityID uuid.UUID,
+		limit int,
+		cursor string,
+	) (rows []HistoryRow, nextCursor string, err error)
+
+	// GetEntityAsOf returns the entity's history row that was valid at time t
+	// for the given kind and entityID. Returns ErrNotFound when no row covers t.
+	GetEntityAsOf(ctx context.Context, kind string, entityID uuid.UUID, t time.Time) (map[string]any, error)
+
+	// IsTimeTravelEnabled reports whether the time_travel_enabled setting is
+	// currently true. Used by history handlers to return 503 when disabled.
+	IsTimeTravelEnabled(ctx context.Context) (bool, error)
+}
+
+// HistoryRow is a single entry from a <kind>_history table, returned by
+// ListEntityHistory and surfaced through the GET /v1/{kind}/{id}/history endpoint.
+// Diff is a JSON-Patch-shaped slice describing watched-field changes relative
+// to the immediately prior row; empty for create/restore/soft_delete rows where
+// there is no meaningful prior row.
+type HistoryRow struct {
+	HistoryID  string     `json:"history_id"`
+	EntityID   string     `json:"entity_id"`
+	ValidFrom  time.Time  `json:"valid_from"`
+	ValidTo    *time.Time `json:"valid_to,omitempty"`
+	ChangeType string     `json:"change_type"`
+	ActorID    *string    `json:"actor_id,omitempty"`
+	ActorKind  *string    `json:"actor_kind,omitempty"`
+	// Diff is the JSON-Patch-shaped array of watched-field changes.
+	// Populated for "update" rows; empty slice for other change types.
+	Diff any `json:"diff"`
 }
 
 // UserIdentityInsert carries the federation tuple persisted on first
@@ -645,16 +711,22 @@ type AuditEventInsert struct {
 // Settings holds runtime feature toggles stored in the single-row
 // settings table.
 type Settings struct {
-	EOLEnabled bool      `json:"eol_enabled"`
-	MCPEnabled bool      `json:"mcp_enabled"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	EOLEnabled              bool      `json:"eol_enabled"`
+	MCPEnabled              bool      `json:"mcp_enabled"`
+	TimeTravelEnabled       bool      `json:"time_travel_enabled"`
+	TimeTravelRetentionDays int       `json:"time_travel_retention_days"`
+	TimeTravelReaperEnabled bool      `json:"time_travel_reaper_enabled"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 // SettingsPatch is the merge-patch for UpdateSettings. Nil fields are
 // left unchanged.
 type SettingsPatch struct {
-	EOLEnabled *bool `json:"eol_enabled,omitempty"`
-	MCPEnabled *bool `json:"mcp_enabled,omitempty"`
+	EOLEnabled              *bool `json:"eol_enabled,omitempty"`
+	MCPEnabled              *bool `json:"mcp_enabled,omitempty"`
+	TimeTravelEnabled       *bool `json:"time_travel_enabled,omitempty"`
+	TimeTravelRetentionDays *int  `json:"time_travel_retention_days,omitempty"`
+	TimeTravelReaperEnabled *bool `json:"time_travel_reaper_enabled,omitempty"`
 }
 
 // AuditEventFilter collects the optional server-side filters. Nil

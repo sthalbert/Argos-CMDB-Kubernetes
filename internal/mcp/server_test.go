@@ -161,7 +161,7 @@ type pagingFakeStore struct {
 	pageSize int
 }
 
-func (p *pagingFakeStore) ListClusters(_ context.Context, _ int, _ string) ([]api.Cluster, string, error) {
+func (p *pagingFakeStore) ListClusters(_ context.Context, _ int, _ string, _ bool) ([]api.Cluster, string, error) {
 	out := make([]api.Cluster, p.pageSize)
 	for i := range out {
 		id := uuid.New()
@@ -176,7 +176,7 @@ func TestCollectAll_TruncatesAtMaxTotalItems(t *testing.T) {
 	p := &pagingFakeStore{fakeStore: inner, pageSize: 250} // 4 pages of 250 = 1000
 
 	got, err := collectAll(context.Background(), func(ctx context.Context, cursor string) ([]api.Cluster, string, error) {
-		return p.ListClusters(ctx, maxPageSize, cursor)
+		return p.ListClusters(ctx, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		t.Fatalf("collectAll: %v", err)

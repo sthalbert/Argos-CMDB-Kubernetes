@@ -54,7 +54,7 @@ func (f *fakeStore) GetSettings(_ context.Context) (api.Settings, error) {
 
 // --- Clusters ----
 
-func (f *fakeStore) ListClusters(_ context.Context, _ int, _ string) ([]api.Cluster, string, error) {
+func (f *fakeStore) ListClusters(_ context.Context, _ int, _ string, _ bool) ([]api.Cluster, string, error) {
 	if err := f.errOn["ListClusters"]; err != nil {
 		return nil, "", err
 	}
@@ -80,7 +80,7 @@ func (f *fakeStore) GetCluster(_ context.Context, id uuid.UUID) (api.Cluster, er
 
 // --- Nodes ----
 
-func (f *fakeStore) ListNodes(_ context.Context, clusterID *uuid.UUID, _ int, _ string) ([]api.Node, string, error) {
+func (f *fakeStore) ListNodes(_ context.Context, clusterID *uuid.UUID, _ int, _ string, _ bool) ([]api.Node, string, error) {
 	if err := f.errOn["ListNodes"]; err != nil {
 		return nil, "", err
 	}
@@ -105,7 +105,7 @@ func (f *fakeStore) GetNode(_ context.Context, id uuid.UUID) (api.Node, error) {
 
 // --- Namespaces ----
 
-func (f *fakeStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, _ int, _ string) ([]api.Namespace, string, error) {
+func (f *fakeStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, _ int, _ string, _ bool) ([]api.Namespace, string, error) {
 	out := make([]api.Namespace, 0, len(f.nss))
 	for _, n := range f.nss {
 		if clusterID != nil && n.ClusterId != *clusterID {

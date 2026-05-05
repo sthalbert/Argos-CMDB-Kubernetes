@@ -460,6 +460,7 @@ func patchClusterViaAPI(t *testing.T, env *testEnv, clusterID, body string) api.
 	return patched
 }
 
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestClusterCRUD(t *testing.T) {
 	env := newTestEnv(t)
 
@@ -496,18 +497,37 @@ func TestClusterCRUD(t *testing.T) {
 		t.Errorf("patch: expected kubernetes_version v1.29.1, got %v", patched.KubernetesVersion)
 	}
 
-	// DELETE
+	// DELETE (soft-delete per ADR-0021)
 	delResp := env.doReq(t, http.MethodDelete, "/v1/clusters/"+clusterID, "")
 	_ = delResp.Body.Close()
 	if delResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete: expected 204, got %d", delResp.StatusCode)
 	}
 
-	// GET after delete -> 404
+	// GET after soft-delete: single-entity GET still returns the row
+	// (it's marked terminated_at, not removed). The list endpoints filter
+	// terminated rows by default; GET-by-id is intentionally unfiltered
+	// for Phase 1.
 	getResp := env.doReq(t, http.MethodGet, "/v1/clusters/"+clusterID, "")
 	_ = getResp.Body.Close()
-	if getResp.StatusCode != http.StatusNotFound {
-		t.Fatalf("get after delete: expected 404, got %d", getResp.StatusCode)
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get after soft-delete: expected 200, got %d", getResp.StatusCode)
+	}
+
+	// The cluster should be hidden from the default list (terminated).
+	listResp := env.doReq(t, http.MethodGet, "/v1/clusters", "")
+	defer listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list after soft-delete: expected 200, got %d", listResp.StatusCode)
+	}
+	var page api.ClusterList
+	if err := json.NewDecoder(listResp.Body).Decode(&page); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	for _, c := range page.Items {
+		if c.Id != nil && c.Id.String() == clusterID {
+			t.Errorf("soft-deleted cluster should not appear in default list")
+		}
 	}
 }
 

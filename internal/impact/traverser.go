@@ -9,7 +9,11 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-const maxPageSize = 500
+const (
+	maxPageSize    = 500
+	statusReady    = "Ready"
+	statusNotReady = "NotReady"
+)
 
 // TraverserStore is the narrow store interface the traverser needs.
 type TraverserStore interface {
@@ -23,8 +27,8 @@ type TraverserStore interface {
 	GetPersistentVolume(ctx context.Context, id uuid.UUID) (api.PersistentVolume, error)
 	GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (api.PersistentVolumeClaim, error)
 
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Node, string, error)
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Namespace, string, error)
+	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Node, string, error)
+	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Namespace, string, error)
 	ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error)
 	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error)
 	ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Service, string, error)
@@ -139,9 +143,9 @@ func (b *builder) fetchNode(ctx context.Context, t EntityType, id uuid.UUID) (*G
 		if err != nil {
 			return nil, err
 		}
-		status := "NotReady"
+		status := statusNotReady
 		if n.Ready != nil && *n.Ready {
-			status = "Ready"
+			status = statusReady
 		}
 		return &GraphNode{ID: idStr(n.Id), Type: TypeNode, Name: displayOrName(n.DisplayName, n.Name), Status: status}, nil
 
@@ -268,7 +272,7 @@ func (b *builder) expand(ctx context.Context, node GraphNode, depth int) error {
 func (b *builder) expandCluster(ctx context.Context, id uuid.UUID, nodeID string, depth int) error {
 	// downstream: nodes
 	nodes, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-		return b.store.ListNodes(ctx, &id, maxPageSize, cursor)
+		return b.store.ListNodes(ctx, &id, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		return fmt.Errorf("list nodes: %w", err)
@@ -284,7 +288,7 @@ func (b *builder) expandCluster(ctx context.Context, id uuid.UUID, nodeID string
 
 	// downstream: namespaces
 	nss, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Namespace, string, error) {
-		return b.store.ListNamespaces(ctx, &id, maxPageSize, cursor)
+		return b.store.ListNamespaces(ctx, &id, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		return fmt.Errorf("list namespaces: %w", err)
@@ -475,7 +479,7 @@ func (b *builder) expandPod(ctx context.Context, id uuid.UUID, nodeID string, de
 		ns, err := b.store.GetNamespace(ctx, p.NamespaceId)
 		if err == nil {
 			allNodes, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-				return b.store.ListNodes(ctx, &ns.ClusterId, maxPageSize, cursor)
+				return b.store.ListNodes(ctx, &ns.ClusterId, maxPageSize, cursor, false)
 			})
 			if err == nil {
 				for i := range allNodes {
@@ -558,7 +562,7 @@ func (b *builder) expandPV(ctx context.Context, id uuid.UUID, nodeID string, dep
 	// downstream: PVCs bound to this PV — scan all PVCs in the cluster
 	// and match on bound_volume_id.
 	nss, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Namespace, string, error) {
-		return b.store.ListNamespaces(ctx, &pv.ClusterId, maxPageSize, cursor)
+		return b.store.ListNamespaces(ctx, &pv.ClusterId, maxPageSize, cursor, false)
 	})
 	if err != nil {
 		return fmt.Errorf("list namespaces: %w", err)
@@ -673,9 +677,9 @@ func displayOrName(display *string, name string) string {
 
 func readyStatus(ready *bool) string {
 	if ready != nil && *ready {
-		return "Ready"
+		return statusReady
 	}
-	return "NotReady"
+	return statusNotReady
 }
 
 // collectAll paginates through all results for a list query.

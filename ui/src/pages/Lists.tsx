@@ -67,9 +67,9 @@ export function Clusters() {
 export function Nodes() {
   const state = useResource(
     () =>
-      Promise.all([api.listNodes(), api.listClusters()]).then(([nodes, clusters]) => ({
+      Promise.all([api.listNodes(), fetchAllClusters()]).then(([nodes, clItems]) => ({
         nodes: nodes.items,
-        clustersById: new Map(clusters.items.map((c) => [c.id, c])),
+        clustersById: new Map(clItems.map((c) => [c.id, c])),
       })),
     [],
   );
@@ -155,9 +155,9 @@ function NodeStatusBadge({
 export function Namespaces() {
   const state = useResource(
     () =>
-      Promise.all([api.listNamespaces(), api.listClusters()]).then(([ns, clusters]) => ({
+      Promise.all([api.listNamespaces(), fetchAllClusters()]).then(([ns, clItems]) => ({
         namespaces: ns.items,
-        clustersById: new Map(clusters.items.map((c) => [c.id, c])),
+        clustersById: new Map(clItems.map((c) => [c.id, c])),
       })),
     [],
   );
@@ -211,12 +211,30 @@ export function Namespaces() {
 
 // Shared helper: fetch namespaces + clusters so a list of namespace-scoped
 // rows can show "cluster / namespace" breadcrumbs without per-row calls.
+async function fetchAllPaged<T>(
+  fetchPage: (cursor?: string) => Promise<api.PagedResponse<T>>,
+): Promise<T[]> {
+  const out: T[] = [];
+  let cursor: string | undefined = undefined;
+  for (let i = 0; i < 200; i++) {
+    const page = await fetchPage(cursor);
+    out.push(...page.items);
+    if (!page.next_cursor) break;
+    cursor = page.next_cursor;
+  }
+  return out;
+}
+
+const fetchAllNamespaces = () => fetchAllPaged((cursor) => api.listNamespaces({ cursor, limit: 500 }));
+const fetchAllClusters = () => fetchAllPaged((cursor) => api.listClusters({ cursor, limit: 500 }));
+const fetchAllWorkloads = () => fetchAllPaged((cursor) => api.listWorkloads({ cursor, limit: 500 }));
+
 function useNamespaceIndex() {
   return useResource(
     () =>
-      Promise.all([api.listNamespaces(), api.listClusters()]).then(([ns, clusters]) => ({
-        namespacesById: new Map(ns.items.map((n) => [n.id, n])),
-        clustersById: new Map(clusters.items.map((c) => [c.id, c])),
+      Promise.all([fetchAllNamespaces(), fetchAllClusters()]).then(([nsItems, clItems]) => ({
+        namespacesById: new Map(nsItems.map((n) => [n.id, n])),
+        clustersById: new Map(clItems.map((c) => [c.id, c])),
       })),
     [],
   );
@@ -316,7 +334,7 @@ export function Workloads() {
 export function Pods() {
   const index = useNamespaceIndex();
   const pods = useResource(() => api.listPods(), []);
-  const workloads = useResource(() => api.listWorkloads(), []);
+  const workloads = useResource(() => fetchAllWorkloads(), []);
   return (
     <>
       <h2><PodIcon size={20} /> Pods</h2>
@@ -325,8 +343,8 @@ export function Pods() {
           <AsyncView state={pods}>
             {(resp) => (
               <AsyncView state={workloads}>
-                {(wlResp) => {
-                  const wlById = new Map(wlResp.items.map((w) => [w.id, w]));
+                {(wlItems) => {
+                  const wlById = new Map(wlItems.map((w) => [w.id, w]));
                   return resp.items.length === 0 ? (
                     <Empty message="No pods found. Pods are collected from all connected clusters." />
                   ) : (

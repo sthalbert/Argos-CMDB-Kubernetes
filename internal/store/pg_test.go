@@ -169,7 +169,7 @@ func TestPGNodeCRUD(t *testing.T) {
 		t.Errorf("architecture=%v", updated.Architecture)
 	}
 
-	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "")
+	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "", false)
 	if err != nil {
 		t.Fatalf("list filtered: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestPGNodeCRUD(t *testing.T) {
 	}
 
 	other := uuid.New()
-	items, _, err = pg.ListNodes(ctx, &other, 10, "")
+	items, _, err = pg.ListNodes(ctx, &other, 10, "", false)
 	if err != nil {
 		t.Fatalf("list foreign cluster: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestPGNamespaceCRUD(t *testing.T) {
 		t.Errorf("phase=%v", updated.Phase)
 	}
 
-	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "")
+	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "", false)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestPGDeleteNodesNotIn(t *testing.T) {
 		}
 	}
 
-	// Keep only "b"; a and c should be deleted.
+	// Keep only "b"; a and c should be soft-deleted.
 	deleted, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"b"})
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -366,16 +366,19 @@ func TestPGDeleteNodesNotIn(t *testing.T) {
 		t.Errorf("deleted=%d, want 2", deleted)
 	}
 
-	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	// Survivors (live rows): only "b" should remain non-terminated.
+	var live int
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM nodes WHERE cluster_id=$1 AND terminated_at IS NULL",
+		*cluster.Id).Scan(&live); err != nil {
+		t.Fatalf("count live: %v", err)
 	}
-	if len(items) != 1 || items[0].Name != "b" {
-		t.Errorf("survivors=%v, want [b]", items)
+	if live != 1 {
+		t.Errorf("live=%d, want 1", live)
 	}
 
-	// Nil keepNames must delete everything remaining (pgx encodes nil as NULL;
-	// the store's COALESCE handles that).
+	// Nil keepNames must soft-delete every live row remaining (pgx encodes nil
+	// as NULL; the store's COALESCE handles that).
 	deleted, err = pg.DeleteNodesNotIn(ctx, *cluster.Id, nil)
 	if err != nil {
 		t.Fatalf("reconcile nil keep: %v", err)
@@ -394,6 +397,244 @@ func TestPGDeleteNodesNotIn(t *testing.T) {
 	}
 	if deleted != 1 {
 		t.Errorf("deleted=%d (empty keep), want 1", deleted)
+	}
+}
+
+// TestPGDeleteNodesNotIn_SoftDeletesAndIdempotent verifies ADR-0021 §5
+// soft-delete semantics: rows stay in the table with terminated_at set, and
+// repeated reconcile calls are no-ops on rows already terminated.
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
+func TestPGDeleteNodesNotIn_SoftDeletesAndIdempotent(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "c-soft"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	for _, name := range []string{"node-a", "node-b", "node-c"} {
+		if _, err := pg.CreateNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: name}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+
+	affected, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"node-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected != 2 {
+		t.Fatalf("affected=%d want 2", affected)
+	}
+
+	var liveCount, termCount int
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM nodes WHERE cluster_id=$1 AND terminated_at IS NULL",
+		*cluster.Id).Scan(&liveCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM nodes WHERE cluster_id=$1 AND terminated_at IS NOT NULL",
+		*cluster.Id).Scan(&termCount); err != nil {
+		t.Fatal(err)
+	}
+	if liveCount != 1 {
+		t.Fatalf("liveCount=%d want 1", liveCount)
+	}
+	if termCount != 2 {
+		t.Fatalf("termCount=%d want 2", termCount)
+	}
+
+	// Idempotent: a second reconcile with the same keep list must not
+	// re-soft-delete already-terminated rows.
+	affected2, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"node-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected2 != 0 {
+		t.Fatalf("affected2=%d want 0", affected2)
+	}
+}
+
+// TestPGListNodes_ExcludesTerminatedByDefault verifies ADR-0021 phase 1
+// task 4: ListNodes hides soft-deleted rows unless includeTerminated=true.
+func TestPGListNodes_ExcludesTerminatedByDefault(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "c-list-term"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	for _, name := range []string{"live-1", "live-2", "soon-dead"} {
+		if _, err := pg.CreateNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: name}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	if _, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, []string{"live-1", "live-2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cid := *cluster.Id
+	items, _, err := pg.ListNodes(ctx, &cid, 50, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("default len=%d, want 2", len(items))
+	}
+
+	items, _, err = pg.ListNodes(ctx, &cid, 50, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("include_terminated len=%d, want 3", len(items))
+	}
+}
+
+// TestPGUpsertNode_ResurrectsTerminated verifies ADR-0021 §5: when a
+// previously soft-deleted node reappears in a collector tick, the upsert
+// path clears terminated_at so the row returns to live state.
+func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-node"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	first, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	if _, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, nil); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	var terminated *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM nodes WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at: %v", err)
+	}
+	if terminated == nil {
+		t.Fatalf("terminated_at should be non-NULL after soft-delete")
+	}
+
+	resurrected, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	if err != nil {
+		t.Fatalf("resurrect upsert: %v", err)
+	}
+	if *resurrected.Id != *first.Id {
+		t.Errorf("id changed across resurrect upsert")
+	}
+
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM nodes WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at post-upsert: %v", err)
+	}
+	if terminated != nil {
+		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
+	}
+}
+
+// TestPGUpsertNamespace_ResurrectsTerminated mirrors the node test for
+// namespaces.
+func TestPGUpsertNamespace_ResurrectsTerminated(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-ns"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	first, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	if _, err := pg.DeleteNamespacesNotIn(ctx, *cluster.Id, nil); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	var terminated *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM namespaces WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at: %v", err)
+	}
+	if terminated == nil {
+		t.Fatalf("terminated_at should be non-NULL after soft-delete")
+	}
+
+	resurrected, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("resurrect upsert: %v", err)
+	}
+	if *resurrected.Id != *first.Id {
+		t.Errorf("id changed across resurrect upsert")
+	}
+
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM namespaces WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at post-upsert: %v", err)
+	}
+	if terminated != nil {
+		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
+	}
+}
+
+// TestPGUpsertWorkload_ResurrectsTerminated mirrors the node test for
+// workloads, keyed on (namespace_id, kind, name).
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
+func TestPGUpsertWorkload_ResurrectsTerminated(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-wl"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	first, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	if _, err := pg.DeleteWorkloadsNotIn(ctx, *ns.Id, nil, nil); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	var terminated *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM workloads WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at: %v", err)
+	}
+	if terminated == nil {
+		t.Fatalf("terminated_at should be non-NULL after soft-delete")
+	}
+
+	resurrected, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	if err != nil {
+		t.Fatalf("resurrect upsert: %v", err)
+	}
+	if *resurrected.Id != *first.Id {
+		t.Errorf("id changed across resurrect upsert")
+	}
+
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM workloads WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at post-upsert: %v", err)
+	}
+	if terminated != nil {
+		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
 	}
 }
 
@@ -419,12 +660,15 @@ func TestPGDeleteNamespacesNotIn(t *testing.T) {
 		t.Errorf("deleted=%d, want 1", deleted)
 	}
 
-	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	// Soft-delete: live rows are those with terminated_at IS NULL.
+	var live int
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM namespaces WHERE cluster_id=$1 AND terminated_at IS NULL",
+		*cluster.Id).Scan(&live); err != nil {
+		t.Fatalf("count live: %v", err)
 	}
-	if len(items) != 2 {
-		t.Errorf("survivors=%d, want 2", len(items))
+	if live != 2 {
+		t.Errorf("live=%d, want 2", live)
 	}
 }
 
@@ -661,13 +905,26 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 		t.Errorf("deleted=%d, want 2 (sts/web + ds/fluent-bit)", deleted)
 	}
 
-	// Sanity: only Deployment/web remains.
-	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: ns.Id}, 10, "")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	// Sanity: soft-delete leaves rows in place with terminated_at set;
+	// only Deployment/web remains live.
+	var liveKind, liveName string
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT kind, name FROM workloads
+		  WHERE namespace_id=$1 AND terminated_at IS NULL`,
+		*ns.Id).Scan(&liveKind, &liveName); err != nil {
+		t.Fatalf("query live workload: %v", err)
 	}
-	if len(items) != 1 || items[0].Kind != api.Deployment || items[0].Name != "web" {
-		t.Errorf("after reconcile got %+v", items)
+	if liveKind != string(api.Deployment) || liveName != "web" {
+		t.Errorf("after reconcile live=(%s,%s), want (Deployment,web)", liveKind, liveName)
+	}
+	var liveCount int
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM workloads WHERE namespace_id=$1 AND terminated_at IS NULL",
+		*ns.Id).Scan(&liveCount); err != nil {
+		t.Fatalf("count live: %v", err)
+	}
+	if liveCount != 1 {
+		t.Errorf("live workloads=%d, want 1", liveCount)
 	}
 
 	// Nil keep clears everything remaining (pgx nil-array COALESCE guard).
@@ -992,7 +1249,7 @@ func TestPGListPagination(t *testing.T) {
 		}
 	}
 
-	page1, next, err := pg.ListClusters(ctx, 2, "")
+	page1, next, err := pg.ListClusters(ctx, 2, "", false)
 	if err != nil {
 		t.Fatalf("list page1: %v", err)
 	}
@@ -1003,7 +1260,7 @@ func TestPGListPagination(t *testing.T) {
 		t.Fatal("next cursor empty after page1")
 	}
 
-	page2, next, err := pg.ListClusters(ctx, 2, next)
+	page2, next, err := pg.ListClusters(ctx, 2, next, false)
 	if err != nil {
 		t.Fatalf("list page2: %v", err)
 	}
@@ -1011,7 +1268,7 @@ func TestPGListPagination(t *testing.T) {
 		t.Fatalf("page2 len=%d, want 2", len(page2))
 	}
 
-	page3, next, err := pg.ListClusters(ctx, 2, next)
+	page3, next, err := pg.ListClusters(ctx, 2, next, false)
 	if err != nil {
 		t.Fatalf("list page3: %v", err)
 	}
@@ -2151,5 +2408,108 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 	}
 	if afterEdit2.Owner == nil || *afterEdit2.Owner != owner {
 		t.Errorf("owner clobbered by hardware_model patch")
+	}
+}
+
+// TestPGSoftDeleteCluster_CascadesToChildren verifies ADR-0021 §IMP-007:
+// SoftDeleteCluster soft-deletes the cluster plus its live namespaces,
+// nodes, and workloads in a single transaction.
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
+func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "soft-delete-cascade"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+	node, err := pg.CreateNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	if err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	if err != nil {
+		t.Fatalf("workload: %v", err)
+	}
+
+	if err := pg.SoftDeleteCluster(ctx, *cluster.Id); err != nil {
+		t.Fatalf("SoftDeleteCluster: %v", err)
+	}
+
+	var clusterTerm, nsTerm, nodeTerm, wlTerm bool
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM clusters WHERE id=$1`, *cluster.Id).Scan(&clusterTerm); err != nil {
+		t.Fatalf("scan cluster: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM namespaces WHERE id=$1`, *ns.Id).Scan(&nsTerm); err != nil {
+		t.Fatalf("scan namespace: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM nodes WHERE id=$1`, *node.Id).Scan(&nodeTerm); err != nil {
+		t.Fatalf("scan node: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM workloads WHERE id=$1`, *wl.Id).Scan(&wlTerm); err != nil {
+		t.Fatalf("scan workload: %v", err)
+	}
+	if !clusterTerm || !nsTerm || !nodeTerm || !wlTerm {
+		t.Fatalf("cascade missed: cluster=%v ns=%v node=%v wl=%v", clusterTerm, nsTerm, nodeTerm, wlTerm)
+	}
+
+	// Idempotent: a second call on an already-terminated cluster returns nil.
+	if err := pg.SoftDeleteCluster(ctx, *cluster.Id); err != nil {
+		t.Fatalf("second SoftDeleteCluster should be idempotent: %v", err)
+	}
+
+	// Unknown id returns ErrNotFound.
+	if err := pg.SoftDeleteCluster(ctx, uuid.New()); !errors.Is(err, api.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
+	}
+}
+
+// TestPGSoftDeleteNamespace_CascadesToWorkloads verifies the namespace
+// soft-delete cascade soft-deletes its live workloads.
+func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "soft-delete-ns-cascade"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	if err != nil {
+		t.Fatalf("workload: %v", err)
+	}
+
+	if err := pg.SoftDeleteNamespace(ctx, *ns.Id); err != nil {
+		t.Fatalf("SoftDeleteNamespace: %v", err)
+	}
+
+	var nsTerm, wlTerm bool
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM namespaces WHERE id=$1`, *ns.Id).Scan(&nsTerm); err != nil {
+		t.Fatalf("scan namespace: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT terminated_at IS NOT NULL FROM workloads WHERE id=$1`, *wl.Id).Scan(&wlTerm); err != nil {
+		t.Fatalf("scan workload: %v", err)
+	}
+	if !nsTerm || !wlTerm {
+		t.Fatalf("cascade missed: ns=%v wl=%v", nsTerm, wlTerm)
+	}
+
+	if err := pg.SoftDeleteNamespace(ctx, uuid.New()); !errors.Is(err, api.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
 	}
 }
