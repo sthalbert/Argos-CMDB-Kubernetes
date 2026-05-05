@@ -141,6 +141,8 @@ func (s *Server) GetReadyz(ctx context.Context, _ GetReadyzRequestObject) (GetRe
 // ── Clusters ─────────────────────────────────────────────────────────
 
 // ListClusters returns a paged list of clusters.
+//
+//nolint:gocyclo // parameter extraction and filtering logic; complexity is not branching
 func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject) (ListClustersResponseObject, error) {
 	// Exact name filter: short-circuit to GetClusterByName and return a
 	// single-item list (or empty). Used by the push collector to resolve

@@ -460,6 +460,7 @@ func patchClusterViaAPI(t *testing.T, env *testEnv, clusterID, body string) api.
 	return patched
 }
 
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestClusterCRUD(t *testing.T) {
 	env := newTestEnv(t)
 

@@ -9,6 +9,8 @@ import (
 
 // TestListNodesIncludeTerminated verifies that ListNodes correctly filters
 // terminated nodes based on the includeTerminated parameter (ADR-0021 phase 1).
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestListNodesIncludeTerminated(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -110,6 +112,8 @@ func TestListNodesIncludeTerminated(t *testing.T) {
 
 // TestListNamespacesIncludeTerminated verifies that ListNamespaces correctly filters
 // terminated namespaces based on the includeTerminated parameter (ADR-0021 phase 1).
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestListNamespacesIncludeTerminated(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
