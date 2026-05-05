@@ -166,7 +166,12 @@ func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListClusters(ctx, limit, cursor, false)
+	includeTerminated := false
+	if req.Params.IncludeTerminated != nil {
+		includeTerminated = *req.Params.IncludeTerminated
+	}
+
+	items, next, err := s.store.ListClusters(ctx, limit, cursor, includeTerminated)
 	if err != nil {
 		return nil, fmt.Errorf("listClusters: %w", err)
 	}
@@ -336,7 +341,12 @@ func (s *Server) ListNodes(ctx context.Context, req ListNodesRequestObject) (Lis
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor, false)
+	includeTerminated := false
+	if req.Params.IncludeTerminated != nil {
+		includeTerminated = *req.Params.IncludeTerminated
+	}
+
+	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor, includeTerminated)
 	if err != nil {
 		return nil, storeErr("listNodes", err)
 	}
@@ -455,7 +465,12 @@ func (s *Server) ListNamespaces(ctx context.Context, req ListNamespacesRequestOb
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor, false)
+	includeTerminated := false
+	if req.Params.IncludeTerminated != nil {
+		includeTerminated = *req.Params.IncludeTerminated
+	}
+
+	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor, includeTerminated)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
@@ -695,10 +710,17 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid filter", "query 'kind' is not a known workload kind")),
 		}, nil
 	}
+
+	includeTerminated := false
+	if req.Params.IncludeTerminated != nil {
+		includeTerminated = *req.Params.IncludeTerminated
+	}
+
 	filter := WorkloadListFilter{
-		NamespaceID:    req.Params.NamespaceId,
-		Kind:           req.Params.Kind,
-		ImageSubstring: req.Params.Image,
+		NamespaceID:       req.Params.NamespaceId,
+		Kind:              req.Params.Kind,
+		ImageSubstring:    req.Params.Image,
+		IncludeTerminated: includeTerminated,
 	}
 
 	items, next, err := s.store.ListWorkloads(ctx, filter, limit, cursor)

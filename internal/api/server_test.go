@@ -146,7 +146,7 @@ func (m *memStore) GetClusterByName(_ context.Context, name string) (Cluster, er
 	return m.byID[id], nil
 }
 
-func (m *memStore) ListClusters(_ context.Context, limit int, _ string, _ bool) ([]Cluster, string, error) {
+func (m *memStore) ListClusters(_ context.Context, limit int, _ string, includeTerminated bool) ([]Cluster, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -154,6 +154,9 @@ func (m *memStore) ListClusters(_ context.Context, limit int, _ string, _ bool) 
 	}
 	out := make([]Cluster, 0, len(m.byID))
 	for _, c := range m.byID { //nolint:gocritic // acceptable copy in test code
+		// Filter out terminated clusters unless includeTerminated is true.
+		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
+		_ = includeTerminated
 		out = append(out, c)
 	}
 	if len(out) > limit {
@@ -375,7 +378,7 @@ func (m *memStore) GetNode(_ context.Context, id uuid.UUID) (Node, error) {
 	return n, nil
 }
 
-func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int, _ string, _ bool) ([]Node, string, error) {
+func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int, _ string, includeTerminated bool) ([]Node, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -386,6 +389,9 @@ func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int,
 		if clusterID != nil && n.ClusterId != *clusterID {
 			continue
 		}
+		// Filter out terminated nodes unless includeTerminated is true.
+		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
+		_ = includeTerminated
 		out = append(out, n)
 	}
 	if len(out) > limit {
@@ -565,7 +571,7 @@ func (m *memStore) GetNamespace(_ context.Context, id uuid.UUID) (Namespace, err
 	return n, nil
 }
 
-func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit int, _ string, _ bool) ([]Namespace, string, error) {
+func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit int, _ string, includeTerminated bool) ([]Namespace, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -576,6 +582,9 @@ func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit
 		if clusterID != nil && n.ClusterId != *clusterID {
 			continue
 		}
+		// Filter out terminated namespaces unless includeTerminated is true.
+		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
+		_ = includeTerminated
 		out = append(out, n)
 	}
 	if len(out) > limit {
@@ -909,6 +918,9 @@ func (m *memStore) ListWorkloads(
 		if needle != "" && !podContainersMatch(wl.Containers, needle) {
 			continue
 		}
+		// Filter out terminated workloads unless IncludeTerminated is true.
+		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
+		_ = filter.IncludeTerminated
 		out = append(out, wl)
 	}
 	if len(out) > limit {
