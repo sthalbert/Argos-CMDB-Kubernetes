@@ -74,6 +74,7 @@ The embedded pull-mode collector is disabled by default.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `LONGUE_VUE_CLUSTER_NAME` | when single-cluster | -- | Name of the cluster to poll. The collector auto-creates the cluster record if it doesn't exist (ADR-0011); pre-registering via `POST /v1/clusters` is optional but recommended to populate curated metadata. When using in-cluster ServiceAccount credentials, no kubeconfig is needed. |
+| `LONGUE_VUE_KUBECONFIG` | no | -- | Path to a kubeconfig file for the single-cluster mode. An empty value falls back to in-cluster config. This is the legacy single-cluster shortcut; multi-cluster deployments should use `LONGUE_VUE_COLLECTOR_CLUSTERS` instead. |
 
 #### Multi-cluster mode
 
@@ -113,7 +114,10 @@ The MCP (Model Context Protocol) server is disabled by default. It exposes read-
 | `LONGUE_VUE_MCP_ENABLED` | no | `false` | Enable the MCP server. When set, its value is also written to the `mcp_enabled` database setting on boot. The admin can override it at runtime via Admin > Settings. |
 | `LONGUE_VUE_MCP_TRANSPORT` | no | `sse` | Transport protocol. Values: `sse` (Server-Sent Events over HTTP) or `stdio` (standard I/O, for local tool integration). |
 | `LONGUE_VUE_MCP_ADDR` | no | `:3001` | Listen address for the SSE transport. Ignored when transport is `stdio`. |
-| `LONGUE_VUE_MCP_TOKEN` | no | -- | Bearer token required for MCP requests. When unset, the MCP server inherits the standard longue-vue bearer token authentication. |
+| `LONGUE_VUE_MCP_TOKEN` | no | -- | Bearer token required for MCP requests (stdio transport). When unset for the SSE transport, the standard longue-vue bearer token authentication applies. |
+| `LONGUE_VUE_MCP_TLS_CERT` | no | -- | Path to a PEM-encoded TLS certificate for the MCP SSE listener. When set with `LONGUE_VUE_MCP_TLS_KEY`, the SSE server terminates TLS. |
+| `LONGUE_VUE_MCP_TLS_KEY` | no | -- | Path to the private key matching `LONGUE_VUE_MCP_TLS_CERT`. |
+| `LONGUE_VUE_MCP_ALLOW_PLAINTEXT` | no | `false` | When `true`, allows the SSE transport to start without TLS. Intended for local development only; bearer tokens are not protected on the wire. |
 
 ### DMZ ingest gateway (ADR-0016)
 
@@ -167,11 +171,11 @@ The following security features are built-in and require no configuration:
 
 ### Legacy (removed)
 
-| Variable | Status | Migration |
-|----------|--------|-----------|
+| Variable | Status | Notes |
+|----------|--------|-------|
 | `LONGUE_VUE_API_TOKEN` | **removed** | longue-vue refuses to start if set. Migrate to admin-panel-issued tokens per ADR-0007. |
 | `LONGUE_VUE_API_TOKENS` | **removed** | Same as above. |
-| `LONGUE_VUE_KUBECONFIG` | **removed** | Use `LONGUE_VUE_COLLECTOR_CLUSTERS` with kubeconfig files mounted via `kubeconfigSecret`. See [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md). |
+| `LONGUE_VUE_KUBECONFIG` | legacy (still accepted) | Single-cluster kubeconfig shortcut. Prefer `LONGUE_VUE_COLLECTOR_CLUSTERS` for new deployments; see [How to securely provide kubeconfigs](how-to-secure-kubeconfig.md). |
 
 ---
 
@@ -305,4 +309,5 @@ The gateway verifies each collector PAT against longue-vue once and caches the r
 |----------|----------|---------|-------------|
 | `LONGUE_VUE_INGEST_GW_MAX_BODY_BYTES` | no | `10485760` (10 MiB) | Maximum accepted request body size in bytes. Requests exceeding this limit are rejected with 413 before any upstream call. |
 | `LONGUE_VUE_INGEST_GW_LOG_LEVEL` | no | `info` | Structured log verbosity. One of `debug`, `info`, `warn`, `error`. |
+| `LONGUE_VUE_INGEST_GW_REQUIRED_SCOPE` | no | `write` | Minimum scope a verified token must carry for the gateway to forward the request. Change only for non-standard collector deployments. |
 | `LONGUE_VUE_INGEST_GW_SHUTDOWN_TIMEOUT` | no | `30s` | Graceful drain budget after SIGTERM. In-flight proxied requests complete up to this deadline.
