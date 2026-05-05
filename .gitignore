@@ -30,3 +30,10 @@ charts/*/charts/*.tgz
 # Operator-local Helm values (often contains secrets)
 values.yml
 ui/debug-*.mjs
+
+# Local planning artifacts (kept out of shipped docs tree)
+/.planning/
+
+# Local archives
+/longue-vue.zip
+*.zip
