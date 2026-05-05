@@ -141,6 +141,8 @@ func (s *Server) GetReadyz(ctx context.Context, _ GetReadyzRequestObject) (GetRe
 // ── Clusters ─────────────────────────────────────────────────────────
 
 // ListClusters returns a paged list of clusters.
+//
+//nolint:gocyclo // parameter extraction and filtering logic; complexity is not branching
 func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject) (ListClustersResponseObject, error) {
 	// Exact name filter: short-circuit to GetClusterByName and return a
 	// single-item list (or empty). Used by the push collector to resolve
@@ -166,7 +168,12 @@ func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListClusters(ctx, limit, cursor)
+	includeTerminated := false
+	if req.Params.IncludeTerminated != nil {
+		includeTerminated = *req.Params.IncludeTerminated
+	}
+
+	items, next, err := s.store.ListClusters(ctx, limit, cursor, includeTerminated)
 	if err != nil {
 		return nil, fmt.Errorf("listClusters: %w", err)
 	}
@@ -278,7 +285,7 @@ func (s *Server) DeleteCluster(ctx context.Context, req DeleteClusterRequestObje
 		)
 	}
 
-	if err := s.store.DeleteCluster(ctx, req.Id); err != nil {
+	if err := s.store.SoftDeleteCluster(ctx, req.Id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return DeleteCluster404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
@@ -336,7 +343,12 @@ func (s *Server) ListNodes(ctx context.Context, req ListNodesRequestObject) (Lis
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor)
+	includeTerminated := false
+	if req.Params.IncludeTerminated != nil {
+		includeTerminated = *req.Params.IncludeTerminated
+	}
+
+	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor, includeTerminated)
 	if err != nil {
 		return nil, storeErr("listNodes", err)
 	}
@@ -455,7 +467,12 @@ func (s *Server) ListNamespaces(ctx context.Context, req ListNamespacesRequestOb
 		cursor = *req.Params.Cursor
 	}
 
-	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor)
+	includeTerminated := false
+	if req.Params.IncludeTerminated != nil {
+		includeTerminated = *req.Params.IncludeTerminated
+	}
+
+	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor, includeTerminated)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
@@ -550,7 +567,7 @@ func (s *Server) UpdateNamespace(ctx context.Context, req UpdateNamespaceRequest
 
 // DeleteNamespace removes a namespace.
 func (s *Server) DeleteNamespace(ctx context.Context, req DeleteNamespaceRequestObject) (DeleteNamespaceResponseObject, error) {
-	if err := s.store.DeleteNamespace(ctx, req.Id); err != nil {
+	if err := s.store.SoftDeleteNamespace(ctx, req.Id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return DeleteNamespace404ApplicationProblemPlusJSONResponse{
 				NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
@@ -695,10 +712,17 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid filter", "query 'kind' is not a known workload kind")),
 		}, nil
 	}
+
+	includeTerminated := false
+	if req.Params.IncludeTerminated != nil {
+		includeTerminated = *req.Params.IncludeTerminated
+	}
+
 	filter := WorkloadListFilter{
-		NamespaceID:    req.Params.NamespaceId,
-		Kind:           req.Params.Kind,
-		ImageSubstring: req.Params.Image,
+		NamespaceID:       req.Params.NamespaceId,
+		Kind:              req.Params.Kind,
+		ImageSubstring:    req.Params.Image,
+		IncludeTerminated: includeTerminated,
 	}
 
 	items, next, err := s.store.ListWorkloads(ctx, filter, limit, cursor)

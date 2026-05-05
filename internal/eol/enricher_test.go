@@ -29,7 +29,7 @@ func (s *fakeStore) GetSettings(_ context.Context) (api.Settings, error) {
 	return api.Settings{EOLEnabled: s.eolEnabled}, nil
 }
 
-func (s *fakeStore) ListClusters(_ context.Context, _ int, _ string) ([]api.Cluster, string, error) {
+func (s *fakeStore) ListClusters(_ context.Context, _ int, _ string, _ bool) ([]api.Cluster, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := make([]api.Cluster, len(s.clusters))
@@ -63,7 +63,7 @@ func (s *fakeStore) UpdateCluster(_ context.Context, id uuid.UUID, in api.Cluste
 	return api.Cluster{}, api.ErrNotFound
 }
 
-func (s *fakeStore) ListNodes(_ context.Context, clusterID *uuid.UUID, _ int, _ string) ([]api.Node, string, error) {
+func (s *fakeStore) ListNodes(_ context.Context, clusterID *uuid.UUID, _ int, _ string, _ bool) ([]api.Node, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result []api.Node

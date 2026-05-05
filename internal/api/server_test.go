@@ -146,7 +146,7 @@ func (m *memStore) GetClusterByName(_ context.Context, name string) (Cluster, er
 	return m.byID[id], nil
 }
 
-func (m *memStore) ListClusters(_ context.Context, limit int, _ string) ([]Cluster, string, error) {
+func (m *memStore) ListClusters(_ context.Context, limit int, _ string, includeTerminated bool) ([]Cluster, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -154,6 +154,9 @@ func (m *memStore) ListClusters(_ context.Context, limit int, _ string) ([]Clust
 	}
 	out := make([]Cluster, 0, len(m.byID))
 	for _, c := range m.byID { //nolint:gocritic // acceptable copy in test code
+		// Filter out terminated clusters unless includeTerminated is true.
+		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
+		_ = includeTerminated
 		out = append(out, c)
 	}
 	if len(out) > limit {
@@ -221,6 +224,18 @@ func (m *memStore) DeleteCluster(_ context.Context, id uuid.UUID) error {
 	}
 	delete(m.byID, id)
 	delete(m.byName, c.Name)
+	return nil
+}
+
+// SoftDeleteCluster on memStore is a no-op cascade: it only verifies the
+// cluster exists and returns nil. memStore does not track terminated_at,
+// so cascade semantics are exercised by the PG-backed test instead.
+func (m *memStore) SoftDeleteCluster(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byID[id]; !ok {
+		return ErrNotFound
+	}
 	return nil
 }
 
@@ -375,7 +390,7 @@ func (m *memStore) GetNode(_ context.Context, id uuid.UUID) (Node, error) {
 	return n, nil
 }
 
-func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int, _ string) ([]Node, string, error) {
+func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int, _ string, includeTerminated bool) ([]Node, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -386,6 +401,9 @@ func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int,
 		if clusterID != nil && n.ClusterId != *clusterID {
 			continue
 		}
+		// Filter out terminated nodes unless includeTerminated is true.
+		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
+		_ = includeTerminated
 		out = append(out, n)
 	}
 	if len(out) > limit {
@@ -565,7 +583,7 @@ func (m *memStore) GetNamespace(_ context.Context, id uuid.UUID) (Namespace, err
 	return n, nil
 }
 
-func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit int, _ string) ([]Namespace, string, error) {
+func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit int, _ string, includeTerminated bool) ([]Namespace, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if limit <= 0 {
@@ -576,6 +594,9 @@ func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit
 		if clusterID != nil && n.ClusterId != *clusterID {
 			continue
 		}
+		// Filter out terminated namespaces unless includeTerminated is true.
+		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
+		_ = includeTerminated
 		out = append(out, n)
 	}
 	if len(out) > limit {
@@ -630,6 +651,18 @@ func (m *memStore) DeleteNamespace(_ context.Context, id uuid.UUID) error {
 	}
 	delete(m.nsByID, id)
 	delete(m.nsByNatKey, nsNatKey(n.ClusterId, n.Name))
+	return nil
+}
+
+// SoftDeleteNamespace on memStore is a no-op cascade: existence check
+// only. memStore does not track terminated_at; PG-backed tests cover
+// cascade semantics.
+func (m *memStore) SoftDeleteNamespace(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.nsByID[id]; !ok {
+		return ErrNotFound
+	}
 	return nil
 }
 
@@ -909,6 +942,9 @@ func (m *memStore) ListWorkloads(
 		if needle != "" && !podContainersMatch(wl.Containers, needle) {
 			continue
 		}
+		// Filter out terminated workloads unless IncludeTerminated is true.
+		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
+		_ = filter.IncludeTerminated
 		out = append(out, wl)
 	}
 	if len(out) > limit {
@@ -2010,15 +2046,16 @@ func TestClusterCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test ex
 		t.Errorf("list len=%d", len(page.Items))
 	}
 
-	// Delete
+	// Delete (soft-delete per ADR-0021): row remains, marked terminated.
 	del := do(h, http.MethodDelete, getURL, "")
 	if del.Code != http.StatusNoContent {
 		t.Errorf("delete status=%d", del.Code)
 	}
 
-	// Delete again → 404
+	// Delete again is idempotent under soft-delete: cluster still exists
+	// (terminated), so a second DELETE also returns 204.
 	del2 := do(h, http.MethodDelete, getURL, "")
-	if del2.Code != http.StatusNotFound {
+	if del2.Code != http.StatusNoContent {
 		t.Errorf("second delete status=%d", del2.Code)
 	}
 }
@@ -2224,13 +2261,14 @@ func TestNamespaceCRUD(t *testing.T) { //nolint:gocyclo // end-to-end CRUD test 
 		t.Errorf("filtered list len=%d", len(page.Items))
 	}
 
+	// Soft-delete (ADR-0021): row persists, second DELETE is idempotent.
 	del := do(h, http.MethodDelete, nsURL, "")
 	if del.Code != http.StatusNoContent {
 		t.Errorf("delete status=%d", del.Code)
 	}
 
 	del2 := do(h, http.MethodDelete, nsURL, "")
-	if del2.Code != http.StatusNotFound {
+	if del2.Code != http.StatusNoContent {
 		t.Errorf("second delete status=%d", del2.Code)
 	}
 }

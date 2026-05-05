@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
@@ -139,11 +139,60 @@ function GraphSVG({
 }) {
   const layout = useMemo(() => layoutGraph(graph), [graph]);
   const pad = 40;
+  const baseW = layout.width + pad * 2;
+  const baseH = layout.height + pad * 2;
+
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panRef = useRef({ active: false, startX: 0, startY: 0, origX: 0, origY: 0 });
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    setZoom((z) => Math.max(0.05, Math.min(50, z * factor)));
+  }, []);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    panRef.current = { active: true, startX: e.clientX, startY: e.clientY, origX: pan.x, origY: pan.y };
+  }, [pan]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!panRef.current.active) return;
+      const dx = (e.clientX - panRef.current.startX) / zoom;
+      const dy = (e.clientY - panRef.current.startY) / zoom;
+      setPan({ x: panRef.current.origX - dx, y: panRef.current.origY - dy });
+    };
+    const onUp = () => { panRef.current.active = false; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [zoom]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => e.preventDefault();
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
+
+  const vbW = baseW / zoom;
+  const vbH = baseH / zoom;
+  const vbX = -pad + pan.x;
+  const vbY = -pad + pan.y;
 
   return (
-    <div className="impact-graph-container">
+    <div className="impact-graph-container" ref={containerRef} onWheel={onWheel} onMouseDown={onMouseDown} style={{ position: 'relative', cursor: 'grab' }}>
+      <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4, zIndex: 2 }}>
+        <button className="depth-btn" onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.min(50, z * 1.25)); }}>+</button>
+        <button className="depth-btn" onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.max(0.05, z / 1.25)); }}>−</button>
+        <button className="depth-btn" onClick={(e) => { e.stopPropagation(); setZoom(1); setPan({ x: 0, y: 0 }); }}>reset</button>
+        <span className="muted" style={{ fontSize: '0.75rem', alignSelf: 'center', marginLeft: 4 }}>{Math.round(zoom * 100)}%</span>
+      </div>
       <svg
-        viewBox={`${-pad} ${-pad} ${layout.width + pad * 2} ${layout.height + pad * 2}`}
+        viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         className="impact-graph-svg"
       >
         <defs>

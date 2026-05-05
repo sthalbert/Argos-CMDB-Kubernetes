@@ -150,6 +150,14 @@ var (
 		Help:      "Cumulative successful credential fetches via GET /v1/cloud-accounts/.../credentials.",
 	}, []string{"cloud_account"})
 
+	// Time-travel history capture metrics (ADR-0021 Phase 2).
+	timeTravelWritesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "longue_vue",
+		Subsystem: "time_travel",
+		Name:      "writes_total",
+		Help:      "History rows written (or suppressed as noop), per entity kind and change_type. change_type='noop' counts suppressed updates where no watched field changed.",
+	}, []string{"kind", "change_type"})
+
 	// DMZ ingest gateway metrics on the longue-vue side (ADR-0016).
 	ingestVerifyTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "longue_vue",
@@ -190,6 +198,7 @@ func init() {
 		credentialsReads,
 		ingestVerifyTotal,
 		ingestListenerClientCertFailures,
+		timeTravelWritesTotal,
 	)
 }
 
@@ -231,6 +240,19 @@ func SetVirtualMachinesTotal(cloudAccount, terminated string, n int) {
 // successful 200 response.
 func ObserveCredentialsRead(cloudAccount string) {
 	credentialsReads.WithLabelValues(cloudAccount).Inc()
+}
+
+// ObserveTimeTravelWrite increments the time_travel_writes_total counter for a
+// history row that was actually written. kind is e.g. "clusters"; changeType is
+// one of "create", "update", "soft_delete", "restore".
+func ObserveTimeTravelWrite(kind, changeType string) {
+	timeTravelWritesTotal.WithLabelValues(kind, changeType).Inc()
+}
+
+// ObserveTimeTravelNoop increments the time_travel_writes_total counter with
+// change_type="noop" to track suppressed update events (RISK-003).
+func ObserveTimeTravelNoop(kind string) {
+	timeTravelWritesTotal.WithLabelValues(kind, "noop").Inc()
 }
 
 // Handler returns the /metrics HTTP handler.

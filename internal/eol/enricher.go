@@ -20,10 +20,10 @@ const annotationPrefix = "longue-vue.io/eol."
 // EnricherStore is the narrow subset of api.Store the enricher needs.
 type EnricherStore interface {
 	GetSettings(ctx context.Context) (api.Settings, error)
-	ListClusters(ctx context.Context, limit int, cursor string) ([]api.Cluster, string, error)
+	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]api.Cluster, string, error)
 	GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error)
 	UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error)
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.Node, string, error)
+	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Node, string, error)
 	GetNode(ctx context.Context, id uuid.UUID) (api.Node, error)
 	UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (api.Node, error)
 	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error)
@@ -89,7 +89,7 @@ func (e *Enricher) enrich(ctx context.Context) {
 
 	cursor := ""
 	for {
-		clusters, next, err := e.store.ListClusters(ctx, 100, cursor)
+		clusters, next, err := e.store.ListClusters(ctx, 100, cursor, false)
 		if err != nil {
 			slog.Error("eol enricher: list clusters", slog.Any("error", err))
 			metrics.ObserveEOLError("_all_", "cluster", "list")
@@ -175,7 +175,7 @@ func (e *Enricher) enrichClusterVersion(ctx context.Context, clusterID uuid.UUID
 func (e *Enricher) enrichClusterNodes(ctx context.Context, clusterID uuid.UUID, clusterName string) {
 	nodeCursor := ""
 	for {
-		nodes, next, err := e.store.ListNodes(ctx, &clusterID, 100, nodeCursor)
+		nodes, next, err := e.store.ListNodes(ctx, &clusterID, 100, nodeCursor, false)
 		if err != nil {
 			slog.Error("eol enricher: list nodes",
 				slog.Any("error", err), slog.String("cluster", clusterName))

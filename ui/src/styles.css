@@ -80,6 +80,8 @@
   box-sizing: border-box;
 }
 
+html { scrollbar-gutter: stable; }
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -249,8 +251,10 @@ a:hover {
 
 main {
   padding: 1.75rem 1.5rem;
-  max-width: var(--container-max);
+  width: var(--container-max);
+  max-width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 /* Page title — flex so inline SVG icons align vertically */
@@ -1406,18 +1410,19 @@ th.sortable:hover {
 
 /* --- Impact Graph -------------------------------------------------------- */
 .impact-graph-container {
-  overflow-x: auto;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-0);
   padding: 1rem;
   margin-bottom: 1rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  user-select: none;
 }
 .impact-graph-svg {
   width: 100%;
-  min-height: 200px;
-  max-height: 600px;
+  height: 600px;
+  display: block;
 }
 .impact-graph-svg a { cursor: pointer; }
 .impact-graph-svg a:hover rect { stroke-width: 2.5; }
@@ -1464,4 +1469,432 @@ th.sortable:hover {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+/* ============================================================
+   History tab — time-travel track (ADR-0021 Phase 4)
+   Horizontal activity timeline with two pinnable A/B handles.
+   Shape adapted from the lv-timeline prototype; tokens are the
+   project's existing dark palette so it sits inside the rest of
+   the UI without re-skinning.
+   ============================================================ */
+
+.lv-tt {
+  --tt-add: var(--ok-fg);
+  --tt-mod: var(--accent);
+  --tt-rem: var(--bad-fg);
+  --tt-rst: var(--warn-fg);
+  margin-top: 1rem;
+  font-family: var(--font-sans);
+}
+
+/* --- Timeline card -------------------------------------------------------- */
+.lv-tt-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.1rem 0.9rem;
+  contain: layout;
+}
+
+.lv-tt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.lv-tt-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.74rem;
+  font-weight: var(--fw-semi);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-divider);
+  color: var(--fg-2);
+}
+
+.lv-tt-title::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--accent);
+  transform: rotate(45deg);
+}
+
+.lv-tt-points {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--fg-3);
+  font-feature-settings: "tnum" 1;
+}
+
+.lv-tt-pt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--bg-1);
+}
+
+.lv-tt-pt .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(92, 200, 255, 0.18);
+}
+.lv-tt-pt.b .dot {
+  background: var(--fg-3);
+  box-shadow: 0 0 0 2px rgba(207, 210, 214, 0.12);
+}
+
+.lv-tt-arrow { color: var(--fg-muted); }
+
+/* --- Track -------------------------------------------------------------- */
+.lv-tt-track {
+  position: relative;
+  height: 56px;
+  padding: 6px 0;
+  cursor: crosshair;
+  user-select: none;
+}
+
+.lv-tt-bars {
+  position: absolute;
+  inset: 6px 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.lv-tt-bar {
+  flex: 1;
+  min-height: 4px;
+  background: var(--border);
+  border-radius: 1px;
+}
+
+.lv-tt-bar.k-add { background: var(--tt-add); opacity: 0.55; }
+.lv-tt-bar.k-mod { background: var(--accent-dim); opacity: 0.85; }
+.lv-tt-bar.k-rem { background: var(--tt-rem); opacity: 0.6; }
+.lv-tt-bar.k-rst { background: var(--tt-rst); opacity: 0.6; }
+.lv-tt-bar.in-range { opacity: 1; }
+.lv-tt-bar.out-range { opacity: 0.25; }
+.lv-tt-bar.empty { background: var(--bg-3); opacity: 0.4; }
+
+.lv-tt-tick {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  height: 100%;
+  margin-left: -1px;
+  border-radius: 1px;
+  pointer-events: none;
+  box-shadow: 0 0 6px currentColor;
+}
+.lv-tt-tick.add { background: var(--tt-add); color: var(--tt-add); }
+.lv-tt-tick.mod { background: var(--accent); color: var(--accent); }
+.lv-tt-tick.rem { background: var(--tt-rem); color: var(--tt-rem); }
+.lv-tt-tick.rst { background: var(--tt-rst); color: var(--tt-rst); }
+.lv-tt-tick.out-range { opacity: 0.3; box-shadow: none; }
+
+.lv-tt-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(92, 200, 255, 0.07);
+  border-left: 1px dashed var(--accent-dim);
+  border-right: 1px dashed var(--accent-dim);
+  pointer-events: none;
+}
+
+.lv-tt-handle {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+.lv-tt-handle::before, .lv-tt-handle::after { pointer-events: auto; cursor: ew-resize; }
+.lv-tt-handle.b { background: var(--fg-3); }
+
+.lv-tt-handle::before {
+  content: attr(data-label);
+  position: absolute;
+  top: -1.1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--ls-divider);
+  padding: 1px 5px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: 1px;
+}
+.lv-tt-handle.b::before {
+  background: var(--fg-3);
+  color: var(--bg-0);
+}
+
+.lv-tt-handle::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 9px;
+  height: 9px;
+  background: var(--accent);
+  transform-origin: center;
+  rotate: 45deg;
+  translate: -50% 0;
+  box-shadow: 0 0 0 1px var(--bg-2);
+}
+.lv-tt-handle.b::after { background: var(--fg-3); }
+
+.lv-tt-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-feature-settings: "tnum" 1;
+  color: var(--fg-muted);
+}
+
+.lv-tt-axis .hint {
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-divider);
+  font-size: 0.62rem;
+}
+
+/* --- Stat strip --------------------------------------------------------- */
+.lv-tt-stats {
+  margin-top: 0.85rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.lv-tt-stat {
+  padding: 0.85rem 1.1rem;
+  border-right: 1px solid var(--border);
+}
+.lv-tt-stat:last-child { border-right: none; }
+
+.lv-tt-stat-label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: var(--ls-divider);
+  color: var(--fg-muted);
+  margin-bottom: 0.25rem;
+}
+
+.lv-tt-stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.45rem;
+  font-weight: var(--fw-semi);
+  font-feature-settings: "tnum" 1;
+  color: var(--fg-1);
+  line-height: 1.1;
+}
+.lv-tt-stat-value.accent { color: var(--accent); }
+.lv-tt-stat-value.ok    { color: var(--ok-fg); }
+.lv-tt-stat-value.warn  { color: var(--warn-fg); }
+.lv-tt-stat-value.bad   { color: var(--bad-fg); }
+
+.lv-tt-stat-meta {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+
+/* --- Diff list ---------------------------------------------------------- */
+.lv-tt-section {
+  margin-top: 1.1rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+}
+
+.lv-tt-section .h {
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: var(--fw-semi);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-divider);
+  color: var(--fg-2);
+}
+
+.lv-tt-section .c {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  font-feature-settings: "tnum" 1;
+}
+
+.lv-tt-list {
+  margin-top: 0.4rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  height: 420px;
+}
+.lv-tt-list-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--fg-muted); font-family: var(--font-mono);
+  font-size: 0.78rem; gap: 0.4rem;
+}
+.lv-tt-list-empty .glyph { font-size: 1.4rem; letter-spacing: 0.5em; color: var(--border); }
+
+.lv-tt-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: start;
+  padding: 0.65rem 0.95rem;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  transition: background 140ms ease;
+}
+.lv-tt-row:last-child { border-bottom: none; }
+.lv-tt-row:hover { background: var(--bg-3); }
+
+.lv-tt-row.add { background: rgba(123, 216, 143, 0.04); }
+.lv-tt-row.mod { background: rgba(92, 200, 255, 0.035); }
+.lv-tt-row.rem { background: rgba(247, 113, 110, 0.05); }
+.lv-tt-row.rst { background: rgba(250, 182, 97, 0.04); }
+
+.lv-tt-tag {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: var(--fw-semi);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-divider);
+  white-space: nowrap;
+}
+.lv-tt-row.add .lv-tt-tag { color: var(--tt-add); }
+.lv-tt-row.mod .lv-tt-tag { color: var(--tt-mod); }
+.lv-tt-row.rem .lv-tt-tag { color: var(--tt-rem); }
+.lv-tt-row.rst .lv-tt-tag { color: var(--tt-rst); }
+
+.lv-tt-tag-time {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--fg-muted);
+  font-feature-settings: "tnum" 1;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.lv-tt-target {
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  color: var(--fg-1);
+  word-break: break-word;
+}
+
+.lv-tt-detail {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--fg-3);
+}
+
+.lv-tt-detail .actor {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+}
+
+.lv-tt-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+  margin-top: 0.45rem;
+}
+
+.lv-tt-fchip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--bg-1);
+  color: var(--fg-2);
+}
+
+.lv-tt-fchip .name {
+  color: var(--fg-1);
+  font-weight: var(--fw-semi);
+}
+
+.lv-tt-fchip .from {
+  color: var(--fg-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--bad-fg);
+  text-decoration-thickness: 1px;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lv-tt-fchip .arrow {
+  color: var(--fg-muted);
+  margin: 0 0.1rem;
+}
+
+.lv-tt-fchip .to {
+  color: var(--ok-fg);
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Empty / loading ---------------------------------------------------- */
+.lv-tt-empty {
+  margin-top: 1rem;
+  padding: 1.25rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+.lv-tt-empty .glyph {
+  display: block;
+  font-size: 1.4rem;
+  letter-spacing: 0.5em;
+  color: var(--border);
+  margin-bottom: 0.4rem;
 }

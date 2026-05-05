@@ -20,6 +20,7 @@ import { ClusterCuratedCard } from './cluster_curated';
 import { NamespaceCuratedCard } from './namespace_curated';
 import { NodeCuratedCard } from './node_curated';
 import { ImpactSection } from './ImpactGraph';
+import { ClusterHistory } from './ClusterHistory';
 import { LabelsCard } from '../components/inventory/LabelsCard';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon, IngressIcon,
@@ -57,12 +58,50 @@ function NodeStatusInline({
 
 // --- Cluster detail -------------------------------------------------------
 
+type ClusterTab = 'overview' | 'impact' | 'history';
+
+// Simple tab bar used by ClusterDetail. Uses existing design-system tokens.
+function TabBar({
+  active,
+  tabs,
+  onChange,
+}: {
+  active: string;
+  tabs: { id: string; label: string }[];
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid var(--border)', marginBottom: '1rem' }}>
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          style={{
+            background: 'none',
+            border: 'none',
+            borderBottom: active === t.id ? '2px solid var(--accent)' : '2px solid transparent',
+            marginBottom: -2,
+            padding: '0.5rem 1rem',
+            cursor: 'pointer',
+            color: active === t.id ? 'var(--accent)' : 'var(--fg-muted)',
+            fontWeight: active === t.id ? 600 : 400,
+            fontSize: '0.9rem',
+          }}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function ClusterDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const me = useMe();
   const [nonce, setNonce] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  const [activeTab, setActiveTab] = useState<ClusterTab>('overview');
   const reload = () => setNonce((n) => n + 1);
   const state = useResources(
     [
@@ -117,104 +156,122 @@ export function ClusterDetail() {
                 </button>
               )}
             </h2>
-            <dl className="kv-list">
-              <KV k="Name" v={<code>{cluster.name}</code>} />
-              <KV k="Environment" v={cluster.environment} />
-              <KV k="Provider" v={cluster.provider} />
-              <KV k="Region" v={cluster.region} />
-              <KV k="K8s version" v={cluster.kubernetes_version && <code>{cluster.kubernetes_version}</code>} />
-              <KV k="API endpoint" v={cluster.api_endpoint && <code>{cluster.api_endpoint}</code>} />
-              <KV k="Labels" v={<Labels labels={cluster.labels} />} />
-            </dl>
 
-            <ClusterCuratedCard cluster={cluster} onSaved={reload} />
+            <TabBar
+              active={activeTab}
+              tabs={[
+                { id: 'overview', label: 'Overview' },
+                { id: 'impact',   label: 'Impact' },
+                { id: 'history',  label: 'History' },
+              ]}
+              onChange={(t) => setActiveTab(t as ClusterTab)}
+            />
 
-            <SectionTitle count={namespaces.items.length}>Namespaces</SectionTitle>
-            {namespaces.items.length === 0 ? (
-              <Empty message="No namespaces ingested yet." />
-            ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Phase</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {namespaces.items.map((n) => (
-                    <tr key={n.id}>
-                      <td>
-                        <Link to={`/namespaces/${n.id}`}>
-                          <strong>{n.name}</strong>
-                        </Link>
-                      </td>
-                      <td>{n.phase || <Dash />}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {activeTab === 'overview' && (
+              <>
+                <dl className="kv-list">
+                  <KV k="Name" v={<code>{cluster.name}</code>} />
+                  <KV k="Environment" v={cluster.environment} />
+                  <KV k="Provider" v={cluster.provider} />
+                  <KV k="Region" v={cluster.region} />
+                  <KV k="K8s version" v={cluster.kubernetes_version && <code>{cluster.kubernetes_version}</code>} />
+                  <KV k="API endpoint" v={cluster.api_endpoint && <code>{cluster.api_endpoint}</code>} />
+                  <KV k="Labels" v={<Labels labels={cluster.labels} />} />
+                </dl>
+
+                <ClusterCuratedCard cluster={cluster} onSaved={reload} />
+
+                <SectionTitle count={namespaces.items.length}>Namespaces</SectionTitle>
+                {namespaces.items.length === 0 ? (
+                  <Empty message="No namespaces ingested yet." />
+                ) : (
+                  <table className="entities">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Phase</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {namespaces.items.map((n) => (
+                        <tr key={n.id}>
+                          <td>
+                            <Link to={`/namespaces/${n.id}`}>
+                              <strong>{n.name}</strong>
+                            </Link>
+                          </td>
+                          <td>{n.phase || <Dash />}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                <SectionTitle count={nodes.items.length}>Nodes</SectionTitle>
+                {nodes.items.length === 0 ? (
+                  <Empty message="No nodes ingested yet." />
+                ) : (
+                  <table className="entities">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Kubelet</th>
+                        <th>Arch</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {nodes.items.map((n) => (
+                        <tr key={n.id}>
+                          <td>
+                            <Link to={`/nodes/${n.id}`}>
+                              <strong>{n.display_name || n.name}</strong>
+                            </Link>
+                          </td>
+                          <td>{n.kubelet_version ? <code>{n.kubelet_version}</code> : <Dash />}</td>
+                          <td>{n.architecture || <Dash />}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                <SectionTitle count={pvs.items.length}>Persistent Volumes</SectionTitle>
+                {pvs.items.length === 0 ? (
+                  <Empty message="No PVs in this cluster." />
+                ) : (
+                  <table className="entities">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Capacity</th>
+                        <th>Storage class</th>
+                        <th>Phase</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pvs.items.map((pv) => (
+                        <tr key={pv.id}>
+                          <td>
+                            <strong>{pv.name}</strong>
+                          </td>
+                          <td>{pv.capacity ? <code>{pv.capacity}</code> : <Dash />}</td>
+                          <td>{pv.storage_class_name || <Dash />}</td>
+                          <td>{pv.phase || <Dash />}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
             )}
 
-            <SectionTitle count={nodes.items.length}>Nodes</SectionTitle>
-            {nodes.items.length === 0 ? (
-              <Empty message="No nodes ingested yet." />
-            ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Kubelet</th>
-                    <th>Arch</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nodes.items.map((n) => (
-                    <tr key={n.id}>
-                      <td>
-                        <Link to={`/nodes/${n.id}`}>
-                          <strong>{n.display_name || n.name}</strong>
-                        </Link>
-                      </td>
-                      <td>{n.kubelet_version ? <code>{n.kubelet_version}</code> : <Dash />}</td>
-                      <td>{n.architecture || <Dash />}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            {activeTab === 'impact' && <ImpactSection entityType="clusters" entityId={id} />}
 
-            <SectionTitle count={pvs.items.length}>Persistent Volumes</SectionTitle>
-            {pvs.items.length === 0 ? (
-              <Empty message="No PVs in this cluster." />
-            ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Capacity</th>
-                    <th>Storage class</th>
-                    <th>Phase</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pvs.items.map((pv) => (
-                    <tr key={pv.id}>
-                      <td>
-                        <strong>{pv.name}</strong>
-                      </td>
-                      <td>{pv.capacity ? <code>{pv.capacity}</code> : <Dash />}</td>
-                      <td>{pv.storage_class_name || <Dash />}</td>
-                      <td>{pv.phase || <Dash />}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            {activeTab === 'history' && <ClusterHistory clusterId={id} />}
           </>
           );
         }}
       </AsyncView>
-      <ImpactSection entityType="clusters" entityId={id} />
     </>
   );
 }
