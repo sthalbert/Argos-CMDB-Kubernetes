@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -893,18 +894,55 @@ func (f *fakeKubeSource) ListPersistentVolumeClaims(_ context.Context) ([]collec
 	return f.pvcs, nil
 }
 
-// runCollectorOnce creates a collector and runs one poll cycle, then cancels.
+// notifyingStore wraps a CmdbStore and closes tickDone after the first
+// successful UpsertPersistentVolumeClaim, which is the last write in a tick.
+type notifyingStore struct {
+	collector.CmdbStore
+	once     sync.Once
+	tickDone chan struct{}
+}
+
+func (s *notifyingStore) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
+	pvc, err := s.CmdbStore.UpsertPersistentVolumeClaim(ctx, in)
+	if err == nil {
+		s.once.Do(func() { close(s.tickDone) })
+	}
+	return pvc, err
+}
+
 func runCollectorOnce(
 	t *testing.T, cStore collector.CmdbStore, source collector.KubeSource,
 	clusterName string, reconcile bool,
 ) {
 	t.Helper()
-	coll := collector.New(cStore, source, clusterName, 1*time.Hour, 30*time.Second, reconcile)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Wrap the store so we can detect when PVC (the last write of a tick) lands.
+	ns := &notifyingStore{
+		CmdbStore: cStore,
+		tickDone:  make(chan struct{}),
+	}
+	// Use a generous outer timeout; fetchTimeout is set to the same value so
+	// the inner per-call context is always bounded by the outer one.
+	const totalTimeout = 30 * time.Second
+	coll := collector.New(ns, source, clusterName, 1*time.Hour, totalTimeout, reconcile)
+
+	ctx, cancel := context.WithTimeout(context.Background(), totalTimeout)
 	defer cancel()
-	go coll.Run(ctx) //nolint:errcheck // fire-and-forget; context cancellation stops the collector
-	time.Sleep(3 * time.Second)
-	cancel()
+
+	collDone := make(chan struct{})
+	go func() {
+		defer close(collDone)
+		coll.Run(ctx) //nolint:errcheck // context cancellation stops the collector
+	}()
+
+	// Cancel the context as soon as the first PVC upsert succeeds (full tick
+	// committed) or when totalTimeout fires, whichever comes first.
+	select {
+	case <-ns.tickDone:
+		cancel()
+	case <-ctx.Done():
+		// timeout fired before tick completed — let the goroutine finish
+	}
+	<-collDone
 }
 
 // verifyFirstPollResults checks that the first collector poll populated all
