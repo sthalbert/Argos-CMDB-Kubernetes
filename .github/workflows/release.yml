@@ -4,14 +4,45 @@ on:
   push:
     tags:
       - "v*"
+      - "chart-*-v*"
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
+  detect:
+    name: Detect release kind from tag
+    runs-on: ubuntu-latest
+    outputs:
+      kind: ${{ steps.k.outputs.kind }}
+      chart: ${{ steps.k.outputs.chart }}
+      version: ${{ steps.k.outputs.version }}
+    steps:
+      - id: k
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$TAG" == chart-*-v* ]]; then
+            rest="${TAG#chart-}"
+            chart="${rest%-v*}"
+            version="${rest##*-v}"
+            echo "kind=chart" >>"$GITHUB_OUTPUT"
+            echo "chart=$chart" >>"$GITHUB_OUTPUT"
+            echo "version=$version" >>"$GITHUB_OUTPUT"
+          elif [[ "$TAG" == v* ]]; then
+            echo "kind=binary" >>"$GITHUB_OUTPUT"
+            echo "version=${TAG#v}" >>"$GITHUB_OUTPUT"
+          else
+            echo "Unrecognised tag: $TAG" >&2
+            exit 1
+          fi
+
   images:
     name: Build and push container images
+    needs: detect
+    if: needs.detect.outputs.kind == 'binary'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -20,30 +51,23 @@ jobs:
             dockerfile: Dockerfile
           - image: longue-vue-collector
             dockerfile: Dockerfile.collector
-
+          - image: longue-vue-ingest-gw
+            dockerfile: Dockerfile.ingest-gw
+          - image: longue-vue-vm-collector
+            dockerfile: Dockerfile.vm-collector
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
 
-      - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata
-        id: meta
+      - id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
@@ -53,8 +77,7 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest
 
-      - name: Build and push
-        uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -65,4 +88,61 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
           build-args: |
-            VERSION=${{ steps.version.outputs.version }}
+            VERSION=${{ needs.detect.outputs.version }}
+
+  binaries:
+    name: Build and publish binaries (GoReleaser)
+    needs: detect
+    if: needs.detect.outputs.kind == 'binary'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  chart:
+    name: Package and push Helm chart to GHCR
+    needs: detect
+    if: needs.detect.outputs.kind == 'chart'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Helm registry login
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GHCR_USER" --password-stdin
+
+      - name: Package and push chart
+        env:
+          CHART: ${{ needs.detect.outputs.chart }}
+          VERSION: ${{ needs.detect.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          helm package "charts/$CHART" -d /tmp
+          helm push "/tmp/${CHART}-${VERSION}.tgz" "oci://ghcr.io/${OWNER}/charts"
