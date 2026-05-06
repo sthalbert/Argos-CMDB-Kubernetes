@@ -902,12 +902,13 @@ type notifyingStore struct {
 	tickDone chan struct{}
 }
 
+//nolint:gocritic // signature is fixed by the collector.CmdbStore interface
 func (s *notifyingStore) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
 	pvc, err := s.CmdbStore.UpsertPersistentVolumeClaim(ctx, in)
 	if err == nil {
 		s.once.Do(func() { close(s.tickDone) })
 	}
-	return pvc, err
+	return pvc, err //nolint:wrapcheck // pass through interface error verbatim
 }
 
 func runCollectorOnce(
