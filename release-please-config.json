@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "separate-pull-requests": false,
+  "include-component-in-tag": true,
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "component": "longue-vue",
+      "include-component-in-tag": false,
+      "extra-files": [
+        {
+          "type": "yaml",
+          "path": "charts/longue-vue/Chart.yaml",
+          "jsonpath": "$.appVersion"
+        },
+        {
+          "type": "yaml",
+          "path": "charts/longue-vue-collector/Chart.yaml",
+          "jsonpath": "$.appVersion"
+        },
+        {
+          "type": "yaml",
+          "path": "charts/longue-vue-ingest-gw/Chart.yaml",
+          "jsonpath": "$.appVersion"
+        },
+        {
+          "type": "yaml",
+          "path": "charts/longue-vue-vm-collector/Chart.yaml",
+          "jsonpath": "$.appVersion"
+        }
+      ]
+    },
+    "charts/longue-vue": {
+      "release-type": "helm",
+      "component": "chart-longue-vue",
+      "package-name": "longue-vue"
+    },
+    "charts/longue-vue-collector": {
+      "release-type": "helm",
+      "component": "chart-longue-vue-collector",
+      "package-name": "longue-vue-collector"
+    },
+    "charts/longue-vue-ingest-gw": {
+      "release-type": "helm",
+      "component": "chart-longue-vue-ingest-gw",
+      "package-name": "longue-vue-ingest-gw"
+    },
+    "charts/longue-vue-vm-collector": {
+      "release-type": "helm",
+      "component": "chart-longue-vue-vm-collector",
+      "package-name": "longue-vue-vm-collector"
+    }
+  }
+}

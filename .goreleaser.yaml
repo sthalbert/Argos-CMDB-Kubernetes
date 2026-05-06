@@ -1,0 +1,59 @@
+version: 2
+
+before:
+  hooks:
+    - sh -c "cd ui && npm ci && npm run build"
+
+builds:
+  - id: longue-vue
+    main: ./cmd/longue-vue
+    binary: longue-vue
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: longue-vue-collector
+    main: ./cmd/longue-vue-collector
+    binary: longue-vue-collector
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: longue-vue-ingest-gw
+    main: ./cmd/longue-vue-ingest-gw
+    binary: longue-vue-ingest-gw
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: longue-vue-vm-collector
+    main: ./cmd/longue-vue-vm-collector
+    binary: longue-vue-vm-collector
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  disable: true
+
+release:
+  draft: false
+  prerelease: auto
