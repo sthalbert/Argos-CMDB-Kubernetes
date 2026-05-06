@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
-import { useResizableColumns } from '../../components/resizable_columns';
+import { useEntityTable } from '../../components/column_filters';
 
 // Token presets per ADR-0007 + ADR-0015. The OpenAPI request type is
 // fixed (name, scopes, expires_at) so vm-collector tokens currently
@@ -291,7 +291,7 @@ function MintForm({
 }
 
 function TokenTable({ tokens, reload }: { tokens: api.ApiToken[]; reload: Reload }) {
-  const tableRef = useResizableColumns('admin.tokens');
+  const tableRef = useEntityTable('admin.tokens');
   if (tokens.length === 0) return <p className="muted">No tokens minted yet.</p>;
   return (
     <table className="entities" ref={tableRef}>

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResources } from '../hooks';
 import { AsyncView, Dash } from '../components';
-import { useResizableColumns } from '../components/resizable_columns';
+import { useEntityTable } from '../components/column_filters';
 import { EolIcon } from '../icons';
 
 // --- EOL annotation parsing -----------------------------------------------
@@ -289,7 +289,7 @@ function EolTable({
 }) {
   const allRows = useMemo(() => buildRows(clusters, nodes, vms), [clusters, nodes, vms]);
   const counts = useMemo(() => countStatuses(allRows), [allRows]);
-  const tableRef = useResizableColumns('eol.table');
+  const tableRef = useEntityTable('eol.table');
 
   const filtered = useMemo(
     () => (statusFilter ? allRows.filter((r) => r.eolStatus === statusFilter) : allRows),
