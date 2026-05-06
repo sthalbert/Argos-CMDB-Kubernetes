@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, SectionTitle, Empty } from '../components';
-import { useResizableColumns } from '../components/resizable_columns';
+import { useEntityTable } from '../components/column_filters';
 import { isAdmin, useMe } from '../me';
 
 // Image search — answers "which applications run component X in version Y?"
@@ -70,9 +70,9 @@ export default function ImageSearch() {
 function Results({ q }: { q: string }) {
   const me = useMe();
   const canListAccounts = isAdmin(me);
-  const workloadsTableRef = useResizableColumns('search.workloads');
-  const podsTableRef = useResizableColumns('search.pods');
-  const vmsTableRef = useResizableColumns('search.vms');
+  const workloadsTableRef = useEntityTable('search.workloads');
+  const podsTableRef = useEntityTable('search.pods');
+  const vmsTableRef = useEntityTable('search.vms');
   const state = useResource(
     () =>
       Promise.all([

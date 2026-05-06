@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
-import { useResizableColumns } from '../../components/resizable_columns';
+import { useEntityTable } from '../../components/column_filters';
 
 // CloudAccountsPage — admin tab for ADR-0015 cloud-provider accounts.
 // Shape mirrors the Tokens page: list-then-action, with an inline create
@@ -46,7 +46,7 @@ export default function CloudAccountsPage() {
   const state = useResource(() => api.listCloudAccounts(), [nonce]);
   const [searchParams, setSearchParams] = useSearchParams();
   const statusFilter = searchParams.get('status') || '';
-  const tableRef = useResizableColumns('admin.cloud_accounts');
+  const tableRef = useEntityTable('admin.cloud_accounts');
 
   const setStatus = (s: string) => {
     const next = new URLSearchParams(searchParams);
