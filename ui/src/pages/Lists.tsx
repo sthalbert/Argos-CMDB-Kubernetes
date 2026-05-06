@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses, Empty } from '../components';
-import { useResizableColumns } from '../components/resizable_columns';
+import { useEntityTable } from '../components/column_filters';
 import {
   ClusterIcon, NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
   ServiceIcon, IngressIcon, VolumeIcon,
@@ -15,7 +15,7 @@ import {
 
 export function Clusters() {
   const state = useResource(() => api.listClusters(), []);
-  const tableRef = useResizableColumns('lists.clusters');
+  const tableRef = useEntityTable('lists.clusters');
   return (
     <>
       <h2><ClusterIcon size={20} /> Clusters</h2>
@@ -75,7 +75,7 @@ export function Nodes() {
       })),
     [],
   );
-  const tableRef = useResizableColumns('lists.nodes');
+  const tableRef = useEntityTable('lists.nodes');
   return (
     <>
       <h2><NodeIcon size={20} /> Nodes</h2>
@@ -164,7 +164,7 @@ export function Namespaces() {
       })),
     [],
   );
-  const tableRef = useResizableColumns('lists.namespaces');
+  const tableRef = useEntityTable('lists.namespaces');
   return (
     <>
       <h2><NamespaceIcon size={20} /> Namespaces</h2>
@@ -272,7 +272,7 @@ function NamespaceLink({
 export function Workloads() {
   const index = useNamespaceIndex();
   const workloads = useResource(() => api.listWorkloads(), []);
-  const tableRef = useResizableColumns('lists.workloads');
+  const tableRef = useEntityTable('lists.workloads');
 
   return (
     <>
@@ -340,7 +340,7 @@ export function Pods() {
   const index = useNamespaceIndex();
   const pods = useResource(() => api.listPods(), []);
   const workloads = useResource(() => fetchAllWorkloads(), []);
-  const tableRef = useResizableColumns('lists.pods');
+  const tableRef = useEntityTable('lists.pods');
   return (
     <>
       <h2><PodIcon size={20} /> Pods</h2>
@@ -418,7 +418,7 @@ export function Pods() {
 export function Services() {
   const index = useNamespaceIndex();
   const services = useResource(() => api.listServices(), []);
-  const tableRef = useResizableColumns('lists.services');
+  const tableRef = useEntityTable('lists.services');
   return (
     <>
       <h2><ServiceIcon size={20} /> Services</h2>
@@ -479,7 +479,7 @@ export function Services() {
 export function Ingresses() {
   const index = useNamespaceIndex();
   const ingresses = useResource(() => api.listIngresses(), []);
-  const tableRef = useResizableColumns('lists.ingresses');
+  const tableRef = useEntityTable('lists.ingresses');
   return (
     <>
       <h2><IngressIcon size={20} /> Ingresses</h2>
@@ -548,7 +548,7 @@ export function PersistentVolumes() {
       })),
     [],
   );
-  const tableRef = useResizableColumns('lists.persistent_volumes');
+  const tableRef = useEntityTable('lists.persistent_volumes');
   return (
     <>
       <h2><VolumeIcon size={20} /> Persistent Volumes</h2>
@@ -602,7 +602,7 @@ export function PersistentVolumes() {
 export function PersistentVolumeClaims() {
   const index = useNamespaceIndex();
   const pvcs = useResource(() => api.listPersistentVolumeClaims(), []);
-  const tableRef = useResizableColumns('lists.persistent_volume_claims');
+  const tableRef = useEntityTable('lists.persistent_volume_claims');
   return (
     <>
       <h2><VolumeIcon size={20} /> Persistent Volume Claims</h2>
