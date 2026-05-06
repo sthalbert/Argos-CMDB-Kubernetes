@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses, Empty } from '../components';
+import { useResizableColumns } from '../components/resizable_columns';
 import {
   ClusterIcon, NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
   ServiceIcon, IngressIcon, VolumeIcon,
@@ -14,6 +15,7 @@ import {
 
 export function Clusters() {
   const state = useResource(() => api.listClusters(), []);
+  const tableRef = useResizableColumns('lists.clusters');
   return (
     <>
       <h2><ClusterIcon size={20} /> Clusters</h2>
@@ -23,7 +25,7 @@ export function Clusters() {
             <Empty message="No clusters yet. Connect a collector to start populating your inventory." />
           ) : (
             <div className="table-wrap">
-              <table className="entities">
+              <table className="entities" ref={tableRef}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -73,6 +75,7 @@ export function Nodes() {
       })),
     [],
   );
+  const tableRef = useResizableColumns('lists.nodes');
   return (
     <>
       <h2><NodeIcon size={20} /> Nodes</h2>
@@ -82,7 +85,7 @@ export function Nodes() {
             <Empty message="No nodes found. Ensure a collector is running and connected to a cluster." />
           ) : (
             <div className="table-wrap">
-              <table className="entities">
+              <table className="entities" ref={tableRef}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -161,6 +164,7 @@ export function Namespaces() {
       })),
     [],
   );
+  const tableRef = useResizableColumns('lists.namespaces');
   return (
     <>
       <h2><NamespaceIcon size={20} /> Namespaces</h2>
@@ -170,7 +174,7 @@ export function Namespaces() {
             <Empty message="No namespaces found. They are collected automatically from your clusters." />
           ) : (
             <div className="table-wrap">
-              <table className="entities">
+              <table className="entities" ref={tableRef}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -268,6 +272,7 @@ function NamespaceLink({
 export function Workloads() {
   const index = useNamespaceIndex();
   const workloads = useResource(() => api.listWorkloads(), []);
+  const tableRef = useResizableColumns('lists.workloads');
 
   return (
     <>
@@ -280,7 +285,7 @@ export function Workloads() {
                 <Empty message="No workloads found. Deployments, StatefulSets and DaemonSets will appear here once collected." />
               ) : (
                 <div className="table-wrap">
-                  <table className="entities">
+                  <table className="entities" ref={tableRef}>
                     <thead>
                       <tr>
                         <th>Name</th>
@@ -335,6 +340,7 @@ export function Pods() {
   const index = useNamespaceIndex();
   const pods = useResource(() => api.listPods(), []);
   const workloads = useResource(() => fetchAllWorkloads(), []);
+  const tableRef = useResizableColumns('lists.pods');
   return (
     <>
       <h2><PodIcon size={20} /> Pods</h2>
@@ -349,7 +355,7 @@ export function Pods() {
                     <Empty message="No pods found. Pods are collected from all connected clusters." />
                   ) : (
                     <div className="table-wrap">
-                      <table className="entities">
+                      <table className="entities" ref={tableRef}>
                         <thead>
                           <tr>
                             <th>Name</th>
@@ -412,6 +418,7 @@ export function Pods() {
 export function Services() {
   const index = useNamespaceIndex();
   const services = useResource(() => api.listServices(), []);
+  const tableRef = useResizableColumns('lists.services');
   return (
     <>
       <h2><ServiceIcon size={20} /> Services</h2>
@@ -423,7 +430,7 @@ export function Services() {
                 <Empty message="No services found. Kubernetes Services are collected automatically." />
               ) : (
                 <div className="table-wrap">
-                  <table className="entities">
+                  <table className="entities" ref={tableRef}>
                     <thead>
                       <tr>
                         <th>Name</th>
@@ -472,6 +479,7 @@ export function Services() {
 export function Ingresses() {
   const index = useNamespaceIndex();
   const ingresses = useResource(() => api.listIngresses(), []);
+  const tableRef = useResizableColumns('lists.ingresses');
   return (
     <>
       <h2><IngressIcon size={20} /> Ingresses</h2>
@@ -483,7 +491,7 @@ export function Ingresses() {
                 <Empty message="No ingresses found. Ingress resources are collected from all namespaces." />
               ) : (
                 <div className="table-wrap">
-                  <table className="entities">
+                  <table className="entities" ref={tableRef}>
                     <thead>
                       <tr>
                         <th>Name</th>
@@ -540,6 +548,7 @@ export function PersistentVolumes() {
       })),
     [],
   );
+  const tableRef = useResizableColumns('lists.persistent_volumes');
   return (
     <>
       <h2><VolumeIcon size={20} /> Persistent Volumes</h2>
@@ -549,7 +558,7 @@ export function PersistentVolumes() {
             <Empty message="No persistent volumes found. PVs are collected cluster-wide by the collector." />
           ) : (
             <div className="table-wrap">
-              <table className="entities">
+              <table className="entities" ref={tableRef}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -593,6 +602,7 @@ export function PersistentVolumes() {
 export function PersistentVolumeClaims() {
   const index = useNamespaceIndex();
   const pvcs = useResource(() => api.listPersistentVolumeClaims(), []);
+  const tableRef = useResizableColumns('lists.persistent_volume_claims');
   return (
     <>
       <h2><VolumeIcon size={20} /> Persistent Volume Claims</h2>
@@ -604,7 +614,7 @@ export function PersistentVolumeClaims() {
                 <Empty message="No persistent volume claims found. PVCs are collected from all namespaces." />
               ) : (
                 <div className="table-wrap">
-                  <table className="entities">
+                  <table className="entities" ref={tableRef}>
                     <thead>
                       <tr>
                         <th>Name</th>

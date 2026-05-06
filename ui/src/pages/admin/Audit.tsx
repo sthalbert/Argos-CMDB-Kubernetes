@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
+import { useResizableColumns } from '../../components/resizable_columns';
 
 // Admin Audit page. Read-only, newest-first list of recorded API
 // actions. Auditors can reach this without the rest of the admin panel
@@ -20,6 +21,7 @@ const emptyFilter: FilterForm = { actor: '', resourceType: '', action: '', since
 export default function AuditPage() {
   const [draft, setDraft] = useState<FilterForm>(emptyFilter);
   const [applied, setApplied] = useState<FilterForm>(emptyFilter);
+  const tableRef = useResizableColumns('admin.audit');
   const state = useResource(
     () =>
       api.listAuditEvents({
@@ -87,7 +89,7 @@ export default function AuditPage() {
           resp.items.length === 0 ? (
             <p className="muted">No audit events match.</p>
           ) : (
-            <table className="entities">
+            <table className="entities" ref={tableRef}>
               <thead>
                 <tr>
                   <th>Time</th>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
+import { useResizableColumns } from '../../components/resizable_columns';
 
 // Admin Sessions page. Read-only table with a revoke action. The `id`
 // column is the server-side public UUID, never the cookie value —
@@ -12,6 +13,7 @@ export default function SessionsPage() {
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
   const state = useResource(() => api.listSessions(), [nonce]);
+  const tableRef = useResizableColumns('admin.sessions');
 
   return (
     <AsyncView state={state}>
@@ -26,7 +28,7 @@ export default function SessionsPage() {
           {resp.items.length === 0 ? (
             <p className="muted">No active sessions.</p>
           ) : (
-            <table className="entities">
+            <table className="entities" ref={tableRef}>
               <thead>
                 <tr>
                   <th>User</th>
