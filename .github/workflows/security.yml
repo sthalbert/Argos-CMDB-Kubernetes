@@ -1,0 +1,127 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  govulncheck:
+    name: govulncheck (Go vulnerabilities)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  gosec:
+    name: gosec (Go SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: securego/gosec@master
+        with:
+          args: -fmt sarif -out gosec.sarif -no-fail ./...
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec.sarif
+          category: gosec
+
+  gitleaks:
+    name: gitleaks (secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trivy-fs:
+    name: trivy (filesystem + IaC + Helm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+      - name: Trivy IaC/config scan (Helm + Dockerfiles)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-config.sarif
+          severity: HIGH,CRITICAL
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
+  trivy-image:
+    name: trivy (container images)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: longue-vue
+            dockerfile: Dockerfile
+          - image: longue-vue-collector
+            dockerfile: Dockerfile.collector
+          - image: longue-vue-ingest-gw
+            dockerfile: Dockerfile.ingest-gw
+          - image: longue-vue-vm-collector
+            dockerfile: Dockerfile.vm-collector
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image (local, no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: ${{ matrix.image }}:scan
+          cache-from: type=gha,scope=${{ matrix.image }}
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ matrix.image }}:scan
+          format: sarif
+          output: trivy-image-${{ matrix.image }}.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image-${{ matrix.image }}.sarif
+          category: trivy-image-${{ matrix.image }}
