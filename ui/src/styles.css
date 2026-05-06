@@ -714,7 +714,10 @@ body.lv-resizing-cols table.lv-resizable .col-resize-handle::after {
 }
 
 /* ── Per-column value filter (see ui/src/components/column_filters.ts) ── */
-.col-filter-btn {
+/* All selectors are scoped under `.entities` to outrank the generic
+   `table.entities button { padding: 0.25rem 0.55rem }` rule lower in this
+   file — without it the funnel SVG ends up with ~0px of usable width. */
+.entities .col-filter-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -728,15 +731,15 @@ body.lv-resizing-cols table.lv-resizable .col-resize-handle::after {
   color: var(--fg-muted);
   cursor: pointer;
   vertical-align: middle;
-  opacity: 0.55;
+  opacity: 0.7;
   transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
-.col-filter-btn:hover {
+.entities .col-filter-btn:hover {
   opacity: 1;
   background: var(--bg-hover);
   color: var(--fg-1);
 }
-.col-filter-btn.col-filter-active {
+.entities .col-filter-btn.col-filter-active {
   opacity: 1;
   color: var(--accent);
   border-color: var(--accent);
