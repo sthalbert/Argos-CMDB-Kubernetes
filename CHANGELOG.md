@@ -6,6 +6,26 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.15.0](https://github.com/sthalbert/Longue-Vue/compare/v0.14.0...v0.15.0) (2026-05-06)
+
+
+### Features
+
+* **ui:** add Longue Vue favicons for browser tabs ([36f630c](https://github.com/sthalbert/Longue-Vue/commit/36f630c0974cf67c95196361911703872a0c1745))
+* **ui:** add Longue Vue favicons for browser tabs ([3315a40](https://github.com/sthalbert/Longue-Vue/commit/3315a407f0af9324f09308e020902d435c697a74))
+* **ui:** per-column value filters on entity tables (closes [#117](https://github.com/sthalbert/Longue-Vue/issues/117)) ([570aa65](https://github.com/sthalbert/Longue-Vue/commit/570aa65dd8b0156f9ad01d9a77ce98f00d3ebc41))
+* **ui:** resizable + per-column-value filters on entity tables ([ad5e0bb](https://github.com/sthalbert/Longue-Vue/commit/ad5e0bb761573021cad60428bdb7645803439573))
+* **ui:** resizable columns on entity tables (closes [#116](https://github.com/sthalbert/Longue-Vue/issues/116)) ([697adf5](https://github.com/sthalbert/Longue-Vue/commit/697adf5926b36964b962b1c3c0c7134fb4969165))
+* **ui:** resizable columns on entity tables (closes [#116](https://github.com/sthalbert/Longue-Vue/issues/116)) ([475020b](https://github.com/sthalbert/Longue-Vue/commit/475020b8495f8e2a4776744c114e149068c4b31a))
+
+
+### Bug Fixes
+
+* **security:** bump Go to 1.25.9 and pin trivy-action to v0.36.0 ([ed8eb8b](https://github.com/sthalbert/Longue-Vue/commit/ed8eb8bbb5bb0aad33180b4524249fd41b5c1bde))
+* **security:** clear initial security-scan baseline ([9492ef4](https://github.com/sthalbert/Longue-Vue/commit/9492ef4c97342403f13a69e73404b62c76d9698c))
+* **security:** respect severity filter when emitting trivy SARIF ([a63ad01](https://github.com/sthalbert/Longue-Vue/commit/a63ad01cc57c794ad87f99463b367e4ec6158387))
+* **ui:** make column-filter funnel button visible ([4de0e54](https://github.com/sthalbert/Longue-Vue/commit/4de0e54d975b4d272c8f74502ace8e3d13090d16))
+
 ## [0.12.2] — 2026-04-30
 
 Helm charts realigned on `appVersion 0.12.2` across the family
