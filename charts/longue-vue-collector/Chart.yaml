@@ -3,12 +3,12 @@ name: longue-vue-collector
 description: >-
   Push-mode Kubernetes collector for the longue-vue CMDB (ADR-0009). Runs inside
   air-gapped or DMZ-isolated clusters and pushes inventory observations to a
-  central longue-vue daemon over HTTPS. One Helm release per source cluster. Ships
-  independently of the umbrella `longue-vue` chart so the source-cluster release
-  contains only what belongs in that cluster.
+  central longue-vue daemon over HTTPS. One Helm release per source cluster.
+  Ships independently of the umbrella `longue-vue` chart so the source-cluster
+  release contains only what belongs in that cluster.
 type: application
-version: 0.2.0
-appVersion: "0.14.0"
+version: 0.3.0
+appVersion: 0.15.0
 home: https://github.com/sthalbert/longue-vue
 sources:
   - https://github.com/sthalbert/longue-vue
