@@ -1,0 +1,16 @@
+title = "longue-vue gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation examples, generated code, and UI test fixtures"
+paths = [
+  '''^docs/.*''',
+  '''.*\.gen\.go$''',
+  '''^ui/src/test/.*''',
+  '''^api/openapi/.*''',
+]
+regexes = [
+  '''longue_vue_pat_[A-Za-z0-9_-]+''',
+]
