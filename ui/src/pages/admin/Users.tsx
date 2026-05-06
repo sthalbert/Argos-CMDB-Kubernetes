@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, SectionTitle } from '../../components';
+import { useResizableColumns } from '../../components/resizable_columns';
 
 // Admin Users page: list of humans, new-user collapsible form, inline
 // row actions. Destructive actions (delete, disable, reset-password)
@@ -122,9 +123,10 @@ function NewUserForm({ reload }: { reload: Reload }) {
 }
 
 function UserTable({ users, reload }: { users: api.User[]; reload: Reload }) {
+  const tableRef = useResizableColumns('admin.users');
   if (users.length === 0) return <p className="muted">No users.</p>;
   return (
-    <table className="entities">
+    <table className="entities" ref={tableRef}>
       <thead>
         <tr>
           <th>Username</th>

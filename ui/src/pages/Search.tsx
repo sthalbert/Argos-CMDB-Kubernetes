@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, SectionTitle, Empty } from '../components';
+import { useResizableColumns } from '../components/resizable_columns';
 import { isAdmin, useMe } from '../me';
 
 // Image search — answers "which applications run component X in version Y?"
@@ -69,6 +70,9 @@ export default function ImageSearch() {
 function Results({ q }: { q: string }) {
   const me = useMe();
   const canListAccounts = isAdmin(me);
+  const workloadsTableRef = useResizableColumns('search.workloads');
+  const podsTableRef = useResizableColumns('search.pods');
+  const vmsTableRef = useResizableColumns('search.vms');
   const state = useResource(
     () =>
       Promise.all([
@@ -123,7 +127,7 @@ function Results({ q }: { q: string }) {
             {workloads.length === 0 ? (
               <Empty message="No workloads match." />
             ) : (
-              <table className="entities">
+              <table className="entities" ref={workloadsTableRef}>
                 <thead>
                   <tr>
                     <th>Workload</th>
@@ -161,7 +165,7 @@ function Results({ q }: { q: string }) {
             {pods.length === 0 ? (
               <Empty message="No pods match." />
             ) : (
-              <table className="entities">
+              <table className="entities" ref={podsTableRef}>
                 <thead>
                   <tr>
                     <th>Pod</th>
@@ -205,7 +209,7 @@ function Results({ q }: { q: string }) {
             {vms.length === 0 ? (
               <Empty message="No virtual machines match." />
             ) : (
-              <table className="entities">
+              <table className="entities" ref={vmsTableRef}>
                 <thead>
                   <tr>
                     <th>VM</th>

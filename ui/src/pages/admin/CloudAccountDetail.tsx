@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, Dash, KV, SectionTitle } from '../../components';
+import { useResizableColumns } from '../../components/resizable_columns';
 import { CuratedMetadataCard } from '../../components/inventory/CuratedMetadataCard';
 import { CloudAccountStatusBadge } from './CloudAccounts';
 
@@ -41,6 +42,7 @@ export default function CloudAccountDetail() {
     () => api.listVirtualMachines({ cloud_account_id: id }),
     [id, nonce],
   );
+  const tableRef = useResizableColumns('admin.cloud_account_detail.vms');
 
   const onDelete = async (account: api.CloudAccount, vmCount: number) => {
     const typed = prompt(
@@ -176,7 +178,7 @@ export default function CloudAccountDetail() {
                       No VMs in this account yet — wait for the collector's next tick.
                     </p>
                   ) : (
-                    <table className="entities">
+                    <table className="entities" ref={tableRef}>
                       <thead>
                         <tr>
                           <th>Name</th>
