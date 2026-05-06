@@ -667,6 +667,52 @@ table.entities td a {
   transition: color 0.15s ease;
 }
 
+/* ── Column resizing (see ui/src/components/resizable_columns.ts) ──────── */
+table.lv-resizable {
+  /* JS sets `table-layout: fixed` inline; this gives wrapped cells a sane
+     default so long tokens break instead of overflowing the column. */
+  word-break: break-word;
+}
+table.lv-resizable th {
+  position: relative;
+}
+table.lv-resizable .col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  /* Pull the active hit-area slightly past the border so it's easier to
+     grab without overlapping the next column's content. */
+  transform: translateX(3px);
+  z-index: 1;
+}
+table.lv-resizable .col-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 50%;
+  width: 2px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+table.lv-resizable th:hover .col-resize-handle::after,
+table.lv-resizable .col-resize-handle:hover::after {
+  background: var(--border);
+}
+body.lv-resizing-cols,
+body.lv-resizing-cols * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.lv-resizing-cols table.lv-resizable .col-resize-handle::after {
+  background: var(--accent);
+}
+
 .pill {
   display: inline-block;
   font-size: var(--fs-2xs);
