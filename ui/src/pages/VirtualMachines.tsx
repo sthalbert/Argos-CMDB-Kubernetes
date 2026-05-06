@@ -4,6 +4,7 @@ import * as api from '../api';
 import { useResource } from '../hooks';
 import { isAdmin, useMe } from '../me';
 import { AsyncView, Dash } from '../components';
+import { useResizableColumns } from '../components/resizable_columns';
 import { VirtualMachineIcon } from '../icons';
 
 // VirtualMachines is the top-level list page for ADR-0015 VMs. It mirrors
@@ -110,6 +111,7 @@ function compare(a: api.VirtualMachine, b: api.VirtualMachine, key: SortKey, asc
 export default function VirtualMachines() {
   const me = useMe();
   const showAccountFilter = isAdmin(me);
+  const tableRef = useResizableColumns('vms.list');
 
   const [cloudAccountId, setCloudAccountId] = useState<string>('');
   const [region, setRegion] = useState<string>('');
@@ -471,7 +473,7 @@ export default function VirtualMachines() {
               {sorted.length === 0 ? (
                 <p className="muted empty">No virtual machines match these filters.</p>
               ) : (
-                <table className="entities">
+                <table className="entities" ref={tableRef}>
                   <thead>
                     <tr>
                       <SortHeader
