@@ -13,7 +13,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 # -- longue-vue server core configuration.
-argosd:
+server:
   # -- HTTP listen address inside the container.
   addr: ":8080"
   # -- Run embedded goose migrations on startup.

@@ -63,19 +63,19 @@ spec:
             - name: LONGUE_VUE_VM_COLLECTOR_METRICS_ADDR
               value: "0.0.0.0:{{ .Values.metrics.port }}"
             {{- end }}
-            {{- if .Values.argosTLS.caSecret }}
+            {{- if .Values.serverTLS.caSecret }}
             - name: LONGUE_VUE_CA_CERT
-              value: /etc/longue-vue-vm-collector/tls-ca/{{ .Values.argosTLS.caKey }}
+              value: /etc/longue-vue-vm-collector/tls-ca/{{ .Values.serverTLS.caKey }}
             {{- end }}
-            {{- if .Values.argosTLS.existingSecret }}
+            {{- if .Values.serverTLS.existingSecret }}
             - name: LONGUE_VUE_CLIENT_CERT
               value: /etc/longue-vue-vm-collector/tls/tls.crt
             - name: LONGUE_VUE_CLIENT_KEY
               value: /etc/longue-vue-vm-collector/tls/tls.key
             {{- end }}
-            {{- if .Values.argosTLS.extraHeaders }}
+            {{- if .Values.serverTLS.extraHeaders }}
             - name: LONGUE_VUE_EXTRA_HEADERS
-              value: {{ .Values.argosTLS.extraHeaders | quote }}
+              value: {{ .Values.serverTLS.extraHeaders | quote }}
             {{- end }}
             {{- if .Values.proxy.httpsProxy }}
             - name: HTTPS_PROXY
@@ -96,12 +96,12 @@ spec:
             - secretRef:
                 name: {{ required "tokenSecret.existingSecret is required" .Values.tokenSecret.existingSecret | quote }}
           volumeMounts:
-            {{- if .Values.argosTLS.existingSecret }}
+            {{- if .Values.serverTLS.existingSecret }}
             - name: lv-tls
               mountPath: /etc/longue-vue-vm-collector/tls
               readOnly: true
             {{- end }}
-            {{- if .Values.argosTLS.caSecret }}
+            {{- if .Values.serverTLS.caSecret }}
             - name: lv-ca
               mountPath: /etc/longue-vue-vm-collector/tls-ca
               readOnly: true
@@ -112,25 +112,25 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
-        {{- if .Values.argosTLS.existingSecret }}
+        {{- if .Values.serverTLS.existingSecret }}
         - name: lv-tls
           secret:
-            secretName: {{ .Values.argosTLS.existingSecret | quote }}
+            secretName: {{ .Values.serverTLS.existingSecret | quote }}
         {{- end }}
-        {{- if .Values.argosTLS.caSecret }}
+        {{- if .Values.serverTLS.caSecret }}
         - name: lv-ca
-          {{- if hasPrefix "configmap:" .Values.argosTLS.caSecret }}
+          {{- if hasPrefix "configmap:" .Values.serverTLS.caSecret }}
           configMap:
-            name: {{ trimPrefix "configmap:" .Values.argosTLS.caSecret | quote }}
+            name: {{ trimPrefix "configmap:" .Values.serverTLS.caSecret | quote }}
             items:
-              - key: {{ .Values.argosTLS.caKey }}
-                path: {{ .Values.argosTLS.caKey }}
+              - key: {{ .Values.serverTLS.caKey }}
+                path: {{ .Values.serverTLS.caKey }}
           {{- else }}
           secret:
-            secretName: {{ .Values.argosTLS.caSecret | quote }}
+            secretName: {{ .Values.serverTLS.caSecret | quote }}
             items:
-              - key: {{ .Values.argosTLS.caKey }}
-                path: {{ .Values.argosTLS.caKey }}
+              - key: {{ .Values.serverTLS.caKey }}
+                path: {{ .Values.serverTLS.caKey }}
           {{- end }}
         {{- end }}
         {{- with .Values.extraVolumes }}
