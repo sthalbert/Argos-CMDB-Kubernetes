@@ -63,7 +63,7 @@ reconcile: true
 # Used together with serverURL pointing at the DMZ gateway (ADR-0016).
 # Leave existingSecret / caSecret empty to talk to longue-vue's public
 # listener over plain HTTPS.
-argosTLS:
+serverTLS:
   # Kubernetes TLS Secret (kubernetes.io/tls) carrying tls.crt + tls.key.
   existingSecret: ""
   # ConfigMap or Secret carrying ca.crt. Used to verify longue-vue's or the
