@@ -47,12 +47,12 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.networkPolicy.argosdNamespace | quote }}
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.longueVueNamespace | quote }}
           podSelector:
-            {{- toYaml .Values.networkPolicy.argosdSelector | nindent 12 }}
+            {{- toYaml .Values.networkPolicy.longueVueSelector | nindent 12 }}
       ports:
         - protocol: TCP
-          port: {{ .Values.networkPolicy.argosdIngestPort }}
+          port: {{ .Values.networkPolicy.longueVueIngestPort }}
 
     {{- if and (eq .Values.mtls.mode "vault") .Values.networkPolicy.vaultEgress.enabled }}
     # Vault server — only allowed when mTLS mode is "vault" and the

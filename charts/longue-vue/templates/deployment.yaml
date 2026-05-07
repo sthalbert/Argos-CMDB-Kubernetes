@@ -49,24 +49,24 @@ spec:
             {{- end }}
           env:
             - name: LONGUE_VUE_ADDR
-              value: {{ .Values.argosd.addr | quote }}
+              value: {{ .Values.server.addr | quote }}
             - name: LONGUE_VUE_AUTO_MIGRATE
-              value: {{ .Values.argosd.autoMigrate | quote }}
+              value: {{ .Values.server.autoMigrate | quote }}
             - name: LONGUE_VUE_SHUTDOWN_TIMEOUT
-              value: {{ .Values.argosd.shutdownTimeout | quote }}
+              value: {{ .Values.server.shutdownTimeout | quote }}
             - name: LONGUE_VUE_SESSION_SECURE_COOKIE
-              value: {{ .Values.argosd.sessionSecureCookie | quote }}
-            {{- if .Values.argosd.tls.existingSecret }}
+              value: {{ .Values.server.sessionSecureCookie | quote }}
+            {{- if .Values.server.tls.existingSecret }}
             - name: LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT
-              value: {{ printf "%s/tls.crt" .Values.argosd.tls.mountPath | quote }}
+              value: {{ printf "%s/tls.crt" .Values.server.tls.mountPath | quote }}
             - name: LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY
-              value: {{ printf "%s/tls.key" .Values.argosd.tls.mountPath | quote }}
+              value: {{ printf "%s/tls.key" .Values.server.tls.mountPath | quote }}
             {{- end }}
-            {{- if .Values.argosd.trustedProxies }}
+            {{- if .Values.server.trustedProxies }}
             - name: LONGUE_VUE_TRUSTED_PROXIES
-              value: {{ .Values.argosd.trustedProxies | quote }}
+              value: {{ .Values.server.trustedProxies | quote }}
             {{- end }}
-            {{- if .Values.argosd.requireHTTPS }}
+            {{- if .Values.server.requireHTTPS }}
             - name: LONGUE_VUE_REQUIRE_HTTPS
               value: "true"
             {{- end }}
@@ -122,30 +122,30 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-          {{- if or .Values.collector.kubeconfigSecret .Values.argosd.tls.existingSecret }}
+          {{- if or .Values.collector.kubeconfigSecret .Values.server.tls.existingSecret }}
           volumeMounts:
             {{- if .Values.collector.kubeconfigSecret }}
             - name: kubeconfigs
               mountPath: /etc/longue-vue/kubeconfigs
               readOnly: true
             {{- end }}
-            {{- if .Values.argosd.tls.existingSecret }}
+            {{- if .Values.server.tls.existingSecret }}
             - name: tls
-              mountPath: {{ .Values.argosd.tls.mountPath }}
+              mountPath: {{ .Values.server.tls.mountPath }}
               readOnly: true
             {{- end }}
           {{- end }}
-      {{- if or .Values.collector.kubeconfigSecret .Values.argosd.tls.existingSecret }}
+      {{- if or .Values.collector.kubeconfigSecret .Values.server.tls.existingSecret }}
       volumes:
         {{- if .Values.collector.kubeconfigSecret }}
         - name: kubeconfigs
           secret:
             secretName: {{ .Values.collector.kubeconfigSecret }}
         {{- end }}
-        {{- if .Values.argosd.tls.existingSecret }}
+        {{- if .Values.server.tls.existingSecret }}
         - name: tls
           secret:
-            secretName: {{ .Values.argosd.tls.existingSecret }}
+            secretName: {{ .Values.server.tls.existingSecret }}
         {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}

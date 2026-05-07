@@ -146,11 +146,11 @@ serviceAccount:
 # Disable only in environments without a NetworkPolicy CNI controller.
 networkPolicy:
   enabled: true
-  argosdSelector:
+  longueVueSelector:
     matchLabels:
       app.kubernetes.io/name: longue-vue
-  argosdNamespace: longue-vue
-  argosdIngestPort: 8443
+  longueVueNamespace: longue-vue
+  longueVueIngestPort: 8443
   vaultEgress:
     enabled: false                  # auto-set to true when mtls.mode=vault by the chart
     cidrs: []                       # operator fills in, e.g. ["10.0.5.10/32"]
