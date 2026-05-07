@@ -5,6 +5,7 @@
 <br/>
 
 [![CI](https://img.shields.io/github/actions/workflow/status/sthalbert/longue-vue/ci.yml?branch=main&label=CI&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/actions/workflows/ci.yml)
+[![Security](https://img.shields.io/github/actions/workflow/status/sthalbert/longue-vue/security.yml?branch=main&label=Security&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/actions/workflows/security.yml)
 [![Latest Release](https://img.shields.io/github/v/release/sthalbert/longue-vue?sort=semver&label=Release&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/releases)
 [![License](https://img.shields.io/github/license/sthalbert/longue-vue?label=License)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/sthalbert/longue-vue?style=flat&label=Stars&logo=github&logoColor=white)](https://github.com/sthalbert/longue-vue/stargazers)
