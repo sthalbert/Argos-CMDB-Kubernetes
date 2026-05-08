@@ -23,11 +23,19 @@ var ErrRepoNotFound = fmt.Errorf("registry: repo not found")
 // ErrRateLimited is returned when the registry responds 429.
 var ErrRateLimited = fmt.Errorf("registry: rate limited")
 
+// QueryObserver receives one record per outbound tag-list call. Used to
+// expose Prometheus metrics without creating an import cycle (the metrics
+// type lives in the parent imageversions package).
+type QueryObserver interface {
+	ObserveQuery(registry, status string, durationSeconds float64)
+}
+
 // Client is a thin OCI-distribution client supporting anonymous-bearer
 // auth and Link-header pagination.
 type Client struct {
 	http      *http.Client
 	userAgent string
+	observer  QueryObserver
 }
 
 // NewClient returns a Client with sensible defaults: 30s timeout, identifying
@@ -37,6 +45,14 @@ func NewClient() *Client {
 		http:      &http.Client{Timeout: httpTimeout},
 		userAgent: "longue-vue (image-versions-enricher)",
 	}
+}
+
+// NewClientWithObserver constructs a Client with the given observer.
+// Pass nil to disable metric instrumentation.
+func NewClientWithObserver(o QueryObserver) *Client {
+	c := NewClient()
+	c.observer = o
+	return c
 }
 
 // ListTags fetches all tags for repo from the given registryURL
@@ -57,11 +73,19 @@ func (c *Client) ListTags(ctx context.Context, registryURL, repo string) ([]stri
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
+		qStart := time.Now()
 		resp, err := c.http.Do(req)
+		elapsed := time.Since(qStart).Seconds()
 		if err != nil {
+			if c.observer != nil {
+				c.observer.ObserveQuery(req.URL.Host, "error", elapsed)
+			}
 			return nil, fmt.Errorf("http: %w", err)
 		}
 		if resp.StatusCode == http.StatusUnauthorized && token == "" {
+			if c.observer != nil {
+				c.observer.ObserveQuery(req.URL.Host, "error", elapsed)
+			}
 			chal := resp.Header.Get("WWW-Authenticate")
 			resp.Body.Close()
 			t, err := c.fetchToken(ctx, chal)
@@ -72,17 +96,29 @@ func (c *Client) ListTags(ctx context.Context, registryURL, repo string) ([]stri
 			continue // retry same URL with token
 		}
 		if resp.StatusCode == http.StatusNotFound {
+			if c.observer != nil {
+				c.observer.ObserveQuery(req.URL.Host, "not_found", elapsed)
+			}
 			resp.Body.Close()
 			return nil, ErrRepoNotFound
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
+			if c.observer != nil {
+				c.observer.ObserveQuery(req.URL.Host, "rate_limited", elapsed)
+			}
 			resp.Body.Close()
 			return nil, ErrRateLimited
 		}
 		if resp.StatusCode >= 400 {
+			if c.observer != nil {
+				c.observer.ObserveQuery(req.URL.Host, "error", elapsed)
+			}
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			return nil, fmt.Errorf("registry status %d: %s", resp.StatusCode, string(body))
+		}
+		if c.observer != nil {
+			c.observer.ObserveQuery(req.URL.Host, "success", elapsed)
 		}
 
 		var body struct {

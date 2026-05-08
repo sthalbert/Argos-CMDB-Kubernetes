@@ -23,6 +23,7 @@ type Enricher struct {
 	store    Store
 	lister   TagsLister
 	interval time.Duration
+	metrics  *Metrics
 
 	triggerCh chan struct{}
 	running   atomic.Bool
@@ -36,6 +37,19 @@ func NewEnricher(s Store, lister TagsLister, interval time.Duration) *Enricher {
 		store:     s,
 		lister:    lister,
 		interval:  interval,
+		triggerCh: make(chan struct{}, 1),
+	}
+}
+
+// NewEnricherWithMetrics constructs an Enricher with Prometheus instrumentation.
+// The metrics argument may be nil to disable instrumentation (equivalent to
+// calling NewEnricher).
+func NewEnricherWithMetrics(s Store, lister TagsLister, interval time.Duration, m *Metrics) *Enricher {
+	return &Enricher{
+		store:     s,
+		lister:    lister,
+		interval:  interval,
+		metrics:   m,
 		triggerCh: make(chan struct{}, 1),
 	}
 }
@@ -90,6 +104,14 @@ func (e *Enricher) RunTick(ctx context.Context) {
 	}
 	defer e.running.Store(false)
 
+	start := time.Now()
+	defer func() {
+		if e.metrics != nil {
+			e.metrics.TickDuration.Observe(time.Since(start).Seconds())
+			e.metrics.LastTickTimestamp.Set(float64(time.Now().Unix()))
+		}
+	}()
+
 	settings, err := e.store.GetSettings(ctx)
 	if err != nil {
 		slog.Warn("imageversions: get settings failed", slog.String("err", err.Error()))
@@ -110,6 +132,9 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		if r.Enabled {
 			enabledRegs = append(enabledRegs, r)
 		}
+	}
+	if e.metrics != nil {
+		e.metrics.RegistriesEnabledTotal.Set(float64(len(enabledRegs)))
 	}
 	// If the admin has disabled every registry while leaving the feature
 	// toggle on, don't run a tick that would reap every existing row.
@@ -243,6 +268,13 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		slog.Int64("reaped_rows", reaped),
 		slog.Duration("duration", time.Since(tickStart)),
 	)
+	if e.metrics != nil {
+		e.metrics.TickTotal.WithLabelValues("success").Inc()
+		// KnownTotal is an approximation from the in-memory processed slice.
+		// WithErrorTotal is deferred to V2 when a CountImageVersions store
+		// method is added (tracking V1 gap: only approximate row counts available).
+		e.metrics.KnownTotal.Set(float64(len(processed)))
+	}
 }
 
 // emitError pushes one error-marked upsert per known variant for the given repo.

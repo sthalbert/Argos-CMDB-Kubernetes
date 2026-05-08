@@ -1139,8 +1139,9 @@ func maybeStartImageVersionsEnricher(ctx context.Context, s api.Store) (*imageve
 		return nil, nil, err
 	}
 
-	client := registry.NewClient()
-	enricher := imageversions.NewEnricher(s, client, interval)
+	ivMetrics := imageversions.NewMetrics(metrics.Registry)
+	client := registry.NewClientWithObserver(ivMetrics)
+	enricher := imageversions.NewEnricherWithMetrics(s, client, interval, ivMetrics)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
