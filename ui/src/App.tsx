@@ -27,6 +27,8 @@ import {
 import EolDashboard from './pages/EolDashboard';
 import VirtualMachines from './pages/VirtualMachines';
 import VirtualMachineDetail from './pages/VirtualMachineDetail';
+import Images from './pages/Images';
+import ImageDetail from './pages/ImageDetail';
 import AdminLayout from './pages/admin/AdminLayout';
 import UsersPage from './pages/admin/Users';
 import TokensPage from './pages/admin/Tokens';
@@ -146,6 +148,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           <div className="sidebar-divider" />
           <span className="sidebar-section-label">Cloud Infrastructure</span>
           {link('/virtual-machines', 'Virtual Machines', VirtualMachineIcon)}
+          {link('/images', 'Container images')}
           <div className="sidebar-divider" />
           <span className="sidebar-section-label">Tools</span>
           {link('/search/image', 'Search', SearchIcon)}
@@ -237,6 +240,9 @@ export default function App() {
 
       <Route path="/virtual-machines" element={authed(<VirtualMachines />)} />
       <Route path="/virtual-machines/:id" element={authed(<VirtualMachineDetail />)} />
+
+      <Route path="/images" element={authed(<Images />)} />
+      <Route path="/images/:imageRepo" element={authed(<ImageDetail />)} />
 
       {/* Admin panel — admins see every tab; auditors only get Audit. */}
       <Route
