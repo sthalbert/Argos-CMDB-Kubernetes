@@ -283,7 +283,6 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 		return fmt.Errorf("image versions enricher: %w", err)
 	}
 	defer drainImageVersions()
-	_ = imgVersionsEnricher // captured for the refresh handler (Task 15)
 
 	drainMCP, err := maybeStartMCPServer(rootCtx, pg)
 	if err != nil {
@@ -291,7 +290,7 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 	}
 	defer drainMCP()
 
-	srv, err := buildHTTPServer(&cfg, pg, oidcProvider, encrypter)
+	srv, err := buildHTTPServer(&cfg, pg, oidcProvider, encrypter, imgVersionsEnricher)
 	if err != nil {
 		return fmt.Errorf("build public listener: %w", err)
 	}
@@ -374,7 +373,7 @@ func maybeInitOIDC(ctx context.Context, cfg *auth.OIDCConfig) (*auth.OIDCProvide
 // ListenAndServeTLS. When either is unset, the listener stays plaintext —
 // the legacy posture, allowed for backward compatibility but refused at
 // boot when LONGUE_VUE_REQUIRE_HTTPS=true (see checkTransportPosture).
-func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvider, enc *secrets.Encrypter) (*http.Server, error) {
+func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvider, enc *secrets.Encrypter, imgVersionsEnricher api.EnricherTrigger) (*http.Server, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
 	// SPA served unauthenticated under /ui/; the bundle is static and the
@@ -489,6 +488,25 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	mux.Handle("GET /v1/virtual-machines/{id}", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetVirtualMachine(pg)))))
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", requireScope(auth.ScopeDelete)(cloudAuth(auditWrap(api.HandleDeleteVirtualMachine(pg)))))
+
+	// ---- image versions (read endpoints, any authenticated role) ----
+	mux.Handle("GET /v1/image-versions",
+		cloudAuth(auditWrap(api.HandleListImageVersions(pg))))
+	mux.Handle("GET /v1/image-versions/{image_repo}",
+		cloudAuth(auditWrap(api.HandleGetImageVersion(pg))))
+	mux.Handle("POST /v1/image-versions/refresh",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(
+			api.HandleRefreshImageVersions(pg, imgVersionsEnricher)))))
+
+	// ---- image versions registries CRUD (admin only) ----
+	mux.Handle("GET /v1/admin/image-versions/registries",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleListImageRegistries(pg)))))
+	mux.Handle("POST /v1/admin/image-versions/registries",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleCreateImageRegistry(pg)))))
+	mux.Handle("PATCH /v1/admin/image-versions/registries/{hostname}",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleUpdateImageRegistry(pg)))))
+	mux.Handle("DELETE /v1/admin/image-versions/registries/{hostname}",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleDeleteImageRegistry(pg)))))
 
 	loginLimiter := api.NewLoginRateLimiter()
 	verifyLimiter := api.NewVerifyRateLimiter()
