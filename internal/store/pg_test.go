@@ -49,7 +49,7 @@ func newTestPG(t *testing.T) *PG {
 		// api_tokens RESTRICTs on user deletion, so truncate them in
 		// order (api_tokens → users gets CASCADEd via sessions / identities).
 		_, _ = pg.pool.Exec(context.Background(),
-			"TRUNCATE clusters, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
+			"TRUNCATE clusters, image_versions, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
 		pg.Close()
 	})
 	return pg

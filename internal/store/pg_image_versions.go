@@ -26,8 +26,12 @@ func scanImageVersion(row pgx.Row) (api.ImageVersion, error) {
 }
 
 // UpsertImageVersion inserts or updates a row in image_versions keyed on
-// (image_repo, variant).
+// (image_repo, variant). A nil or empty Annotation is normalized to "{}"
+// so the NOT NULL constraint never fires from a forgotten initialization.
 func (p *PG) UpsertImageVersion(ctx context.Context, in api.ImageVersionUpsert) (api.ImageVersion, error) {
+	if len(in.Annotation) == 0 {
+		in.Annotation = json.RawMessage("{}")
+	}
 	const q = `
 INSERT INTO image_versions
   (image_repo, variant, registry, latest_tag, annotation, source,
@@ -95,7 +99,7 @@ func (p *PG) ListImageVersionsByRepo(ctx context.Context, lp api.ImageVersionLis
 		conds = append(conds, fmt.Sprintf("registry = $%d", len(args)))
 	}
 	if lp.ImageRepoLike != "" {
-		args = append(args, "%"+escapeLikeImageVersions(lp.ImageRepoLike)+"%")
+		args = append(args, "%"+escapeLike(lp.ImageRepoLike)+"%")
 		conds = append(conds, fmt.Sprintf(`image_repo ILIKE $%d ESCAPE '\'`, len(args)))
 	}
 	if lp.Variant != "" {
@@ -183,7 +187,11 @@ ORDER BY image_repo, variant`
 		}
 		v, ok := grouped[iv.ImageRepo]
 		if !ok {
-			v = &api.ImageVersionRepoView{ImageRepo: iv.ImageRepo, Registry: iv.Registry}
+			v = &api.ImageVersionRepoView{
+				ImageRepo: iv.ImageRepo,
+				Registry:  iv.Registry,
+				Variants:  make([]api.ImageVersion, 0, 4),
+			}
 			grouped[iv.ImageRepo] = v
 			order = append(order, iv.ImageRepo)
 		}
@@ -272,12 +280,3 @@ func decodeImageRepoCursor(c string) (string, error) {
 	return string(b), nil
 }
 
-// escapeLikeImageVersions escapes LIKE/ILIKE metacharacters in s before
-// wrapping in %...%. Uses backslash as the ESCAPE character (matching the
-// SQL ESCAPE '\' clause in the query).
-func escapeLikeImageVersions(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `%`, `\%`)
-	s = strings.ReplaceAll(s, `_`, `\_`)
-	return s
-}

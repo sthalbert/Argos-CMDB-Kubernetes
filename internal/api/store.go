@@ -806,10 +806,13 @@ type ImageVersionUpsert struct {
 // ImageVersionListParams collects the optional filters and pagination
 // parameters for ListImageVersionsByRepo.
 type ImageVersionListParams struct {
-	Limit             int
-	Cursor            string
-	Registry          string
-	ImageRepoLike     string // substring match, case-insensitive
+	Limit         int
+	Cursor        string
+	Registry      string
+	ImageRepoLike string // substring match, case-insensitive
+	// Variant filters repos that have at least one row with this variant;
+	// all variants for matching repos are still returned in the RepoView.
+	// To filter at the row level instead, drill down via GetImageVersionsByRepo.
 	Variant           string
 	HasError          *bool
 	LastCheckedBefore *time.Time

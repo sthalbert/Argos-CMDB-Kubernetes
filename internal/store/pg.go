@@ -4123,6 +4123,16 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
+// escapeLike escapes LIKE/ILIKE metacharacters in s (backslash, percent,
+// underscore) so callers can safely build `%<user-input>%` patterns. The
+// surrounding SQL must use `ESCAPE '\'` to honor the backslash escape.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // UpdateSettings applies the merge-patch on the settings row.
 func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Settings, error) {
 	sets := make([]string, 0, 6)
