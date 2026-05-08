@@ -162,7 +162,7 @@ func EnrichContainersVersions(ctx context.Context, s Store, containers []map[str
 				IsBehind:      latest.version.gt(cur.version),
 				LastCheckedAt: row.LastCheckedAt,
 			}
-			break
+			break // only first matching variant
 		}
 	}
 	if len(out) == 0 {

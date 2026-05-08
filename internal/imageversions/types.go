@@ -12,7 +12,7 @@ type Store interface {
 	GetSettings(ctx context.Context) (api.Settings, error)
 	ListImageRegistries(ctx context.Context) ([]api.ImageRegistry, error)
 	DistinctImageRefs(ctx context.Context) ([]string, error)
-	UpsertImageVersion(ctx context.Context, in api.ImageVersionUpsert) (api.ImageVersion, error)
+	UpsertImageVersion(ctx context.Context, in api.ImageVersionUpsert) (api.ImageVersionRow, error)
 	DeleteImageVersionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
 }
 

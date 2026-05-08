@@ -12,14 +12,14 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-func scanImageVersion(row pgx.Row) (api.ImageVersion, error) {
-	var iv api.ImageVersion
+func scanImageVersion(row pgx.Row) (api.ImageVersionRow, error) {
+	var iv api.ImageVersionRow
 	var ann []byte
 	if err := row.Scan(
 		&iv.ImageRepo, &iv.Variant, &iv.Registry, &iv.LatestTag, &ann,
 		&iv.Source, &iv.LastCheckedAt, &iv.LastError, &iv.LastErrorAt, &iv.CreatedAt,
 	); err != nil {
-		return api.ImageVersion{}, err
+		return api.ImageVersionRow{}, err
 	}
 	iv.Annotation = json.RawMessage(ann)
 	return iv, nil
@@ -28,7 +28,7 @@ func scanImageVersion(row pgx.Row) (api.ImageVersion, error) {
 // UpsertImageVersion inserts or updates a row in image_versions keyed on
 // (image_repo, variant). A nil or empty Annotation is normalized to "{}"
 // so the NOT NULL constraint never fires from a forgotten initialization.
-func (p *PG) UpsertImageVersion(ctx context.Context, in api.ImageVersionUpsert) (api.ImageVersion, error) {
+func (p *PG) UpsertImageVersion(ctx context.Context, in api.ImageVersionUpsert) (api.ImageVersionRow, error) {
 	if len(in.Annotation) == 0 {
 		in.Annotation = json.RawMessage("{}")
 	}
@@ -51,14 +51,14 @@ RETURNING image_repo, variant, registry, latest_tag, annotation, source,
 		in.ImageRepo, in.Variant, in.Registry, in.LatestTag, []byte(in.Annotation),
 		in.Source, in.LastCheckedAt, in.LastError, in.LastErrorAt))
 	if err != nil {
-		return api.ImageVersion{}, fmt.Errorf("upsert image version: %w", err)
+		return api.ImageVersionRow{}, fmt.Errorf("upsert image version: %w", err)
 	}
 	return iv, nil
 }
 
 // GetImageVersionsByRepo returns all variant rows for a given image_repo,
 // ordered by variant.
-func (p *PG) GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]api.ImageVersion, error) {
+func (p *PG) GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]api.ImageVersionRow, error) {
 	const q = `
 SELECT image_repo, variant, registry, latest_tag, annotation, source,
        last_checked_at, last_error, last_error_at, created_at
@@ -69,7 +69,7 @@ ORDER BY variant`
 		return nil, fmt.Errorf("get image versions by repo: %w", err)
 	}
 	defer rows.Close()
-	out := make([]api.ImageVersion, 0)
+	out := make([]api.ImageVersionRow, 0)
 	for rows.Next() {
 		iv, err := scanImageVersion(rows)
 		if err != nil {
@@ -190,7 +190,7 @@ ORDER BY image_repo, variant`
 			v = &api.ImageVersionRepoView{
 				ImageRepo: iv.ImageRepo,
 				Registry:  iv.Registry,
-				Variants:  make([]api.ImageVersion, 0, 4),
+				Variants:  make([]api.ImageVersionRow, 0, 4),
 			}
 			grouped[iv.ImageRepo] = v
 			order = append(order, iv.ImageRepo)

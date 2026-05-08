@@ -678,11 +678,11 @@ func (m *memStore) DeleteImageRegistry(_ context.Context, hostname string) error
 	return nil
 }
 
-func (m *memStore) UpsertImageVersion(_ context.Context, in ImageVersionUpsert) (ImageVersion, error) {
+func (m *memStore) UpsertImageVersion(_ context.Context, in ImageVersionUpsert) (ImageVersionRow, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := [2]string{in.ImageRepo, in.Variant}
-	row := ImageVersion{
+	row := ImageVersionRow{
 		ImageRepo:     in.ImageRepo,
 		Variant:       in.Variant,
 		Registry:      in.Registry,
@@ -700,10 +700,10 @@ func (m *memStore) UpsertImageVersion(_ context.Context, in ImageVersionUpsert) 
 	return row, nil
 }
 
-func (m *memStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) ([]ImageVersion, error) {
+func (m *memStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) ([]ImageVersionRow, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var rows []ImageVersion
+	var rows []ImageVersionRow
 	for k, v := range m.imageVersions {
 		if k[0] == imageRepo {
 			rows = append(rows, v)

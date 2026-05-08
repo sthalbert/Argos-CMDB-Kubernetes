@@ -32,11 +32,11 @@ func (s *fakeStore) ListImageRegistries(_ context.Context) ([]api.ImageRegistry,
 func (s *fakeStore) DistinctImageRefs(_ context.Context) ([]string, error) {
 	return s.refs, nil
 }
-func (s *fakeStore) UpsertImageVersion(_ context.Context, in api.ImageVersionUpsert) (api.ImageVersion, error) {
+func (s *fakeStore) UpsertImageVersion(_ context.Context, in api.ImageVersionUpsert) (api.ImageVersionRow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.upserted = append(s.upserted, in)
-	return api.ImageVersion{ImageRepo: in.ImageRepo, Variant: in.Variant}, s.upsertErr
+	return api.ImageVersionRow{ImageRepo: in.ImageRepo, Variant: in.Variant}, s.upsertErr
 }
 func (s *fakeStore) DeleteImageVersionsNotIn(_ context.Context, keep [][2]string) (int64, error) {
 	s.mu.Lock()

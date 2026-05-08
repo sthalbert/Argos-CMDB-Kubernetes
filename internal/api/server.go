@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -53,6 +54,9 @@ type Server struct {
 	// secure default; the existing pentest-reproducer test in
 	// internal/httputil/httputil_test.go documents the chosen behavior.
 	trustedProxies []*net.IPNet
+	// enricher is the image-versions enricher trigger. Nil when the feature
+	// is disabled; SetEnricher injects it after NewServer.
+	enricher EnricherTrigger
 }
 
 // NewServer wires the handlers with a persistence backend and the build
@@ -85,6 +89,12 @@ func NewServer(
 // LONGUE_VUE_TRUSTED_PROXIES; tests typically leave it unset.
 func (s *Server) SetTrustedProxies(p []*net.IPNet) {
 	s.trustedProxies = p
+}
+
+// SetEnricher injects the image-versions enricher trigger. Called by main.go
+// after NewServer when the feature is enabled.
+func (s *Server) SetEnricher(e EnricherTrigger) {
+	s.enricher = e
 }
 
 var _ StrictServerInterface = (*Server)(nil)
@@ -1464,4 +1474,185 @@ func (s *Server) clientIP(r *http.Request) string {
 		return ""
 	}
 	return ip.String()
+}
+
+// ── Image versions ────────────────────────────────────────────────────
+
+// imageVersionRowToVariant converts a flat DB row to an ImageVersionVariant.
+func imageVersionRowToVariant(row ImageVersionRow) ImageVersionVariant {
+	v := ImageVersionVariant{
+		Variant:       row.Variant,
+		LatestTag:     row.LatestTag,
+		Source:        ImageVersionVariantSource(row.Source),
+		LastCheckedAt: row.LastCheckedAt,
+		LastError:     row.LastError,
+		LastErrorAt:   row.LastErrorAt,
+	}
+	if len(row.Annotation) > 0 {
+		var ann map[string]interface{}
+		if err := json.Unmarshal(row.Annotation, &ann); err == nil {
+			v.Annotation = &ann
+		}
+	}
+	return v
+}
+
+// repoViewToImageVersion converts an ImageVersionRepoView to the API ImageVersion.
+func repoViewToImageVersion(rv ImageVersionRepoView) ImageVersion {
+	variants := make([]ImageVersionVariant, 0, len(rv.Variants))
+	for _, row := range rv.Variants {
+		variants = append(variants, imageVersionRowToVariant(row))
+	}
+	return ImageVersion{
+		ImageRepo: rv.ImageRepo,
+		Registry:  rv.Registry,
+		Variants:  variants,
+	}
+}
+
+// ListImageVersions returns a paginated list of distinct image repos with their variants.
+func (s *Server) ListImageVersions(ctx context.Context, req ListImageVersionsRequestObject) (ListImageVersionsResponseObject, error) {
+	p := req.Params
+	params := ImageVersionListParams{
+		Limit:             50,
+		LastCheckedBefore: p.LastCheckedBefore,
+		HasError:          p.HasError,
+	}
+	if p.Limit != nil {
+		params.Limit = *p.Limit
+	}
+	if p.Cursor != nil {
+		params.Cursor = *p.Cursor
+	}
+	if p.Registry != nil {
+		params.Registry = *p.Registry
+	}
+	if p.ImageRepo != nil {
+		params.ImageRepoLike = *p.ImageRepo
+	}
+	if p.Variant != nil {
+		params.Variant = *p.Variant
+	}
+
+	views, next, err := s.store.ListImageVersionsByRepo(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	items := make([]ImageVersion, 0, len(views))
+	for _, rv := range views {
+		items = append(items, repoViewToImageVersion(rv))
+	}
+	resp := ListImageVersions200JSONResponse(ImageVersionList{
+		Items: items,
+	})
+	if next != "" {
+		resp.NextCursor = &next
+	}
+	return resp, nil
+}
+
+// GetImageVersion returns all variant rows for a single image_repo.
+func (s *Server) GetImageVersion(ctx context.Context, req GetImageVersionRequestObject) (GetImageVersionResponseObject, error) {
+	rows, err := s.store.GetImageVersionsByRepo(ctx, req.ImageRepo)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	if len(rows) == 0 {
+		return GetImageVersion404ApplicationProblemPlusJSONResponse{
+			NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+		}, nil
+	}
+	rv := ImageVersionRepoView{
+		ImageRepo: rows[0].ImageRepo,
+		Registry:  rows[0].Registry,
+		Variants:  rows,
+	}
+	return GetImageVersion200JSONResponse(repoViewToImageVersion(rv)), nil
+}
+
+// RefreshImageVersions triggers an immediate enrichment cycle (admin only).
+func (s *Server) RefreshImageVersions(ctx context.Context, _ RefreshImageVersionsRequestObject) (RefreshImageVersionsResponseObject, error) {
+	settings, err := s.store.GetSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	if !settings.ImageVersionsEnabled {
+		return RefreshImageVersions409ApplicationProblemPlusJSONResponse{
+			ConflictApplicationProblemPlusJSONResponse(problemConflict(errors.New("image_versions_enabled is false"))),
+		}, nil
+	}
+	if s.enricher == nil {
+		return RefreshImageVersions409ApplicationProblemPlusJSONResponse{
+			ConflictApplicationProblemPlusJSONResponse(problemConflict(errors.New("enricher not available"))),
+		}, nil
+	}
+	running := s.enricher.Trigger()
+	return RefreshImageVersions202JSONResponse(ImageVersionRefreshResponse{
+		Queued:         !running,
+		AlreadyRunning: running,
+	}), nil
+}
+
+// ── Image registries ─────────────────────────────────────────────────
+
+// ListImageRegistries lists all image registry allowlist rows.
+func (s *Server) ListImageRegistries(ctx context.Context, _ ListImageRegistriesRequestObject) (ListImageRegistriesResponseObject, error) {
+	items, err := s.store.ListImageRegistries(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return ListImageRegistries200JSONResponse{Items: items}, nil
+}
+
+// CreateImageRegistry inserts a new registry row.
+func (s *Server) CreateImageRegistry(ctx context.Context, req CreateImageRegistryRequestObject) (CreateImageRegistryResponseObject, error) {
+	in := req.Body
+	if in.Hostname == "" {
+		return CreateImageRegistry400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Bad Request", "hostname is required")),
+		}, nil
+	}
+	if in.RateLimitPerSec <= 0 {
+		return CreateImageRegistry400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Bad Request", "rate_limit_per_sec must be > 0")),
+		}, nil
+	}
+	out, err := s.store.CreateImageRegistry(ctx, *in)
+	switch {
+	case errors.Is(err, ErrConflict):
+		return CreateImageRegistry409ApplicationProblemPlusJSONResponse{
+			ConflictApplicationProblemPlusJSONResponse(problemConflict(errors.New("hostname already exists"))),
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return CreateImageRegistry201JSONResponse(out), nil
+}
+
+// PatchImageRegistry applies a merge-patch to an existing registry row.
+func (s *Server) PatchImageRegistry(ctx context.Context, req PatchImageRegistryRequestObject) (PatchImageRegistryResponseObject, error) {
+	out, err := s.store.UpdateImageRegistry(ctx, req.Hostname, *req.Body)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return PatchImageRegistry404ApplicationProblemPlusJSONResponse{
+			NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return PatchImageRegistry200JSONResponse(out), nil
+}
+
+// DeleteImageRegistry removes a registry from the allowlist.
+func (s *Server) DeleteImageRegistry(ctx context.Context, req DeleteImageRegistryRequestObject) (DeleteImageRegistryResponseObject, error) {
+	err := s.store.DeleteImageRegistry(ctx, req.Hostname)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return DeleteImageRegistry404ApplicationProblemPlusJSONResponse{
+			NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return DeleteImageRegistry204Response{}, nil
 }

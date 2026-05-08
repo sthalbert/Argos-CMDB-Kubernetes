@@ -489,29 +489,11 @@ func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvid
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", requireScope(auth.ScopeDelete)(cloudAuth(auditWrap(api.HandleDeleteVirtualMachine(pg)))))
 
-	// ---- image versions (read endpoints, any authenticated role) ----
-	mux.Handle("GET /v1/image-versions",
-		cloudAuth(auditWrap(api.HandleListImageVersions(pg))))
-	mux.Handle("GET /v1/image-versions/{image_repo}",
-		cloudAuth(auditWrap(api.HandleGetImageVersion(pg))))
-	mux.Handle("POST /v1/image-versions/refresh",
-		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(
-			api.HandleRefreshImageVersions(pg, imgVersionsEnricher)))))
-
-	// ---- image versions registries CRUD (admin only) ----
-	mux.Handle("GET /v1/admin/image-versions/registries",
-		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleListImageRegistries(pg)))))
-	mux.Handle("POST /v1/admin/image-versions/registries",
-		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleCreateImageRegistry(pg)))))
-	mux.Handle("PATCH /v1/admin/image-versions/registries/{hostname}",
-		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleUpdateImageRegistry(pg)))))
-	mux.Handle("DELETE /v1/admin/image-versions/registries/{hostname}",
-		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleDeleteImageRegistry(pg)))))
-
 	loginLimiter := api.NewLoginRateLimiter()
 	verifyLimiter := api.NewVerifyRateLimiter()
 	apiServer := api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter, verifyLimiter)
 	apiServer.SetTrustedProxies(cfg.trustedProxies)
+	apiServer.SetEnricher(imgVersionsEnricher)
 	strict := api.NewStrictHandlerWithOptions(
 		apiServer,
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},

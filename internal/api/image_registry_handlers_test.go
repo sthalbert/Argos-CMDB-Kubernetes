@@ -120,7 +120,7 @@ func seedImageRegistriesForTest(t *testing.T, s Store) {
 	ctx := context.Background()
 	seeds := []struct {
 		host string
-		rate float64
+		rate float32
 	}{
 		{"docker.io", 1.0},
 		{"ghcr.io", 5.0},
