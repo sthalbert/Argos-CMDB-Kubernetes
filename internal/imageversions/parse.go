@@ -59,7 +59,9 @@ func ParseImageRef(s string) (Ref, error) {
 		tag = t.Tag()
 	}
 	if tag == "" || tag == "latest" {
-		return Ref{ImageRepo: full, Registry: registry}, fmt.Errorf("%w: no usable tag (%q)", ErrSkip, tag)
+		// Always return zero Ref on skip; callers should not inspect Ref
+		// when err != nil. Keeps the contract simple and consistent.
+		return Ref{}, fmt.Errorf("%w: no usable tag (%q)", ErrSkip, tag)
 	}
 	return Ref{ImageRepo: full, Registry: registry, Tag: tag}, nil
 }
@@ -97,7 +99,11 @@ func (v Version) Canonical() string {
 }
 
 var (
-	semverPrefixRe   = regexp.MustCompile(`^v?(\d+(?:\.\d+){0,2})`)
+	semverPrefixRe = regexp.MustCompile(`^v?(\d+(?:\.\d+){0,2})`)
+	// prereleaseStarts is intentionally not exhaustive — it covers the
+	// suffixes used by the popular container images we care about. Add
+	// new prefixes (e.g., "ea" for early-access JDK builds, "m" for
+	// milestone builds) as encountered in production.
 	prereleaseStarts = []string{"alpha", "beta", "rc", "pre", "dev", "snapshot", "nightly"}
 )
 
