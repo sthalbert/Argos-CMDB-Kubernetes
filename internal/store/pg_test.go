@@ -2513,3 +2513,34 @@ func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
 	}
 }
+
+func TestSettings_ImageVersionsEnabled_RoundTrip(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	s, err := pg.GetSettings(ctx)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if s.ImageVersionsEnabled {
+		t.Fatalf("expected default false, got true")
+	}
+
+	on := true
+	if _, err := pg.UpdateSettings(ctx, api.SettingsPatch{ImageVersionsEnabled: &on}); err != nil {
+		t.Fatalf("patch on: %v", err)
+	}
+	s2, _ := pg.GetSettings(ctx)
+	if !s2.ImageVersionsEnabled {
+		t.Fatalf("expected true after patch")
+	}
+
+	off := false
+	if _, err := pg.UpdateSettings(ctx, api.SettingsPatch{ImageVersionsEnabled: &off}); err != nil {
+		t.Fatalf("patch off: %v", err)
+	}
+	s3, _ := pg.GetSettings(ctx)
+	if s3.ImageVersionsEnabled {
+		t.Fatalf("expected false after second patch")
+	}
+}

@@ -716,6 +716,7 @@ type Settings struct {
 	TimeTravelEnabled       bool      `json:"time_travel_enabled"`
 	TimeTravelRetentionDays int       `json:"time_travel_retention_days"`
 	TimeTravelReaperEnabled bool      `json:"time_travel_reaper_enabled"`
+	ImageVersionsEnabled    bool      `json:"image_versions_enabled"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
@@ -727,6 +728,7 @@ type SettingsPatch struct {
 	TimeTravelEnabled       *bool `json:"time_travel_enabled,omitempty"`
 	TimeTravelRetentionDays *int  `json:"time_travel_retention_days,omitempty"`
 	TimeTravelReaperEnabled *bool `json:"time_travel_reaper_enabled,omitempty"`
+	ImageVersionsEnabled    *bool `json:"image_versions_enabled,omitempty"`
 }
 
 // AuditEventFilter collects the optional server-side filters. Nil
