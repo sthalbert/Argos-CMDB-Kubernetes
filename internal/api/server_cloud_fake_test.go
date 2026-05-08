@@ -602,25 +602,79 @@ func (m *memStore) IsTimeTravelEnabled(_ context.Context) (bool, error) {
 	return true, nil
 }
 
-// --- Image registries stubs ---
+// --- Image registries ---
 
 func (m *memStore) ListImageRegistries(_ context.Context) ([]ImageRegistry, error) {
-	return nil, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]ImageRegistry, 0, len(m.registries))
+	for _, r := range m.registries {
+		out = append(out, r)
+	}
+	return out, nil
 }
 
-func (m *memStore) GetImageRegistry(_ context.Context, _ string) (ImageRegistry, error) {
-	return ImageRegistry{}, ErrNotFound
+func (m *memStore) GetImageRegistry(_ context.Context, hostname string) (ImageRegistry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.registries[hostname]
+	if !ok {
+		return ImageRegistry{}, ErrNotFound
+	}
+	return r, nil
 }
 
 func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert) (ImageRegistry, error) {
-	return ImageRegistry{Hostname: in.Hostname}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.registries[in.Hostname]; exists {
+		return ImageRegistry{}, ErrConflict
+	}
+	enabled := true
+	if in.Enabled != nil {
+		enabled = *in.Enabled
+	}
+	now := time.Now().UTC()
+	r := ImageRegistry{
+		Hostname:        in.Hostname,
+		RateLimitPerSec: in.RateLimitPerSec,
+		Enabled:         enabled,
+		Notes:           in.Notes,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	m.registries[in.Hostname] = r
+	return r, nil
 }
 
-func (m *memStore) UpdateImageRegistry(_ context.Context, hostname string, _ ImageRegistryPatch) (ImageRegistry, error) {
-	return ImageRegistry{Hostname: hostname}, nil
+func (m *memStore) UpdateImageRegistry(_ context.Context, hostname string, p ImageRegistryPatch) (ImageRegistry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.registries[hostname]
+	if !ok {
+		return ImageRegistry{}, ErrNotFound
+	}
+	if p.RateLimitPerSec != nil {
+		r.RateLimitPerSec = *p.RateLimitPerSec
+	}
+	if p.Enabled != nil {
+		r.Enabled = *p.Enabled
+	}
+	if p.Notes != nil {
+		r.Notes = p.Notes
+	}
+	r.UpdatedAt = time.Now().UTC()
+	m.registries[hostname] = r
+	return r, nil
 }
 
-func (m *memStore) DeleteImageRegistry(_ context.Context, _ string) error {
+func (m *memStore) DeleteImageRegistry(_ context.Context, hostname string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.registries[hostname]; !ok {
+		return ErrNotFound
+	}
+	delete(m.registries, hostname)
 	return nil
 }
 
