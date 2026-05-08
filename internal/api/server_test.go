@@ -42,6 +42,7 @@ type memStore struct {
 	authState         memAuthState         // users / sessions / tokens (ADR-0007)
 	pingErr           error
 	createdN          int
+	settings          Settings // overridable for handler tests
 }
 
 func newMemStore() *memStore {

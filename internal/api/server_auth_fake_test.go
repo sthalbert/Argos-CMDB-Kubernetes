@@ -683,11 +683,33 @@ func (m *memStore) InsertAuditEvent(_ context.Context, in AuditEventInsert) erro
 }
 
 func (m *memStore) GetSettings(_ context.Context) (Settings, error) {
-	return Settings{EOLEnabled: false}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.settings, nil
 }
 
-func (m *memStore) UpdateSettings(_ context.Context, _ SettingsPatch) (Settings, error) {
-	return Settings{EOLEnabled: false}, nil
+func (m *memStore) UpdateSettings(_ context.Context, patch SettingsPatch) (Settings, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if patch.EOLEnabled != nil {
+		m.settings.EOLEnabled = *patch.EOLEnabled
+	}
+	if patch.MCPEnabled != nil {
+		m.settings.MCPEnabled = *patch.MCPEnabled
+	}
+	if patch.TimeTravelEnabled != nil {
+		m.settings.TimeTravelEnabled = *patch.TimeTravelEnabled
+	}
+	if patch.TimeTravelRetentionDays != nil {
+		m.settings.TimeTravelRetentionDays = *patch.TimeTravelRetentionDays
+	}
+	if patch.TimeTravelReaperEnabled != nil {
+		m.settings.TimeTravelReaperEnabled = *patch.TimeTravelReaperEnabled
+	}
+	if patch.ImageVersionsEnabled != nil {
+		m.settings.ImageVersionsEnabled = *patch.ImageVersionsEnabled
+	}
+	return m.settings, nil
 }
 
 //nolint:gocyclo // multi-filter test fake
