@@ -87,7 +87,7 @@ func (c *Client) ListTags(ctx context.Context, registryURL, repo string) ([]stri
 				c.observer.ObserveQuery(req.URL.Host, "error", elapsed)
 			}
 			chal := resp.Header.Get("WWW-Authenticate")
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			t, err := c.fetchToken(ctx, chal)
 			if err != nil {
 				return nil, fmt.Errorf("token: %w", err)
@@ -99,14 +99,14 @@ func (c *Client) ListTags(ctx context.Context, registryURL, repo string) ([]stri
 			if c.observer != nil {
 				c.observer.ObserveQuery(req.URL.Host, "not_found", elapsed)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, ErrRepoNotFound
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			if c.observer != nil {
 				c.observer.ObserveQuery(req.URL.Host, "rate_limited", elapsed)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, ErrRateLimited
 		}
 		if resp.StatusCode >= 400 {
@@ -114,7 +114,7 @@ func (c *Client) ListTags(ctx context.Context, registryURL, repo string) ([]stri
 				c.observer.ObserveQuery(req.URL.Host, "error", elapsed)
 			}
 			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("registry status %d: %s", resp.StatusCode, string(body))
 		}
 		if c.observer != nil {
@@ -125,11 +125,11 @@ func (c *Client) ListTags(ctx context.Context, registryURL, repo string) ([]stri
 			Tags []string `json:"tags"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("decode: %w", err)
 		}
 		link := resp.Header.Get("Link")
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		allTags = append(allTags, body.Tags...)
 		next = parseNextLink(link, registryURL)
 	}
