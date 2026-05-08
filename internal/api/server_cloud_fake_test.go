@@ -601,3 +601,25 @@ func (m *memStore) GetEntityAsOf(_ context.Context, _ string, _ uuid.UUID, _ tim
 func (m *memStore) IsTimeTravelEnabled(_ context.Context) (bool, error) {
 	return true, nil
 }
+
+// --- Image registries stubs ---
+
+func (m *memStore) ListImageRegistries(_ context.Context) ([]ImageRegistry, error) {
+	return nil, nil
+}
+
+func (m *memStore) GetImageRegistry(_ context.Context, _ string) (ImageRegistry, error) {
+	return ImageRegistry{}, ErrNotFound
+}
+
+func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert) (ImageRegistry, error) {
+	return ImageRegistry{Hostname: in.Hostname}, nil
+}
+
+func (m *memStore) UpdateImageRegistry(_ context.Context, hostname string, _ ImageRegistryPatch) (ImageRegistry, error) {
+	return ImageRegistry{Hostname: hostname}, nil
+}
+
+func (m *memStore) DeleteImageRegistry(_ context.Context, _ string) error {
+	return nil
+}

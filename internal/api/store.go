@@ -587,6 +587,13 @@ type Store interface {
 	// IsTimeTravelEnabled reports whether the time_travel_enabled setting is
 	// currently true. Used by history handlers to return 503 when disabled.
 	IsTimeTravelEnabled(ctx context.Context) (bool, error)
+
+	// Image registries
+	ListImageRegistries(ctx context.Context) ([]ImageRegistry, error)
+	GetImageRegistry(ctx context.Context, hostname string) (ImageRegistry, error)
+	CreateImageRegistry(ctx context.Context, in ImageRegistryUpsert) (ImageRegistry, error)
+	UpdateImageRegistry(ctx context.Context, hostname string, p ImageRegistryPatch) (ImageRegistry, error)
+	DeleteImageRegistry(ctx context.Context, hostname string) error
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by
@@ -729,6 +736,34 @@ type SettingsPatch struct {
 	TimeTravelRetentionDays *int  `json:"time_travel_retention_days,omitempty"`
 	TimeTravelReaperEnabled *bool `json:"time_travel_reaper_enabled,omitempty"`
 	ImageVersionsEnabled    *bool `json:"image_versions_enabled,omitempty"`
+}
+
+// ImageRegistry is a row from image_versions_registries — a registry
+// hostname with optional rate-limit and enabled/disabled control.
+type ImageRegistry struct {
+	Hostname        string    `json:"hostname"`
+	RateLimitPerSec float64   `json:"rate_limit_per_sec"`
+	Enabled         bool      `json:"enabled"`
+	Notes           *string   `json:"notes,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// ImageRegistryUpsert carries the fields required to create a new
+// registry row. Enabled defaults to true when Enabled is nil.
+type ImageRegistryUpsert struct {
+	Hostname        string  `json:"hostname"`
+	RateLimitPerSec float64 `json:"rate_limit_per_sec"`
+	Enabled         *bool   `json:"enabled,omitempty"` // defaults to true
+	Notes           *string `json:"notes,omitempty"`
+}
+
+// ImageRegistryPatch is the merge-patch for UpdateImageRegistry.
+// Nil fields are left unchanged.
+type ImageRegistryPatch struct {
+	RateLimitPerSec *float64 `json:"rate_limit_per_sec,omitempty"`
+	Enabled         *bool    `json:"enabled,omitempty"`
+	Notes           *string  `json:"notes,omitempty"`
 }
 
 // AuditEventFilter collects the optional server-side filters. Nil
