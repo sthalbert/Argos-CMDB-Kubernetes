@@ -149,11 +149,11 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           <div className="sidebar-divider" />
           <span className="sidebar-section-label">Cloud Infrastructure</span>
           {link('/virtual-machines', 'Virtual Machines', VirtualMachineIcon)}
-          {link('/images', 'Container images')}
           <div className="sidebar-divider" />
           <span className="sidebar-section-label">Tools</span>
           {link('/search/image', 'Search', SearchIcon)}
           {link('/eol', 'EOL', EolIcon)}
+          {link('/images', 'Container images')}
           {(me.role === 'admin' || me.role === 'auditor') && (
             <>
               <div className="sidebar-divider" />
