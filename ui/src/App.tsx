@@ -37,6 +37,7 @@ import AuditPage from './pages/admin/Audit';
 import SettingsPage from './pages/admin/Settings';
 import CloudAccountsPage from './pages/admin/CloudAccounts';
 import CloudAccountDetail from './pages/admin/CloudAccountDetail';
+import ImageRegistriesPage from './pages/admin/ImageRegistries';
 import { MeProvider } from './me';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon,
@@ -264,6 +265,7 @@ export default function App() {
         <Route path="sessions" element={<SessionsPage />} />
         <Route path="cloud-accounts" element={<CloudAccountsPage />} />
         <Route path="cloud-accounts/:id" element={<CloudAccountDetail />} />
+        <Route path="image-registries" element={<ImageRegistriesPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
