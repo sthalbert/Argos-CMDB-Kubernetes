@@ -9,12 +9,24 @@ import (
 	"testing"
 )
 
+// mustMarshal marshals v as JSON or fails the test. Tests build small,
+// known-safe maps so propagating the error would only ever indicate a test
+// programmer error.
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
+}
+
 func TestHandleListImageRegistries(t *testing.T) {
 	s := newMemStore()
 	seedImageRegistriesForTest(t, s)
 
 	h := HandleListImageRegistries(s)
-	req := httptest.NewRequest(http.MethodGet, "/v1/admin/image-versions/registries", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/admin/image-versions/registries", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -33,11 +45,11 @@ func TestHandleListImageRegistries(t *testing.T) {
 func TestHandleCreateImageRegistry(t *testing.T) {
 	s := newMemStore()
 	h := HandleCreateImageRegistry(s)
-	body, _ := json.Marshal(map[string]any{
+	body := mustMarshal(t, map[string]any{
 		"hostname":           "mirror.example.com",
 		"rate_limit_per_sec": 2.5,
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/admin/image-versions/registries", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/admin/image-versions/registries", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
@@ -48,8 +60,8 @@ func TestHandleCreateImageRegistry(t *testing.T) {
 func TestHandleCreateImageRegistry_BadInput(t *testing.T) {
 	s := newMemStore()
 	h := HandleCreateImageRegistry(s)
-	body, _ := json.Marshal(map[string]any{"hostname": ""})
-	req := httptest.NewRequest(http.MethodPost, "/v1/admin/image-versions/registries", bytes.NewReader(body))
+	body := mustMarshal(t, map[string]any{"hostname": ""})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/admin/image-versions/registries", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -61,11 +73,11 @@ func TestHandleCreateImageRegistry_Conflict(t *testing.T) {
 	s := newMemStore()
 	seedImageRegistriesForTest(t, s)
 	h := HandleCreateImageRegistry(s)
-	body, _ := json.Marshal(map[string]any{
+	body := mustMarshal(t, map[string]any{
 		"hostname":           "docker.io", // already seeded
 		"rate_limit_per_sec": 1.0,
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/admin/image-versions/registries", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/admin/image-versions/registries", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusConflict {
@@ -77,8 +89,13 @@ func TestHandleUpdateImageRegistry(t *testing.T) {
 	s := newMemStore()
 	seedImageRegistriesForTest(t, s)
 	h := HandleUpdateImageRegistry(s)
-	body, _ := json.Marshal(map[string]any{"rate_limit_per_sec": 0.5})
-	req := httptest.NewRequest(http.MethodPatch, "/v1/admin/image-versions/registries/docker.io", bytes.NewReader(body))
+	body := mustMarshal(t, map[string]any{"rate_limit_per_sec": 0.5})
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodPatch,
+		"/v1/admin/image-versions/registries/docker.io",
+		bytes.NewReader(body),
+	)
 	req.SetPathValue("hostname", "docker.io")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -90,8 +107,13 @@ func TestHandleUpdateImageRegistry(t *testing.T) {
 func TestHandleUpdateImageRegistry_NotFound(t *testing.T) {
 	s := newMemStore()
 	h := HandleUpdateImageRegistry(s)
-	body, _ := json.Marshal(map[string]any{"rate_limit_per_sec": 1.0})
-	req := httptest.NewRequest(http.MethodPatch, "/v1/admin/image-versions/registries/missing.example.com", bytes.NewReader(body))
+	body := mustMarshal(t, map[string]any{"rate_limit_per_sec": 1.0})
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodPatch,
+		"/v1/admin/image-versions/registries/missing.example.com",
+		bytes.NewReader(body),
+	)
 	req.SetPathValue("hostname", "missing.example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -104,7 +126,7 @@ func TestHandleDeleteImageRegistry(t *testing.T) {
 	s := newMemStore()
 	seedImageRegistriesForTest(t, s)
 	h := HandleDeleteImageRegistry(s)
-	req := httptest.NewRequest(http.MethodDelete, "/v1/admin/image-versions/registries/docker.io", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/v1/admin/image-versions/registries/docker.io", http.NoBody)
 	req.SetPathValue("hostname", "docker.io")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

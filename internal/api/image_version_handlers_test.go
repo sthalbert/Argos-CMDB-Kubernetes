@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ func enableImageVersions(t *testing.T, s *memStore, enabled bool) {
 func TestHandleListImageVersions_Empty(t *testing.T) {
 	s := newFakeStoreForTest(t)
 	h := HandleListImageVersions(s)
-	req := httptest.NewRequest(http.MethodGet, "/v1/image-versions", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/image-versions", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -43,7 +44,7 @@ func TestHandleRefresh_FeatureDisabled(t *testing.T) {
 	s := newFakeStoreForTest(t)
 	enr := &fakeRefresher{enabled: false}
 	h := HandleRefreshImageVersions(s, enr)
-	req := httptest.NewRequest(http.MethodPost, "/v1/image-versions/refresh", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/image-versions/refresh", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusConflict {
@@ -57,7 +58,7 @@ func TestHandleRefresh_Triggered(t *testing.T) {
 	enableImageVersions(t, s, true)
 
 	h := HandleRefreshImageVersions(s, enr)
-	req := httptest.NewRequest(http.MethodPost, "/v1/image-versions/refresh", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/image-versions/refresh", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusAccepted {
@@ -84,7 +85,7 @@ func TestHandleRefresh_AlreadyRunning(t *testing.T) {
 	enableImageVersions(t, s, true)
 
 	h := HandleRefreshImageVersions(s, enr)
-	req := httptest.NewRequest(http.MethodPost, "/v1/image-versions/refresh", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/image-versions/refresh", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusAccepted {

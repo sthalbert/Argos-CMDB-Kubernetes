@@ -19,7 +19,7 @@ func scanImageVersion(row pgx.Row) (api.ImageVersionRow, error) {
 		&iv.ImageRepo, &iv.Variant, &iv.Registry, &iv.LatestTag, &ann,
 		&iv.Source, &iv.LastCheckedAt, &iv.LastError, &iv.LastErrorAt, &iv.CreatedAt,
 	); err != nil {
-		return api.ImageVersionRow{}, err
+		return api.ImageVersionRow{}, fmt.Errorf("scan image version: %w", err)
 	}
 	iv.Annotation = json.RawMessage(ann)
 	return iv, nil
@@ -28,6 +28,8 @@ func scanImageVersion(row pgx.Row) (api.ImageVersionRow, error) {
 // UpsertImageVersion inserts or updates a row in image_versions keyed on
 // (image_repo, variant). A nil or empty Annotation is normalized to "{}"
 // so the NOT NULL constraint never fires from a forgotten initialization.
+//
+//nolint:gocritic // in is part of the api.Store interface contract (hugeParam expected)
 func (p *PG) UpsertImageVersion(ctx context.Context, in api.ImageVersionUpsert) (api.ImageVersionRow, error) {
 	if len(in.Annotation) == 0 {
 		in.Annotation = json.RawMessage("{}")
@@ -87,48 +89,21 @@ ORDER BY variant`
 // with its full set of variant rows nested under it. lp.Limit controls the
 // number of distinct repos per page; lp.Cursor is an opaque base64 token
 // from the previous call.
+//
+// The two-phase implementation (filter + page repos, then fetch variants)
+// makes the function inherently broad: each filter is its own branch in
+// buildImageVersionsWhere plus the pagination/grouping plumbing here.
+// Splitting further would just shuffle complexity across helpers.
+//
+//nolint:gocritic,gocyclo // lp is interface-dictated; cyclo reflects the breadth, not depth
 func (p *PG) ListImageVersionsByRepo(ctx context.Context, lp api.ImageVersionListParams) ([]api.ImageVersionRepoView, string, error) {
 	if lp.Limit <= 0 || lp.Limit > 200 {
 		lp.Limit = 50
 	}
 
-	var conds []string
-	var args []any
-	if lp.Registry != "" {
-		args = append(args, lp.Registry)
-		conds = append(conds, fmt.Sprintf("registry = $%d", len(args)))
-	}
-	if lp.ImageRepoLike != "" {
-		args = append(args, "%"+escapeLike(lp.ImageRepoLike)+"%")
-		conds = append(conds, fmt.Sprintf(`image_repo ILIKE $%d ESCAPE '\'`, len(args)))
-	}
-	if lp.Variant != "" {
-		args = append(args, lp.Variant)
-		conds = append(conds, fmt.Sprintf("variant = $%d", len(args)))
-	}
-	if lp.HasError != nil {
-		if *lp.HasError {
-			conds = append(conds, "last_error IS NOT NULL")
-		} else {
-			conds = append(conds, "last_error IS NULL")
-		}
-	}
-	if lp.LastCheckedBefore != nil {
-		args = append(args, *lp.LastCheckedBefore)
-		conds = append(conds, fmt.Sprintf("last_checked_at < $%d", len(args)))
-	}
-	if lp.Cursor != "" {
-		decoded, err := decodeImageRepoCursor(lp.Cursor)
-		if err != nil {
-			return nil, "", fmt.Errorf("invalid cursor: %w", err)
-		}
-		args = append(args, decoded)
-		conds = append(conds, fmt.Sprintf("image_repo > $%d", len(args)))
-	}
-
-	where := ""
-	if len(conds) > 0 {
-		where = "WHERE " + strings.Join(conds, " AND ")
+	where, args, err := buildImageVersionsWhere(lp)
+	if err != nil {
+		return nil, "", err
 	}
 
 	// Phase 1: page over distinct image_repos (limit+1 to detect next page).
@@ -275,8 +250,53 @@ func encodeImageRepoCursor(repo string) string {
 func decodeImageRepoCursor(c string) (string, error) {
 	b, err := base64.URLEncoding.DecodeString(c)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("decode cursor: %w", err)
 	}
 	return string(b), nil
 }
 
+// buildImageVersionsWhere builds the WHERE clause and the corresponding args
+// for ListImageVersionsByRepo from the user-provided filter and cursor params.
+// Returns (whereClause, args, nil) on success or ("", nil, err) when the
+// cursor is malformed.
+//
+//nolint:gocritic // lp is part of the api.Store interface contract (hugeParam expected)
+func buildImageVersionsWhere(lp api.ImageVersionListParams) (string, []any, error) {
+	var conds []string
+	var args []any
+	if lp.Registry != "" {
+		args = append(args, lp.Registry)
+		conds = append(conds, fmt.Sprintf("registry = $%d", len(args)))
+	}
+	if lp.ImageRepoLike != "" {
+		args = append(args, "%"+escapeLike(lp.ImageRepoLike)+"%")
+		conds = append(conds, fmt.Sprintf(`image_repo ILIKE $%d ESCAPE '\'`, len(args)))
+	}
+	if lp.Variant != "" {
+		args = append(args, lp.Variant)
+		conds = append(conds, fmt.Sprintf("variant = $%d", len(args)))
+	}
+	if lp.HasError != nil {
+		if *lp.HasError {
+			conds = append(conds, "last_error IS NOT NULL")
+		} else {
+			conds = append(conds, "last_error IS NULL")
+		}
+	}
+	if lp.LastCheckedBefore != nil {
+		args = append(args, *lp.LastCheckedBefore)
+		conds = append(conds, fmt.Sprintf("last_checked_at < $%d", len(args)))
+	}
+	if lp.Cursor != "" {
+		decoded, err := decodeImageRepoCursor(lp.Cursor)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid cursor: %w", err)
+		}
+		args = append(args, decoded)
+		conds = append(conds, fmt.Sprintf("image_repo > $%d", len(args)))
+	}
+	if len(conds) == 0 {
+		return "", args, nil
+	}
+	return "WHERE " + strings.Join(conds, " AND "), args, nil
+}

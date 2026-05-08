@@ -117,58 +117,22 @@ const maxSemverMajor = 1000
 // when it ambiguously combines a prerelease and a variant suffix, or when
 // the tag looks like a date (major >= maxSemverMajor).
 func ParseTag(s string) (ParsedTag, error) {
-	if s == "" {
-		return ParsedTag{}, fmt.Errorf("%w: empty tag", ErrSkip)
+	canonical, rest, err := extractSemverPrefix(s)
+	if err != nil {
+		return ParsedTag{}, err
 	}
-	m := semverPrefixRe.FindStringSubmatchIndex(s)
-	if m == nil {
-		return ParsedTag{}, fmt.Errorf("%w: no semver prefix in %q", ErrSkip, s)
-	}
-	versionStr := s[m[2]:m[3]]
-	rest := s[m[1]:]
-
-	// Reject date-shaped tags (e.g. "2024.01.15") via a major-version sanity bound.
-	parts := strings.Split(versionStr, ".")
-	major, err := strconv.Atoi(parts[0])
-	if err != nil || major >= maxSemverMajor {
-		return ParsedTag{}, fmt.Errorf("%w: implausible major version in %q", ErrSkip, s)
-	}
-
-	// Pad to 3 components so semver lib accepts it.
-	for len(parts) < 3 {
-		parts = append(parts, "0")
-	}
-	canonical := "v" + strings.Join(parts, ".")
-	if !semver.IsValid(canonical) {
-		return ParsedTag{}, fmt.Errorf("%w: not a valid semver: %q", ErrSkip, canonical)
-	}
-
 	pt := ParsedTag{
 		Original: s,
 		Version:  Version{raw: canonical},
 	}
-
 	if rest == "" {
 		return pt, nil
 	}
-	// Trim a leading separator dash. If there's no dash, it means the tag
-	// has unexpected trailing content (e.g., "1.2.3foo") that we don't model.
 	suffix := strings.TrimPrefix(rest, "-")
 	if suffix == rest {
 		return ParsedTag{}, fmt.Errorf("%w: unexpected suffix shape %q", ErrSkip, rest)
 	}
-
-	// Detect prerelease marker.
-	isPre := false
-	lower := strings.ToLower(suffix)
-	for _, p := range prereleaseStarts {
-		if strings.HasPrefix(lower, p) {
-			isPre = true
-			break
-		}
-	}
-
-	if isPre {
+	if isPrereleaseSuffix(suffix) {
 		// Reject mixed "rc1-alpine" style as ambiguous.
 		if strings.Contains(suffix, "-") {
 			return ParsedTag{}, fmt.Errorf("%w: ambiguous prerelease+variant: %q", ErrSkip, s)
@@ -179,4 +143,44 @@ func ParseTag(s string) (ParsedTag, error) {
 
 	pt.Variant = suffix
 	return pt, nil
+}
+
+// extractSemverPrefix returns the canonical "vX.Y.Z" form of the leading
+// semver-shaped number in s and the unparsed remainder. ErrSkip wraps every
+// rejection (empty input, no prefix, implausible major, invalid semver).
+func extractSemverPrefix(s string) (canonical, rest string, err error) {
+	if s == "" {
+		return "", "", fmt.Errorf("%w: empty tag", ErrSkip)
+	}
+	m := semverPrefixRe.FindStringSubmatchIndex(s)
+	if m == nil {
+		return "", "", fmt.Errorf("%w: no semver prefix in %q", ErrSkip, s)
+	}
+	versionStr := s[m[2]:m[3]]
+	rest = s[m[1]:]
+	parts := strings.Split(versionStr, ".")
+	major, atoiErr := strconv.Atoi(parts[0])
+	if atoiErr != nil || major >= maxSemverMajor {
+		return "", "", fmt.Errorf("%w: implausible major version in %q", ErrSkip, s)
+	}
+	for len(parts) < 3 {
+		parts = append(parts, "0")
+	}
+	canonical = "v" + strings.Join(parts, ".")
+	if !semver.IsValid(canonical) {
+		return "", "", fmt.Errorf("%w: not a valid semver: %q", ErrSkip, canonical)
+	}
+	return canonical, rest, nil
+}
+
+// isPrereleaseSuffix reports whether the given suffix begins with a known
+// prerelease marker (alpha, beta, rc, etc.). The check is case-insensitive.
+func isPrereleaseSuffix(suffix string) bool {
+	lower := strings.ToLower(suffix)
+	for _, p := range prereleaseStarts {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
 }

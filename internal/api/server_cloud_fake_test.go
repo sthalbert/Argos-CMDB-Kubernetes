@@ -678,6 +678,7 @@ func (m *memStore) DeleteImageRegistry(_ context.Context, hostname string) error
 	return nil
 }
 
+//nolint:gocritic // memStore stub; in matches the api.Store interface signature (hugeParam expected)
 func (m *memStore) UpsertImageVersion(_ context.Context, in ImageVersionUpsert) (ImageVersionRow, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -704,19 +705,21 @@ func (m *memStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var rows []ImageVersionRow
-	for k, v := range m.imageVersions {
+	for k := range m.imageVersions {
 		if k[0] == imageRepo {
-			rows = append(rows, v)
+			rows = append(rows, m.imageVersions[k])
 		}
 	}
 	return rows, nil
 }
 
+//nolint:gocritic // memStore stub; in matches the api.Store interface signature (hugeParam expected)
 func (m *memStore) ListImageVersionsByRepo(_ context.Context, _ ImageVersionListParams) ([]ImageVersionRepoView, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	byRepo := map[string]*ImageVersionRepoView{}
-	for _, v := range m.imageVersions {
+	for k := range m.imageVersions {
+		v := m.imageVersions[k]
 		rv, ok := byRepo[v.ImageRepo]
 		if !ok {
 			rv = &ImageVersionRepoView{ImageRepo: v.ImageRepo, Registry: v.Registry}

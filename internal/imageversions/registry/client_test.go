@@ -15,8 +15,8 @@ import (
 func newFakeRegistry(t *testing.T, requireAuth bool, pages [][]string) *httptest.Server {
 	var tokenIssuer *httptest.Server
 	if requireAuth {
-		tokenIssuer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{"token": "fake-token", "expires_in": 300})
+		tokenIssuer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"token": "fake-token", "expires_in": 300})
 		}))
 		t.Cleanup(tokenIssuer.Close)
 	}
@@ -37,13 +37,13 @@ func newFakeRegistry(t *testing.T, requireAuth bool, pages [][]string) *httptest
 			page = 1
 		}
 		if page >= len(pages) {
-			json.NewEncoder(w).Encode(map[string]any{"name": "foo", "tags": []string{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "foo", "tags": []string{}})
 			return
 		}
 		if page+1 < len(pages) {
 			w.Header().Set("Link", `<`+srv.URL+`/v2/foo/tags/list?page=1>; rel="next"`)
 		}
-		json.NewEncoder(w).Encode(map[string]any{"name": "foo", "tags": pages[page]})
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": "foo", "tags": pages[page]})
 	}))
 	t.Cleanup(srv.Close)
 	return srv

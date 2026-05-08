@@ -18,8 +18,11 @@ import (
 )
 
 var (
-	errRunbookURLInvalid = errors.New("runbook_url is not a valid URL")
-	errRunbookURLScheme  = errors.New("runbook_url must use http or https scheme")
+	errRunbookURLInvalid             = errors.New("runbook_url is not a valid URL")
+	errRunbookURLScheme              = errors.New("runbook_url must use http or https scheme")
+	errImageVersionsDisabled         = errors.New("image_versions_enabled is false")
+	errImageVersionsEnricherMissing  = errors.New("enricher not available")
+	errImageRegistryHostnameConflict = errors.New("hostname already exists")
 )
 
 // validateRunbookURL rejects runbook URLs that use a scheme other than
@@ -1464,22 +1467,11 @@ func (s *Server) ReconcilePersistentVolumeClaims(
 	return ReconcilePersistentVolumeClaims200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
-// clientIP returns the source IP for rate-limiting, audit logging and
-// session tracking. Wraps httputil.ClientIP, applying the server-scoped
-// trusted-proxy list. Returns the empty string when r.RemoteAddr is
-// unparseable, which the audit row treats as "unknown".
-func (s *Server) clientIP(r *http.Request) string {
-	ip := httputil.ClientIP(r, s.trustedProxies)
-	if ip == nil {
-		return ""
-	}
-	return ip.String()
-}
-
 // ── Image versions ────────────────────────────────────────────────────
 
 // imageVersionRowToVariant converts a flat DB row to an ImageVersionVariant.
-func imageVersionRowToVariant(row ImageVersionRow) ImageVersionVariant {
+// Row is taken by pointer to avoid copying ~160 bytes on each call.
+func imageVersionRowToVariant(row *ImageVersionRow) ImageVersionVariant {
 	v := ImageVersionVariant{
 		Variant:       row.Variant,
 		LatestTag:     row.LatestTag,
@@ -1489,7 +1481,7 @@ func imageVersionRowToVariant(row ImageVersionRow) ImageVersionVariant {
 		LastErrorAt:   row.LastErrorAt,
 	}
 	if len(row.Annotation) > 0 {
-		var ann map[string]interface{}
+		var ann map[string]any
 		if err := json.Unmarshal(row.Annotation, &ann); err == nil {
 			v.Annotation = &ann
 		}
@@ -1498,10 +1490,11 @@ func imageVersionRowToVariant(row ImageVersionRow) ImageVersionVariant {
 }
 
 // repoViewToImageVersion converts an ImageVersionRepoView to the API ImageVersion.
+// Iterates by index to avoid copying each ImageVersionRow (~160 bytes).
 func repoViewToImageVersion(rv ImageVersionRepoView) ImageVersion {
 	variants := make([]ImageVersionVariant, 0, len(rv.Variants))
-	for _, row := range rv.Variants {
-		variants = append(variants, imageVersionRowToVariant(row))
+	for i := range rv.Variants {
+		variants = append(variants, imageVersionRowToVariant(&rv.Variants[i]))
 	}
 	return ImageVersion{
 		ImageRepo: rv.ImageRepo,
@@ -1578,12 +1571,12 @@ func (s *Server) RefreshImageVersions(ctx context.Context, _ RefreshImageVersion
 	}
 	if !settings.ImageVersionsEnabled {
 		return RefreshImageVersions409ApplicationProblemPlusJSONResponse{
-			ConflictApplicationProblemPlusJSONResponse(problemConflict(errors.New("image_versions_enabled is false"))),
+			ConflictApplicationProblemPlusJSONResponse(problemConflict(errImageVersionsDisabled)),
 		}, nil
 	}
 	if s.enricher == nil {
 		return RefreshImageVersions409ApplicationProblemPlusJSONResponse{
-			ConflictApplicationProblemPlusJSONResponse(problemConflict(errors.New("enricher not available"))),
+			ConflictApplicationProblemPlusJSONResponse(problemConflict(errImageVersionsEnricherMissing)),
 		}, nil
 	}
 	running := s.enricher.Trigger()
@@ -1621,7 +1614,7 @@ func (s *Server) CreateImageRegistry(ctx context.Context, req CreateImageRegistr
 	switch {
 	case errors.Is(err, ErrConflict):
 		return CreateImageRegistry409ApplicationProblemPlusJSONResponse{
-			ConflictApplicationProblemPlusJSONResponse(problemConflict(errors.New("hostname already exists"))),
+			ConflictApplicationProblemPlusJSONResponse(problemConflict(errImageRegistryHostnameConflict)),
 		}, nil
 	case err != nil:
 		return nil, fmt.Errorf("store: %w", err)
@@ -1655,4 +1648,16 @@ func (s *Server) DeleteImageRegistry(ctx context.Context, req DeleteImageRegistr
 		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeleteImageRegistry204Response{}, nil
+}
+
+// clientIP returns the source IP for rate-limiting, audit logging and
+// session tracking. Wraps httputil.ClientIP, applying the server-scoped
+// trusted-proxy list. Returns the empty string when r.RemoteAddr is
+// unparseable, which the audit row treats as "unknown".
+func (s *Server) clientIP(r *http.Request) string {
+	ip := httputil.ClientIP(r, s.trustedProxies)
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
 }

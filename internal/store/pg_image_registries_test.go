@@ -37,6 +37,7 @@ func TestImageRegistries_SeedDefaults(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // exercises the full CRUD lifecycle in one test for clarity
 func TestImageRegistries_CreateGetUpdateDelete(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

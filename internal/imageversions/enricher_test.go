@@ -26,18 +26,28 @@ func (s *fakeStore) GetSettings(_ context.Context) (api.Settings, error) {
 	defer s.mu.Unlock()
 	return s.settings, nil
 }
+
 func (s *fakeStore) ListImageRegistries(_ context.Context) ([]api.ImageRegistry, error) {
 	return s.registries, nil
 }
+
 func (s *fakeStore) DistinctImageRefs(_ context.Context) ([]string, error) {
 	return s.refs, nil
 }
+
+// UpsertImageVersion mirrors the api.Store interface signature, including
+// passing api.ImageVersionUpsert by value (~136 bytes). The interface
+// signature dictates the by-value param for the production PG store, so the
+// fake matches it; gocritic's hugeParam warning is suppressed accordingly.
+//
+//nolint:gocritic // fake mirrors interface signature; hugeParam expected
 func (s *fakeStore) UpsertImageVersion(_ context.Context, in api.ImageVersionUpsert) (api.ImageVersionRow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.upserted = append(s.upserted, in)
 	return api.ImageVersionRow{ImageRepo: in.ImageRepo, Variant: in.Variant}, s.upsertErr
 }
+
 func (s *fakeStore) DeleteImageVersionsNotIn(_ context.Context, keep [][2]string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -50,7 +60,7 @@ type fakeLister struct {
 	err    error
 }
 
-func (l *fakeLister) ListTags(_ context.Context, _ string, repoPath string) ([]string, error) {
+func (l *fakeLister) ListTags(_ context.Context, _, repoPath string) ([]string, error) {
 	if l.err != nil {
 		return nil, l.err
 	}
@@ -90,6 +100,10 @@ func TestEnricher_Tick_NoEnabledRegistries_DoesNotReap(t *testing.T) {
 	}
 }
 
+// testLatest is the well-formed semver tag fixtures use as the registry's
+// "latest" so it can drive both the pure-semver and -alpine assertions.
+const testLatest = "1.27.4"
+
 func TestEnricher_Tick_HappyPath(t *testing.T) {
 	enabled := true
 	s := &fakeStore{
@@ -98,7 +112,7 @@ func TestEnricher_Tick_HappyPath(t *testing.T) {
 		refs:       []string{"nginx:1.25.3", "nginx:1.25.3-alpine"},
 	}
 	l := &fakeLister{byRepo: map[string][]string{
-		"library/nginx": {"1.25.3", "1.27.4", "1.27.4-alpine", "1.27.5-rc1"},
+		"library/nginx": {"1.25.3", testLatest, testLatest + "-alpine", "1.27.5-rc1"},
 	}}
 	e := NewEnricher(s, l, time.Hour)
 	e.RunTick(context.Background())
@@ -114,11 +128,11 @@ func TestEnricher_Tick_HappyPath(t *testing.T) {
 		}
 		seen[u.Variant] = lt
 	}
-	if seen[""] != "1.27.4" {
-		t.Errorf("variant=\"\" expected 1.27.4, got %q", seen[""])
+	if seen[""] != testLatest {
+		t.Errorf("variant=\"\" expected %s, got %q", testLatest, seen[""])
 	}
-	if seen["alpine"] != "1.27.4-alpine" {
-		t.Errorf("variant=alpine expected 1.27.4-alpine, got %q", seen["alpine"])
+	if seen["alpine"] != testLatest+"-alpine" {
+		t.Errorf("variant=alpine expected %s-alpine, got %q", testLatest, seen["alpine"])
 	}
 	if len(s.reaped) != 1 {
 		t.Fatalf("expected one reap call, got %d", len(s.reaped))
@@ -159,7 +173,7 @@ func TestEnricher_Trigger_DedupesWhilePending(t *testing.T) {
 }
 
 func TestEnricher_AnnotationShape(t *testing.T) {
-	latest := "1.27.4"
+	latest := testLatest
 	ann, err := buildAnnotation(&latest, nil)
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -168,7 +182,7 @@ func TestEnricher_AnnotationShape(t *testing.T) {
 	if err := json.Unmarshal(ann, &m); err != nil {
 		t.Fatalf("annotation must be valid JSON: %v", err)
 	}
-	if m["latest_available"] != "1.27.4" {
+	if m["latest_available"] != testLatest {
 		t.Errorf("expected latest_available, got %v", m)
 	}
 }

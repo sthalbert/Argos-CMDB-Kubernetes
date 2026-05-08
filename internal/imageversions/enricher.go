@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -63,7 +64,7 @@ func (e *Enricher) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("imageversions enricher stopped: %w", ctx.Err())
 		case <-ticker.C:
 			e.RunTick(ctx)
 		case <-e.triggerCh:
@@ -112,35 +113,8 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		}
 	}()
 
-	settings, err := e.store.GetSettings(ctx)
-	if err != nil {
-		slog.Warn("imageversions: get settings failed", slog.String("err", err.Error()))
-		return
-	}
-	if !settings.ImageVersionsEnabled {
-		return
-	}
-
-	tickStart := time.Now()
-	regs, err := e.store.ListImageRegistries(ctx)
-	if err != nil {
-		slog.Warn("imageversions: list registries failed", slog.String("err", err.Error()))
-		return
-	}
-	enabledRegs := make([]api.ImageRegistry, 0, len(regs))
-	for _, r := range regs {
-		if r.Enabled {
-			enabledRegs = append(enabledRegs, r)
-		}
-	}
-	if e.metrics != nil {
-		e.metrics.RegistriesEnabledTotal.Set(float64(len(enabledRegs)))
-	}
-	// If the admin has disabled every registry while leaving the feature
-	// toggle on, don't run a tick that would reap every existing row.
-	// Preserve the data and wait for the operator to re-enable a registry.
-	if len(enabledRegs) == 0 {
-		slog.Info("imageversions: no enabled registries; skipping tick")
+	enabledRegs, ok := e.loadEnabledRegistries(ctx)
+	if !ok {
 		return
 	}
 
@@ -149,27 +123,88 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		slog.Warn("imageversions: distinct refs failed", slog.String("err", err.Error()))
 		return
 	}
+	discovered, repoRegistry := discoverWork(refs, enabledRegs)
 
-	// discovered: repo -> set of variants observed in the cluster.
-	discovered := map[string]map[string]struct{}{}
-	// repoRegistry: repo -> matched registry hostname (for rate-limiter selection and upsert).
-	repoRegistry := map[string]string{}
+	processed := e.dispatchWorkers(ctx, discovered, repoRegistry, enabledRegs)
 
+	reaped, err := e.store.DeleteImageVersionsNotIn(ctx, processed)
+	if err != nil {
+		slog.Warn("imageversions: reap failed", slog.String("err", err.Error()))
+	}
+	slog.Info(
+		"imageversions: tick complete",
+		slog.Int("discovered_refs", len(refs)),
+		slog.Int("processed_rows", len(processed)),
+		slog.Int64("reaped_rows", reaped),
+		slog.Duration("duration", time.Since(start)),
+	)
+	if e.metrics != nil {
+		e.metrics.TickTotal.WithLabelValues("success").Inc()
+		// KnownTotal is an approximation from the in-memory processed slice.
+		// WithErrorTotal is deferred to V2 when a CountImageVersions store
+		// method is added (tracking V1 gap: only approximate row counts available).
+		e.metrics.KnownTotal.Set(float64(len(processed)))
+	}
+}
+
+// loadEnabledRegistries reads the settings toggle and the registry allowlist.
+// Returns (registries, true) when work should proceed, (nil, false) when the
+// tick must short-circuit (feature disabled, store error, or no enabled rows).
+func (e *Enricher) loadEnabledRegistries(ctx context.Context) ([]api.ImageRegistry, bool) {
+	settings, err := e.store.GetSettings(ctx)
+	if err != nil {
+		slog.Warn("imageversions: get settings failed", slog.String("err", err.Error()))
+		return nil, false
+	}
+	if !settings.ImageVersionsEnabled {
+		return nil, false
+	}
+	regs, err := e.store.ListImageRegistries(ctx)
+	if err != nil {
+		slog.Warn("imageversions: list registries failed", slog.String("err", err.Error()))
+		return nil, false
+	}
+	enabled := make([]api.ImageRegistry, 0, len(regs))
+	for _, r := range regs {
+		if r.Enabled {
+			enabled = append(enabled, r)
+		}
+	}
+	if e.metrics != nil {
+		e.metrics.RegistriesEnabledTotal.Set(float64(len(enabled)))
+	}
+	// If the admin has disabled every registry while leaving the feature
+	// toggle on, don't run a tick that would reap every existing row.
+	if len(enabled) == 0 {
+		slog.Info("imageversions: no enabled registries; skipping tick")
+		return nil, false
+	}
+	return enabled, true
+}
+
+// discoverWork parses raw image refs, matches each against the allowlist,
+// and groups them by (image_repo, variant). Returns the per-repo variant set
+// and the per-repo matched registry hostname.
+func discoverWork(refs []string, enabledRegs []api.ImageRegistry) (
+	discovered map[string]map[string]struct{},
+	repoRegistry map[string]string,
+) {
+	discovered = map[string]map[string]struct{}{}
+	repoRegistry = map[string]string{}
 	for _, raw := range refs {
 		ref, err := ParseImageRef(raw)
 		if err != nil {
 			slog.Debug("imageversions: skip ref", slog.String("ref", raw), slog.String("reason", err.Error()))
 			continue
 		}
-		// Match against enabled allowlist.
-		var matched *api.ImageRegistry
+		matched := false
 		for i := range enabledRegs {
 			if registry.Match(enabledRegs[i].Hostname, ref.Registry) {
-				matched = &enabledRegs[i]
+				matched = true
 				break
 			}
 		}
-		if matched == nil {
+		if !matched {
 			slog.Debug("imageversions: registry not allowlisted",
 				slog.String("registry", ref.Registry), slog.String("ref", raw))
 			continue
@@ -185,8 +220,18 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		discovered[ref.ImageRepo][pt.Variant] = struct{}{}
 		repoRegistry[ref.ImageRepo] = ref.Registry
 	}
+	return discovered, repoRegistry
+}
 
-	// Per-registry rate limiters keyed by allowlist hostname.
+// dispatchWorkers fans out one goroutine per image_repo (bounded to 5
+// concurrent), upserts every result, and returns the processed key set
+// for the reap step.
+func (e *Enricher) dispatchWorkers(
+	ctx context.Context,
+	discovered map[string]map[string]struct{},
+	repoRegistry map[string]string,
+	enabledRegs []api.ImageRegistry,
+) [][2]string {
 	limiters := map[string]*rate.Limiter{}
 	for _, r := range enabledRegs {
 		limiters[r.Hostname] = rate.NewLimiter(rate.Limit(r.RateLimitPerSec), 1)
@@ -200,52 +245,19 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		return nil
 	}
 
-	sem := make(chan struct{}, 5) // bounded worker pool
+	sem := make(chan struct{}, 5)
 	results := make(chan tickResult)
 	var wg sync.WaitGroup
 
 	for repo, variants := range discovered {
-		repo, variants := repo, variants
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-
-			reg := repoRegistry[repo]
-			url, repoPath, err := registry.EffectiveHost(repo)
-			if err != nil {
-				emitError(results, repo, variants, reg, err)
-				return
-			}
-			if l := pickLimiter(reg); l != nil {
-				if err := l.Wait(ctx); err != nil {
-					return
-				}
-			}
-			tags, err := e.lister.ListTags(ctx, url, repoPath)
-			if err != nil {
-				emitError(results, repo, variants, reg, err)
-				return
-			}
-			now := time.Now().UTC()
-			for v := range variants {
-				latest, _ := ComputeLatest(v, tags)
-				ann, _ := buildAnnotation(strPtrIfNonEmpty(latest), nil)
-				up := api.ImageVersionUpsert{
-					ImageRepo:     repo,
-					Variant:       v,
-					Registry:      reg,
-					LatestTag:     strPtrIfNonEmpty(latest),
-					Annotation:    ann,
-					Source:        sourceRegistry,
-					LastCheckedAt: now,
-				}
-				results <- tickResult{upsert: up}
-			}
+			e.queryRepo(ctx, repo, variants, repoRegistry[repo], pickLimiter, results)
 		}()
 	}
-
 	go func() { wg.Wait(); close(results) }()
 
 	var processed [][2]string
@@ -257,23 +269,51 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		}
 		processed = append(processed, [2]string{r.upsert.ImageRepo, r.upsert.Variant})
 	}
+	return processed
+}
 
-	reaped, err := e.store.DeleteImageVersionsNotIn(ctx, processed)
+// queryRepo runs the registry call for a single image_repo and emits one
+// tickResult per variant onto results. Errors from EffectiveHost or ListTags
+// are reported as error-marked results (preserving each variant in the
+// upsert set so reap won't drop them).
+func (e *Enricher) queryRepo(
+	ctx context.Context,
+	repo string,
+	variants map[string]struct{},
+	reg string,
+	pickLimiter func(string) *rate.Limiter,
+	results chan<- tickResult,
+) {
+	url, repoPath, err := registry.EffectiveHost(repo)
 	if err != nil {
-		slog.Warn("imageversions: reap failed", slog.String("err", err.Error()))
+		emitError(results, repo, variants, reg, err)
+		return
 	}
-	slog.Info("imageversions: tick complete",
-		slog.Int("discovered_refs", len(refs)),
-		slog.Int("processed_rows", len(processed)),
-		slog.Int64("reaped_rows", reaped),
-		slog.Duration("duration", time.Since(tickStart)),
-	)
-	if e.metrics != nil {
-		e.metrics.TickTotal.WithLabelValues("success").Inc()
-		// KnownTotal is an approximation from the in-memory processed slice.
-		// WithErrorTotal is deferred to V2 when a CountImageVersions store
-		// method is added (tracking V1 gap: only approximate row counts available).
-		e.metrics.KnownTotal.Set(float64(len(processed)))
+	if l := pickLimiter(reg); l != nil {
+		if err := l.Wait(ctx); err != nil {
+			return
+		}
+	}
+	tags, err := e.lister.ListTags(ctx, url, repoPath)
+	if err != nil {
+		emitError(results, repo, variants, reg, err)
+		return
+	}
+	now := time.Now().UTC()
+	for v := range variants {
+		latest, _ := ComputeLatest(v, tags)
+		ann, _ := buildAnnotation(strPtrIfNonEmpty(latest), nil)
+		results <- tickResult{
+			upsert: api.ImageVersionUpsert{
+				ImageRepo:     repo,
+				Variant:       v,
+				Registry:      reg,
+				LatestTag:     strPtrIfNonEmpty(latest),
+				Annotation:    ann,
+				Source:        sourceRegistry,
+				LastCheckedAt: now,
+			},
+		}
 	}
 }
 
@@ -319,7 +359,7 @@ func strPtrIfNonEmpty(s string) *string {
 // eol_status fields. In V1 we only fill the latest_available field (and a
 // sentinel eol_status="unknown"). The schema is forward-compatible with the
 // richer fields planned for V3.
-func buildAnnotation(latestAvailable *string, errMsg *string) (json.RawMessage, error) {
+func buildAnnotation(latestAvailable, errMsg *string) (json.RawMessage, error) {
 	obj := map[string]any{
 		"eol_status": "unknown",
 	}
@@ -329,5 +369,9 @@ func buildAnnotation(latestAvailable *string, errMsg *string) (json.RawMessage, 
 	if errMsg != nil {
 		obj["error"] = *errMsg
 	}
-	return json.Marshal(obj)
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return nil, fmt.Errorf("marshal annotation: %w", err)
+	}
+	return b, nil
 }

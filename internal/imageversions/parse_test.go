@@ -26,10 +26,10 @@ func TestParseImageRef(t *testing.T) {
 		{"docker.io/library/nginx:1.27.0", "docker.io/library/nginx", "1.27.0", false},     // fully qualified
 		{"quay.io/prometheus/prometheus:v2.45.0", "quay.io/prometheus/prometheus", "v2.45.0", false},
 		{"ghcr.io/foo/bar:1.0.0", "ghcr.io/foo/bar", "1.0.0", false},
-		{"nginx@" + validDigest, "", "", true},                                  // digest-only (valid digest) -> skip
-		{"nginx:1.25@" + validDigest, "docker.io/library/nginx", "1.25", false}, // tag+digest valid -> primary path
+		{"nginx@" + validDigest, "", "", true},                                   // digest-only (valid digest) -> skip
+		{"nginx:1.25@" + validDigest, "docker.io/library/nginx", "1.25", false},  // tag+digest valid -> primary path
 		{"nginx:1.25@" + brokenDigest, "docker.io/library/nginx", "1.25", false}, // tag+digest broken -> fallback path strips digest
-		{"", "", "", true},          // empty
+		{"", "", "", true},            // empty
 		{"@@invalid@@", "", "", true}, // garbage
 	}
 	for _, tc := range tests {
@@ -62,11 +62,11 @@ func TestParseImageRef(t *testing.T) {
 
 func TestParseTag(t *testing.T) {
 	tests := []struct {
-		in           string
-		wantVersion  string // semver-ish prefix as captured (without v prefix)
-		wantVariant  string
-		wantPre      bool
-		wantSkip     bool
+		in          string
+		wantVersion string // semver-ish prefix as captured (without v prefix)
+		wantVariant string
+		wantPre     bool
+		wantSkip    bool
 	}{
 		{"1.25.3", "1.25.3", "", false, false},
 		{"v1.25.3", "1.25.3", "", false, false},

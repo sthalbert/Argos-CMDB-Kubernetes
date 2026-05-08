@@ -14,7 +14,7 @@ func scanImageRegistry(row pgx.Row) (api.ImageRegistry, error) {
 	var r api.ImageRegistry
 	if err := row.Scan(&r.Hostname, &r.RateLimitPerSec, &r.Enabled, &r.Notes,
 		&r.CreatedAt, &r.UpdatedAt); err != nil {
-		return api.ImageRegistry{}, err
+		return api.ImageRegistry{}, fmt.Errorf("scan image registry: %w", err)
 	}
 	return r, nil
 }

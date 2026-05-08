@@ -9,6 +9,10 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+// testTagOneZero is a placeholder semver tag used in fixtures that don't
+// care about the exact version (only about the upsert/reap mechanics).
+const testTagOneZero = "1.0.0"
+
 func mustJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -83,7 +87,7 @@ func TestImageVersions_ReapNotIn(t *testing.T) {
 	ann := mustJSON(t, map[string]any{})
 	now := time.Now().UTC()
 
-	keep := "1.0.0"
+	keep := testTagOneZero
 	drop := "0.1.0"
 	if _, err := pg.UpsertImageVersion(ctx, api.ImageVersionUpsert{
 		ImageRepo: "docker.io/library/keep", Variant: "", Registry: "docker.io",
@@ -127,7 +131,7 @@ func TestImageVersions_ReapAll_WhenKeepEmpty(t *testing.T) {
 
 	ann := mustJSON(t, map[string]any{})
 	now := time.Now().UTC()
-	latest := "1.0.0"
+	latest := testTagOneZero
 	if _, err := pg.UpsertImageVersion(ctx, api.ImageVersionUpsert{
 		ImageRepo: "docker.io/library/foo", Variant: "", Registry: "docker.io",
 		LatestTag: &latest, Annotation: ann, Source: "registry", LastCheckedAt: now,
@@ -204,6 +208,7 @@ RETURNING id::text`, clusterID).Scan(&nsID)
 	return nsID
 }
 
+//nolint:gocyclo // exercises seed + page1 + page2 in one cohesive test
 func TestImageVersions_ListByRepo_Pagination(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -213,7 +218,7 @@ func TestImageVersions_ListByRepo_Pagination(t *testing.T) {
 
 	ann := mustJSON(t, map[string]any{})
 	now := time.Now().UTC()
-	latest := "1.0.0"
+	latest := testTagOneZero
 	for _, repo := range []string{
 		"docker.io/library/a", "docker.io/library/b", "docker.io/library/c",
 		"docker.io/library/d", "docker.io/library/e",

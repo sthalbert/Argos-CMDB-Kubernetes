@@ -373,7 +373,13 @@ func maybeInitOIDC(ctx context.Context, cfg *auth.OIDCConfig) (*auth.OIDCProvide
 // ListenAndServeTLS. When either is unset, the listener stays plaintext —
 // the legacy posture, allowed for backward compatibility but refused at
 // boot when LONGUE_VUE_REQUIRE_HTTPS=true (see checkTransportPosture).
-func buildHTTPServer(cfg *runConfig, pg *store.PG, oidcProvider *auth.OIDCProvider, enc *secrets.Encrypter, imgVersionsEnricher api.EnricherTrigger) (*http.Server, error) {
+func buildHTTPServer(
+	cfg *runConfig,
+	pg *store.PG,
+	oidcProvider *auth.OIDCProvider,
+	enc *secrets.Encrypter,
+	imgVersionsEnricher api.EnricherTrigger,
+) (*http.Server, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
 	// SPA served unauthenticated under /ui/; the bundle is static and the

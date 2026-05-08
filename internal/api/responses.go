@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -13,16 +14,23 @@ type GetPodEnrichedResponse struct {
 	ContainersVersions ContainersVersions
 }
 
+// VisitGetPodResponse writes the wrapped Pod plus the containers_versions
+// sibling field as JSON to w.
+//
+//nolint:gocritic // r mirrors the codegen *Response type signature (hugeParam expected)
 func (r GetPodEnrichedResponse) VisitGetPodResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	return json.NewEncoder(w).Encode(struct {
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(struct {
 		Pod
 		ContainersVersions ContainersVersions `json:"containers_versions,omitempty"`
 	}{
 		Pod:                r.Pod,
 		ContainersVersions: r.ContainersVersions,
-	})
+	}); err != nil {
+		return fmt.Errorf("encode pod response: %w", err)
+	}
+	return nil
 }
 
 // GetWorkloadEnrichedResponse wraps the generated GetWorkload200JSONResponse
@@ -33,14 +41,21 @@ type GetWorkloadEnrichedResponse struct {
 	ContainersVersions ContainersVersions
 }
 
+// VisitGetWorkloadResponse writes the wrapped Workload plus the
+// containers_versions sibling field as JSON to w.
+//
+//nolint:gocritic // r mirrors the codegen *Response type signature (hugeParam expected)
 func (r GetWorkloadEnrichedResponse) VisitGetWorkloadResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	return json.NewEncoder(w).Encode(struct {
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(struct {
 		Workload
 		ContainersVersions ContainersVersions `json:"containers_versions,omitempty"`
 	}{
 		Workload:           r.Workload,
 		ContainersVersions: r.ContainersVersions,
-	})
+	}); err != nil {
+		return fmt.Errorf("encode workload response: %w", err)
+	}
+	return nil
 }
