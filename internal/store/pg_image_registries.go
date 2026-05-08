@@ -31,7 +31,7 @@ ORDER BY hostname`
 		return nil, fmt.Errorf("list image registries: %w", err)
 	}
 	defer rows.Close()
-	var out []api.ImageRegistry
+	out := make([]api.ImageRegistry, 0)
 	for rows.Next() {
 		r, err := scanImageRegistry(rows)
 		if err != nil {
@@ -39,7 +39,10 @@ ORDER BY hostname`
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate image registries: %w", err)
+	}
+	return out, nil
 }
 
 // GetImageRegistry fetches a single registry by hostname.
@@ -82,8 +85,13 @@ RETURNING hostname, rate_limit_per_sec, enabled, notes, created_at, updated_at`
 
 // UpdateImageRegistry applies a merge-patch to an existing registry row.
 // Returns api.ErrNotFound when the hostname does not exist.
-// The Notes field uses a CASE expression to distinguish "omitted" (nil pointer,
-// leave unchanged) from "explicitly set to NULL" (pointer to nil string).
+//
+// Notes semantics: a nil pointer leaves the column unchanged; a non-nil
+// pointer overwrites with the pointed-to string (which may be empty).
+// JSON null and an absent field are indistinguishable through *string,
+// so callers cannot use this API to clear notes back to NULL — pass
+// pointer-to-empty-string if a "cleared" placeholder is acceptable, or
+// extend the patch type to **string if true NULL-clearing is needed.
 func (p *PG) UpdateImageRegistry(ctx context.Context, hostname string, patch api.ImageRegistryPatch) (api.ImageRegistry, error) {
 	const q = `
 UPDATE image_versions_registries SET

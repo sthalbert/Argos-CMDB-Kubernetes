@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sthalbert/longue-vue/internal/api"
@@ -80,8 +81,8 @@ func TestImageRegistries_CreateGetUpdateDelete(t *testing.T) {
 	if err := pg.DeleteImageRegistry(ctx, "mirror.example.com"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := pg.GetImageRegistry(ctx, "mirror.example.com"); err == nil {
-		t.Fatalf("expected ErrNotFound after delete")
+	if _, err := pg.GetImageRegistry(ctx, "mirror.example.com"); !errors.Is(err, api.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }
 
@@ -92,7 +93,7 @@ func TestImageRegistries_CreateConflict(t *testing.T) {
 		Hostname:        "docker.io",
 		RateLimitPerSec: 1.0,
 	})
-	if err == nil {
-		t.Fatalf("expected ErrConflict for existing hostname")
+	if !errors.Is(err, api.ErrConflict) {
+		t.Fatalf("expected ErrConflict for existing hostname, got %v", err)
 	}
 }
