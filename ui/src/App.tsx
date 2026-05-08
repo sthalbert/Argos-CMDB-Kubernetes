@@ -41,7 +41,7 @@ import ImageRegistriesPage from './pages/admin/ImageRegistries';
 import { MeProvider } from './me';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon,
-  ServiceIcon, IngressIcon, VolumeIcon, SearchIcon, EolIcon, AdminIcon,
+  ServiceIcon, IngressIcon, VolumeIcon, SearchIcon, EolIcon, ContainerImageIcon, AdminIcon,
   VirtualMachineIcon,
 } from './icons';
 
@@ -153,7 +153,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           <span className="sidebar-section-label">Tools</span>
           {link('/search/image', 'Search', SearchIcon)}
           {link('/eol', 'EOL', EolIcon)}
-          {link('/images', 'Container images')}
+          {link('/images', 'Container images', ContainerImageIcon)}
           {(me.role === 'admin' || me.role === 'auditor') && (
             <>
               <div className="sidebar-divider" />
