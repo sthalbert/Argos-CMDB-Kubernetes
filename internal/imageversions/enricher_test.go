@@ -64,6 +64,30 @@ func TestEnricher_Tick_Disabled(t *testing.T) {
 	if len(s.upserted) != 0 {
 		t.Fatalf("expected no upserts when disabled, got %d", len(s.upserted))
 	}
+	if len(s.reaped) != 0 {
+		t.Fatalf("expected no reap call when disabled, got %d", len(s.reaped))
+	}
+}
+
+func TestEnricher_Tick_NoEnabledRegistries_DoesNotReap(t *testing.T) {
+	// When the admin disables every registry while leaving the feature
+	// toggle on, the tick must NOT call DeleteImageVersionsNotIn — that
+	// would wipe every existing row when called with an empty keep slice.
+	s := &fakeStore{
+		settings: api.Settings{ImageVersionsEnabled: true},
+		registries: []api.ImageRegistry{
+			{Hostname: "docker.io", RateLimitPerSec: 1.0, Enabled: false},
+		},
+		refs: []string{"nginx:1.25.3"},
+	}
+	e := NewEnricher(s, &fakeLister{}, time.Hour)
+	e.RunTick(context.Background())
+	if len(s.reaped) != 0 {
+		t.Fatalf("expected no reap call when no registries enabled, got %d", len(s.reaped))
+	}
+	if len(s.upserted) != 0 {
+		t.Fatalf("expected no upserts when no registries enabled, got %d", len(s.upserted))
+	}
 }
 
 func TestEnricher_Tick_HappyPath(t *testing.T) {

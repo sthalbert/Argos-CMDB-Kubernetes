@@ -99,6 +99,7 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		return
 	}
 
+	tickStart := time.Now()
 	regs, err := e.store.ListImageRegistries(ctx)
 	if err != nil {
 		slog.Warn("imageversions: list registries failed", slog.String("err", err.Error()))
@@ -109,6 +110,13 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		if r.Enabled {
 			enabledRegs = append(enabledRegs, r)
 		}
+	}
+	// If the admin has disabled every registry while leaving the feature
+	// toggle on, don't run a tick that would reap every existing row.
+	// Preserve the data and wait for the operator to re-enable a registry.
+	if len(enabledRegs) == 0 {
+		slog.Info("imageversions: no enabled registries; skipping tick")
+		return
 	}
 
 	refs, err := e.store.DistinctImageRefs(ctx)
@@ -225,9 +233,16 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		processed = append(processed, [2]string{r.upsert.ImageRepo, r.upsert.Variant})
 	}
 
-	if _, err := e.store.DeleteImageVersionsNotIn(ctx, processed); err != nil {
+	reaped, err := e.store.DeleteImageVersionsNotIn(ctx, processed)
+	if err != nil {
 		slog.Warn("imageversions: reap failed", slog.String("err", err.Error()))
 	}
+	slog.Info("imageversions: tick complete",
+		slog.Int("discovered_refs", len(refs)),
+		slog.Int("processed_rows", len(processed)),
+		slog.Int64("reaped_rows", reaped),
+		slog.Duration("duration", time.Since(tickStart)),
+	)
 }
 
 // emitError pushes one error-marked upsert per known variant for the given repo.
