@@ -491,6 +491,7 @@ export interface Workload {
   replicas?: number | null;
   ready_replicas?: number | null;
   containers?: Container[] | null;
+  containers_versions?: Record<string, ContainerVersionInfo> | null;
   labels?: Record<string, string> | null;
   layer: Layer;
   created_at: string;
@@ -506,6 +507,7 @@ export interface Pod {
   pod_ip?: string | null;
   workload_id?: string | null;
   containers?: Container[] | null;
+  containers_versions?: Record<string, ContainerVersionInfo> | null;
   labels?: Record<string, string> | null;
   layer: Layer;
   created_at: string;
