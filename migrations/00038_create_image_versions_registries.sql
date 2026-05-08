@@ -18,4 +18,4 @@ INSERT INTO image_versions_registries (hostname, rate_limit_per_sec) VALUES
   ('public.ecr.aws',   5.0);
 
 -- +goose Down
-DROP TABLE image_versions_registries;
+DROP TABLE IF EXISTS image_versions_registries;

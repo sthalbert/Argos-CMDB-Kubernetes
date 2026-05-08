@@ -1,7 +1,7 @@
 -- +goose Up
 ALTER TABLE settings
-  ADD COLUMN image_versions_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+  ADD COLUMN IF NOT EXISTS image_versions_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- +goose Down
 ALTER TABLE settings
-  DROP COLUMN image_versions_enabled;
+  DROP COLUMN IF EXISTS image_versions_enabled;
