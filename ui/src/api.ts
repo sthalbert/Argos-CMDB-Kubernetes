@@ -1015,6 +1015,109 @@ export function listDistinctVMApplications() {
   );
 }
 
+// --- Image versions ---------------------------------------------------------
+
+export interface ImageVersionVariant {
+  variant: string;
+  latest_tag: string | null;
+  annotation: Record<string, unknown>;
+  source: 'registry';
+  last_checked_at: string;
+  last_error: string | null;
+  last_error_at: string | null;
+}
+
+export interface ImageVersion {
+  image_repo: string;
+  registry: string;
+  variants: ImageVersionVariant[];
+}
+
+export interface ImageVersionListFilter {
+  limit?: number;
+  cursor?: string;
+  registry?: string;
+  image_repo?: string;
+  variant?: string;
+  has_error?: boolean;
+}
+
+export function listImageVersions(filter: ImageVersionListFilter = {}) {
+  return request<PagedResponse<ImageVersion>>(
+    '/v1/image-versions' +
+      query({
+        limit: filter.limit,
+        cursor: filter.cursor,
+        registry: filter.registry,
+        image_repo: filter.image_repo,
+        variant: filter.variant,
+        has_error: filter.has_error !== undefined ? String(filter.has_error) : undefined,
+      }),
+  );
+}
+
+export function getImageVersion(imageRepo: string) {
+  return request<ImageVersion>(`/v1/image-versions/${encodeURIComponent(imageRepo)}`);
+}
+
+export function refreshImageVersions() {
+  return request<{ queued: boolean; already_running: boolean }>('/v1/image-versions/refresh', {
+    method: 'POST',
+  });
+}
+
+// --- Image registries (admin) -----------------------------------------------
+
+export interface ImageRegistry {
+  hostname: string;
+  rate_limit_per_sec: number;
+  enabled: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImageRegistryCreate {
+  hostname: string;
+  rate_limit_per_sec: number;
+  enabled?: boolean;
+  notes?: string;
+}
+
+export interface ImageRegistryPatch {
+  rate_limit_per_sec?: number;
+  enabled?: boolean;
+  notes?: string | null;
+}
+
+export function listImageRegistries() {
+  return request<PagedResponse<ImageRegistry>>('/v1/admin/image-versions/registries');
+}
+
+export function createImageRegistry(in_: ImageRegistryCreate) {
+  return request<ImageRegistry>('/v1/admin/image-versions/registries', {
+    method: 'POST',
+    body: JSON.stringify(in_),
+  });
+}
+
+export function updateImageRegistry(hostname: string, patch: ImageRegistryPatch) {
+  return request<ImageRegistry>(
+    `/v1/admin/image-versions/registries/${encodeURIComponent(hostname)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    },
+  );
+}
+
+export function deleteImageRegistry(hostname: string) {
+  return request<void>(
+    `/v1/admin/image-versions/registries/${encodeURIComponent(hostname)}`,
+    { method: 'DELETE' },
+  );
+}
+
 // --- Time-travel history (ADR-0021 Phase 3) ---------------------------------
 
 export interface HistoryPatchOp {
