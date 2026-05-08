@@ -623,3 +623,23 @@ func (m *memStore) UpdateImageRegistry(_ context.Context, hostname string, _ Ima
 func (m *memStore) DeleteImageRegistry(_ context.Context, _ string) error {
 	return nil
 }
+
+func (m *memStore) UpsertImageVersion(_ context.Context, in ImageVersionUpsert) (ImageVersion, error) {
+	return ImageVersion{ImageRepo: in.ImageRepo, Variant: in.Variant}, nil
+}
+
+func (m *memStore) GetImageVersionsByRepo(_ context.Context, _ string) ([]ImageVersion, error) {
+	return []ImageVersion{}, nil
+}
+
+func (m *memStore) ListImageVersionsByRepo(_ context.Context, _ ImageVersionListParams) ([]ImageVersionRepoView, string, error) {
+	return []ImageVersionRepoView{}, "", nil
+}
+
+func (m *memStore) DeleteImageVersionsNotIn(_ context.Context, _ [][2]string) (int64, error) {
+	return 0, nil
+}
+
+func (m *memStore) DistinctImageRefs(_ context.Context) ([]string, error) {
+	return []string{}, nil
+}

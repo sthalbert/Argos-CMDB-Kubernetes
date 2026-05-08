@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -594,6 +595,13 @@ type Store interface {
 	CreateImageRegistry(ctx context.Context, in ImageRegistryUpsert) (ImageRegistry, error)
 	UpdateImageRegistry(ctx context.Context, hostname string, p ImageRegistryPatch) (ImageRegistry, error)
 	DeleteImageRegistry(ctx context.Context, hostname string) error
+
+	// Image versions
+	UpsertImageVersion(ctx context.Context, in ImageVersionUpsert) (ImageVersion, error)
+	GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]ImageVersion, error)
+	ListImageVersionsByRepo(ctx context.Context, p ImageVersionListParams) (items []ImageVersionRepoView, nextCursor string, err error)
+	DeleteImageVersionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
+	DistinctImageRefs(ctx context.Context) ([]string, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by
@@ -764,6 +772,55 @@ type ImageRegistryPatch struct {
 	RateLimitPerSec *float64 `json:"rate_limit_per_sec,omitempty"`
 	Enabled         *bool    `json:"enabled,omitempty"`
 	Notes           *string  `json:"notes,omitempty"`
+}
+
+// ImageVersion is a row from image_versions — one (image_repo, variant) pair
+// with its latest discovered tag and enrichment metadata.
+type ImageVersion struct {
+	ImageRepo     string          `json:"image_repo"`
+	Variant       string          `json:"variant"`
+	Registry      string          `json:"registry"`
+	LatestTag     *string         `json:"latest_tag,omitempty"`
+	Annotation    json.RawMessage `json:"annotation"`
+	Source        string          `json:"source"`
+	LastCheckedAt time.Time       `json:"last_checked_at"`
+	LastError     *string         `json:"last_error,omitempty"`
+	LastErrorAt   *time.Time      `json:"last_error_at,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+// ImageVersionUpsert carries the fields for inserting or updating an
+// image_versions row. (image_repo, variant) is the primary key.
+type ImageVersionUpsert struct {
+	ImageRepo     string
+	Variant       string
+	Registry      string
+	LatestTag     *string
+	Annotation    json.RawMessage
+	Source        string
+	LastCheckedAt time.Time
+	LastError     *string
+	LastErrorAt   *time.Time
+}
+
+// ImageVersionListParams collects the optional filters and pagination
+// parameters for ListImageVersionsByRepo.
+type ImageVersionListParams struct {
+	Limit             int
+	Cursor            string
+	Registry          string
+	ImageRepoLike     string // substring match, case-insensitive
+	Variant           string
+	HasError          *bool
+	LastCheckedBefore *time.Time
+}
+
+// ImageVersionRepoView groups all variants of a single image_repo together,
+// as returned by ListImageVersionsByRepo.
+type ImageVersionRepoView struct {
+	ImageRepo string         `json:"image_repo"`
+	Registry  string         `json:"registry"`
+	Variants  []ImageVersion `json:"variants"`
 }
 
 // AuditEventFilter collects the optional server-side filters. Nil
