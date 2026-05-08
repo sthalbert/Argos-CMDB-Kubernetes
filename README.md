@@ -31,7 +31,7 @@
 
 A Configuration Management Database (CMDB) for Kubernetes environments, aligned with the [ANSSI SecNumCloud](https://cyber.gouv.fr/enjeux-technologiques/cloud/) (SNC) qualification framework. longue-vue polls one or more Kubernetes clusters, mirrors the inventory into PostgreSQL, and exposes a REST API and web UI so auditors can see the cartography and operators can annotate assets with business context.
 
-**Status:** alpha — data model and HTTP contract are stable; expect additive changes until 1.0.
+**Status:** beta — data model and HTTP contract are stable; expect additive changes until 1.0.
 
 </div>
 
