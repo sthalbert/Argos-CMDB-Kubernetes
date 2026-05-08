@@ -664,7 +664,15 @@ func (s *Server) GetPod(ctx context.Context, req GetPodRequestObject) (GetPodRes
 		}
 		return nil, fmt.Errorf("store: %w", err)
 	}
-	return GetPod200JSONResponse(withPodLayer(p)), nil
+	decorated := withPodLayer(p)
+	var containers []map[string]any
+	if decorated.Containers != nil {
+		containers = *decorated.Containers
+	}
+	return GetPodEnrichedResponse{
+		Pod:                decorated,
+		ContainersVersions: EnrichContainersVersions(ctx, s.store, containers),
+	}, nil
 }
 
 // UpdatePod applies merge-patch updates.
@@ -798,7 +806,15 @@ func (s *Server) GetWorkload(ctx context.Context, req GetWorkloadRequestObject) 
 		}
 		return nil, fmt.Errorf("store: %w", err)
 	}
-	return GetWorkload200JSONResponse(withWorkloadLayer(wl)), nil
+	decorated := withWorkloadLayer(wl)
+	var containers []map[string]any
+	if decorated.Containers != nil {
+		containers = *decorated.Containers
+	}
+	return GetWorkloadEnrichedResponse{
+		Workload:           decorated,
+		ContainersVersions: EnrichContainersVersions(ctx, s.store, containers),
+	}, nil
 }
 
 // UpdateWorkload applies merge-patch updates.

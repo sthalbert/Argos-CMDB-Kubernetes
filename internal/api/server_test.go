@@ -43,7 +43,8 @@ type memStore struct {
 	pingErr           error
 	createdN          int
 	settings          Settings                // overridable for handler tests
-	registries        map[string]ImageRegistry // keyed by hostname; image_versions_registries
+	registries        map[string]ImageRegistry  // keyed by hostname; image_versions_registries
+	imageVersions     map[[2]string]ImageVersion // keyed by [imageRepo, variant]
 }
 
 func newMemStore() *memStore {
@@ -68,6 +69,7 @@ func newMemStore() *memStore {
 		pvcsByNatKey:      make(map[string]uuid.UUID),
 		authState:         newMemAuthState(),
 		registries:        make(map[string]ImageRegistry),
+		imageVersions:     make(map[[2]string]ImageVersion),
 	}
 }
 

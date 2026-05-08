@@ -826,6 +826,19 @@ type ImageVersionRepoView struct {
 	Variants  []ImageVersion `json:"variants"`
 }
 
+// ContainerVersionInfo enriches a single container in a workload/pod response
+// with the latest available tag and a freshness indicator.
+type ContainerVersionInfo struct {
+	LatestTag     string    `json:"latest_tag"`
+	IsBehind      bool      `json:"is_behind"`
+	LastCheckedAt time.Time `json:"last_checked_at"`
+}
+
+// ContainersVersions maps container.name -> ContainerVersionInfo. Keys are
+// absent when the image is not enriched (non-parseable tag, registry
+// outside allowlist, or not yet processed).
+type ContainersVersions map[string]ContainerVersionInfo
+
 // AuditEventFilter collects the optional server-side filters. Nil
 // fields are ignored; set fields are AND-combined.
 type AuditEventFilter struct {

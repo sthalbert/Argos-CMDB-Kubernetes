@@ -679,15 +679,56 @@ func (m *memStore) DeleteImageRegistry(_ context.Context, hostname string) error
 }
 
 func (m *memStore) UpsertImageVersion(_ context.Context, in ImageVersionUpsert) (ImageVersion, error) {
-	return ImageVersion{ImageRepo: in.ImageRepo, Variant: in.Variant}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := [2]string{in.ImageRepo, in.Variant}
+	row := ImageVersion{
+		ImageRepo:     in.ImageRepo,
+		Variant:       in.Variant,
+		Registry:      in.Registry,
+		LatestTag:     in.LatestTag,
+		Annotation:    in.Annotation,
+		Source:        in.Source,
+		LastCheckedAt: in.LastCheckedAt,
+		LastError:     in.LastError,
+		LastErrorAt:   in.LastErrorAt,
+	}
+	if existing, ok := m.imageVersions[key]; ok {
+		row.CreatedAt = existing.CreatedAt
+	}
+	m.imageVersions[key] = row
+	return row, nil
 }
 
-func (m *memStore) GetImageVersionsByRepo(_ context.Context, _ string) ([]ImageVersion, error) {
-	return []ImageVersion{}, nil
+func (m *memStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) ([]ImageVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var rows []ImageVersion
+	for k, v := range m.imageVersions {
+		if k[0] == imageRepo {
+			rows = append(rows, v)
+		}
+	}
+	return rows, nil
 }
 
 func (m *memStore) ListImageVersionsByRepo(_ context.Context, _ ImageVersionListParams) ([]ImageVersionRepoView, string, error) {
-	return []ImageVersionRepoView{}, "", nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	byRepo := map[string]*ImageVersionRepoView{}
+	for _, v := range m.imageVersions {
+		rv, ok := byRepo[v.ImageRepo]
+		if !ok {
+			rv = &ImageVersionRepoView{ImageRepo: v.ImageRepo, Registry: v.Registry}
+			byRepo[v.ImageRepo] = rv
+		}
+		rv.Variants = append(rv.Variants, v)
+	}
+	result := make([]ImageVersionRepoView, 0, len(byRepo))
+	for _, rv := range byRepo {
+		result = append(result, *rv)
+	}
+	return result, "", nil
 }
 
 func (m *memStore) DeleteImageVersionsNotIn(_ context.Context, _ [][2]string) (int64, error) {
