@@ -796,7 +796,7 @@ export function PodDetail() {
                   <tr>
                     <th>Name</th>
                     <th>Image</th>
-                    <th>Version</th>
+                    <th>Last version</th>
                     <th>Image ID</th>
                     <th>Init</th>
                   </tr>
@@ -812,7 +812,22 @@ export function PodDetail() {
                         <td>
                           <code>{c.image}</code>
                         </td>
-                        <td><ContainerVersionBadge info={info ?? undefined} /></td>
+                        <td>
+                          {info?.latest_tag ? (
+                            <code
+                              className={info.is_behind ? 'pill status-bad' : 'pill status-ok'}
+                              title={
+                                info.is_behind
+                                  ? `Behind: latest available is ${info.latest_tag} (checked ${new Date(info.last_checked_at).toLocaleString()})`
+                                  : `Up to date (checked ${new Date(info.last_checked_at).toLocaleString()})`
+                              }
+                            >
+                              {info.latest_tag}
+                            </code>
+                          ) : (
+                            <ContainerVersionBadge info={info ?? undefined} />
+                          )}
+                        </td>
                         <td>
                           {c.image_id ? (
                             <code style={{ fontSize: '0.75rem' }}>
