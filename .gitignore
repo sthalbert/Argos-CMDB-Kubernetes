@@ -1,5 +1,8 @@
 # Binaries
 /bin/
+/longue-vue
+/longue-vue-ingest-gw
+/longue-vue-vm-collector
 *.exe
 *.test
 *.out
