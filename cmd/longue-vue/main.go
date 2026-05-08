@@ -24,6 +24,8 @@ import (
 	"github.com/sthalbert/longue-vue/internal/collector"
 	"github.com/sthalbert/longue-vue/internal/eol"
 	"github.com/sthalbert/longue-vue/internal/httputil"
+	"github.com/sthalbert/longue-vue/internal/imageversions"
+	"github.com/sthalbert/longue-vue/internal/imageversions/registry"
 	"github.com/sthalbert/longue-vue/internal/impact"
 	argmcp "github.com/sthalbert/longue-vue/internal/mcp"
 	"github.com/sthalbert/longue-vue/internal/metrics"
@@ -275,6 +277,13 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 		return err
 	}
 	defer drainEOL()
+
+	imgVersionsEnricher, drainImageVersions, err := maybeStartImageVersionsEnricher(rootCtx, pg)
+	if err != nil {
+		return fmt.Errorf("image versions enricher: %w", err)
+	}
+	defer drainImageVersions()
+	_ = imgVersionsEnricher // captured for the refresh handler (Task 15)
 
 	drainMCP, err := maybeStartMCPServer(rootCtx, pg)
 	if err != nil {
@@ -1106,6 +1115,47 @@ func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 	)
 
 	return wg.Wait, nil
+}
+
+// maybeStartImageVersionsEnricher spawns the image-versions enrichment goroutine.
+// The goroutine always starts; actual enrichment is gated by the
+// `image_versions_enabled` setting in the database (toggled by admins via the UI).
+// LONGUE_VUE_IMAGE_VERSIONS_ENABLED seeds the DB setting on first boot when present.
+// Returns the enricher (for the /refresh handler in Task 15) and a drain function the caller defers.
+func maybeStartImageVersionsEnricher(ctx context.Context, s api.Store) (*imageversions.Enricher, func(), error) {
+	// Seed the DB setting from env var when explicitly set.
+	if envVal := os.Getenv("LONGUE_VUE_IMAGE_VERSIONS_ENABLED"); envVal != "" {
+		enabled, err := strconv.ParseBool(envVal)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse LONGUE_VUE_IMAGE_VERSIONS_ENABLED=%q: %w", envVal, err)
+		}
+		if _, err := s.UpdateSettings(ctx, api.SettingsPatch{ImageVersionsEnabled: &enabled}); err != nil {
+			slog.Warn("imageversions enricher: failed to seed settings from env", slog.Any("error", err))
+		}
+	}
+
+	interval, err := parseDurationEnv("LONGUE_VUE_IMAGE_VERSIONS_INTERVAL", 24*time.Hour)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	client := registry.NewClient()
+	enricher := imageversions.NewEnricher(s, client, interval)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := enricher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("imageversions enricher exited with error", slog.String("error", err.Error()))
+		}
+	}()
+
+	slog.Info("imageversions enricher goroutine started (actual enrichment gated by DB setting)",
+		slog.String("interval", interval.String()),
+	)
+
+	return enricher, wg.Wait, nil
 }
 
 // mcpTokenStore is the narrow store interface needed by buildMCPAuthFn.
