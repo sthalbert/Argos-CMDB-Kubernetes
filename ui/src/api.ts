@@ -1017,6 +1017,12 @@ export function listDistinctVMApplications() {
 
 // --- Image versions ---------------------------------------------------------
 
+export interface ContainerVersionInfo {
+  latest_tag: string;
+  is_behind: boolean;
+  last_checked_at: string;
+}
+
 export interface ImageVersionVariant {
   variant: string;
   latest_tag: string | null;
