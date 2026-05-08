@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.17.0...chart-longue-vue-v0.17.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* **security:** clear initial security-scan baseline ([2ae1be0](https://github.com/sthalbert/Longue-Vue/commit/2ae1be09a12c0671f0cfa4c06efac658f8894c11))
+
 ## [0.17.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.16.0...chart-longue-vue-v0.17.0) (2026-05-06)
 
 
