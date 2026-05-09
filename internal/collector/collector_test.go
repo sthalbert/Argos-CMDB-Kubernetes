@@ -457,13 +457,14 @@ func (s *fakeStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUI
 	}
 	kept := s.existingWorkloads[:0]
 	var deleted int64
-	for _, w := range s.existingWorkloads {
+	for i := range s.existingWorkloads {
+		w := &s.existingWorkloads[i]
 		if w.NamespaceId != namespaceID {
-			kept = append(kept, w)
+			kept = append(kept, *w)
 			continue
 		}
 		if _, ok := keep[string(w.Kind)+"/"+w.Name]; ok {
-			kept = append(kept, w)
+			kept = append(kept, *w)
 			continue
 		}
 		deleted++
