@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.17.1...chart-longue-vue-v0.18.0) (2026-05-09)
+
+
+### Features
+
+* **chart:** expose mcp.allowPlaintext for local/dev clusters without TLS ([313f7ef](https://github.com/sthalbert/Longue-Vue/commit/313f7efe6fc6d20d3a328ba94b78f4efae57e80a))
+* container image versions enrichment (ADR-0022) ([72b799b](https://github.com/sthalbert/Longue-Vue/commit/72b799b76c0de46815551f1920d5b09164c33caf))
+
 ## [0.17.1](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.17.0...chart-longue-vue-v0.17.1) (2026-05-08)
 
 
