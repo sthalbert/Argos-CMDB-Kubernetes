@@ -22,6 +22,13 @@ server:
   shutdownTimeout: "15s"
   # -- First-install admin password. Empty = random (printed once in logs).
   bootstrapAdminPassword: ""
+  # -- Set this to enable boot-time admin rescue when every admin is locked.
+  #    The hook reads this value, picks the most-recently-active admin,
+  #    resets their password to this string, clears the lockout, and forces
+  #    must_change_password=true on the next login.
+  #    Safe to leave permanently set: rescue is a no-op when at least one
+  #    admin can authenticate.
+  adminRescuePassword: ""
   # -- Session cookie Secure flag: auto | always | never. Pin to "always"
   #    when fronted by a TLS-terminating proxy (the default behind
   #    ingress-nginx / Envoy / a cloud LB) so cookies never travel over
