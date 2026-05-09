@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.18.0...chart-longue-vue-v0.19.0) (2026-05-09)
+
+
+### Features
+
+* **auth:** per-account login lockout + admin rescue ([0c2cdb3](https://github.com/sthalbert/Longue-Vue/commit/0c2cdb364f95883f44831dfa536fd00b1d610c4a))
+* **chart:** expose adminRescuePassword on longue-vue chart ([b8d91d8](https://github.com/sthalbert/Longue-Vue/commit/b8d91d80d7516e194f2077ee37b60ee0d91826af))
+
 ## [0.18.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.17.1...chart-longue-vue-v0.18.0) (2026-05-09)
 
 
