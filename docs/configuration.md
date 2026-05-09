@@ -24,6 +24,7 @@ The main daemon that serves the REST API, web UI, and optionally runs the pull-m
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` | no | random 16-char string | Password for the auto-created `admin` user on first boot. Only consulted when no active admin exists in the database. If unset, longue-vue generates a random password and prints it **once** to the startup log. |
+| `LONGUE_VUE_ADMIN_RESCUE_PASSWORD` | no | unset (rescue disabled) | Recovery password for the boot-time admin-rescue hook (ADR-0023). When set AND no admin row has `disabled_at IS NULL AND locked_at IS NULL`, the next start picks the most-recently-active admin, resets their password to this value, clears the lockout, and forces `must_change_password=true`. Safe to leave permanently set: rescue is a no-op when at least one admin can authenticate. See [Operations → Locked-admin recovery](operations.md#locked-admin-recovery-rescue-env-var) for the full procedure. |
 
 ### Session and cookies
 

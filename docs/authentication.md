@@ -90,6 +90,48 @@ curl -sS -b /tmp/longue-vue.cookies -X PATCH http://localhost:8080/v1/admin/user
   -d '{"disabled":true}'
 ```
 
+## Account lockout
+
+After **6 consecutive failed password verifications**, the account auto-locks (ADR-0023, addresses Shannon finding AUTH-VULN-03). This blocks distributed brute-force attacks that would otherwise bypass the per-IP login limiter via source-IP rotation.
+
+### Behaviour from the wire
+
+A locked account returns the same `401 Unauthorized` as a wrong password — same body (`{"detail":"invalid credentials",…}`), same headers (`Www-Authenticate`, `Content-Type`). An attacker cannot use the lockout state to enumerate valid usernames. The legitimate user does not learn from the API that they are locked; they discover it out-of-band (helpdesk, admin panel).
+
+The successful-login counter reset, the locked-account guard, and the unknown-user path all run an `argon2` verify (real or dummy) so response timing does not betray the path taken.
+
+### What appears in `users`
+
+```sql
+SELECT username, failed_login_count, locked_at FROM users WHERE locked_at IS NOT NULL;
+```
+
+`failed_login_count` increments on every wrong password and is reset to `0` on successful login. `locked_at` is set when the threshold is reached and cleared on unlock. Once locked, further wrong-password attempts are no-ops — the counter does not advance past the threshold and `locked_at` is not refreshed (so the original lock timestamp survives).
+
+### Unknown usernames are never counted
+
+Login attempts against a non-existent username return 401 with no row mutation. There is nothing to lock, and the lockout state itself is therefore not an enumeration vector.
+
+### The last admin can be locked
+
+There is no last-admin guard at lockout time — the most-attacked account in any deployment cannot be the only one with no protection. Recovery uses the boot-time rescue hook below.
+
+### Unlocking a user (admin)
+
+```bash
+curl -sS -b /tmp/longue-vue.cookies -X PATCH http://localhost:8080/v1/admin/users/<id> \
+  -H 'Content-Type: application/merge-patch+json' \
+  -d '{"unlock":true}'
+```
+
+`unlock=true` clears `failed_login_count` and `locked_at` in one transaction. It can be combined with other patch fields. The standard audit middleware records the request.
+
+### When every admin is locked
+
+Set `LONGUE_VUE_ADMIN_RESCUE_PASSWORD` in the deployment's environment and restart the pod. On startup, longue-vue checks for usable admins (`disabled_at IS NULL AND locked_at IS NULL`); if none exist, it picks the most-recently-active admin, resets their password to the env-var value, clears the lockout, and forces `must_change_password=true`. A `system`-source audit event with `action=auth.admin_rescue` is written and a loud `slog.Error` banner is emitted. See [Operations → Locked-admin recovery](operations.md#locked-admin-recovery-rescue-env-var).
+
+The env var is safe to leave permanently set in `values.yaml` — the rescue is a no-op when at least one admin can authenticate.
+
 ## OIDC federation
 
 OIDC is optional. When enabled, a "Sign in with ..." button appears on the login page alongside the local username/password form.
