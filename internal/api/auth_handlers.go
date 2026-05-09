@@ -684,6 +684,7 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 	patch := UserPatch{
 		MustChangePassword: body.MustChangePassword,
 		Disabled:           body.Disabled,
+		Unlock:             body.Unlock,
 	}
 	if body.Role != nil {
 		r := string(*body.Role)
