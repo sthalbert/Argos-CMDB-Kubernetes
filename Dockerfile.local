@@ -1,0 +1,41 @@
+# Legacy-builder-compatible variant of Dockerfile (no BuildKit features).
+# Used only for local k3d testing when buildx isn't installed.
+# Strips `# syntax=` and every `RUN --mount=type=cache,...` directive.
+
+ARG GO_VERSION=1.26
+ARG NODE_VERSION=22-alpine
+
+FROM node:${NODE_VERSION} AS ui-build
+WORKDIR /src/ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+RUN npm run build
+
+FROM golang:${GO_VERSION} AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN rm -rf ui/dist
+COPY --from=ui-build /src/ui/dist ./ui/dist
+
+ARG VERSION=docker
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN CGO_ENABLED=0 \
+    GOOS=${TARGETOS:-linux} \
+    GOARCH=${TARGETARCH:-amd64} \
+    go build \
+        -trimpath \
+        -ldflags "-s -w -X main.version=${VERSION}" \
+        -o /out/longue-vue \
+        ./cmd/longue-vue
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/longue-vue /longue-vue
+EXPOSE 8080
+USER nonroot:nonroot
+ENTRYPOINT ["/longue-vue"]

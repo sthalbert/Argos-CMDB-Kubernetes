@@ -1,4 +1,4 @@
-//nolint:gocritic,golines // test fixture; rangeValCopy/golines are noise on a fake store.
+//nolint:gocritic // test fixture; rangeValCopy across small structs is noise on a fake store.
 package mcp
 
 import (
@@ -241,7 +241,12 @@ func (f *fakeStore) GetPersistentVolume(_ context.Context, id uuid.UUID) (api.Pe
 	return api.PersistentVolume{}, api.ErrNotFound
 }
 
-func (f *fakeStore) ListPersistentVolumeClaims(_ context.Context, namespaceID *uuid.UUID, _ int, _ string) ([]api.PersistentVolumeClaim, string, error) {
+func (f *fakeStore) ListPersistentVolumeClaims(
+	_ context.Context,
+	namespaceID *uuid.UUID,
+	_ int,
+	_ string,
+) ([]api.PersistentVolumeClaim, string, error) {
 	out := make([]api.PersistentVolumeClaim, 0, len(f.pvcs))
 	for _, pvc := range f.pvcs {
 		if namespaceID != nil && pvc.NamespaceId != *namespaceID {
@@ -286,8 +291,14 @@ func (f *fakeStore) GetCloudAccount(_ context.Context, id uuid.UUID) (api.CloudA
 
 // --- VirtualMachines ----
 
+//
 //nolint:gocognit,gocyclo // each filter clause is independent; flatness is the point.
-func (f *fakeStore) ListVirtualMachines(_ context.Context, filter api.VirtualMachineListFilter, _ int, _ string) ([]api.VirtualMachine, string, error) {
+func (f *fakeStore) ListVirtualMachines(
+	_ context.Context,
+	filter api.VirtualMachineListFilter,
+	_ int,
+	_ string,
+) ([]api.VirtualMachine, string, error) {
 	f.lastVMFilter = filter
 	if err := f.errOn["ListVirtualMachines"]; err != nil {
 		return nil, "", err
@@ -361,7 +372,7 @@ func (f *fakeStore) ListDistinctVMApplications(_ context.Context) ([]api.VMAppli
 // get-by-repo lookups. Tests that don't touch this surface leave the slice
 // nil and the methods return empty slices.
 
-//nolint:gocritic // fake mirrors api.Store interface; lp by value matches the contract.
+//nolint:gocritic,gocyclo // fake mirrors api.Store interface; filter switch breadth produces gocyclo > 10
 func (f *fakeStore) ListImageVersionsByRepo(_ context.Context, lp api.ImageVersionListParams) ([]api.ImageVersionRepoView, string, error) {
 	if err := f.errOn["ListImageVersionsByRepo"]; err != nil {
 		return nil, "", err

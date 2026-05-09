@@ -542,9 +542,25 @@ func TestHandleListImageVersions_FiltersAndShape(t *testing.T) {
 	errMsg := "registry: repo not found"
 	store.imageVersions = []api.ImageVersionRow{
 		{ImageRepo: "docker.io/library/nginx", Variant: "", Registry: "docker.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
-		{ImageRepo: "docker.io/library/nginx", Variant: "alpine", Registry: "docker.io", LatestTag: &tagAlpine, Source: "registry", LastCheckedAt: at},
+		{
+			ImageRepo:     "docker.io/library/nginx",
+			Variant:       "alpine",
+			Registry:      "docker.io",
+			LatestTag:     &tagAlpine,
+			Source:        "registry",
+			LastCheckedAt: at,
+		},
 		{ImageRepo: "quay.io/prometheus/prometheus", Variant: "", Registry: "quay.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
-		{ImageRepo: "docker.io/missing/repo", Variant: "", Registry: "docker.io", LatestTag: nil, Source: "registry", LastCheckedAt: at, LastError: &errMsg, LastErrorAt: &at},
+		{
+			ImageRepo:     "docker.io/missing/repo",
+			Variant:       "",
+			Registry:      "docker.io",
+			LatestTag:     nil,
+			Source:        "registry",
+			LastCheckedAt: at,
+			LastError:     &errMsg,
+			LastErrorAt:   &at,
+		},
 	}
 	s := newServer(t, store)
 
@@ -617,6 +633,7 @@ func TestHandleGetImageVersion_RoundtripAndNotFound(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // aggregate test asserts every counter the handler emits
 func TestHandleGetImageVersionsSummary_Aggregates(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
@@ -627,7 +644,16 @@ func TestHandleGetImageVersionsSummary_Aggregates(t *testing.T) {
 		{ImageRepo: "docker.io/library/nginx", Variant: "", Registry: "docker.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
 		{ImageRepo: "docker.io/library/nginx", Variant: "alpine", Registry: "docker.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
 		{ImageRepo: "quay.io/prometheus/prometheus", Variant: "", Registry: "quay.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
-		{ImageRepo: "docker.io/missing/repo", Variant: "", Registry: "docker.io", LatestTag: nil, Source: "registry", LastCheckedAt: at, LastError: &errMsg, LastErrorAt: &at},
+		{
+			ImageRepo:     "docker.io/missing/repo",
+			Variant:       "",
+			Registry:      "docker.io",
+			LatestTag:     nil,
+			Source:        "registry",
+			LastCheckedAt: at,
+			LastError:     &errMsg,
+			LastErrorAt:   &at,
+		},
 	}
 	s := newServer(t, store)
 
