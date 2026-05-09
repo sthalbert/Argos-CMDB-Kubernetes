@@ -2120,6 +2120,189 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/image-versions:
+    get:
+      summary: List enriched container images with their latest tags
+      tags: [image-versions]
+      operationId: listImageVersions
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: registry, in: query, schema: { type: string } }
+        - { name: image_repo, in: query, schema: { type: string } }
+        - { name: variant, in: query, schema: { type: string } }
+        - { name: has_error, in: query, schema: { type: boolean } }
+        - { name: last_checked_before, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageVersionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/image-versions/refresh:
+    post:
+      summary: Trigger an immediate enrichment cycle (admin only)
+      tags: [image-versions, admin]
+      operationId: refreshImageVersions
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageVersionRefreshResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/image-versions/{image_repo}:
+    get:
+      summary: Get one image's enrichment (all variants)
+      tags: [image-versions]
+      operationId: getImageVersion
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - name: image_repo
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/image-versions/registries:
+    get:
+      summary: List the supported registries allowlist
+      tags: [admin, image-versions]
+      operationId: listImageRegistries
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ImageRegistry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Add a registry to the allowlist
+      tags: [admin, image-versions]
+      operationId: createImageRegistry
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageRegistryUpsert'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageRegistry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/admin/image-versions/registries/{hostname}:
+    patch:
+      summary: Update a registry's rate limit, enabled flag, or notes
+      tags: [admin, image-versions]
+      operationId: patchImageRegistry
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageRegistryPatch'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageRegistry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Remove a registry from the allowlist
+      tags: [admin, image-versions]
+      operationId: deleteImageRegistry
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: No Content
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
 
   securitySchemes:
@@ -3150,6 +3333,11 @@ components:
             type: string
             maxLength: 256
           maxProperties: 64
+        containers_versions:
+          type: object
+          description: Map of container name to its latest-version info. Keys are absent when the image is not yet enriched (non-parseable tag, registry not in allowlist, or not yet processed).
+          additionalProperties:
+            $ref: '#/components/schemas/ContainerVersionInfo'
 
     PodCreate:
       description: Payload to register a new pod under a namespace.
@@ -3269,6 +3457,11 @@ components:
             for Deployment, service_name for StatefulSet). Open-ended; stored
             as JSONB.
           additionalProperties: true
+        containers_versions:
+          type: object
+          description: Map of container name to its latest-version info. Keys are absent when the image is not yet enriched (non-parseable tag, registry not in allowlist, or not yet processed).
+          additionalProperties:
+            $ref: '#/components/schemas/ContainerVersionInfo'
 
     WorkloadCreate:
       description: Payload to register a new workload under a namespace.
@@ -4353,3 +4546,126 @@ components:
         next_cursor:
           type: string
           nullable: true
+
+    ContainerVersionInfo:
+      type: object
+      required: [latest_tag, is_behind, last_checked_at]
+      properties:
+        latest_tag:
+          type: string
+        is_behind:
+          type: boolean
+        last_checked_at:
+          type: string
+          format: date-time
+
+    ImageRegistry:
+      type: object
+      required: [hostname, rate_limit_per_sec, enabled, created_at, updated_at]
+      properties:
+        hostname:
+          type: string
+          description: "Exact hostname or '*<suffix>' wildcard"
+        rate_limit_per_sec:
+          type: number
+          format: float
+          minimum: 0.01
+        enabled:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ImageRegistryUpsert:
+      type: object
+      required: [hostname, rate_limit_per_sec]
+      properties:
+        hostname:
+          type: string
+        rate_limit_per_sec:
+          type: number
+          format: float
+          minimum: 0.01
+        enabled:
+          type: boolean
+        notes:
+          type: string
+
+    ImageRegistryPatch:
+      type: object
+      properties:
+        rate_limit_per_sec:
+          type: number
+          format: float
+          minimum: 0.01
+        enabled:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+
+    ImageVersionVariant:
+      type: object
+      required: [variant, source, last_checked_at]
+      properties:
+        variant:
+          type: string
+          description: "Empty string for pure semver"
+        latest_tag:
+          type: string
+          nullable: true
+        annotation:
+          type: object
+          additionalProperties: true
+        source:
+          type: string
+          enum: [registry]
+        last_checked_at:
+          type: string
+          format: date-time
+        last_error:
+          type: string
+          nullable: true
+        last_error_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ImageVersion:
+      type: object
+      required: [image_repo, registry, variants]
+      properties:
+        image_repo:
+          type: string
+        registry:
+          type: string
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageVersionVariant'
+
+    ImageVersionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageVersion'
+        next_cursor:
+          type: string
+
+    ImageVersionRefreshResponse:
+      type: object
+      required: [queued, already_running]
+      properties:
+        queued:
+          type: boolean
+        already_running:
+          type: boolean

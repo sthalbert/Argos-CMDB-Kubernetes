@@ -25,7 +25,8 @@ var errRequiredField = errors.New("required field missing")
 //nolint:funlen // registering 22 tools in one function is inherently long.
 func (s *Server) registerTools() {
 	s.mcp.AddTool(
-		mcp.NewTool("list_clusters",
+		mcp.NewTool(
+			"list_clusters",
 			mcp.WithDescription("List all Kubernetes clusters in the CMDB with their version, provider, region, and EOL status"),
 			mcp.WithString("name", mcp.Description("Filter by cluster name substring (optional)")),
 		),
@@ -33,7 +34,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_cluster",
+		mcp.NewTool(
+			"get_cluster",
 			mcp.WithDescription("Get a single cluster by its UUID"),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Cluster UUID")),
 		),
@@ -41,7 +43,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_nodes",
+		mcp.NewTool(
+			"list_nodes",
 			mcp.WithDescription("List Kubernetes nodes, optionally filtered by cluster"),
 			mcp.WithString("cluster_id", mcp.Description("Filter by cluster UUID (optional)")),
 		),
@@ -49,7 +52,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_node",
+		mcp.NewTool(
+			"get_node",
 			mcp.WithDescription("Get a single node by its UUID"),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Node UUID")),
 		),
@@ -57,7 +61,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_namespaces",
+		mcp.NewTool(
+			"list_namespaces",
 			mcp.WithDescription("List Kubernetes namespaces, optionally filtered by cluster"),
 			mcp.WithString("cluster_id", mcp.Description("Filter by cluster UUID (optional)")),
 		),
@@ -65,7 +70,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_namespace",
+		mcp.NewTool(
+			"get_namespace",
 			mcp.WithDescription("Get a single namespace by its UUID"),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Namespace UUID")),
 		),
@@ -73,7 +79,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_workloads",
+		mcp.NewTool(
+			"list_workloads",
 			mcp.WithDescription("List workloads (Deployments, StatefulSets, DaemonSets), optionally filtered"),
 			mcp.WithString("namespace_id", mcp.Description("Filter by namespace UUID (optional)")),
 			mcp.WithString("kind", mcp.Description("Filter by workload kind: Deployment, StatefulSet, DaemonSet (optional)")),
@@ -83,7 +90,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_workload",
+		mcp.NewTool(
+			"get_workload",
 			mcp.WithDescription("Get a single workload by its UUID"),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Workload UUID")),
 		),
@@ -91,7 +99,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_pods",
+		mcp.NewTool(
+			"list_pods",
 			mcp.WithDescription("List pods, optionally filtered by namespace, node, workload, or image"),
 			mcp.WithString("namespace_id", mcp.Description("Filter by namespace UUID (optional)")),
 			mcp.WithString("node_name", mcp.Description("Filter by node name (optional)")),
@@ -102,7 +111,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_pod",
+		mcp.NewTool(
+			"get_pod",
 			mcp.WithDescription("Get a single pod by its UUID"),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Pod UUID")),
 		),
@@ -110,7 +120,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_services",
+		mcp.NewTool(
+			"list_services",
 			mcp.WithDescription("List Kubernetes services, optionally filtered by namespace"),
 			mcp.WithString("namespace_id", mcp.Description("Filter by namespace UUID (optional)")),
 		),
@@ -118,7 +129,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_ingresses",
+		mcp.NewTool(
+			"list_ingresses",
 			mcp.WithDescription("List Kubernetes ingresses, optionally filtered by namespace"),
 			mcp.WithString("namespace_id", mcp.Description("Filter by namespace UUID (optional)")),
 		),
@@ -126,7 +138,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_persistent_volumes",
+		mcp.NewTool(
+			"list_persistent_volumes",
 			mcp.WithDescription("List persistent volumes, optionally filtered by cluster"),
 			mcp.WithString("cluster_id", mcp.Description("Filter by cluster UUID (optional)")),
 		),
@@ -134,7 +147,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_persistent_volume_claims",
+		mcp.NewTool(
+			"list_persistent_volume_claims",
 			mcp.WithDescription("List persistent volume claims, optionally filtered by namespace"),
 			mcp.WithString("namespace_id", mcp.Description("Filter by namespace UUID (optional)")),
 		),
@@ -142,9 +156,11 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_impact_graph",
+		mcp.NewTool(
+			"get_impact_graph",
 			mcp.WithDescription("Get the impact/dependency graph for a CMDB entity, showing upstream and downstream relationships"),
-			mcp.WithString("entity_type",
+			mcp.WithString(
+				"entity_type",
 				mcp.Required(),
 				mcp.Description("Entity type: cluster, node, namespace, pod, workload, service, ingress, persistentvolume, persistentvolumeclaim"),
 			),
@@ -155,21 +171,24 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_eol_summary",
+		mcp.NewTool(
+			"get_eol_summary",
 			mcp.WithDescription("Get a summary of end-of-life status across all clusters and nodes, with counts by EOL status"),
 		),
 		s.handleGetEOLSummary,
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_cloud_accounts",
+		mcp.NewTool(
+			"list_cloud_accounts",
 			mcp.WithDescription("List cloud-provider accounts registered in the CMDB (credentials redacted)"),
 		),
 		s.handleListCloudAccounts,
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_virtual_machines",
+		mcp.NewTool(
+			"list_virtual_machines",
 			mcp.WithDescription("List non-Kubernetes platform VMs (Vault, DNS, Bastion, ...) registered in the CMDB"),
 			mcp.WithString("cloud_account_id", mcp.Description("Filter by cloud account UUID (optional)")),
 			mcp.WithString("cloud_account_name", mcp.Description("Filter by cloud account name (optional)")),
@@ -186,7 +205,8 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_virtual_machine",
+		mcp.NewTool(
+			"get_virtual_machine",
 			mcp.WithDescription("Get a single platform VM by its UUID, including curated applications list"),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Virtual machine UUID")),
 		),
@@ -194,14 +214,16 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("list_vm_applications_distinct",
+		mcp.NewTool(
+			"list_vm_applications_distinct",
 			mcp.WithDescription("List the distinct (product, versions[]) tuples seen across non-terminated platform VMs"),
 		),
 		s.handleListVMApplicationsDistinct,
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("get_cloud_account",
+		mcp.NewTool(
+			"get_cloud_account",
 			mcp.WithDescription("Get a single cloud-provider account by its UUID (credentials redacted)"),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Cloud account UUID")),
 		),
@@ -209,11 +231,54 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcp.AddTool(
-		mcp.NewTool("search_images",
+		mcp.NewTool(
+			"search_images",
 			mcp.WithDescription("Search for workloads and pods running a specific container image"),
 			mcp.WithString("query", mcp.Required(), mcp.Description("Container image name or substring to search for")),
 		),
 		s.handleSearchImages,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool(
+			"list_image_versions",
+			mcp.WithDescription(
+				"List enriched container images with their latest available tag per variant. Returns one entry per image_repo with all variants nested. Filters compose with AND.",
+			),
+			mcp.WithString("registry", mcp.Description("Filter by registry hostname, e.g. docker.io, ghcr.io, quay.io (optional)")),
+			mcp.WithString("image_repo", mcp.Description("Filter by image_repo substring, case-insensitive, e.g. nginx (optional)")),
+			mcp.WithString("variant", mcp.Description("Filter to repos that have this variant family, e.g. alpine, debian-12 (optional)")),
+			mcp.WithBoolean(
+				"has_error",
+				mcp.Description(
+					"When true, return only repos with at least one variant in error. When false, only repos where every variant succeeded. (optional)",
+				),
+			),
+		),
+		s.handleListImageVersions,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool(
+			"get_image_version",
+			mcp.WithDescription("Get all enriched variants for a given image_repo (e.g., docker.io/library/nginx)"),
+			mcp.WithString(
+				"image_repo",
+				mcp.Required(),
+				mcp.Description("Fully-qualified image repo, e.g. docker.io/library/nginx, quay.io/prometheus/prometheus"),
+			),
+		),
+		s.handleGetImageVersion,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool(
+			"get_image_versions_summary",
+			mcp.WithDescription(
+				"Aggregate the image_versions store: counts of total repos, total variant rows, repos with at least one error, repos fully ok, plus a per-registry breakdown. Useful for status dashboards and LLM-driven analysis.",
+			),
+		),
+		s.handleGetImageVersionsSummary,
 	)
 }
 
@@ -1133,5 +1198,214 @@ func countEOLStatus(summary *eolSummary, status string) {
 		summary.Supported++
 	default:
 		summary.Unknown++
+	}
+}
+
+// --- image-version tool handlers -------------------------------------------
+
+func (s *Server) handleListImageVersions(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{
+		"registry":   request.GetString("registry", ""),
+		"image_repo": presence(request.GetString("image_repo", "")),
+		"variant":    request.GetString("variant", ""),
+	}
+	hasErrorRaw := request.GetString("has_error", "")
+	if hasErrorRaw != "" {
+		args["has_error"] = hasErrorRaw
+	}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_image_versions", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "list_image_versions", args, &resp, &retErr)
+
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("list_image_versions", time.Since(start)) }()
+
+	var lp api.ImageVersionListParams
+	lp.Registry = request.GetString("registry", "")
+	lp.ImageRepoLike = request.GetString("image_repo", "")
+	lp.Variant = request.GetString("variant", "")
+	if hasErrorRaw != "" {
+		// mcp-go returns the boolean arg as a string; tolerate "true"/"false".
+		v := strings.EqualFold(hasErrorRaw, "true")
+		lp.HasError = &v
+	}
+
+	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.ImageVersionRepoView, string, error) {
+		lp.Cursor = cursor
+		lp.Limit = maxPageSize
+		return s.store.ListImageVersionsByRepo(ctx, lp)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list image versions: %w", err)
+	}
+	return jsonResult(items)
+}
+
+func (s *Server) handleGetImageVersion(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"image_repo": request.GetString("image_repo", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_image_version", args)
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	defer s.finishDeferred(ctx, "get_image_version", args, &resp, &retErr)
+
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("get_image_version", time.Since(start)) }()
+
+	repo := request.GetString("image_repo", "")
+	if repo == "" {
+		return mcp.NewToolResultError("image_repo is required"), nil
+	}
+
+	rows, err := s.store.GetImageVersionsByRepo(ctx, repo)
+	if err != nil {
+		return nil, fmt.Errorf("get image versions by repo: %w", err)
+	}
+	if len(rows) == 0 {
+		return mcp.NewToolResultError(fmt.Sprintf("image_repo %q not found in image_versions", repo)), nil
+	}
+	view := api.ImageVersionRepoView{
+		ImageRepo: rows[0].ImageRepo,
+		Registry:  rows[0].Registry,
+		Variants:  rows,
+	}
+	return jsonResult(view)
+}
+
+// imageVersionsSummary aggregates the image_versions store into a single
+// snapshot that fits comfortably in an LLM context window — counts plus a
+// per-registry breakdown — without dumping every row.
+type imageVersionsSummary struct {
+	TotalRepos        int                              `json:"total_repos"`
+	TotalVariants     int                              `json:"total_variants"`
+	ReposWithErrors   int                              `json:"repos_with_errors"`
+	ReposAllOK        int                              `json:"repos_all_ok"`
+	VariantsWithError int                              `json:"variants_with_error"`
+	ByRegistry        []imageVersionsRegistrySummary   `json:"by_registry"`
+	ErroredRepos      []imageVersionsErroredRepoBucket `json:"errored_repos,omitempty"`
+}
+
+type imageVersionsRegistrySummary struct {
+	Registry          string `json:"registry"`
+	Repos             int    `json:"repos"`
+	Variants          int    `json:"variants"`
+	ReposWithErrors   int    `json:"repos_with_errors"`
+	VariantsWithError int    `json:"variants_with_error"`
+}
+
+type imageVersionsErroredRepoBucket struct {
+	ImageRepo    string `json:"image_repo"`
+	Variant      string `json:"variant"`
+	Registry     string `json:"registry"`
+	LastError    string `json:"last_error"`
+	LastCheckedA string `json:"last_checked_at"`
+}
+
+// handleGetImageVersionsSummary aggregates the full image_versions table.
+// Branch breadth (per-repo + per-variant + per-registry counters, plus the
+// errored-row sample collector) keeps cognitive complexity above the 30
+// threshold; splitting the loop into helpers would just shuffle counters
+// across functions without making the logic easier to follow.
+//
+//nolint:gocognit,gocyclo // aggregator with intentionally broad single pass
+func (s *Server) handleGetImageVersionsSummary(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "get_image_versions_summary", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "get_image_versions_summary", args, &resp, &retErr)
+
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("get_image_versions_summary", time.Since(start)) }()
+
+	repos, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.ImageVersionRepoView, string, error) {
+		return s.store.ListImageVersionsByRepo(ctx, api.ImageVersionListParams{
+			Limit:  maxPageSize,
+			Cursor: cursor,
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list image versions for summary: %w", err)
+	}
+
+	out := imageVersionsSummary{}
+	out.TotalRepos = len(repos)
+	byReg := map[string]*imageVersionsRegistrySummary{}
+	// Surface up to 50 errored variant rows so the LLM can reason about
+	// specific failures without flooding the response.
+	const maxErroredSamples = 50
+
+	for i := range repos {
+		repo := &repos[i]
+		out.TotalVariants += len(repo.Variants)
+		hasErr := false
+		for j := range repo.Variants {
+			v := &repo.Variants[j]
+			if v.LastError != nil && *v.LastError != "" {
+				out.VariantsWithError++
+				hasErr = true
+				if len(out.ErroredRepos) < maxErroredSamples {
+					at := ""
+					if !v.LastCheckedAt.IsZero() {
+						at = v.LastCheckedAt.UTC().Format(time.RFC3339)
+					}
+					out.ErroredRepos = append(out.ErroredRepos, imageVersionsErroredRepoBucket{
+						ImageRepo:    repo.ImageRepo,
+						Variant:      v.Variant,
+						Registry:     repo.Registry,
+						LastError:    *v.LastError,
+						LastCheckedA: at,
+					})
+				}
+			}
+		}
+		if hasErr {
+			out.ReposWithErrors++
+		} else {
+			out.ReposAllOK++
+		}
+
+		bucket, ok := byReg[repo.Registry]
+		if !ok {
+			bucket = &imageVersionsRegistrySummary{Registry: repo.Registry}
+			byReg[repo.Registry] = bucket
+		}
+		bucket.Repos++
+		bucket.Variants += len(repo.Variants)
+		if hasErr {
+			bucket.ReposWithErrors++
+		}
+		for j := range repo.Variants {
+			if repo.Variants[j].LastError != nil && *repo.Variants[j].LastError != "" {
+				bucket.VariantsWithError++
+			}
+		}
+	}
+
+	// Stable order by registry name for reproducible LLM consumption.
+	regs := make([]string, 0, len(byReg))
+	for k := range byReg {
+		regs = append(regs, k)
+	}
+	sortStrings(regs)
+	out.ByRegistry = make([]imageVersionsRegistrySummary, 0, len(regs))
+	for _, r := range regs {
+		out.ByRegistry = append(out.ByRegistry, *byReg[r])
+	}
+
+	return jsonResult(out)
+}
+
+// sortStrings is the stdlib sort.Strings without introducing a dependency
+// in this file just for one call (avoids a top-level import touch).
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
+		}
 	}
 }

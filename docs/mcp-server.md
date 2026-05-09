@@ -52,7 +52,7 @@ For the **stdio** transport (local agent on the same machine), set `LONGUE_VUE_M
 
 ## Available tools
 
-All tools are read-only. List tools return up to 1000 items (silently truncated beyond that). There are 22 tools total.
+All tools are read-only. List tools return up to 1000 items (silently truncated beyond that). There are 25 tools total.
 
 ### Kubernetes inventory
 
@@ -90,6 +90,24 @@ All tools are read-only. List tools return up to 1000 items (silently truncated 
 | `list_virtual_machines` | `cloud_account_id` (optional, UUID), `power_state` (optional), `name` (optional, substring), `application` (optional, normalized product) | Platform VMs matching filters |
 | `get_virtual_machine` | `id` (required, UUID) | Single VM detail including applications list and EOL annotations |
 | `list_vm_applications_distinct` | _(none)_ | Distinct normalized product names across the fleet with their declared version strings |
+
+### Container image versions (ADR-0022)
+
+These tools surface the `image_versions` enrichment store: for each image used in any K8s workload or pod, the latest tag fetched from the source registry, plus per-variant freshness and any registry errors. Companion to the Container images UI under **Tools → Container images**.
+
+| Tool | Parameters | Returns |
+|------|-----------|---------|
+| `list_image_versions` | `registry` (optional, e.g. `docker.io`), `image_repo` (optional, substring), `variant` (optional, e.g. `alpine`, `debian-12`), `has_error` (optional bool — `true` returns only repos with at least one variant in error, `false` only fully-ok repos) | One entry per `image_repo` with all variants nested |
+| `get_image_version` | `image_repo` (required, fully-qualified, e.g. `docker.io/library/nginx`) | All enriched variants for the given repo |
+| `get_image_versions_summary` | _(none)_ | Aggregate snapshot: `total_repos`, `total_variants`, `repos_with_errors`, `repos_all_ok`, `variants_with_error`, plus a `by_registry` breakdown and up to 50 sampled errored variants for diagnosis |
+
+Typical agent workflows:
+
+- *"Are any of my container images outdated or failing?"* — call `get_image_versions_summary` first for a one-shot snapshot, then drill into a specific repo with `get_image_version`.
+- *"List all Docker Hub images currently failing to enrich."* — `list_image_versions` with `registry=docker.io` + `has_error=true`.
+- *"What's the latest available alpine variant of nginx?"* — `get_image_version` with `image_repo=docker.io/library/nginx`, then filter the response to `variant=alpine`.
+
+The enrichment runs in the background (default 24 h cadence, configurable, manual `Refresh now` button in the UI). Repos that have never been queried do not appear in any of these tools — the table only contains repos referenced by at least one workload or pod since the enricher last ticked.
 
 `entity_type` for `get_impact_graph` accepts: `cluster`, `node`, `namespace`, `pod`, `workload`, `service`, `ingress`, `persistentvolume`, `persistentvolumeclaim`.
 
@@ -133,3 +151,5 @@ histogram_quantile(0.95, rate(longue_vue_mcp_tool_duration_seconds_bucket[5m])) 
 ## References
 
 - [ADR-0014](adr/adr-0014-mcp-server.md) — MCP server design, transport options, tool catalogue, auth, and runtime toggle
+- [ADR-0022](adr/adr-0022-image-versions-enrichment.md) — Container image versions enrichment (source for `list_image_versions`, `get_image_version`, `get_image_versions_summary`)
+- [Container image versions](image-versions.md) — User-facing companion doc covering the UI surfaces and the underlying `image_versions` store

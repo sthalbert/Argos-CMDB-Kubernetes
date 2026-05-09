@@ -27,7 +27,7 @@ function SettingsForm({
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const toggle = async (field: 'eol_enabled' | 'mcp_enabled') => {
+  const toggle = async (field: 'eol_enabled' | 'mcp_enabled' | 'image_versions_enabled') => {
     setSaving(field);
     setError('');
     try {
@@ -55,6 +55,13 @@ function SettingsForm({
         enabled={settings.mcp_enabled}
         saving={saving === 'mcp_enabled'}
         onToggle={() => toggle('mcp_enabled')}
+      />
+      <SettingToggle
+        label="Image versions enrichment"
+        description="Periodically queries public registries for the latest version of each image used in your clusters. Configure registries under the Image registries tab."
+        enabled={settings.image_versions_enabled}
+        saving={saving === 'image_versions_enabled'}
+        onToggle={() => toggle('image_versions_enabled')}
       />
       <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
         Last updated: {new Date(settings.updated_at).toLocaleString()}

@@ -16,7 +16,7 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - `cmd/longue-vue/` — main daemon (API + UI + in-process collectors).
 - `cmd/longue-vue-ingest-gw/` — stateless DMZ reverse-proxy (ADR-0016).
 - `cmd/longue-vue-vm-collector/` — push-mode cloud-VM collector (ADR-0015).
-- `internal/` — `api/`, `auth/`, `store/` (pgx/v5), `collector/` (K8s pull), `vmcollector/`, `ingestgw/`, `eol/`, `mcp/`, `impact/`, `metrics/`, `httputil/`, `secrets/`.
+- `internal/` — `api/`, `auth/`, `store/` (pgx/v5), `collector/` (K8s pull), `vmcollector/`, `ingestgw/`, `eol/`, `imageversions/`, `mcp/`, `impact/`, `metrics/`, `httputil/`, `secrets/`.
 - `api/openapi/openapi.yaml` — contract source of truth (codegen drift checked in CI).
 - `migrations/` — goose-style timestamped SQL, embedded.
 - `ui/` — SPA; `make ui-build` produces `ui/dist/` for embed. `noui` build tag skips it.
@@ -81,6 +81,8 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 ## Settings + feature toggles
 
 Single-row `settings` table (`id=1 CHECK`). Runtime toggles `eol_enabled`, `mcp_enabled` (admin scope, hand-written `GET`/`PATCH /v1/admin/settings`, not in OpenAPI). Env vars seed the initial value.
+
+**Image versions enricher (`image_versions_enabled`, ADR-0022):** queries public registries for the latest tag of each container image used in workloads/pods. Default interval 24h (`LONGUE_VUE_IMAGE_VERSIONS_INTERVAL`). Allowlist of registries is in `image_versions_registries` (DB-backed, admin CRUD). Reuses the `eol.Annotation` shape so a richer V3 (EOL/CVE) is purely additive.
 
 ## Collectors
 

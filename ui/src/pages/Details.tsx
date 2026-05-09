@@ -22,6 +22,7 @@ import { NodeCuratedCard } from './node_curated';
 import { ImpactSection } from './ImpactGraph';
 import { ClusterHistory } from './ClusterHistory';
 import { LabelsCard } from '../components/inventory/LabelsCard';
+import { ContainerVersionBadge } from '../components/ContainerVersionBadge';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon, IngressIcon,
 } from '../icons';
@@ -648,21 +649,26 @@ export function WorkloadDetail() {
                     <tr>
                       <th>Name</th>
                       <th>Image</th>
+                      <th>Version</th>
                       <th>Init</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {workload.containers.map((c) => (
-                      <tr key={c.name}>
-                        <td>
-                          <strong>{c.name}</strong>
-                        </td>
-                        <td>
-                          <code>{c.image}</code>
-                        </td>
-                        <td>{c.init ? 'yes' : <Dash />}</td>
-                      </tr>
-                    ))}
+                    {workload.containers.map((c) => {
+                      const info = workload.containers_versions?.[c.name]
+                      return (
+                        <tr key={c.name}>
+                          <td>
+                            <strong>{c.name}</strong>
+                          </td>
+                          <td>
+                            <code>{c.image}</code>
+                          </td>
+                          <td><ContainerVersionBadge info={info ?? undefined} /></td>
+                          <td>{c.init ? 'yes' : <Dash />}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               )}
@@ -790,31 +796,51 @@ export function PodDetail() {
                   <tr>
                     <th>Name</th>
                     <th>Image</th>
+                    <th>Last version</th>
                     <th>Image ID</th>
                     <th>Init</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pod.containers.map((c) => (
-                    <tr key={c.name}>
-                      <td>
-                        <strong>{c.name}</strong>
-                      </td>
-                      <td>
-                        <code>{c.image}</code>
-                      </td>
-                      <td>
-                        {c.image_id ? (
-                          <code style={{ fontSize: '0.75rem' }}>
-                            {c.image_id.length > 60 ? c.image_id.slice(0, 60) + '…' : c.image_id}
-                          </code>
-                        ) : (
-                          <Dash />
-                        )}
-                      </td>
-                      <td>{c.init ? 'yes' : <Dash />}</td>
-                    </tr>
-                  ))}
+                  {pod.containers.map((c) => {
+                    const info = pod.containers_versions?.[c.name]
+                    return (
+                      <tr key={c.name}>
+                        <td>
+                          <strong>{c.name}</strong>
+                        </td>
+                        <td>
+                          <code>{c.image}</code>
+                        </td>
+                        <td>
+                          {info?.latest_tag ? (
+                            <code
+                              className={info.is_behind ? 'pill status-bad' : 'pill status-ok'}
+                              title={
+                                info.is_behind
+                                  ? `Behind: latest available is ${info.latest_tag} (checked ${new Date(info.last_checked_at).toLocaleString()})`
+                                  : `Up to date (checked ${new Date(info.last_checked_at).toLocaleString()})`
+                              }
+                            >
+                              {info.latest_tag}
+                            </code>
+                          ) : (
+                            <ContainerVersionBadge info={info ?? undefined} />
+                          )}
+                        </td>
+                        <td>
+                          {c.image_id ? (
+                            <code style={{ fontSize: '0.75rem' }}>
+                              {c.image_id.length > 60 ? c.image_id.slice(0, 60) + '…' : c.image_id}
+                            </code>
+                          ) : (
+                            <Dash />
+                          )}
+                        </td>
+                        <td>{c.init ? 'yes' : <Dash />}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}

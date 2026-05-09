@@ -1,5 +1,8 @@
 # Binaries
 /bin/
+/longue-vue
+/longue-vue-ingest-gw
+/longue-vue-vm-collector
 *.exe
 *.test
 *.out
@@ -33,6 +36,7 @@ ui/debug-*.mjs
 
 # Local planning artifacts (kept out of shipped docs tree)
 /.planning/
+/docs/superpowers/
 
 # Local archives
 /longue-vue.zip

@@ -42,6 +42,9 @@ type memStore struct {
 	authState         memAuthState         // users / sessions / tokens (ADR-0007)
 	pingErr           error
 	createdN          int
+	settings          Settings                      // overridable for handler tests
+	registries        map[string]ImageRegistry      // keyed by hostname; image_versions_registries
+	imageVersions     map[[2]string]ImageVersionRow // keyed by [imageRepo, variant]
 }
 
 func newMemStore() *memStore {
@@ -65,6 +68,8 @@ func newMemStore() *memStore {
 		pvcsByID:          make(map[uuid.UUID]PersistentVolumeClaim),
 		pvcsByNatKey:      make(map[string]uuid.UUID),
 		authState:         newMemAuthState(),
+		registries:        make(map[string]ImageRegistry),
+		imageVersions:     make(map[[2]string]ImageVersionRow),
 	}
 }
 
@@ -932,7 +937,8 @@ func (m *memStore) ListWorkloads(
 		needle = strings.ToLower(*filter.ImageSubstring)
 	}
 	out := make([]Workload, 0, len(m.workloadsByID))
-	for _, wl := range m.workloadsByID {
+	for k := range m.workloadsByID {
+		wl := m.workloadsByID[k]
 		if filter.NamespaceID != nil && wl.NamespaceId != *filter.NamespaceID {
 			continue
 		}
@@ -1042,7 +1048,8 @@ func (m *memStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUID
 		keep[keepKinds[i]+"/"+keepNames[i]] = struct{}{}
 	}
 	var deleted int64
-	for id, wl := range m.workloadsByID {
+	for id := range m.workloadsByID {
+		wl := m.workloadsByID[id]
 		if wl.NamespaceId != namespaceID {
 			continue
 		}

@@ -340,6 +340,7 @@ export const fixtureAuditEvent: AuditEvent = {
 export const fixtureSettings: Settings = {
   eol_enabled: true,
   mcp_enabled: false,
+  image_versions_enabled: false,
   updated_at: '2025-01-01T00:00:00Z',
 };
 

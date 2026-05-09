@@ -4101,11 +4101,13 @@ func scanPersistentVolumeClaim(row pgx.Row) (api.PersistentVolumeClaim, error) {
 func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 	const q = `SELECT eol_enabled, mcp_enabled,
 		time_travel_enabled, time_travel_retention_days, time_travel_reaper_enabled,
+		image_versions_enabled,
 		updated_at FROM settings WHERE id = 1`
 	var s api.Settings
 	if err := p.pool.QueryRow(ctx, q).Scan(
 		&s.EOLEnabled, &s.MCPEnabled,
 		&s.TimeTravelEnabled, &s.TimeTravelRetentionDays, &s.TimeTravelReaperEnabled,
+		&s.ImageVersionsEnabled,
 		&s.UpdatedAt,
 	); err != nil {
 		return api.Settings{}, fmt.Errorf("get settings: %w", err)
@@ -4113,10 +4115,28 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 	return s, nil
 }
 
+// isUniqueViolation reports whether err is a PostgreSQL unique-constraint
+// violation (SQLSTATE 23505). Used by CreateImageRegistry and other
+// single-row insert helpers that want to map the error to api.ErrConflict.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// escapeLike escapes LIKE/ILIKE metacharacters in s (backslash, percent,
+// underscore) so callers can safely build `%<user-input>%` patterns. The
+// surrounding SQL must use `ESCAPE '\'` to honor the backslash escape.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // UpdateSettings applies the merge-patch on the settings row.
 func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Settings, error) {
-	sets := make([]string, 0, 5)
-	args := make([]any, 0, 5)
+	sets := make([]string, 0, 6)
+	args := make([]any, 0, 6)
 	idx := 1
 
 	if in.EOLEnabled != nil {
@@ -4142,6 +4162,11 @@ func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Sett
 	if in.TimeTravelReaperEnabled != nil {
 		sets = append(sets, fmt.Sprintf("time_travel_reaper_enabled=$%d", idx))
 		args = append(args, *in.TimeTravelReaperEnabled)
+		idx++
+	}
+	if in.ImageVersionsEnabled != nil {
+		sets = append(sets, fmt.Sprintf("image_versions_enabled=$%d", idx))
+		args = append(args, *in.ImageVersionsEnabled)
 		idx++
 	}
 

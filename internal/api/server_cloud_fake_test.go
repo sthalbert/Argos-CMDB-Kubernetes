@@ -601,3 +601,143 @@ func (m *memStore) GetEntityAsOf(_ context.Context, _ string, _ uuid.UUID, _ tim
 func (m *memStore) IsTimeTravelEnabled(_ context.Context) (bool, error) {
 	return true, nil
 }
+
+// --- Image registries ---
+
+func (m *memStore) ListImageRegistries(_ context.Context) ([]ImageRegistry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]ImageRegistry, 0, len(m.registries))
+	for _, r := range m.registries {
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (m *memStore) GetImageRegistry(_ context.Context, hostname string) (ImageRegistry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.registries[hostname]
+	if !ok {
+		return ImageRegistry{}, ErrNotFound
+	}
+	return r, nil
+}
+
+func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert) (ImageRegistry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.registries[in.Hostname]; exists {
+		return ImageRegistry{}, ErrConflict
+	}
+	enabled := true
+	if in.Enabled != nil {
+		enabled = *in.Enabled
+	}
+	now := time.Now().UTC()
+	r := ImageRegistry{
+		Hostname:        in.Hostname,
+		RateLimitPerSec: in.RateLimitPerSec,
+		Enabled:         enabled,
+		Notes:           in.Notes,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	m.registries[in.Hostname] = r
+	return r, nil
+}
+
+func (m *memStore) UpdateImageRegistry(_ context.Context, hostname string, p ImageRegistryPatch) (ImageRegistry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.registries[hostname]
+	if !ok {
+		return ImageRegistry{}, ErrNotFound
+	}
+	if p.RateLimitPerSec != nil {
+		r.RateLimitPerSec = *p.RateLimitPerSec
+	}
+	if p.Enabled != nil {
+		r.Enabled = *p.Enabled
+	}
+	if p.Notes != nil {
+		r.Notes = p.Notes
+	}
+	r.UpdatedAt = time.Now().UTC()
+	m.registries[hostname] = r
+	return r, nil
+}
+
+func (m *memStore) DeleteImageRegistry(_ context.Context, hostname string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.registries[hostname]; !ok {
+		return ErrNotFound
+	}
+	delete(m.registries, hostname)
+	return nil
+}
+
+//nolint:gocritic // memStore stub; in matches the api.Store interface signature (hugeParam expected)
+func (m *memStore) UpsertImageVersion(_ context.Context, in ImageVersionUpsert) (ImageVersionRow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := [2]string{in.ImageRepo, in.Variant}
+	row := ImageVersionRow{
+		ImageRepo:     in.ImageRepo,
+		Variant:       in.Variant,
+		Registry:      in.Registry,
+		LatestTag:     in.LatestTag,
+		Annotation:    in.Annotation,
+		Source:        in.Source,
+		LastCheckedAt: in.LastCheckedAt,
+		LastError:     in.LastError,
+		LastErrorAt:   in.LastErrorAt,
+	}
+	if existing, ok := m.imageVersions[key]; ok {
+		row.CreatedAt = existing.CreatedAt
+	}
+	m.imageVersions[key] = row
+	return row, nil
+}
+
+func (m *memStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) ([]ImageVersionRow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var rows []ImageVersionRow
+	for k := range m.imageVersions {
+		if k[0] == imageRepo {
+			rows = append(rows, m.imageVersions[k])
+		}
+	}
+	return rows, nil
+}
+
+//nolint:gocritic // memStore stub; in matches the api.Store interface signature (hugeParam expected)
+func (m *memStore) ListImageVersionsByRepo(_ context.Context, _ ImageVersionListParams) ([]ImageVersionRepoView, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	byRepo := map[string]*ImageVersionRepoView{}
+	for k := range m.imageVersions {
+		v := m.imageVersions[k]
+		rv, ok := byRepo[v.ImageRepo]
+		if !ok {
+			rv = &ImageVersionRepoView{ImageRepo: v.ImageRepo, Registry: v.Registry}
+			byRepo[v.ImageRepo] = rv
+		}
+		rv.Variants = append(rv.Variants, v)
+	}
+	result := make([]ImageVersionRepoView, 0, len(byRepo))
+	for _, rv := range byRepo {
+		result = append(result, *rv)
+	}
+	return result, "", nil
+}
+
+func (m *memStore) DeleteImageVersionsNotIn(_ context.Context, _ [][2]string) (int64, error) {
+	return 0, nil
+}
+
+func (m *memStore) DistinctImageRefs(_ context.Context) ([]string, error) {
+	return []string{}, nil
+}

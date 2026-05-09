@@ -86,6 +86,10 @@ type Store interface {
 	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error)
 	GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMachine, error)
 	ListDistinctVMApplications(ctx context.Context) ([]api.VMApplicationDistinct, error)
+
+	// Image versions (ADR-0022)
+	ListImageVersionsByRepo(ctx context.Context, lp api.ImageVersionListParams) ([]api.ImageVersionRepoView, string, error)
+	GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]api.ImageVersionRow, error)
 }
 
 // Caller carries the resolved identity of a tool-call initiator.

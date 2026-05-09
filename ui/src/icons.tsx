@@ -184,6 +184,22 @@ export function AdminIcon(props: IconProps) {
   );
 }
 
+// ContainerImageIcon — stacked image layers glyph: three nested rectangles
+// suggesting an OCI image's layered filesystem, distinct from PodIcon
+// (which depicts a pod cluster) and WorkloadIcon (deployment template).
+export function ContainerImageIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x={3} y={5} width={18} height={4} rx={0.8} />
+      <rect x={3} y={11} width={18} height={4} rx={0.8} />
+      <rect x={3} y={17} width={18} height={4} rx={0.8} />
+      <circle cx={6.5} cy={7} r={0.6} fill="currentColor" />
+      <circle cx={6.5} cy={13} r={0.6} fill="currentColor" />
+      <circle cx={6.5} cy={19} r={0.6} fill="currentColor" />
+    </Svg>
+  );
+}
+
 // Entity type → icon lookup for tables and headers.
 const ENTITY_ICONS: Record<string, React.FC<IconProps>> = {
   cluster: ClusterIcon,

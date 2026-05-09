@@ -49,7 +49,7 @@ func newTestPG(t *testing.T) *PG {
 		// api_tokens RESTRICTs on user deletion, so truncate them in
 		// order (api_tokens → users gets CASCADEd via sessions / identities).
 		_, _ = pg.pool.Exec(context.Background(),
-			"TRUNCATE clusters, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
+			"TRUNCATE clusters, image_versions, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
 		pg.Close()
 	})
 	return pg
@@ -2511,5 +2511,51 @@ func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 
 	if err := pg.SoftDeleteNamespace(ctx, uuid.New()); !errors.Is(err, api.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
+	}
+}
+
+func TestSettings_ImageVersionsEnabled_RoundTrip(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	// Reset image_versions_enabled to false on test exit so subsequent
+	// settings tests in the same binary run start from a known state
+	// (the singleton settings row is not part of the shared cleanup
+	// TRUNCATE in newTestPG).
+	t.Cleanup(func() {
+		_, _ = pg.pool.Exec(context.Background(),
+			"UPDATE settings SET image_versions_enabled = FALSE WHERE id = 1")
+	})
+
+	s, err := pg.GetSettings(ctx)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if s.ImageVersionsEnabled {
+		t.Fatalf("expected default false, got true")
+	}
+
+	on := true
+	if _, err := pg.UpdateSettings(ctx, api.SettingsPatch{ImageVersionsEnabled: &on}); err != nil {
+		t.Fatalf("patch on: %v", err)
+	}
+	s2, err := pg.GetSettings(ctx)
+	if err != nil {
+		t.Fatalf("get after patch on: %v", err)
+	}
+	if !s2.ImageVersionsEnabled {
+		t.Fatalf("expected true after patch")
+	}
+
+	off := false
+	if _, err := pg.UpdateSettings(ctx, api.SettingsPatch{ImageVersionsEnabled: &off}); err != nil {
+		t.Fatalf("patch off: %v", err)
+	}
+	s3, err := pg.GetSettings(ctx)
+	if err != nil {
+		t.Fatalf("get after patch off: %v", err)
+	}
+	if s3.ImageVersionsEnabled {
+		t.Fatalf("expected false after second patch")
 	}
 }

@@ -380,7 +380,8 @@ func (b *builder) expandNamespace(ctx context.Context, id uuid.UUID, nodeID stri
 	if err != nil {
 		return fmt.Errorf("list workloads: %w", err)
 	}
-	for _, w := range wls {
+	for i := range wls {
+		w := &wls[i]
 		status := ""
 		if w.ReadyReplicas != nil && w.Replicas != nil {
 			status = fmt.Sprintf("%d/%d", *w.ReadyReplicas, *w.Replicas)
