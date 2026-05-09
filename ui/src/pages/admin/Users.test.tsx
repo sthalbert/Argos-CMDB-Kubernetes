@@ -37,4 +37,27 @@ describe('UsersPage', () => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
   });
+
+  it('shows Locked status and Unlock button when locked_at is set', async () => {
+    server.use(
+      http.get('/v1/admin/users', () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...fixtureUser,
+              id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+              username: 'lockedone',
+              role: 'editor',
+              failed_login_count: 6,
+              locked_at: '2026-05-09T10:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    renderWithRouter(withAdmin(<UsersPage />), { initialPath: '/admin/users' });
+    await waitFor(() => expect(screen.getByText('lockedone')).toBeInTheDocument());
+    expect(screen.getByText('Locked')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /unlock/i })).toBeInTheDocument();
+  });
 });

@@ -118,6 +118,10 @@ There is no last-admin guard at lockout time — the most-attacked account in an
 
 ### Unlocking a user (admin)
 
+From the admin UI: open **Admin → Users**. A locked account shows a `Locked` pill (hover for the failed-attempt count and lock timestamp) and an extra **Unlock** button next to the existing actions. Clicking it confirms the count and clears the lockout.
+
+From the API:
+
 ```bash
 curl -sS -b /tmp/longue-vue.cookies -X PATCH http://localhost:8080/v1/admin/users/<id> \
   -H 'Content-Type: application/merge-patch+json' \
