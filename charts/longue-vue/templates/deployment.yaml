@@ -98,6 +98,10 @@ spec:
             - name: LONGUE_VUE_MCP_TOKEN
               value: {{ .Values.mcp.token | quote }}
             {{- end }}
+            {{- if .Values.mcp.allowPlaintext }}
+            - name: LONGUE_VUE_MCP_ALLOW_PLAINTEXT
+              value: "true"
+            {{- end }}
             {{- end }}
           envFrom:
             - secretRef:

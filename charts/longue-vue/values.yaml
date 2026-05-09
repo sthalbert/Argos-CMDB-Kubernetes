@@ -166,6 +166,11 @@ mcp:
   addr: ":8090"
   # -- PAT for stdio transport auth (not needed for SSE — uses bearer header).
   token: ""
+  # -- Allow the SSE transport to start without TLS (CRIT-01 guard).
+  # Required for local / dev clusters that don't terminate TLS in front of the
+  # MCP listener. Production deployments must keep this false and configure
+  # LONGUE_VUE_MCP_TLS_CERT/KEY (or front the pod with a TLS proxy).
+  allowPlaintext: false
 
 # -- Kubernetes Service.
 service:
