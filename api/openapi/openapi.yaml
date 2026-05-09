@@ -1863,11 +1863,13 @@ paths:
           $ref: '#/components/responses/NotFound'
     patch:
       tags: [admin]
-      summary: Update a user's role, password, or disabled state
+      summary: Update a user's role, password, disabled, or lockout state
       description: |
         Merge-patch semantics. Setting `password` rehashes and forces
         `must_change_password=true`. Setting `disabled` to true revokes
-        every active session for that user.
+        every active session for that user. Setting `unlock=true` clears
+        the lockout state on an account locked after too many failed
+        login attempts.
 
         Refuses with 409 when the patch would leave the deployment with
         zero active admins — i.e. demoting (`role` to non-admin) or
