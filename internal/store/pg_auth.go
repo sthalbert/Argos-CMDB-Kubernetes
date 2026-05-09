@@ -296,6 +296,23 @@ func (p *PG) IncrementFailedLogin(ctx context.Context, id uuid.UUID, threshold i
 	return locked, tx.Commit(ctx)
 }
 
+// ResetFailedLogin clears the lockout state on a user. Called from the
+// login handler on successful password verification, and from the
+// admin unlock endpoint (UpdateUser when patch.Unlock=true).
+func (p *PG) ResetFailedLogin(ctx context.Context, id uuid.UUID) error {
+	tag, err := p.pool.Exec(ctx,
+		`UPDATE users SET failed_login_count = 0, locked_at = NULL WHERE id = $1`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("reset failed login: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+	return nil
+}
+
 // DeleteUser removes a user by id, returning ErrConflict if the user owns active API tokens.
 func (p *PG) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	tag, err := p.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)

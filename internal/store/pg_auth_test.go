@@ -128,3 +128,29 @@ func TestIncrementFailedLogin_LastAdminCanLock(t *testing.T) {
 	}
 }
 
+func TestResetFailedLogin(t *testing.T) {
+	pg := newTestPG(t)
+	u := seedUser(t, pg, "rose", auth.RoleEditor)
+
+	for i := 1; i <= lockoutThreshold; i++ {
+		if _, err := pg.IncrementFailedLogin(t.Context(), *u.Id, lockoutThreshold); err != nil {
+			t.Fatalf("seed lock: %v", err)
+		}
+	}
+
+	if err := pg.ResetFailedLogin(t.Context(), *u.Id); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	got, err := pg.GetUser(t.Context(), *u.Id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.FailedLoginCount == nil || *got.FailedLoginCount != 0 {
+		t.Errorf("failed_login_count = %v, want 0", got.FailedLoginCount)
+	}
+	if got.LockedAt != nil {
+		t.Errorf("locked_at should be NULL, got %v", got.LockedAt)
+	}
+}
+
