@@ -6,6 +6,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.18.0](https://github.com/sthalbert/Longue-Vue/compare/v0.17.0...v0.18.0) (2026-05-09)
+
+
+### Features
+
+* **auth:** add failed_login_count + locked_at columns to users ([7b0c14b](https://github.com/sthalbert/Longue-Vue/commit/7b0c14b9b32521a18004803e9aca575d3a0071ed))
+* **auth:** auto-lock login after 6 consecutive failures ([039a085](https://github.com/sthalbert/Longue-Vue/commit/039a08593f00805dd26b6761ee64e80328b0810f))
+* **auth:** boot-time admin rescue via LONGUE_VUE_ADMIN_RESCUE_PASSWORD ([917e36b](https://github.com/sthalbert/Longue-Vue/commit/917e36bec7c53c60fe0658123d0a64ba1c9e4d07))
+* **auth:** expose failed_login_count, locked_at, unlock in OpenAPI ([eb2ba97](https://github.com/sthalbert/Longue-Vue/commit/eb2ba97aea34fb039b0eda83c31596d2d1db2fd8))
+* **auth:** extend Store with IncrementFailedLogin/ResetFailedLogin ([685b07b](https://github.com/sthalbert/Longue-Vue/commit/685b07b62433f36985466ad0f9305d942a2d887d))
+* **auth:** handle unlock field in user-update patch ([4c713a5](https://github.com/sthalbert/Longue-Vue/commit/4c713a5b7f4b37848e558933f86748895f4d8c53))
+* **auth:** increment failed-login counter with FOR UPDATE serialization ([f12be5f](https://github.com/sthalbert/Longue-Vue/commit/f12be5f69b70c39856fb33a8b2c852d5e6f4260f))
+* **auth:** per-account login lockout + admin rescue ([0c2cdb3](https://github.com/sthalbert/Longue-Vue/commit/0c2cdb364f95883f44831dfa536fd00b1d610c4a))
+* **auth:** reset failed-login counter on successful login ([c729465](https://github.com/sthalbert/Longue-Vue/commit/c729465959897fdeba7633caf699984931712e40))
+* **chart:** expose adminRescuePassword on longue-vue chart ([b8d91d8](https://github.com/sthalbert/Longue-Vue/commit/b8d91d80d7516e194f2077ee37b60ee0d91826af))
+* **ui:** surface lockout state on the admin Users page ([2459956](https://github.com/sthalbert/Longue-Vue/commit/2459956f2b62e661319f8cbe4cda65e97f1d3721))
+
 ## [0.17.0](https://github.com/sthalbert/Longue-Vue/compare/v0.16.0...v0.17.0) (2026-05-09)
 
 
