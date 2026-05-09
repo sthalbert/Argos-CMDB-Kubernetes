@@ -375,6 +375,21 @@ type Store interface {
 	// TouchUserLogin refreshes last_login_at — called on successful login.
 	TouchUserLogin(ctx context.Context, id uuid.UUID, now time.Time) error
 
+	// IncrementFailedLogin bumps users.failed_login_count by one. If the
+	// new count is >= threshold and the account was not already locked,
+	// sets locked_at = now() in the same statement and returns
+	// (locked=true). Idempotent on already-locked accounts: returns
+	// (locked=false) and leaves the row untouched.
+	//
+	// No last-admin guard; the lockout fires uniformly. Recovery is via
+	// the boot-time admin-rescue hook (cmd/longue-vue/main.go).
+	IncrementFailedLogin(ctx context.Context, id uuid.UUID, threshold int) (locked bool, err error)
+
+	// ResetFailedLogin sets failed_login_count = 0 and locked_at = NULL.
+	// Called on a successful password verification. Safe when already
+	// at zero (UPDATE is a no-op on the row).
+	ResetFailedLogin(ctx context.Context, id uuid.UUID) error
+
 	// DeleteUser removes a user. ON DELETE CASCADE sweeps their sessions
 	// and identities; api_tokens they minted are retained (ON DELETE
 	// RESTRICT) so CI pipelines don't silently break on admin churn.
@@ -652,10 +667,14 @@ type UserInsert struct {
 
 // UserPatch is the merge-patch view for UpdateUser. All fields optional.
 // Nil means "don't touch"; non-nil means "set to this value".
+//
+// Unlock=true clears failed_login_count and locked_at (admin clears a
+// brute-force lockout). Has no effect on accounts that are not locked.
 type UserPatch struct {
 	Role               *string
 	MustChangePassword *bool
 	Disabled           *bool
+	Unlock             *bool
 }
 
 // UserWithSecret extends the outward-facing User with the stored
