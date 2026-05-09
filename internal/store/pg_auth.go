@@ -94,7 +94,10 @@ func (p *PG) RescueAdmin(ctx context.Context, id uuid.UUID, hash string) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id); err != nil {
 		return fmt.Errorf("delete sessions: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
 }
 
 // CreateUser inserts a new user and returns the stored representation.
@@ -339,7 +342,10 @@ func (p *PG) IncrementFailedLogin(ctx context.Context, id uuid.UUID, threshold i
 	}
 	if lockedAt != nil {
 		// Already locked -- idempotent no-op.
-		return false, tx.Commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			return false, fmt.Errorf("commit: %w", err)
+		}
+		return false, nil
 	}
 
 	count++
@@ -358,7 +364,10 @@ func (p *PG) IncrementFailedLogin(ctx context.Context, id uuid.UUID, threshold i
 	if err != nil {
 		return false, fmt.Errorf("update failed_login_count: %w", err)
 	}
-	return locked, tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit: %w", err)
+	}
+	return locked, nil
 }
 
 // ResetFailedLogin clears the lockout state on a user. Called from the

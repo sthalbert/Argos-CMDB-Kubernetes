@@ -1050,7 +1050,7 @@ func rescueLockedAdminIfNeeded(ctx context.Context, s *store.PG) error {
 	}); err != nil {
 		// Do not fail the boot if the audit insert fails -- recovery
 		// already happened. Log loudly instead.
-		slog.Error("audit insert for admin rescue failed", "err", err)
+		slog.Error("audit insert for admin rescue failed", slog.Any("error", err))
 	}
 
 	banner := strings.Repeat("=", 72)
@@ -1060,8 +1060,8 @@ func rescueLockedAdminIfNeeded(ctx context.Context, s *store.PG) error {
 		"\n  Password reset to:  $LONGUE_VUE_ADMIN_RESCUE_PASSWORD"+
 		"\n  must_change_password forced -- rotate immediately on first login."+
 		"\n"+banner,
-		"user_id", target.Id,
-		"username", target.Username,
+		slog.Any("user_id", target.Id),
+		slog.String("username", target.Username),
 	)
 	return nil
 }

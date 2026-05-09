@@ -16,9 +16,9 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
-// seedLoginUser creates a user with a known password and returns nothing.
+// seedLoginUser creates an editor-role user with a known password.
 // Use the resulting credentials by calling loginPOST.
-func seedLoginUser(t *testing.T, m *memStore, username, password, role string) {
+func seedLoginUser(t *testing.T, m *memStore, username, password string) {
 	t.Helper()
 	hash, err := auth.HashPassword(password)
 	if err != nil {
@@ -26,7 +26,7 @@ func seedLoginUser(t *testing.T, m *memStore, username, password, role string) {
 	}
 	if _, err := m.CreateUser(t.Context(), UserInsert{
 		Username:     username,
-		Role:         role,
+		Role:         auth.RoleEditor,
 		PasswordHash: hash,
 	}); err != nil {
 		t.Fatalf("create user: %v", err)
@@ -37,8 +37,12 @@ func seedLoginUser(t *testing.T, m *memStore, username, password, role string) {
 // source IP, returning the response.
 func loginPOST(t *testing.T, h http.Handler, username, password, ip string) *http.Response {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"username": username, "password": password})
-	req := httptest.NewRequest(http.MethodPost, "/v1/auth/login", bytes.NewReader(body))
+	//nolint:errchkjson // map[string]string is always safe; errcheck still satisfied
+	body, err := json.Marshal(map[string]string{"username": username, "password": password})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/auth/login", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = ip + ":12345"
 	rr := httptest.NewRecorder()
@@ -49,7 +53,7 @@ func loginPOST(t *testing.T, h http.Handler, username, password, ip string) *htt
 func TestLogin_LocksAfterSixFailures(t *testing.T) {
 	m := newMemStore()
 	h := newTestHandler(t, m)
-	seedLoginUser(t, m, "alice", "correct-horse-battery-staple", auth.RoleEditor)
+	seedLoginUser(t, m, "alice", "correct-horse-battery-staple")
 
 	// 6 wrong passwords -- each from a different IP to bypass per-IP limiter.
 	for i := 1; i <= 6; i++ {
@@ -83,7 +87,7 @@ func TestLogin_LocksAfterSixFailures(t *testing.T) {
 func TestLogin_LockedAccountReturnsGeneric401(t *testing.T) {
 	m := newMemStore()
 	h := newTestHandler(t, m)
-	seedLoginUser(t, m, "bob", "supersecretpassword!", auth.RoleEditor)
+	seedLoginUser(t, m, "bob", "supersecretpassword!")
 
 	// Capture a wrong-password 401.
 	wrong := loginPOST(t, h, "bob", "wrong", "10.0.1.1")
@@ -119,7 +123,7 @@ func TestLogin_LockedAccountReturnsGeneric401(t *testing.T) {
 func TestLogin_SuccessResetsCounter(t *testing.T) {
 	m := newMemStore()
 	h := newTestHandler(t, m)
-	seedLoginUser(t, m, "carol", "anotherlongpassword!", auth.RoleEditor)
+	seedLoginUser(t, m, "carol", "anotherlongpassword!")
 
 	for i := 1; i <= 5; i++ {
 		ip := fmt.Sprintf("10.0.2.%d", i)
@@ -149,7 +153,7 @@ func TestLogin_UnknownUserNeverLocks(t *testing.T) {
 	h := newTestHandler(t, m)
 	_ = m // keep var live; we don't seed anyone
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		ip := fmt.Sprintf("10.0.3.%d", i%200)
 		r := loginPOST(t, h, "nosuchuser", "wrong", ip)
 		_, _ = io.Copy(io.Discard, r.Body)
@@ -166,11 +170,11 @@ func TestLogin_UnknownUserNeverLocks(t *testing.T) {
 func TestLogin_PerIPLimiterStillFiresFirst(t *testing.T) {
 	m := newMemStore()
 	h := newTestHandler(t, m)
-	seedLoginUser(t, m, "dave", "yetanotherlongpw!", auth.RoleEditor)
+	seedLoginUser(t, m, "dave", "yetanotherlongpw!")
 
 	const ip = "10.0.4.1"
 	got429 := false
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		r := loginPOST(t, h, "dave", "wrong", ip)
 		_, _ = io.Copy(io.Discard, r.Body)
 		_ = r.Body.Close()
@@ -198,7 +202,7 @@ func TestLogin_PerIPLimiterStillFiresFirst(t *testing.T) {
 func TestPatchUser_Unlock(t *testing.T) {
 	m := newMemStore()
 	h := newTestHandler(t, m)
-	seedLoginUser(t, m, "eve", "passwordforlockoutE!", auth.RoleEditor)
+	seedLoginUser(t, m, "eve", "passwordforlockoutE!")
 	// We also need at least one admin so the last-admin guard does not
 	// block any incidental Disabled flips. (Not strictly needed for
 	// unlock-only patches, but matches the existing test pattern.)
@@ -222,7 +226,10 @@ func TestPatchUser_Unlock(t *testing.T) {
 
 	// PATCH /v1/admin/users/{id} with unlock=true. The newTestHandler
 	// doesn't mount auth middleware, so we don't need a session cookie.
-	patchBody, _ := json.Marshal(map[string]any{"unlock": true})
+	patchBody, err := json.Marshal(map[string]bool{"unlock": true}) //nolint:errchkjson // map[string]bool is always safe; errcheck still satisfied
+	if err != nil {
+		t.Fatalf("marshal patch: %v", err)
+	}
 	rr := do(h, http.MethodPatch, fmt.Sprintf("/v1/admin/users/%s", *eveSecret.Id), string(patchBody))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("unlock PATCH status = %d, body = %s", rr.Code, rr.Body.String())

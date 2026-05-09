@@ -74,6 +74,7 @@ func TestIncrementFailedLogin_ReachesThreshold(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test verifies idempotent lock semantics across multiple calls; splitting would obscure the flow
 func TestIncrementFailedLogin_AfterLockNoOp(t *testing.T) {
 	pg := newTestPG(t)
 	u := seedUser(t, pg, "wesley", auth.RoleEditor)
@@ -177,4 +178,3 @@ func TestUpdateUserGuarded_Unlock(t *testing.T) {
 		t.Errorf("failed_login_count = %v, want 0", updated.FailedLoginCount)
 	}
 }
-

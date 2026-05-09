@@ -91,6 +91,7 @@ func TestAdminRescue_NoLockedAdminNoOp(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test verifies many aspects of the rescue path in one function; splitting would obscure intent
 func TestAdminRescue_AllAdminsLockedTriggersUnlock(t *testing.T) {
 	pg := newTestPGForRescue(t)
 	ctx := context.Background()
@@ -108,7 +109,7 @@ func TestAdminRescue_AllAdminsLockedTriggersUnlock(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	// Drive into locked state.
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		if _, err := pg.IncrementFailedLogin(ctx, *created.Id, 6); err != nil {
 			t.Fatalf("seed lock: %v", err)
 		}
@@ -166,7 +167,7 @@ func TestAdminRescue_VarUnsetSkipsRescue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		if _, err := pg.IncrementFailedLogin(ctx, *created.Id, 6); err != nil {
 			t.Fatalf("seed lock: %v", err)
 		}
@@ -211,7 +212,7 @@ func TestAdminRescue_PicksMostRecentlyActive(t *testing.T) {
 
 	// Lock both.
 	for _, id := range []uuid.UUID{*older.Id, *newer.Id} {
-		for i := 0; i < 6; i++ {
+		for range 6 {
 			if _, err := pg.IncrementFailedLogin(ctx, id, 6); err != nil {
 				t.Fatalf("seed lock: %v", err)
 			}
