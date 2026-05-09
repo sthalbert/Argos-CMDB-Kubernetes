@@ -92,6 +92,26 @@ func (m *memStore) CountActiveAdmins(_ context.Context) (int, error) {
 	return n, nil
 }
 
+func (m *memStore) CountActiveUnlockedAdmins(_ context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, u := range m.authState.users {
+		if u.Role == Role(auth.RoleAdmin) && u.DisabledAt == nil && u.LockedAt == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *memStore) PickRescueTarget(_ context.Context) (User, error) {
+	return User{}, ErrNotFound // not exercised by handler-level tests
+}
+
+func (m *memStore) RescueAdmin(_ context.Context, _ uuid.UUID, _ string) error {
+	return ErrNotFound // not exercised by handler-level tests
+}
+
 func (m *memStore) CreateUser(_ context.Context, in UserInsert) (User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

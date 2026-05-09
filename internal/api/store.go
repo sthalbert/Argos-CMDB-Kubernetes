@@ -336,6 +336,21 @@ type Store interface {
 	// `disabled_at` timestamp. Used by the first-install bootstrap check.
 	CountActiveAdmins(ctx context.Context) (int, error)
 
+	// CountActiveUnlockedAdmins returns the number of admins with
+	// disabled_at IS NULL AND locked_at IS NULL.
+	CountActiveUnlockedAdmins(ctx context.Context) (int, error)
+
+	// PickRescueTarget returns the most-recently-active admin row.
+	// Used by the boot-time rescue when CountActiveUnlockedAdmins == 0.
+	// ORDER BY last_login_at DESC NULLS LAST, created_at ASC, LIMIT 1.
+	PickRescueTarget(ctx context.Context) (User, error)
+
+	// RescueAdmin atomically resets the rescue target: sets the new
+	// password hash, clears locked_at, zeroes failed_login_count, sets
+	// disabled_at = NULL, forces must_change_password = true, deletes
+	// all of the user's sessions.
+	RescueAdmin(ctx context.Context, id uuid.UUID, hash string) error
+
 	// CreateUser inserts a new human user. Returns ErrConflict on
 	// case-insensitive username collision.
 	CreateUser(ctx context.Context, in UserInsert) (User, error)

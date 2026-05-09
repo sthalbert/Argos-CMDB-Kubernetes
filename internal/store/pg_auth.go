@@ -35,6 +35,68 @@ func (p *PG) CountActiveAdmins(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// CountActiveUnlockedAdmins counts admins ready to authenticate.
+func (p *PG) CountActiveUnlockedAdmins(ctx context.Context) (int, error) {
+	var n int
+	if err := p.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM users
+		  WHERE role = 'admin'
+		    AND disabled_at IS NULL
+		    AND locked_at IS NULL`,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count active+unlocked admins: %w", err)
+	}
+	return n, nil
+}
+
+// PickRescueTarget chooses the most-recently-active admin to rescue.
+func (p *PG) PickRescueTarget(ctx context.Context) (api.User, error) {
+	q := `SELECT ` + userColumns + ` FROM users
+	       WHERE role = 'admin'
+	    ORDER BY last_login_at DESC NULLS LAST, created_at ASC
+	       LIMIT 1`
+	u, err := scanUser(p.pool.QueryRow(ctx, q))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.User{}, api.ErrNotFound
+		}
+		return api.User{}, fmt.Errorf("pick rescue target: %w", err)
+	}
+	return u, nil
+}
+
+// RescueAdmin atomically restores password-login access for one user.
+func (p *PG) RescueAdmin(ctx context.Context, id uuid.UUID, hash string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE users
+		    SET password_hash = $1,
+		        failed_login_count = 0,
+		        locked_at = NULL,
+		        disabled_at = NULL,
+		        must_change_password = TRUE,
+		        updated_at = NOW()
+		  WHERE id = $2`,
+		hash, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update rescue target: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id); err != nil {
+		return fmt.Errorf("delete sessions: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 // CreateUser inserts a new user and returns the stored representation.
 func (p *PG) CreateUser(ctx context.Context, in api.UserInsert) (api.User, error) {
 	id := uuid.New()
