@@ -36,6 +36,7 @@ ui/debug-*.mjs
 
 # Local planning artifacts (kept out of shipped docs tree)
 /.planning/
+/docs/superpowers/
 
 # Local archives
 /longue-vue.zip
