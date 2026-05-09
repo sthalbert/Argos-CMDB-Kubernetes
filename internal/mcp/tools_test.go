@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -529,5 +530,130 @@ func TestHandleGetEOLSummary_AggregatesStatuses(t *testing.T) {
 	}
 	if summary.EOL != 1 || summary.Supported != 1 || summary.ApproachingEOL != 1 {
 		t.Errorf("counts = eol:%d sup:%d app:%d; want 1/1/1", summary.EOL, summary.Supported, summary.ApproachingEOL)
+	}
+}
+
+func TestHandleListImageVersions_FiltersAndShape(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	at := time.Now().UTC()
+	tag := "1.27.4"
+	tagAlpine := "1.27.4-alpine"
+	errMsg := "registry: repo not found"
+	store.imageVersions = []api.ImageVersionRow{
+		{ImageRepo: "docker.io/library/nginx", Variant: "", Registry: "docker.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
+		{ImageRepo: "docker.io/library/nginx", Variant: "alpine", Registry: "docker.io", LatestTag: &tagAlpine, Source: "registry", LastCheckedAt: at},
+		{ImageRepo: "quay.io/prometheus/prometheus", Variant: "", Registry: "quay.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
+		{ImageRepo: "docker.io/missing/repo", Variant: "", Registry: "docker.io", LatestTag: nil, Source: "registry", LastCheckedAt: at, LastError: &errMsg, LastErrorAt: &at},
+	}
+	s := newServer(t, store)
+
+	// No filters: 3 distinct repos.
+	r, err := s.handleListImageVersions(context.Background(), makeRequest("", nil))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	var allRepos []api.ImageVersionRepoView
+	if err := json.Unmarshal([]byte(resultText(t, r)), &allRepos); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(allRepos) != 3 {
+		t.Fatalf("expected 3 distinct repos, got %d: %+v", len(allRepos), allRepos)
+	}
+
+	// registry filter narrows to docker.io repos (2 of 3).
+	r, _ = s.handleListImageVersions(context.Background(), makeRequest("", map[string]any{"registry": "docker.io"}))
+	var docker []api.ImageVersionRepoView
+	_ = json.Unmarshal([]byte(resultText(t, r)), &docker)
+	if len(docker) != 2 {
+		t.Errorf("registry=docker.io: got %d, want 2", len(docker))
+	}
+
+	// has_error=true returns only the errored repo.
+	r, _ = s.handleListImageVersions(context.Background(), makeRequest("", map[string]any{"has_error": "true"}))
+	var errored []api.ImageVersionRepoView
+	_ = json.Unmarshal([]byte(resultText(t, r)), &errored)
+	if len(errored) != 1 || errored[0].ImageRepo != "docker.io/missing/repo" {
+		t.Errorf("has_error=true: got %+v", errored)
+	}
+}
+
+func TestHandleGetImageVersion_RoundtripAndNotFound(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	at := time.Now().UTC()
+	tag := "1.27.4"
+	store.imageVersions = []api.ImageVersionRow{
+		{ImageRepo: "docker.io/library/nginx", Variant: "", Registry: "docker.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
+		{ImageRepo: "docker.io/library/nginx", Variant: "alpine", Registry: "docker.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
+	}
+	s := newServer(t, store)
+
+	r, err := s.handleGetImageVersion(context.Background(), makeRequest("", map[string]any{"image_repo": "docker.io/library/nginx"}))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	var view api.ImageVersionRepoView
+	if err := json.Unmarshal([]byte(resultText(t, r)), &view); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if view.ImageRepo != "docker.io/library/nginx" || len(view.Variants) != 2 {
+		t.Errorf("unexpected view: %+v", view)
+	}
+
+	// image_repo missing → error result, not Go error.
+	r, err = s.handleGetImageVersion(context.Background(), makeRequest("", nil))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !r.IsError {
+		t.Errorf("expected error result for missing image_repo")
+	}
+
+	// image_repo not in store → not-found error result.
+	r, _ = s.handleGetImageVersion(context.Background(), makeRequest("", map[string]any{"image_repo": "docker.io/totally/missing"}))
+	if !r.IsError {
+		t.Errorf("expected not-found error result")
+	}
+}
+
+func TestHandleGetImageVersionsSummary_Aggregates(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	at := time.Now().UTC()
+	tag := "1.27.4"
+	errMsg := "registry: repo not found"
+	store.imageVersions = []api.ImageVersionRow{
+		{ImageRepo: "docker.io/library/nginx", Variant: "", Registry: "docker.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
+		{ImageRepo: "docker.io/library/nginx", Variant: "alpine", Registry: "docker.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
+		{ImageRepo: "quay.io/prometheus/prometheus", Variant: "", Registry: "quay.io", LatestTag: &tag, Source: "registry", LastCheckedAt: at},
+		{ImageRepo: "docker.io/missing/repo", Variant: "", Registry: "docker.io", LatestTag: nil, Source: "registry", LastCheckedAt: at, LastError: &errMsg, LastErrorAt: &at},
+	}
+	s := newServer(t, store)
+
+	r, err := s.handleGetImageVersionsSummary(context.Background(), makeRequest("", nil))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	var sum imageVersionsSummary
+	if err := json.Unmarshal([]byte(resultText(t, r)), &sum); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if sum.TotalRepos != 3 || sum.TotalVariants != 4 {
+		t.Errorf("totals = repos:%d variants:%d; want 3/4", sum.TotalRepos, sum.TotalVariants)
+	}
+	if sum.ReposWithErrors != 1 || sum.ReposAllOK != 2 || sum.VariantsWithError != 1 {
+		t.Errorf("error counts = with_err:%d ok:%d variants_err:%d; want 1/2/1",
+			sum.ReposWithErrors, sum.ReposAllOK, sum.VariantsWithError)
+	}
+	if len(sum.ByRegistry) != 2 {
+		t.Errorf("expected 2 registries in by_registry, got %d", len(sum.ByRegistry))
+	}
+	if len(sum.ErroredRepos) != 1 || sum.ErroredRepos[0].ImageRepo != "docker.io/missing/repo" {
+		t.Errorf("errored sample = %+v", sum.ErroredRepos)
+	}
+	// Per-registry stable order.
+	if sum.ByRegistry[0].Registry != "docker.io" || sum.ByRegistry[1].Registry != "quay.io" {
+		t.Errorf("by_registry order = %v; want docker.io, quay.io", sum.ByRegistry)
 	}
 }

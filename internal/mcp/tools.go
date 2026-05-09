@@ -215,6 +215,32 @@ func (s *Server) registerTools() {
 		),
 		s.handleSearchImages,
 	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("list_image_versions",
+			mcp.WithDescription("List enriched container images with their latest available tag per variant. Returns one entry per image_repo with all variants nested. Filters compose with AND."),
+			mcp.WithString("registry", mcp.Description("Filter by registry hostname, e.g. docker.io, ghcr.io, quay.io (optional)")),
+			mcp.WithString("image_repo", mcp.Description("Filter by image_repo substring, case-insensitive, e.g. nginx (optional)")),
+			mcp.WithString("variant", mcp.Description("Filter to repos that have this variant family, e.g. alpine, debian-12 (optional)")),
+			mcp.WithBoolean("has_error", mcp.Description("When true, return only repos with at least one variant in error. When false, only repos where every variant succeeded. (optional)")),
+		),
+		s.handleListImageVersions,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("get_image_version",
+			mcp.WithDescription("Get all enriched variants for a given image_repo (e.g., docker.io/library/nginx)"),
+			mcp.WithString("image_repo", mcp.Required(), mcp.Description("Fully-qualified image repo, e.g. docker.io/library/nginx, quay.io/prometheus/prometheus")),
+		),
+		s.handleGetImageVersion,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool("get_image_versions_summary",
+			mcp.WithDescription("Aggregate the image_versions store: counts of total repos, total variant rows, repos with at least one error, repos fully ok, plus a per-registry breakdown. Useful for status dashboards and LLM-driven analysis."),
+		),
+		s.handleGetImageVersionsSummary,
+	)
 }
 
 // --- tool handlers ----------------------------------------------------------
@@ -1133,5 +1159,208 @@ func countEOLStatus(summary *eolSummary, status string) {
 		summary.Supported++
 	default:
 		summary.Unknown++
+	}
+}
+
+
+// --- image-version tool handlers -------------------------------------------
+
+func (s *Server) handleListImageVersions(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{
+		"registry":   request.GetString("registry", ""),
+		"image_repo": presence(request.GetString("image_repo", "")),
+		"variant":    request.GetString("variant", ""),
+	}
+	hasErrorRaw := request.GetString("has_error", "")
+	if hasErrorRaw != "" {
+		args["has_error"] = hasErrorRaw
+	}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "list_image_versions", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "list_image_versions", args, &resp, &retErr)
+
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("list_image_versions", time.Since(start)) }()
+
+	var lp api.ImageVersionListParams
+	lp.Registry = request.GetString("registry", "")
+	lp.ImageRepoLike = request.GetString("image_repo", "")
+	lp.Variant = request.GetString("variant", "")
+	if hasErrorRaw != "" {
+		// mcp-go returns the boolean arg as a string; tolerate "true"/"false".
+		v := strings.EqualFold(hasErrorRaw, "true")
+		lp.HasError = &v
+	}
+
+	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.ImageVersionRepoView, string, error) {
+		lp.Cursor = cursor
+		lp.Limit = maxPageSize
+		return s.store.ListImageVersionsByRepo(ctx, lp)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list image versions: %w", err)
+	}
+	return jsonResult(items)
+}
+
+func (s *Server) handleGetImageVersion(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{"image_repo": request.GetString("image_repo", "")}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		s.recordDenial(ctx, "get_image_version", args)
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	defer s.finishDeferred(ctx, "get_image_version", args, &resp, &retErr)
+
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("get_image_version", time.Since(start)) }()
+
+	repo := request.GetString("image_repo", "")
+	if repo == "" {
+		return mcp.NewToolResultError("image_repo is required"), nil
+	}
+
+	rows, err := s.store.GetImageVersionsByRepo(ctx, repo)
+	if err != nil {
+		return nil, fmt.Errorf("get image versions by repo: %w", err)
+	}
+	if len(rows) == 0 {
+		return mcp.NewToolResultError(fmt.Sprintf("image_repo %q not found in image_versions", repo)), nil
+	}
+	view := api.ImageVersionRepoView{
+		ImageRepo: rows[0].ImageRepo,
+		Registry:  rows[0].Registry,
+		Variants:  rows,
+	}
+	return jsonResult(view)
+}
+
+// imageVersionsSummary aggregates the image_versions store into a single
+// snapshot that fits comfortably in an LLM context window — counts plus a
+// per-registry breakdown — without dumping every row.
+type imageVersionsSummary struct {
+	TotalRepos        int                              `json:"total_repos"`
+	TotalVariants     int                              `json:"total_variants"`
+	ReposWithErrors   int                              `json:"repos_with_errors"`
+	ReposAllOK        int                              `json:"repos_all_ok"`
+	VariantsWithError int                              `json:"variants_with_error"`
+	ByRegistry        []imageVersionsRegistrySummary   `json:"by_registry"`
+	ErroredRepos      []imageVersionsErroredRepoBucket `json:"errored_repos,omitempty"`
+}
+
+type imageVersionsRegistrySummary struct {
+	Registry          string `json:"registry"`
+	Repos             int    `json:"repos"`
+	Variants          int    `json:"variants"`
+	ReposWithErrors   int    `json:"repos_with_errors"`
+	VariantsWithError int    `json:"variants_with_error"`
+}
+
+type imageVersionsErroredRepoBucket struct {
+	ImageRepo    string `json:"image_repo"`
+	Variant      string `json:"variant"`
+	Registry     string `json:"registry"`
+	LastError    string `json:"last_error"`
+	LastCheckedA string `json:"last_checked_at"`
+}
+
+func (s *Server) handleGetImageVersionsSummary(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, retErr error) {
+	args := map[string]any{}
+	var err error
+	if ctx, err = s.checkAccess(ctx, request); err != nil {
+		return s.recordCheckAccessFailure(ctx, "get_image_versions_summary", args, err), nil
+	}
+	defer s.finishDeferred(ctx, "get_image_versions_summary", args, &resp, &retErr)
+
+	start := time.Now()
+	defer func() { metrics.ObserveMCPToolCall("get_image_versions_summary", time.Since(start)) }()
+
+	repos, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.ImageVersionRepoView, string, error) {
+		return s.store.ListImageVersionsByRepo(ctx, api.ImageVersionListParams{
+			Limit:  maxPageSize,
+			Cursor: cursor,
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list image versions for summary: %w", err)
+	}
+
+	out := imageVersionsSummary{}
+	out.TotalRepos = len(repos)
+	byReg := map[string]*imageVersionsRegistrySummary{}
+	// Surface up to 50 errored variant rows so the LLM can reason about
+	// specific failures without flooding the response.
+	const maxErroredSamples = 50
+
+	for i := range repos {
+		repo := &repos[i]
+		out.TotalVariants += len(repo.Variants)
+		hasErr := false
+		for j := range repo.Variants {
+			v := &repo.Variants[j]
+			if v.LastError != nil && *v.LastError != "" {
+				out.VariantsWithError++
+				hasErr = true
+				if len(out.ErroredRepos) < maxErroredSamples {
+					at := ""
+					if !v.LastCheckedAt.IsZero() {
+						at = v.LastCheckedAt.UTC().Format(time.RFC3339)
+					}
+					out.ErroredRepos = append(out.ErroredRepos, imageVersionsErroredRepoBucket{
+						ImageRepo:    repo.ImageRepo,
+						Variant:      v.Variant,
+						Registry:     repo.Registry,
+						LastError:    *v.LastError,
+						LastCheckedA: at,
+					})
+				}
+			}
+		}
+		if hasErr {
+			out.ReposWithErrors++
+		} else {
+			out.ReposAllOK++
+		}
+
+		bucket, ok := byReg[repo.Registry]
+		if !ok {
+			bucket = &imageVersionsRegistrySummary{Registry: repo.Registry}
+			byReg[repo.Registry] = bucket
+		}
+		bucket.Repos++
+		bucket.Variants += len(repo.Variants)
+		if hasErr {
+			bucket.ReposWithErrors++
+		}
+		for j := range repo.Variants {
+			if repo.Variants[j].LastError != nil && *repo.Variants[j].LastError != "" {
+				bucket.VariantsWithError++
+			}
+		}
+	}
+
+	// Stable order by registry name for reproducible LLM consumption.
+	regs := make([]string, 0, len(byReg))
+	for k := range byReg {
+		regs = append(regs, k)
+	}
+	sortStrings(regs)
+	out.ByRegistry = make([]imageVersionsRegistrySummary, 0, len(regs))
+	for _, r := range regs {
+		out.ByRegistry = append(out.ByRegistry, *byReg[r])
+	}
+
+	return jsonResult(out)
+}
+
+// sortStrings is the stdlib sort.Strings without introducing a dependency
+// in this file just for one call (avoids a top-level import touch).
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
+		}
 	}
 }
