@@ -29,6 +29,7 @@ ADR-0012 deferred container image enrichment to "v2 scope" because matching arbi
 - Allowlist of registries lives in DB (`image_versions_registries`), seeded by migration with the seven major public registries; admin CRUD handles overrides at runtime.
 - The annotation column reuses the `eol.Annotation` shape so a future "rich" enrichment (V3) can populate EOL fields without a schema migration.
 - Workload/pod GET responses gain a `containers_versions` sibling field via a server-side join.
+- The store is also exposed read-only via three MCP tools (`list_image_versions`, `get_image_version`, `get_image_versions_summary`) so AI agents can query freshness symmetrically with the existing CMDB tool surface.
 
 ## Consequences
 
@@ -38,5 +39,7 @@ ADR-0012 deferred container image enrichment to "v2 scope" because matching arbi
 
 ## References
 
-- Spec: `docs/superpowers/specs/2026-05-08-image-versions-design.md`
-- Plan: `docs/superpowers/plans/2026-05-08-image-versions.md`
+- [`docs/image-versions.md`](../image-versions.md) — User-facing documentation
+- [`docs/mcp-server.md`](../mcp-server.md) — MCP tool catalogue including the three image-versions tools
+- ADR-0012 — Original EOL enrichment design that deferred this work
+- ADR-0014 — MCP server design

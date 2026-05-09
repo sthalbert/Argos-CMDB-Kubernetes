@@ -87,6 +87,16 @@ Admins can click **Refresh now** on the `/images` page (visible only to the `adm
 
 All admin writes are recorded in `audit_events` automatically. See `api/openapi/openapi.yaml` for the full schema.
 
+## MCP tools
+
+The same store is exposed to AI agents via three MCP tools (read-only, bearer-authenticated). See [`mcp-server.md`](mcp-server.md) for the full MCP setup.
+
+| Tool | Purpose |
+|---|---|
+| `list_image_versions` | Filtered list (registry, image_repo substring, variant, has_error). One entry per repo with variants nested. |
+| `get_image_version` | All variants for a single fully-qualified `image_repo`. |
+| `get_image_versions_summary` | Aggregate snapshot — counts (total/with-errors/all-ok), per-registry breakdown, sample of up to 50 errored variants. Designed for one-shot agent analysis. |
+
 ## Troubleshooting
 
 **No rows appear at all:**
