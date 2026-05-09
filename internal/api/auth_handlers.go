@@ -28,6 +28,10 @@ import (
 // r.Context() as ctx but not r itself, so we inject it via a
 // StrictMiddlewareFunc registered at startup.
 
+// failedLoginLockoutThreshold is the number of consecutive failed
+// password verifications that auto-locks an account. AUTH-VULN-03.
+const failedLoginLockoutThreshold = 6
+
 type ctxKeyHTTPRequest struct{}
 
 // InjectRequestMiddleware is a StrictMiddlewareFunc that stores the
@@ -354,6 +358,8 @@ const oidcStateTTL = 5 * time.Minute
 // Login validates username + password and issues a session cookie.
 // 401 on any failure (no distinction between unknown user and bad
 // password) to avoid username enumeration.
+//
+//nolint:gocyclo // lockout + rate-limit + session branches are inherently sequential; extracting sub-functions would obscure the security flow
 func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error) {
 	body := request.Body
 	if body.Username == "" || body.Password == "" {
@@ -375,12 +381,32 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		// Still run an argon2 verify against a dummy hash so timing
 		// doesn't leak whether the username exists.
 		_ = auth.VerifyPassword(body.Password, dummyHash)
-		return Login401ApplicationProblemPlusJSONResponse{ //nolint:nilerr // 401 response conveys the error
+		//nolint:nilerr // 401 is returned regardless of error type to prevent username enumeration
+		return Login401ApplicationProblemPlusJSONResponse{
+			problemUnauthorized("invalid credentials"),
+		}, nil
+	}
+	if user.LockedAt != nil {
+		// Locked account: dummy-verify for timing uniformity, return generic 401.
+		_ = auth.VerifyPassword(body.Password, dummyHash)
+		return Login401ApplicationProblemPlusJSONResponse{
 			problemUnauthorized("invalid credentials"),
 		}, nil
 	}
 	if err := auth.VerifyPassword(body.Password, user.PasswordHash); err != nil {
-		return Login401ApplicationProblemPlusJSONResponse{ //nolint:nilerr // 401 response conveys the error
+		locked, incErr := s.store.IncrementFailedLogin(ctx, *user.Id, failedLoginLockoutThreshold)
+		if incErr != nil {
+			slog.Error("auth: increment failed login",
+				slog.Any("user_id", user.Id),
+				slog.Any("error", incErr))
+		}
+		if locked {
+			slog.Warn("auth: account locked after threshold",
+				slog.Any("user_id", user.Id),
+				slog.String("username", body.Username),
+				slog.Int("threshold", failedLoginLockoutThreshold))
+		}
+		return Login401ApplicationProblemPlusJSONResponse{
 			problemUnauthorized("invalid credentials"),
 		}, nil
 	}
@@ -401,6 +427,11 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		SourceIP:  s.clientIP(r),
 	}); err != nil {
 		return nil, fmt.Errorf("login create session: %w", err)
+	}
+	if err := s.store.ResetFailedLogin(ctx, *user.Id); err != nil {
+		slog.Error("auth: reset failed login",
+			slog.Any("user_id", user.Id),
+			slog.Any("error", err))
 	}
 	_ = s.store.TouchUserLogin(ctx, *user.Id, now)
 
@@ -660,6 +691,7 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 	patch := UserPatch{
 		MustChangePassword: body.MustChangePassword,
 		Disabled:           body.Disabled,
+		Unlock:             body.Unlock,
 	}
 	if body.Role != nil {
 		r := string(*body.Role)

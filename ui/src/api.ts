@@ -114,6 +114,8 @@ export interface User {
   updated_at: string;
   last_login_at?: string | null;
   disabled_at?: string | null;
+  failed_login_count?: number;
+  locked_at?: string | null;
 }
 
 export interface UserCreate {
@@ -128,6 +130,7 @@ export interface UserUpdate {
   password?: string;
   must_change_password?: boolean;
   disabled?: boolean;
+  unlock?: boolean;
 }
 
 export function listUsers() {

@@ -175,6 +175,12 @@ function UserRow({ user, reload }: { user: api.User; reload: Reload }) {
     withBusy(() => api.updateUser(user.id, { disabled }));
   };
 
+  const unlock = () => {
+    const failed = user.failed_login_count ?? 0;
+    if (!confirm(`Unlock ${user.username}? (${failed} failed attempts on record)`)) return;
+    withBusy(() => api.updateUser(user.id, { unlock: true }));
+  };
+
   const resetPassword = () => {
     const pw = prompt(`Enter a new password for ${user.username} (12+ chars). They'll be forced to rotate on next login.`);
     if (!pw) return;
@@ -211,6 +217,10 @@ function UserRow({ user, reload }: { user: api.User; reload: Reload }) {
       <td>
         {user.disabled_at ? (
           <span className="pill status-bad">Disabled</span>
+        ) : user.locked_at ? (
+          <span className="pill status-warn" title={`${user.failed_login_count ?? 0} failed attempts; locked at ${formatTs(user.locked_at)}`}>
+            Locked
+          </span>
         ) : (
           <span className="pill status-ok">Active</span>
         )}
@@ -221,6 +231,13 @@ function UserRow({ user, reload }: { user: api.User; reload: Reload }) {
         <button onClick={resetPassword} disabled={busy}>
           Reset pw
         </button>{' '}
+        {user.locked_at && (
+          <>
+            <button onClick={unlock} disabled={busy}>
+              Unlock
+            </button>{' '}
+          </>
+        )}
         <button onClick={toggleDisable} disabled={busy}>
           {user.disabled_at ? 'Enable' : 'Disable'}
         </button>{' '}

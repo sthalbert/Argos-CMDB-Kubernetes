@@ -212,6 +212,8 @@ Manage local user accounts:
 - **Edit user** — change username, role, or force a password rotation (`must_change_password`).
 - **Disable user** — sets `disabled_at`; the user can no longer log in. The system prevents disabling the last active admin.
 - **Promote / demote** — change role between `admin`, `editor`, `auditor`, and `viewer`. Demoting the last active admin is blocked with a `409 Conflict` response.
+- **Status pill** — shows `Active`, `Locked`, or `Disabled`. `Locked` means the account hit the failed-login threshold (ADR-0023); hover the pill for the failed-attempt count and the lock timestamp.
+- **Unlock** — appears next to the action buttons only when the account is locked. Confirms the failed-attempt count and clears `failed_login_count` + `locked_at` via `PATCH /v1/admin/users/{id}` `unlock=true`.
 
 OIDC shadow users appear in the list. Their password field is unusable; they can only log in via the OIDC path.
 

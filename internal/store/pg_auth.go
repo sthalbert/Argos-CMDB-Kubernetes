@@ -21,7 +21,8 @@ import (
 // --- users ---------------------------------------------------------------
 
 const userColumns = `id, username, role, must_change_password,
-	created_at, updated_at, last_login_at, disabled_at`
+	created_at, updated_at, last_login_at, disabled_at,
+	failed_login_count, locked_at`
 
 // CountActiveAdmins returns the number of non-disabled admin users.
 func (p *PG) CountActiveAdmins(ctx context.Context) (int, error) {
@@ -32,6 +33,71 @@ func (p *PG) CountActiveAdmins(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("count active admins: %w", err)
 	}
 	return n, nil
+}
+
+// CountActiveUnlockedAdmins counts admins ready to authenticate.
+func (p *PG) CountActiveUnlockedAdmins(ctx context.Context) (int, error) {
+	var n int
+	if err := p.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM users
+		  WHERE role = 'admin'
+		    AND disabled_at IS NULL
+		    AND locked_at IS NULL`,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count active+unlocked admins: %w", err)
+	}
+	return n, nil
+}
+
+// PickRescueTarget chooses the most-recently-active admin to rescue.
+func (p *PG) PickRescueTarget(ctx context.Context) (api.User, error) {
+	q := `SELECT ` + userColumns + ` FROM users
+	       WHERE role = 'admin'
+	    ORDER BY last_login_at DESC NULLS LAST, created_at ASC
+	       LIMIT 1`
+	u, err := scanUser(p.pool.QueryRow(ctx, q))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.User{}, api.ErrNotFound
+		}
+		return api.User{}, fmt.Errorf("pick rescue target: %w", err)
+	}
+	return u, nil
+}
+
+// RescueAdmin atomically restores password-login access for one user.
+func (p *PG) RescueAdmin(ctx context.Context, id uuid.UUID, hash string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE users
+		    SET password_hash = $1,
+		        failed_login_count = 0,
+		        locked_at = NULL,
+		        disabled_at = NULL,
+		        must_change_password = TRUE,
+		        updated_at = NOW()
+		  WHERE id = $2`,
+		hash, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update rescue target: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id); err != nil {
+		return fmt.Errorf("delete sessions: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
 }
 
 // CreateUser inserts a new user and returns the stored representation.
@@ -86,6 +152,7 @@ func (p *PG) GetUserByUsername(ctx context.Context, username string) (api.UserWi
 	if err := row.Scan(
 		&id, &out.Username, &role, &mustChange,
 		&createdAt, &updatedAt, &lastLoginAt, &disabledAt,
+		&out.FailedLoginCount, &out.LockedAt,
 		&out.PasswordHash,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -197,6 +264,9 @@ func (p *PG) UpdateUser(ctx context.Context, id uuid.UUID, in api.UserPatch) (ap
 			sets = append(sets, "disabled_at = NULL")
 		}
 	}
+	if in.Unlock != nil && *in.Unlock {
+		sets = append(sets, "failed_login_count = 0", "locked_at = NULL")
+	}
 	args = append(args, id)
 
 	q := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(sets, ", "), len(args))
@@ -239,6 +309,80 @@ func (p *PG) TouchUserLogin(ctx context.Context, id uuid.UUID, now time.Time) er
 	_, err := p.pool.Exec(ctx, `UPDATE users SET last_login_at = $1 WHERE id = $2`, now, id)
 	if err != nil {
 		return fmt.Errorf("touch user login: %w", err)
+	}
+	return nil
+}
+
+// IncrementFailedLogin increments users.failed_login_count by 1 in a
+// FOR UPDATE transaction. If the new count reaches or exceeds threshold
+// AND the account was not already locked, it sets locked_at = NOW() in
+// the same statement and returns locked=true. Already-locked accounts
+// are no-ops (count and locked_at unchanged) returning locked=false.
+//
+// No last-admin guard. The boot-time admin-rescue hook
+// (cmd/longue-vue/main.go) is the recovery path.
+func (p *PG) IncrementFailedLogin(ctx context.Context, id uuid.UUID, threshold int) (bool, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var count int
+	var lockedAt *time.Time
+	err = tx.QueryRow(ctx,
+		`SELECT failed_login_count, locked_at FROM users WHERE id = $1 FOR UPDATE`,
+		id,
+	).Scan(&count, &lockedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, api.ErrNotFound
+		}
+		return false, fmt.Errorf("select user for update: %w", err)
+	}
+	if lockedAt != nil {
+		// Already locked -- idempotent no-op.
+		if err := tx.Commit(ctx); err != nil {
+			return false, fmt.Errorf("commit: %w", err)
+		}
+		return false, nil
+	}
+
+	count++
+	locked := count >= threshold
+	if locked {
+		_, err = tx.Exec(ctx,
+			`UPDATE users SET failed_login_count = $1, locked_at = NOW() WHERE id = $2`,
+			count, id,
+		)
+	} else {
+		_, err = tx.Exec(ctx,
+			`UPDATE users SET failed_login_count = $1 WHERE id = $2`,
+			count, id,
+		)
+	}
+	if err != nil {
+		return false, fmt.Errorf("update failed_login_count: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit: %w", err)
+	}
+	return locked, nil
+}
+
+// ResetFailedLogin clears the lockout state on a user. Called from the
+// login handler on successful password verification, and from the
+// admin unlock endpoint (UpdateUser when patch.Unlock=true).
+func (p *PG) ResetFailedLogin(ctx context.Context, id uuid.UUID) error {
+	tag, err := p.pool.Exec(ctx,
+		`UPDATE users SET failed_login_count = 0, locked_at = NULL WHERE id = $1`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("reset failed login: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return api.ErrNotFound
 	}
 	return nil
 }
@@ -380,6 +524,9 @@ func applyUserPatchTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, in api.UserP
 			sets = append(sets, "disabled_at = NULL")
 		}
 	}
+	if in.Unlock != nil && *in.Unlock {
+		sets = append(sets, "failed_login_count = 0", "locked_at = NULL")
+	}
 	args = append(args, id)
 	q := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(sets, ", "), len(args))
 	tag, err := tx.Exec(ctx, q, args...)
@@ -496,6 +643,7 @@ func scanUser(row pgx.Row) (api.User, error) {
 	if err := row.Scan(
 		&id, &out.Username, &role, &mustChange,
 		&createdAt, &updatedAt, &lastLoginAt, &disabledAt,
+		&out.FailedLoginCount, &out.LockedAt,
 	); err != nil {
 		return api.User{}, fmt.Errorf("scan user: %w", err)
 	}
@@ -861,7 +1009,8 @@ func (p *PG) GetUserByIdentity(ctx context.Context, issuer, subject string) (api
 	// selected column with the users alias so the planner doesn't reject
 	// the unqualified reference as ambiguous (SQLSTATE 42702).
 	q := `SELECT u.id, u.username, u.role, u.must_change_password,
-	             u.created_at, u.updated_at, u.last_login_at, u.disabled_at
+	             u.created_at, u.updated_at, u.last_login_at, u.disabled_at,
+	             u.failed_login_count, u.locked_at
 	      FROM users u
 	      JOIN user_identities ui ON ui.user_id = u.id
 	      WHERE ui.issuer = $1 AND ui.subject = $2 AND u.disabled_at IS NULL`

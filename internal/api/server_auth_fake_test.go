@@ -92,6 +92,26 @@ func (m *memStore) CountActiveAdmins(_ context.Context) (int, error) {
 	return n, nil
 }
 
+func (m *memStore) CountActiveUnlockedAdmins(_ context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, u := range m.authState.users {
+		if u.Role == Role(auth.RoleAdmin) && u.DisabledAt == nil && u.LockedAt == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *memStore) PickRescueTarget(_ context.Context) (User, error) {
+	return User{}, ErrNotFound // not exercised by handler-level tests
+}
+
+func (m *memStore) RescueAdmin(_ context.Context, _ uuid.UUID, _ string) error {
+	return ErrNotFound // not exercised by handler-level tests
+}
+
 func (m *memStore) CreateUser(_ context.Context, in UserInsert) (User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -191,6 +211,11 @@ func (m *memStore) updateUserLocked(id uuid.UUID, in UserPatch) (User, error) {
 			u.DisabledAt = nil
 		}
 	}
+	if in.Unlock != nil && *in.Unlock {
+		zero := 0
+		u.FailedLoginCount = &zero
+		u.LockedAt = nil
+	}
 	now := time.Now().UTC()
 	u.UpdatedAt = &now
 	m.authState.users[id] = u
@@ -228,6 +253,47 @@ func (m *memStore) TouchUserLogin(_ context.Context, id uuid.UUID, now time.Time
 	}
 	ll := now
 	u.LastLoginAt = &ll
+	m.authState.users[id] = u
+	return nil
+}
+
+func (m *memStore) IncrementFailedLogin(_ context.Context, id uuid.UUID, threshold int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.authState.users[id]
+	if !ok {
+		return false, ErrNotFound
+	}
+	// Already locked: idempotent no-op.
+	if u.LockedAt != nil {
+		return false, nil
+	}
+	count := 0
+	if u.FailedLoginCount != nil {
+		count = *u.FailedLoginCount
+	}
+	count++
+	u.FailedLoginCount = &count
+	locked := false
+	if count >= threshold {
+		now := time.Now().UTC()
+		u.LockedAt = &now
+		locked = true
+	}
+	m.authState.users[id] = u
+	return locked, nil
+}
+
+func (m *memStore) ResetFailedLogin(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.authState.users[id]
+	if !ok {
+		return ErrNotFound
+	}
+	zero := 0
+	u.FailedLoginCount = &zero
+	u.LockedAt = nil
 	m.authState.users[id] = u
 	return nil
 }

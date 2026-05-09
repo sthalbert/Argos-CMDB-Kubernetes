@@ -252,6 +252,66 @@ SELECT id, email, role, disabled_at
 
 ---
 
+## Locked-admin recovery (rescue env var)
+
+ADR-0023 added per-account login lockout: after 6 consecutive failed password verifications an account locks. Unlike the last-admin guard above, **there is no special case for the last admin** — the most-attacked account cannot be the one without protection. If every admin gets locked out (incident, brute-force at scale, mass forgotten password), the API has no caller who can issue `PATCH /v1/admin/users/{id}` with `unlock=true`. The boot-time rescue hook is the supported recovery path.
+
+### Symptoms
+
+- Every admin login returns `401 Unauthorized` with `{"detail":"invalid credentials"}`. (Identical to a wrong-password 401 — anti-enumeration, ADR-0023.)
+- `kubectl logs deploy/longue-vue` shows one or more `auth: account locked after threshold` warnings prior to the failure window.
+- Direct DB query confirms the state:
+
+```sql
+SELECT username, failed_login_count, locked_at, disabled_at
+  FROM users
+ WHERE role = 'admin';
+```
+
+If every row has `locked_at IS NOT NULL OR disabled_at IS NOT NULL`, you have hit the bricked-deployment case.
+
+### Recovery: set `LONGUE_VUE_ADMIN_RESCUE_PASSWORD` and restart
+
+This is the supported, audit-logged recovery path. No SQL required.
+
+1. Choose a strong temporary password and set it on the deployment's secret. With the bundled Helm chart:
+
+   ```bash
+   helm upgrade longue-vue charts/longue-vue \
+     --reuse-values \
+     --set server.adminRescuePassword='ChooseAStrongTemporaryPassword!'
+   ```
+
+   Or set the underlying secret directly if managed out-of-band:
+
+   ```yaml
+   stringData:
+     LONGUE_VUE_ADMIN_RESCUE_PASSWORD: "ChooseAStrongTemporaryPassword!"
+   ```
+
+2. Restart the pod (`kubectl rollout restart deploy/longue-vue`).
+
+3. On startup, the rescue hook:
+   - confirms no usable admin exists (`COUNT(*) FROM users WHERE role='admin' AND disabled_at IS NULL AND locked_at IS NULL` is 0),
+   - picks the most-recently-active admin (`ORDER BY last_login_at DESC NULLS LAST, created_at ASC LIMIT 1`),
+   - in one transaction: resets the password, clears `failed_login_count`, `locked_at`, and `disabled_at`, forces `must_change_password=TRUE`, deletes all sessions for the user,
+   - writes a `source=system, action=auth.admin_rescue` row to `audit_events`,
+   - prints a loud `slog.Error` banner showing the rescued username.
+
+4. Log in with the rescued admin's username and the rescue password. The `must_change_password` gate immediately forces a rotation through `POST /v1/auth/change-password`.
+
+5. **After recovery**: review the `auth_events` table for the rescue event and the lead-up `auth: account locked after threshold` log lines. Decide whether the lockouts were caused by an attack (rotate other credentials, audit recent admin actions), by accidental misconfiguration (CI loop with wrong password), or by a genuine forgotten-password incident. Consider whether the rescue env var should remain set as baseline or rotated out.
+
+### Why this is safer than direct SQL
+
+The rescue path is auditable (`audit_events` row), atomic (single transaction), and forces password rotation (`must_change_password=TRUE`). The direct-SQL recovery in [Last-admin lockout recovery](#last-admin-lockout-recovery) above is for the orthogonal scenario where the last-admin guard refused a demote/disable; it does not handle the lockout state and bypasses the audit log entirely.
+
+### Operational baseline recommendation
+
+Set `LONGUE_VUE_ADMIN_RESCUE_PASSWORD` permanently in the deployment, alongside `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD`. The rescue is a no-op when at least one admin can authenticate, so leaving it set has no runtime effect — but it ensures the recovery path is one `kubectl rollout restart` away on the day you need it.
+
+---
+
 ## Upgrade procedure
 
 ### Migration model

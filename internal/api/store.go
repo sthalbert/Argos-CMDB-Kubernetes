@@ -336,6 +336,21 @@ type Store interface {
 	// `disabled_at` timestamp. Used by the first-install bootstrap check.
 	CountActiveAdmins(ctx context.Context) (int, error)
 
+	// CountActiveUnlockedAdmins returns the number of admins with
+	// disabled_at IS NULL AND locked_at IS NULL.
+	CountActiveUnlockedAdmins(ctx context.Context) (int, error)
+
+	// PickRescueTarget returns the most-recently-active admin row.
+	// Used by the boot-time rescue when CountActiveUnlockedAdmins == 0.
+	// ORDER BY last_login_at DESC NULLS LAST, created_at ASC, LIMIT 1.
+	PickRescueTarget(ctx context.Context) (User, error)
+
+	// RescueAdmin atomically resets the rescue target: sets the new
+	// password hash, clears locked_at, zeroes failed_login_count, sets
+	// disabled_at = NULL, forces must_change_password = true, deletes
+	// all of the user's sessions.
+	RescueAdmin(ctx context.Context, id uuid.UUID, hash string) error
+
 	// CreateUser inserts a new human user. Returns ErrConflict on
 	// case-insensitive username collision.
 	CreateUser(ctx context.Context, in UserInsert) (User, error)
@@ -374,6 +389,21 @@ type Store interface {
 
 	// TouchUserLogin refreshes last_login_at — called on successful login.
 	TouchUserLogin(ctx context.Context, id uuid.UUID, now time.Time) error
+
+	// IncrementFailedLogin bumps users.failed_login_count by one. If the
+	// new count is >= threshold and the account was not already locked,
+	// sets locked_at = now() in the same statement and returns
+	// (locked=true). Idempotent on already-locked accounts: returns
+	// (locked=false) and leaves the row untouched.
+	//
+	// No last-admin guard; the lockout fires uniformly. Recovery is via
+	// the boot-time admin-rescue hook (cmd/longue-vue/main.go).
+	IncrementFailedLogin(ctx context.Context, id uuid.UUID, threshold int) (locked bool, err error)
+
+	// ResetFailedLogin sets failed_login_count = 0 and locked_at = NULL.
+	// Called on a successful password verification. Safe when already
+	// at zero (UPDATE is a no-op on the row).
+	ResetFailedLogin(ctx context.Context, id uuid.UUID) error
 
 	// DeleteUser removes a user. ON DELETE CASCADE sweeps their sessions
 	// and identities; api_tokens they minted are retained (ON DELETE
@@ -652,10 +682,14 @@ type UserInsert struct {
 
 // UserPatch is the merge-patch view for UpdateUser. All fields optional.
 // Nil means "don't touch"; non-nil means "set to this value".
+//
+// Unlock=true clears failed_login_count and locked_at (admin clears a
+// brute-force lockout). Has no effect on accounts that are not locked.
 type UserPatch struct {
 	Role               *string
 	MustChangePassword *bool
 	Disabled           *bool
+	Unlock             *bool
 }
 
 // UserWithSecret extends the outward-facing User with the stored

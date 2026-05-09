@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sthalbert/longue-vue/internal/api"
 	"github.com/sthalbert/longue-vue/internal/auth"
 	"github.com/sthalbert/longue-vue/internal/collector"
@@ -254,6 +256,10 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 
 	if err := bootstrapAdminIfNeeded(rootCtx, pg); err != nil {
 		return fmt.Errorf("bootstrap admin: %w", err)
+	}
+
+	if err := rescueLockedAdminIfNeeded(rootCtx, pg); err != nil {
+		return fmt.Errorf("rescue admin: %w", err)
 	}
 
 	encrypter, err := initSecretsEncrypter(rootCtx, pg)
@@ -993,6 +999,70 @@ func bootstrapAdminIfNeeded(ctx context.Context, s *store.PG) error {
 		"\n    source:   " + source +
 		"\n  This account MUST rotate its password on first login." +
 		"\n" + banner)
+	return nil
+}
+
+// rescueLockedAdminIfNeeded recovers from the situation where every
+// admin is locked or disabled and no operator can log in. Reads the
+// new password from LONGUE_VUE_ADMIN_RESCUE_PASSWORD; if unset, no-op.
+//
+// Triggers when COUNT(active+unlocked admins) == 0. Picks the most
+// recently active admin, resets their password, clears lockout +
+// disabled state, forces must_change_password=true, invalidates all
+// sessions for the user, writes a system audit event, and prints a
+// loud banner.
+func rescueLockedAdminIfNeeded(ctx context.Context, s *store.PG) error {
+	password := os.Getenv("LONGUE_VUE_ADMIN_RESCUE_PASSWORD")
+	if password == "" {
+		return nil
+	}
+
+	usable, err := s.CountActiveUnlockedAdmins(ctx)
+	if err != nil {
+		return fmt.Errorf("count active+unlocked admins: %w", err)
+	}
+	if usable > 0 {
+		return nil
+	}
+
+	target, err := s.PickRescueTarget(ctx)
+	if err != nil {
+		return fmt.Errorf("pick rescue target: %w", err)
+	}
+
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return fmt.Errorf("hash rescue password: %w", err)
+	}
+
+	if err := s.RescueAdmin(ctx, *target.Id, hash); err != nil {
+		return fmt.Errorf("rescue admin %s: %w", target.Username, err)
+	}
+
+	if err := s.InsertAuditEvent(ctx, api.AuditEventInsert{
+		ID:           uuid.New(),
+		OccurredAt:   time.Now().UTC(),
+		ActorKind:    "system",
+		Action:       "auth.admin_rescue",
+		ResourceType: "user",
+		ResourceID:   target.Id.String(),
+		Source:       "system",
+	}); err != nil {
+		// Do not fail the boot if the audit insert fails -- recovery
+		// already happened. Log loudly instead.
+		slog.Error("audit insert for admin rescue failed", slog.Any("error", err))
+	}
+
+	banner := strings.Repeat("=", 72)
+	slog.Error("\n"+banner+
+		"\n  LONGUE-VUE ADMIN RESCUE TRIGGERED"+
+		"\n  Username:           "+target.Username+
+		"\n  Password reset to:  $LONGUE_VUE_ADMIN_RESCUE_PASSWORD"+
+		"\n  must_change_password forced -- rotate immediately on first login."+
+		"\n"+banner,
+		slog.Any("user_id", target.Id),
+		slog.String("username", target.Username),
+	)
 	return nil
 }
 
