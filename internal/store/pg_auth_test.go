@@ -154,3 +154,27 @@ func TestResetFailedLogin(t *testing.T) {
 	}
 }
 
+func TestUpdateUserGuarded_Unlock(t *testing.T) {
+	pg := newTestPG(t)
+	u := seedUser(t, pg, "uma", auth.RoleEditor)
+
+	// Drive the user into the locked state.
+	for i := 1; i <= lockoutThreshold; i++ {
+		if _, err := pg.IncrementFailedLogin(t.Context(), *u.Id, lockoutThreshold); err != nil {
+			t.Fatalf("seed lock: %v", err)
+		}
+	}
+
+	yes := true
+	updated, err := pg.UpdateUserGuarded(t.Context(), *u.Id, api.UserPatch{Unlock: &yes})
+	if err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	if updated.LockedAt != nil {
+		t.Errorf("locked_at = %v after unlock, want NULL", updated.LockedAt)
+	}
+	if updated.FailedLoginCount == nil || *updated.FailedLoginCount != 0 {
+		t.Errorf("failed_login_count = %v, want 0", updated.FailedLoginCount)
+	}
+}
+

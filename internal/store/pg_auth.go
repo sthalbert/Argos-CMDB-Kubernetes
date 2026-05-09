@@ -199,6 +199,9 @@ func (p *PG) UpdateUser(ctx context.Context, id uuid.UUID, in api.UserPatch) (ap
 			sets = append(sets, "disabled_at = NULL")
 		}
 	}
+	if in.Unlock != nil && *in.Unlock {
+		sets = append(sets, "failed_login_count = 0", "locked_at = NULL")
+	}
 	args = append(args, id)
 
 	q := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(sets, ", "), len(args))
@@ -449,6 +452,9 @@ func applyUserPatchTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, in api.UserP
 		} else {
 			sets = append(sets, "disabled_at = NULL")
 		}
+	}
+	if in.Unlock != nil && *in.Unlock {
+		sets = append(sets, "failed_login_count = 0", "locked_at = NULL")
 	}
 	args = append(args, id)
 	q := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(sets, ", "), len(args))
