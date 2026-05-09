@@ -8,7 +8,7 @@ description: >-
   collector releases stay decoupled from the central control-plane release.
 type: application
 version: 0.3.0
-appVersion: 0.16.0
+appVersion: 0.17.0
 home: https://github.com/sthalbert/longue-vue
 sources:
   - https://github.com/sthalbert/longue-vue

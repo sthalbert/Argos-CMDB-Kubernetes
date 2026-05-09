@@ -6,6 +6,50 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.17.0](https://github.com/sthalbert/Longue-Vue/compare/v0.16.0...v0.17.0) (2026-05-09)
+
+
+### Features
+
+* **api:** add list/detail/refresh handlers for image versions ([cb1fbcf](https://github.com/sthalbert/Longue-Vue/commit/cb1fbcfa79ce85d1146159072f6d86919fd9f494))
+* **api:** admin CRUD on image_versions_registries ([4628cd7](https://github.com/sthalbert/Longue-Vue/commit/4628cd77e22966e6234bb2dd3a657ded5bf9cd24))
+* **api:** enrich workload/pod GETs with containers_versions ([2883b92](https://github.com/sthalbert/Longue-Vue/commit/2883b92447a2634c3f4bb2cda4dbeb9da11585f3))
+* **api:** mount image-versions and registries routes ([e8a1af4](https://github.com/sthalbert/Longue-Vue/commit/e8a1af483159a8a916a435c761530f5b65ecb6d1))
+* **chart:** expose mcp.allowPlaintext for local/dev clusters without TLS ([313f7ef](https://github.com/sthalbert/Longue-Vue/commit/313f7efe6fc6d20d3a328ba94b78f4efae57e80a))
+* container image versions enrichment (ADR-0022) ([72b799b](https://github.com/sthalbert/Longue-Vue/commit/72b799b76c0de46815551f1920d5b09164c33caf))
+* **db:** migrations for image_versions tables and settings flag ([11f7cc8](https://github.com/sthalbert/Longue-Vue/commit/11f7cc857956ed8460ade45529421571159ed1e5))
+* **imageversions/registry:** add OCI client with bearer auth and pagination ([c1fd19b](https://github.com/sthalbert/Longue-Vue/commit/c1fd19b5d348d58139fe4fede86963853fb07cbb))
+* **imageversions/registry:** hostname → effective HTTPS host ([cfbb155](https://github.com/sthalbert/Longue-Vue/commit/cfbb15515bd7fa9bd9385b20b0042d40cbd6c92e))
+* **imageversions/registry:** hostname pattern matcher ([72b4c33](https://github.com/sthalbert/Longue-Vue/commit/72b4c3398be11a01dd7394d64e08305e2ebd8afb))
+* **imageversions:** add Prometheus metrics for ticks and registry queries ([dd1a16b](https://github.com/sthalbert/Longue-Vue/commit/dd1a16b1b9607968c9f76b746c78f63003582dad))
+* **imageversions:** image ref and tag parsing ([11ca493](https://github.com/sthalbert/Longue-Vue/commit/11ca4939c2c7faaaeeaa56a1687887ac9be4d04f))
+* **imageversions:** pattern-aware latest tag computation ([a4cae00](https://github.com/sthalbert/Longue-Vue/commit/a4cae0049a8d41bdccdaff98fb1e4c9248cba824))
+* **imageversions:** periodic enricher with trigger and reaping ([c39545a](https://github.com/sthalbert/Longue-Vue/commit/c39545a4936c074716993fab55752a584d3b8aaa))
+* **main:** start image versions enricher goroutine at boot ([1380cef](https://github.com/sthalbert/Longue-Vue/commit/1380cef7bf12136759c79bcd35f3709e83fe27f1))
+* **mcp:** add list_image_versions, get_image_version, get_image_versions_summary tools ([359b6c3](https://github.com/sthalbert/Longue-Vue/commit/359b6c339db8b750f933e0dd2978b9c90be6e3c3))
+* **settings:** add image_versions_enabled toggle ([f35a83b](https://github.com/sthalbert/Longue-Vue/commit/f35a83bef21303b130e4ac87a74ac3cbc11d31fc))
+* **store:** add CRUD for image_versions_registries ([3ece105](https://github.com/sthalbert/Longue-Vue/commit/3ece105d90df3b23b03d69d0264e444b909ca943))
+* **store:** image_versions CRUD, list, reaping, and ref discovery ([5b74a55](https://github.com/sthalbert/Longue-Vue/commit/5b74a550eb21a295cffa89495b1e76b9741e6fe3))
+* **ui/admin:** image registries CRUD page and settings toggle ([7bdb561](https://github.com/sthalbert/Longue-Vue/commit/7bdb5618ff5b7a5ea9830c865cf5f44cab681901))
+* **ui/api:** add image-versions and registries client functions ([32fb904](https://github.com/sthalbert/Longue-Vue/commit/32fb9049734ad45d3dcdffea249f842e6ff52655))
+* **ui:** add ContainerImageIcon for sidebar Container images entry ([e5d77c9](https://github.com/sthalbert/Longue-Vue/commit/e5d77c91236f16096a18ccc84fcdee35c26274ed))
+* **ui:** add ContainerVersionBadge component ([5042667](https://github.com/sthalbert/Longue-Vue/commit/50426670f11d136cec6f4d8d42b351307ede2565))
+* **ui:** images inventory page, detail page, and sidebar link ([f1da2da](https://github.com/sthalbert/Longue-Vue/commit/f1da2da6b5a4e5080c71561412cbe66a41393fe3))
+* **ui:** per-column funnel filters and clickable summary cards on Container images ([ae6f1a1](https://github.com/sthalbert/Longue-Vue/commit/ae6f1a1db51bb0b44f1679dc98c036531a699732))
+* **ui:** place container images entry under EOL in sidebar Tools section ([2f10ab0](https://github.com/sthalbert/Longue-Vue/commit/2f10ab0f68a451f1323f93ad096ea3521ef64418))
+* **ui:** show ContainerVersionBadge on workload/pod pages ([9abd8d3](https://github.com/sthalbert/Longue-Vue/commit/9abd8d36ae2dcb24d693698abd946df151e48584))
+* **ui:** show latest_tag in pod runtime containers table, rename column to Last version ([1879487](https://github.com/sthalbert/Longue-Vue/commit/18794876d5286342db65f28e4ce1b0a478b3eb10))
+
+
+### Bug Fixes
+
+* **db:** align migration up/down blocks with project IF EXISTS convention ([94982f5](https://github.com/sthalbert/Longue-Vue/commit/94982f5f823cf9db76ae9b783754b25463846df8))
+* **imageversions/registry:** explicitly discard resp.Body.Close errors (gosec G104) ([f6aba1a](https://github.com/sthalbert/Longue-Vue/commit/f6aba1a1180ad8077cee3fb1fa3444f9110533fc))
+* **imageversions:** preserve data when no registries enabled, log tick summary ([f5ab074](https://github.com/sthalbert/Longue-Vue/commit/f5ab074545b793056e6002b5205195c41d815fb2))
+* **lint:** switch workload range loops to index iteration (gocritic rangeValCopy) ([ca8ee0e](https://github.com/sthalbert/Longue-Vue/commit/ca8ee0e7ff85ebeb108538a48dc9208517b160f0))
+* **store:** nil annotation guard, shared escapeLike, isolated test cleanup, Variant doc ([bf55c5a](https://github.com/sthalbert/Longue-Vue/commit/bf55c5ac92303982989d78960cc30668431294f7))
+* **store:** tighten error assertions and slice initialization for image registries ([835cee5](https://github.com/sthalbert/Longue-Vue/commit/835cee5dfbcb91ce9b8b74739077c2d50a76bc82))
+
 ## [0.16.0](https://github.com/sthalbert/Longue-Vue/compare/v0.15.0...v0.16.0) (2026-05-08)
 
 
