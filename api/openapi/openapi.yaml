@@ -4267,6 +4267,23 @@ components:
           format: date-time
           nullable: true
           readOnly: true
+        failed_login_count:
+          type: integer
+          minimum: 0
+          readOnly: true
+          description: |
+            Consecutive failed password attempts since last successful login. Reset
+            to 0 on successful login or admin unlock. Reaches lockout threshold
+            (6) -> `locked_at` is set.
+        locked_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: |
+            When the account auto-locked after exceeding the failed-login threshold.
+            A locked account cannot authenticate via password. Cleared by an admin
+            via `PATCH /v1/admin/users/{id}` with `unlock=true`. NULL = not locked.
 
     UserCreate:
       description: Payload to create a new human user.
@@ -4294,7 +4311,9 @@ components:
       description: |
         Merge-patch body. Setting `password` rehashes and forces
         `must_change_password=true`. Setting `disabled=true` revokes
-        every active session for the user.
+        every active session for the user. Setting `unlock=true` clears
+        the lockout state on an account locked after too many failed
+        login attempts.
       type: object
       properties:
         role:
@@ -4307,6 +4326,13 @@ components:
           type: boolean
         disabled:
           type: boolean
+        unlock:
+          type: boolean
+          description: |
+            When true, clears `locked_at` and resets `failed_login_count` to 0.
+            No effect on accounts that are not locked. Can be combined with other
+            patch fields in the same request -- all changes apply atomically in
+            one UPDATE.
 
     UserList:
       description: Paged list of users.
