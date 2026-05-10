@@ -444,7 +444,11 @@ export function Services() {
                     <tbody>
                       {resp.items.map((s) => (
                         <tr key={s.id}>
-                          <td><strong>{s.name}</strong></td>
+                          <td>
+                            <Link to={`/services/${s.id}`}>
+                              <strong>{s.name}</strong>
+                            </Link>
+                          </td>
                           <td>
                             <NamespaceLink
                               namespaceId={s.namespace_id}
@@ -574,7 +578,11 @@ export function PersistentVolumes() {
                     const cluster = clustersById.get(pv.cluster_id);
                     return (
                       <tr key={pv.id}>
-                        <td><strong>{pv.name}</strong></td>
+                        <td>
+                          <Link to={`/persistentvolumes/${pv.id}`}>
+                            <strong>{pv.name}</strong>
+                          </Link>
+                        </td>
                         <td>
                           {cluster ? (
                             <Link to={`/clusters/${cluster.id}`}>{cluster.name}</Link>
@@ -628,7 +636,11 @@ export function PersistentVolumeClaims() {
                     <tbody>
                       {resp.items.map((pvc) => (
                         <tr key={pvc.id}>
-                          <td><strong>{pvc.name}</strong></td>
+                          <td>
+                            <Link to={`/persistentvolumeclaims/${pvc.id}`}>
+                              <strong>{pvc.name}</strong>
+                            </Link>
+                          </td>
                           <td>
                             <NamespaceLink
                               namespaceId={pvc.namespace_id}

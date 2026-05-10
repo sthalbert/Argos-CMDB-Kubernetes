@@ -23,6 +23,9 @@ import {
   PodDetail,
   NodeDetail,
   IngressDetail,
+  ServiceDetail,
+  PersistentVolumeDetail,
+  PersistentVolumeClaimDetail,
 } from './pages/Details';
 import EolDashboard from './pages/EolDashboard';
 import VirtualMachines from './pages/VirtualMachines';
@@ -231,10 +234,13 @@ export default function App() {
       <Route path="/pods/:id" element={authed(<PodDetail />)} />
 
       <Route path="/services" element={authed(<Services />)} />
+      <Route path="/services/:id" element={authed(<ServiceDetail />)} />
       <Route path="/ingresses" element={authed(<Ingresses />)} />
       <Route path="/ingresses/:id" element={authed(<IngressDetail />)} />
       <Route path="/persistentvolumes" element={authed(<PersistentVolumes />)} />
+      <Route path="/persistentvolumes/:id" element={authed(<PersistentVolumeDetail />)} />
       <Route path="/persistentvolumeclaims" element={authed(<PersistentVolumeClaims />)} />
+      <Route path="/persistentvolumeclaims/:id" element={authed(<PersistentVolumeClaimDetail />)} />
 
       <Route path="/search/image" element={authed(<ImageSearch />)} />
       <Route path="/eol" element={authed(<EolDashboard />)} />
