@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.19.0](https://github.com/sthalbert/Longue-Vue/compare/v0.18.0...v0.19.0) (2026-05-10)
+
+
+### Features
+
+* **ui:** add Service/PV/PVC detail pages and link names from list rows ([945279a](https://github.com/sthalbert/Longue-Vue/commit/945279acf37c96a41b35209920da7f934b0285ca))
+* **ui:** add Service/PV/PVC detail pages and link names from list rows ([06f6cea](https://github.com/sthalbert/Longue-Vue/commit/06f6ceaaab7cb63b141d5543a035a5e21d7da660))
+
 ## [0.18.0](https://github.com/sthalbert/Longue-Vue/compare/v0.17.0...v0.18.0) (2026-05-09)
 
 
