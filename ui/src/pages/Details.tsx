@@ -25,6 +25,7 @@ import { LabelsCard } from '../components/inventory/LabelsCard';
 import { ContainerVersionBadge } from '../components/ContainerVersionBadge';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon, IngressIcon,
+  ServiceIcon, VolumeIcon,
 } from '../icons';
 import {
   AsyncView,
@@ -253,7 +254,9 @@ export function ClusterDetail() {
                       {pvs.items.map((pv) => (
                         <tr key={pv.id}>
                           <td>
-                            <strong>{pv.name}</strong>
+                            <Link to={`/persistentvolumes/${pv.id}`}>
+                              <strong>{pv.name}</strong>
+                            </Link>
                           </td>
                           <td>{pv.capacity ? <code>{pv.capacity}</code> : <Dash />}</td>
                           <td>{pv.storage_class_name || <Dash />}</td>
@@ -459,7 +462,9 @@ export function NamespaceDetail() {
                   {services.items.map((s) => (
                     <tr key={s.id}>
                       <td>
-                        <strong>{s.name}</strong>
+                        <Link to={`/services/${s.id}`}>
+                          <strong>{s.name}</strong>
+                        </Link>
                       </td>
                       <td>
                         <span className="pill">{s.type || 'ClusterIP'}</span>
@@ -487,7 +492,9 @@ export function NamespaceDetail() {
                   {ingresses.items.map((i) => (
                     <tr key={i.id}>
                       <td>
-                        <strong>{i.name}</strong>
+                        <Link to={`/ingresses/${i.id}`}>
+                          <strong>{i.name}</strong>
+                        </Link>
                       </td>
                       <td>{i.ingress_class_name || <Dash />}</td>
                       <td>
@@ -525,7 +532,9 @@ export function NamespaceDetail() {
                   {pvcs.items.map((pvc) => (
                     <tr key={pvc.id}>
                       <td>
-                        <strong>{pvc.name}</strong>
+                        <Link to={`/persistentvolumeclaims/${pvc.id}`}>
+                          <strong>{pvc.name}</strong>
+                        </Link>
                       </td>
                       <td>{pvc.phase || <Dash />}</td>
                       <td>{pvc.requested_storage ? <code>{pvc.requested_storage}</code> : <Dash />}</td>
@@ -1356,6 +1365,276 @@ export function IngressDetail() {
         )}
       </AsyncView>
       <ImpactSection entityType="ingresses" entityId={id} />
+    </>
+  );
+}
+
+// --- Service detail -------------------------------------------------------
+
+export function ServiceDetail() {
+  const { id = '' } = useParams();
+  const service = useResource(() => api.getService(id), [id]);
+  const ns = useResource(
+    async () => (service.status === 'ready' ? api.getNamespace(service.data.namespace_id) : null),
+    [service.status === 'ready' ? service.data.namespace_id : ''],
+  );
+  const cluster = useResource(
+    async () => (ns.status === 'ready' && ns.data ? api.getCluster(ns.data.cluster_id) : null),
+    [ns.status === 'ready' && ns.data ? ns.data.cluster_id : ''],
+  );
+
+  return (
+    <>
+      <div className="breadcrumb">
+        <Link to="/services">Services</Link> /{' '}
+        {cluster.status === 'ready' && cluster.data && (
+          <>
+            <Link to={`/clusters/${cluster.data.id}`}>{cluster.data.name}</Link>
+            {' / '}
+          </>
+        )}
+        {ns.status === 'ready' && ns.data && (
+          <>
+            <Link to={`/namespaces/${ns.data.id}`}>{ns.data.name}</Link>
+            {' / '}
+          </>
+        )}
+        <span>this service</span>
+      </div>
+      <AsyncView state={service}>
+        {(s) => (
+          <>
+            <h2>
+              <ServiceIcon size={20} /> {s.name} <LayerPill layer={s.layer} />
+            </h2>
+            <dl className="kv-list">
+              <KV k="Type" v={<span className="pill">{s.type || 'ClusterIP'}</span>} />
+              <KV k="ClusterIP" v={s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash />} />
+              <KV k="Namespace" v={<IdLink to={`/namespaces/${s.namespace_id}`} id={s.namespace_id} />} />
+              <KV k="Labels" v={<Labels labels={s.labels} />} />
+            </dl>
+
+            <SectionTitle count={s.ports?.length || 0}>Ports</SectionTitle>
+            {!s.ports?.length ? (
+              <Empty message="No ports defined." />
+            ) : (
+              <table className="entities">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Port</th>
+                    <th>Target</th>
+                    <th>Protocol</th>
+                    <th>NodePort</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.ports.map((p, idx) => (
+                    <tr key={idx}>
+                      <td>{p.name || <Dash />}</td>
+                      <td><code>{p.port}</code></td>
+                      <td>{p.target_port ? <code>{p.target_port}</code> : <Dash />}</td>
+                      <td>{p.protocol || 'TCP'}</td>
+                      <td>{p.node_port ? <code>{p.node_port}</code> : <Dash />}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <SectionTitle count={s.load_balancer?.length || 0}>Load balancer</SectionTitle>
+            {!s.load_balancer?.length ? (
+              <Empty message="No external address — only Services of type LoadBalancer typically carry entries." />
+            ) : (
+              <table className="entities">
+                <thead>
+                  <tr>
+                    <th>IP</th>
+                    <th>Hostname</th>
+                    <th>Ports</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.load_balancer.map((lb, idx) => (
+                    <tr key={idx}>
+                      <td>{lb.ip ? <code>{lb.ip}</code> : <Dash />}</td>
+                      <td>
+                        {lb.hostname ? <span className="lb-host">{lb.hostname}</span> : <Dash />}
+                      </td>
+                      <td>
+                        {lb.ports?.length ? (
+                          <code>
+                            {lb.ports
+                              .map((p) => `${p.port}/${p.protocol || 'TCP'}`)
+                              .join(', ')}
+                          </code>
+                        ) : (
+                          <Dash />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <SectionTitle count={s.selector ? Object.keys(s.selector).length : 0}>Selector</SectionTitle>
+            {!s.selector || Object.keys(s.selector).length === 0 ? (
+              <Empty message="No selector — Service is headless / ExternalName, or backed by manually-managed Endpoints." />
+            ) : (
+              <Labels labels={s.selector} />
+            )}
+          </>
+        )}
+      </AsyncView>
+      <ImpactSection entityType="services" entityId={id} />
+    </>
+  );
+}
+
+// --- PersistentVolume detail ----------------------------------------------
+
+export function PersistentVolumeDetail() {
+  const { id = '' } = useParams();
+  const pv = useResource(() => api.getPersistentVolume(id), [id]);
+  const cluster = useResource(
+    async () => (pv.status === 'ready' ? api.getCluster(pv.data.cluster_id) : null),
+    [pv.status === 'ready' ? pv.data.cluster_id : ''],
+  );
+
+  return (
+    <>
+      <div className="breadcrumb">
+        <Link to="/persistentvolumes">Persistent Volumes</Link> /{' '}
+        {cluster.status === 'ready' && cluster.data && (
+          <>
+            <Link to={`/clusters/${cluster.data.id}`}>{cluster.data.name}</Link>
+            {' / '}
+          </>
+        )}
+        <span>this volume</span>
+      </div>
+      <AsyncView state={pv}>
+        {(v) => (
+          <>
+            <h2>
+              <VolumeIcon size={20} /> {v.name} <LayerPill layer={v.layer} />
+            </h2>
+            <dl className="kv-list">
+              <KV k="Capacity" v={v.capacity ? <code>{v.capacity}</code> : <Dash />} />
+              <KV k="Phase" v={v.phase || <Dash />} />
+              <KV k="Reclaim policy" v={v.reclaim_policy || <Dash />} />
+              <KV k="Storage class" v={v.storage_class_name || <Dash />} />
+              <KV k="CSI driver" v={v.csi_driver ? <code>{v.csi_driver}</code> : <Dash />} />
+              <KV k="Volume handle" v={v.volume_handle ? <code>{v.volume_handle}</code> : <Dash />} />
+              <KV
+                k="Access modes"
+                v={v.access_modes?.length ? <code>{v.access_modes.join(', ')}</code> : <Dash />}
+              />
+              <KV
+                k="Cluster"
+                v={<IdLink to={`/clusters/${v.cluster_id}`} id={v.cluster_id} />}
+              />
+              <KV k="Labels" v={<Labels labels={v.labels} />} />
+            </dl>
+
+            <SectionTitle count={v.claim_ref_name ? 1 : 0}>Bound claim</SectionTitle>
+            {!v.claim_ref_name ? (
+              <Empty message="No claim bound to this volume." />
+            ) : (
+              <dl className="kv-list">
+                <KV k="Namespace" v={v.claim_ref_namespace || <Dash />} />
+                <KV k="Name" v={<code>{v.claim_ref_name}</code>} />
+              </dl>
+            )}
+          </>
+        )}
+      </AsyncView>
+      <ImpactSection entityType="persistentvolumes" entityId={id} />
+    </>
+  );
+}
+
+// --- PersistentVolumeClaim detail -----------------------------------------
+
+export function PersistentVolumeClaimDetail() {
+  const { id = '' } = useParams();
+  const pvc = useResource(() => api.getPersistentVolumeClaim(id), [id]);
+  const ns = useResource(
+    async () => (pvc.status === 'ready' ? api.getNamespace(pvc.data.namespace_id) : null),
+    [pvc.status === 'ready' ? pvc.data.namespace_id : ''],
+  );
+  const cluster = useResource(
+    async () => (ns.status === 'ready' && ns.data ? api.getCluster(ns.data.cluster_id) : null),
+    [ns.status === 'ready' && ns.data ? ns.data.cluster_id : ''],
+  );
+  const boundPv = useResource(
+    async () =>
+      pvc.status === 'ready' && pvc.data.bound_volume_id
+        ? api.getPersistentVolume(pvc.data.bound_volume_id)
+        : null,
+    [pvc.status === 'ready' && pvc.data.bound_volume_id ? pvc.data.bound_volume_id : ''],
+  );
+
+  return (
+    <>
+      <div className="breadcrumb">
+        <Link to="/persistentvolumeclaims">Persistent Volume Claims</Link> /{' '}
+        {cluster.status === 'ready' && cluster.data && (
+          <>
+            <Link to={`/clusters/${cluster.data.id}`}>{cluster.data.name}</Link>
+            {' / '}
+          </>
+        )}
+        {ns.status === 'ready' && ns.data && (
+          <>
+            <Link to={`/namespaces/${ns.data.id}`}>{ns.data.name}</Link>
+            {' / '}
+          </>
+        )}
+        <span>this claim</span>
+      </div>
+      <AsyncView state={pvc}>
+        {(c) => (
+          <>
+            <h2>
+              <VolumeIcon size={20} /> {c.name} <LayerPill layer={c.layer} />
+            </h2>
+            <dl className="kv-list">
+              <KV k="Phase" v={c.phase || <Dash />} />
+              <KV
+                k="Requested storage"
+                v={c.requested_storage ? <code>{c.requested_storage}</code> : <Dash />}
+              />
+              <KV k="Storage class" v={c.storage_class_name || <Dash />} />
+              <KV
+                k="Access modes"
+                v={c.access_modes?.length ? <code>{c.access_modes.join(', ')}</code> : <Dash />}
+              />
+              <KV
+                k="Bound PV"
+                v={
+                  boundPv.status === 'ready' && boundPv.data ? (
+                    <Link to={`/persistentvolumes/${boundPv.data.id}`}>
+                      <strong>{boundPv.data.name}</strong>
+                    </Link>
+                  ) : c.volume_name ? (
+                    <code>{c.volume_name}</code>
+                  ) : (
+                    <Dash />
+                  )
+                }
+              />
+              <KV
+                k="Namespace"
+                v={<IdLink to={`/namespaces/${c.namespace_id}`} id={c.namespace_id} />}
+              />
+              <KV k="Labels" v={<Labels labels={c.labels} />} />
+            </dl>
+          </>
+        )}
+      </AsyncView>
+      <ImpactSection entityType="persistentvolumeclaims" entityId={id} />
     </>
   );
 }
