@@ -10,7 +10,7 @@ require (
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.9.1
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/mark3labs/mcp-go v0.49.0
 	github.com/oapi-codegen/runtime v1.4.0
 	github.com/outscale/osc-sdk-go/v2 v2.33.0
