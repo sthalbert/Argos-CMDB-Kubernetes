@@ -446,8 +446,6 @@ h2 svg {
   font-size: var(--fs-body);
 }
 
-}
-
 .auth-input-wrap input:focus {
   outline: none;
   border-color: var(--accent-dim);
