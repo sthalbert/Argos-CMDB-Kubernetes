@@ -3,7 +3,7 @@
 #
 # Prerequisites:
 #   1. Cluster row exists in longue-vue:
-#        POST https://inventory.tooling.cloudgouv-eu-west-1.numspot.internal/v1/clusters
+#        POST https://<longue-vue-host>/v1/clusters
 #        {"name":"<LONGUE_VUE_CLUSTER_NAME>"}
 #      (or rely on auto-create on first tick — ADR-0011)
 #   2. PAT with `write` scope created in the longue-vue admin panel.
@@ -43,13 +43,13 @@ spec:
       containers:
         - name: longue-vue-collector
           # Replace with the mirrored image inside your air-gapped registry,
-          # e.g. registry.zad-sandbox.numspot.internal/longue-vue-collector:<tag>
+          # e.g. registry.example.internal/longue-vue-collector:<tag>
           image: ghcr.io/sthalbert/longue-vue-collector:latest
           imagePullPolicy: IfNotPresent
           env:
             # --- longue-vue target ------------------------------------------
             - name: LONGUE_VUE_SERVER_URL
-              value: "https://inventory.tooling.cloudgouv-eu-west-1.numspot.internal"
+              value: "https://longue-vue.example.internal"
             - name: LONGUE_VUE_CLUSTER_NAME
               value: zad-sandbox
             # Empty = use in-cluster ServiceAccount.
