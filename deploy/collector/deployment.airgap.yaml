@@ -51,7 +51,7 @@ spec:
             - name: LONGUE_VUE_SERVER_URL
               value: "https://longue-vue.example.internal"
             - name: LONGUE_VUE_CLUSTER_NAME
-              value: zad-sandbox
+              value: example-sandbox
             # Empty = use in-cluster ServiceAccount.
             - name: LONGUE_VUE_KUBECONFIG
               value: ""

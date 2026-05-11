@@ -4,7 +4,7 @@
 
 # Deploy the Push Collector (Air-Gapped Clusters)
 
-The push collector (`longue-vue-collector`) runs inside a cluster that longue-vue cannot reach -- air-gapped environments, dedicated administration zones (ZAD), or clusters behind strict egress firewalls. It polls the local Kubernetes API and pushes observations to a remote longue-vue instance over HTTPS.
+The push collector (`longue-vue-collector`) runs inside a cluster that longue-vue cannot reach -- air-gapped environments, dedicated administration zones, or clusters behind strict egress firewalls. It polls the local Kubernetes API and pushes observations to a remote longue-vue instance over HTTPS.
 
 ## When to use push vs. pull
 
@@ -23,14 +23,14 @@ Both modes coexist. An environment can mix pulled and pushed clusters -- the CMD
    ```bash
    curl -sS -H "Authorization: Bearer $TOKEN" -X POST https://longue-vue.internal:8080/v1/clusters \
      -H 'Content-Type: application/json' \
-     -d '{"name":"zad-prod","display_name":"ZAD Production","environment":"production"}'
+     -d '{"name":"example-prod","display_name":"Example Production","environment":"production"}'
    ```
    The `name` must match `LONGUE_VUE_CLUSTER_NAME` in the collector config.
 3. **A PAT with `write` scope** is minted in the longue-vue admin panel:
    ```bash
    curl -sS -b /tmp/longue-vue.cookies -X POST https://longue-vue.internal:8080/v1/admin/tokens \
      -H 'Content-Type: application/json' \
-     -d '{"name":"zad-prod-collector","scopes":["read","write"]}'
+     -d '{"name":"example-prod-collector","scopes":["read","write"]}'
    ```
    Store the plaintext token securely -- it is shown only once.
 
@@ -60,18 +60,18 @@ kubectl create secret generic longue-vue-collector-credentials \
 ### 2. Install the chart
 
 ```bash
-helm install zad-prod charts/longue-vue-collector \
+helm install example-prod charts/longue-vue-collector \
   --namespace longue-vue-collector \
   --set serverURL=https://longue-vue.internal:8080 \
-  --set clusterName=zad-prod \
+  --set clusterName=example-prod \
   --set tokenSecret.existingSecret=longue-vue-collector-credentials
 ```
 
 The chart creates the ServiceAccount + ClusterRole (`list`-only on the eleven resource types the collector polls) + ClusterRoleBinding + Deployment automatically. Verify:
 
 ```bash
-kubectl -n longue-vue-collector rollout status deployment/zad-prod-longue-vue-collector
-kubectl -n longue-vue-collector logs deployment/zad-prod-longue-vue-collector --tail=50
+kubectl -n longue-vue-collector rollout status deployment/example-prod-longue-vue-collector
+kubectl -n longue-vue-collector logs deployment/example-prod-longue-vue-collector --tail=50
 ```
 
 ### 3. (Optional) Wire mTLS to a DMZ ingest gateway
@@ -79,19 +79,19 @@ kubectl -n longue-vue-collector logs deployment/zad-prod-longue-vue-collector --
 When pushing through `longue-vue-ingest-gw` (ADR-0016), point `serverURL` at the gateway and supply the mTLS material:
 
 ```bash
-helm upgrade zad-prod charts/longue-vue-collector \
+helm upgrade example-prod charts/longue-vue-collector \
   --namespace longue-vue-collector \
   --reuse-values \
   --set serverURL=https://longue-vue-gw.dmz.internal:8443 \
   --set longue-vue-tls.existingSecret=longue-vue-collector-mtls \
   --set longue-vue-tls.caSecret=longue-vue-gateway-ca \
-  --set longue-vue-tls.extraHeaders="X-Longue-Vue-Tenant-Id=zad-prod"
+  --set longue-vue-tls.extraHeaders="X-Longue-Vue-Tenant-Id=example-prod"
 ```
 
 ### 4. (Optional) Lock down egress with NetworkPolicy
 
 ```bash
-helm upgrade zad-prod charts/longue-vue-collector \
+helm upgrade example-prod charts/longue-vue-collector \
   --namespace longue-vue-collector \
   --reuse-values \
   --set networkPolicy.enabled=true \
@@ -149,7 +149,7 @@ kubectl -n longue-vue-system logs -l app.kubernetes.io/component=push-collector 
 You should see log lines indicating successful upserts for nodes, namespaces, pods, workloads, services, ingresses, PVs, and PVCs. Check longue-vue:
 
 ```bash
-curl -sS -H "Authorization: Bearer $TOKEN" https://longue-vue.internal:8080/v1/namespaces?cluster_name=zad-prod | jq '.items | length'
+curl -sS -H "Authorization: Bearer $TOKEN" https://longue-vue.internal:8080/v1/namespaces?cluster_name=example-prod | jq '.items | length'
 ```
 
 ## Configuration
@@ -177,9 +177,9 @@ Set the standard environment variables:
 ```yaml
 env:
   - name: HTTPS_PROXY
-    value: "http://proxy.zad.internal:3128"
+    value: "http://proxy.example.internal:3128"
   - name: NO_PROXY
-    value: "10.0.0.0/8,.zad.internal"
+    value: "10.0.0.0/8,.example.internal"
 ```
 
 Go's `net/http` honors these automatically.
@@ -191,7 +191,7 @@ If a gateway (Envoy, HAProxy, Nginx) exposes longue-vue under a sub-path, includ
 ```yaml
 env:
   - name: LONGUE_VUE_SERVER_URL
-    value: "https://gateway.zad.internal:443/longue-vue"
+    value: "https://gateway.example.internal:443/longue-vue"
 ```
 
 The collector prepends this base path to every API request (`/longue-vue/v1/clusters`, etc.).
@@ -203,7 +203,7 @@ Some gateways require extra headers for routing or tenant identification:
 ```yaml
 env:
   - name: LONGUE_VUE_EXTRA_HEADERS
-    value: "X-Tenant-Id=zad-prod,X-Route-Key=longue-vue"
+    value: "X-Tenant-Id=example-prod,X-Route-Key=longue-vue"
 ```
 
 ### mTLS to the gateway

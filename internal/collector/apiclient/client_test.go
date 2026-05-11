@@ -61,13 +61,13 @@ func TestExtraHeadersInjected(t *testing.T) {
 	defer srv.Close()
 
 	s := newTestStore(t, srv, map[string]string{
-		"X-Tenant-Id": "zad-prod",
+		"X-Tenant-Id": "example-prod",
 		"X-Route-Key": "longue-vue",
 	})
 	_, _, _ = s.EnsureCluster(context.Background(), api.ClusterCreate{Name: "test"})
 
-	if gotTenant != "zad-prod" {
-		t.Errorf("X-Tenant-Id: want 'zad-prod', got %q", gotTenant)
+	if gotTenant != "example-prod" {
+		t.Errorf("X-Tenant-Id: want 'example-prod', got %q", gotTenant)
 	}
 	if gotRoute != "longue-vue" {
 		t.Errorf("X-Route-Key: want 'longue-vue', got %q", gotRoute)

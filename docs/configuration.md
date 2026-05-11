@@ -211,7 +211,7 @@ The standalone push-mode collector binary. It runs inside an air-gapped or netwo
 | `LONGUE_VUE_CA_CERT` | no | system CA pool | Path to a PEM-encoded CA certificate for verifying the longue-vue (or gateway) TLS certificate. Required when longue-vue uses a private CA. |
 | `LONGUE_VUE_CLIENT_CERT` | no | -- | Path to a PEM-encoded client certificate for mTLS to a gateway. |
 | `LONGUE_VUE_CLIENT_KEY` | no | -- | Path to a PEM-encoded client private key for mTLS. Required when `LONGUE_VUE_CLIENT_CERT` is set. |
-| `LONGUE_VUE_EXTRA_HEADERS` | no | -- | Comma-separated `key=value` pairs injected into every outbound HTTP request. Useful for gateway routing or tenant identification. Example: `X-Tenant-Id=zad-prod,X-Route-Key=longue-vue`. |
+| `LONGUE_VUE_EXTRA_HEADERS` | no | -- | Comma-separated `key=value` pairs injected into every outbound HTTP request. Useful for gateway routing or tenant identification. Example: `X-Tenant-Id=example-prod,X-Route-Key=longue-vue`. |
 
 ### Proxy
 

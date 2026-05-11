@@ -255,9 +255,9 @@ In SecNumCloud environments, outbound traffic from the collector typically trans
 ```yaml
 env:
   - name: HTTPS_PROXY
-    value: "http://proxy.zad.internal:3128"
+    value: "http://proxy.example.internal:3128"
   - name: NO_PROXY
-    value: "10.0.0.0/8,.zad.internal"
+    value: "10.0.0.0/8,.example.internal"
 ```
 
 Go's `net/http` honours these automatically. The proxy applies to **both** the longue-vue connection and the cloud-provider API connection — make sure both endpoints are reachable through it (or list the cloud-provider endpoint in `NO_PROXY` if the proxy doesn't egress to the public internet).
@@ -269,7 +269,7 @@ If a gateway exposes longue-vue under a sub-path, include the prefix in the serv
 ```yaml
 env:
   - name: LONGUE_VUE_SERVER_URL
-    value: "https://gateway.zad.internal:443/longue-vue"
+    value: "https://gateway.example.internal:443/longue-vue"
 ```
 
 The collector prepends this base path to every API request (`/longue-vue/v1/cloud-accounts/...`, `/longue-vue/v1/virtual-machines`, etc.).

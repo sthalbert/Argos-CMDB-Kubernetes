@@ -75,7 +75,7 @@ func TestLoadCollectorConfig_MissingClusterName(t *testing.T) {
 func TestLoadCollectorConfig_CustomValues(t *testing.T) {
 	t.Setenv("LONGUE_VUE_SERVER_URL", "https://gw:443/argos")
 	t.Setenv("LONGUE_VUE_API_TOKEN", "tok")
-	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "zad-prod")
+	t.Setenv("LONGUE_VUE_CLUSTER_NAME", "example-prod")
 	t.Setenv("LONGUE_VUE_KUBECONFIG", "/etc/kube/config")
 	t.Setenv("LONGUE_VUE_COLLECTOR_INTERVAL", "30s")
 	t.Setenv("LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT", "1m")
