@@ -825,6 +825,7 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 
 // --- api tokens ----------------------------------------------------------
 
+// #nosec G101 -- SQL column list, not a credential
 const apiTokenColumns = `id, name, prefix, scopes, created_by_user_id,
 	created_at, last_used_at, expires_at, revoked_at`
 

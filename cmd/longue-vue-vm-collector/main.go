@@ -182,6 +182,7 @@ func startMetricsServer(ctx context.Context, addr string) {
 			slog.Warn("longue-vue-vm-collector: metrics listener error", slog.Any("error", err))
 		}
 	}()
+	// #nosec G118 -- shutdown timeout intentionally uses a fresh ctx because the parent is already cancelled
 	go func() {
 		<-ctx.Done()
 		// Use a fresh context: the parent ctx is already cancelled, so we need

@@ -41,6 +41,7 @@ const (
 // gated through `trustedProxies` (see ADR-0017). The caller is
 // responsible for writing it to the response.
 func SessionCookie(id string, expires time.Time, r *http.Request, policy SecureCookiePolicy, trustedProxies []*net.IPNet) *http.Cookie {
+	// #nosec G124 -- Secure flag is derived from policy + trusted-proxy posture (ADR-0017); HttpOnly+SameSite=Strict set explicitly
 	return &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    id,
@@ -64,6 +65,7 @@ func SetSessionCookie(w http.ResponseWriter, r *http.Request, id string, expires
 // empty value, MaxAge=-1 so the browser drops it. The caller writes
 // it to the response.
 func ClearSessionCookieValue(r *http.Request, policy SecureCookiePolicy, trustedProxies []*net.IPNet) *http.Cookie {
+	// #nosec G124 -- Secure flag is derived from policy + trusted-proxy posture (ADR-0017); HttpOnly+SameSite=Strict set explicitly
 	return &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
