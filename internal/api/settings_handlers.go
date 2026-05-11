@@ -26,6 +26,7 @@ func HandleGetSettings(store Store) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// #nosec G104 -- response write to HTTP client; nothing to handle
 		json.NewEncoder(w).Encode(settings) //nolint:errcheck // response write to HTTP client; nothing to handle
 	}
 }
@@ -48,6 +49,7 @@ func HandleUpdateSettings(store Store) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// #nosec G104 -- response write to HTTP client; nothing to handle
 		json.NewEncoder(w).Encode(settings) //nolint:errcheck // response write to HTTP client; nothing to handle
 	}
 }

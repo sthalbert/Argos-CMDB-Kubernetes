@@ -86,6 +86,7 @@ func VerifyPassword(plaintext, encoded string) error {
 		return ErrInvalidHashFormat
 	}
 
+	// #nosec G115 -- want is an argon2 hash decoded from base64 of a fixed-size field; len fits uint32 by construction
 	got := argon2.IDKey([]byte(plaintext), salt, time, memory, threads, uint32(len(want)))
 	if subtle.ConstantTimeCompare(got, want) != 1 {
 		return ErrPasswordMismatch
