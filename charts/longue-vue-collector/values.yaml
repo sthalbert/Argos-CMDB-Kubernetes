@@ -14,7 +14,7 @@ image:
 
 replicaCount: 1
 
-# Conservative defaults — the collector is I/O-bound, not CPU-bound.
+# Conservative defaults — the collector is I/O-bound (HTTPS push), not CPU-bound.
 resources:
   requests:
     cpu: 25m
