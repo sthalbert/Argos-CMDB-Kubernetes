@@ -76,7 +76,7 @@ The collector is gateway-transparent (mirrors ADR-0009 §7):
 - `LONGUE_VUE_SERVER_URL` accepts a path prefix (e.g. `https://gw.internal/longue-vue`).
 - `LONGUE_VUE_CA_CERT` for custom server-side CA.
 - `LONGUE_VUE_CLIENT_CERT` + `LONGUE_VUE_CLIENT_KEY` for mTLS to the gateway.
-- `LONGUE_VUE_EXTRA_HEADERS=X-Tenant-Id=zad-prod,X-Route-Key=longue-vue` for header-based gateway routing.
+- `LONGUE_VUE_EXTRA_HEADERS=X-Tenant-Id=example-prod,X-Route-Key=longue-vue` for header-based gateway routing.
 - `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` (Go's standard env vars).
 
 Add these to the ConfigMap or Secret as appropriate.

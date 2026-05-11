@@ -138,7 +138,7 @@ The push collector must work transparently behind such intermediaries:
   already reads these — no custom code needed, just document it.
 - **Envoy / API gateway as a reverse proxy in front of longue-vue**: the
   collector only sees the gateway's URL. `LONGUE_VUE_SERVER_URL` points to
-  the gateway (e.g. `https://gateway.zad.internal:443/longue-vue`). The
+  the gateway (e.g. `https://gateway.example.internal:443/longue-vue`). The
   gateway routes to longue-vue based on path prefix or SNI. The collector
   is unaware of the hop — it sends standard REST+Bearer requests.
 - **Path prefix rewrite**: if the gateway exposes longue-vue under a
@@ -151,10 +151,10 @@ The push collector must work transparently behind such intermediaries:
   `LONGUE_VUE_EXTRA_HEADERS` accepts a comma-separated `key=value` list
   injected into every outbound request:
   ```
-  LONGUE_VUE_EXTRA_HEADERS=X-Tenant-Id=zad-prod,X-Route-Key=longue-vue
+  LONGUE_VUE_EXTRA_HEADERS=X-Tenant-Id=example-prod,X-Route-Key=longue-vue
   ```
 - **mTLS to the gateway**: when the gateway requires client-certificate
-  authentication (common in zero-trust ZAD architectures), the
+  authentication (common in zero-trust administration-zone architectures), the
   collector loads a client cert + key from:
   ```
   LONGUE_VUE_CLIENT_CERT=/etc/longue-vue/tls/client.crt
@@ -175,7 +175,7 @@ above cover the edge cases where the gateway imposes constraints
 LONGUE_VUE_MODE=push                       # "pull" (default/longue-vue) or "push"
 LONGUE_VUE_SERVER_URL=https://longue-vue.internal:8080
 LONGUE_VUE_API_TOKEN=longue_vue_pat_xxxx_yyyy
-LONGUE_VUE_CLUSTER_NAME=zad-prod
+LONGUE_VUE_CLUSTER_NAME=example-prod
 LONGUE_VUE_KUBECONFIG=""                   # empty = in-cluster
 LONGUE_VUE_COLLECTOR_INTERVAL=5m
 LONGUE_VUE_COLLECTOR_RECONCILE=true
@@ -337,4 +337,4 @@ N calls. Out of scope for v1.
 - **REF-003**: ADR-0001 — CMDB for SNC (POS-003: external push via
   API as a supported pattern)
 - **REF-004**: SecNumCloud v3.2 — network segmentation requirements
-  for administration zones (ZAD)
+  for administration zones
