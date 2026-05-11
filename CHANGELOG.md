@@ -6,6 +6,18 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.19.1](https://github.com/sthalbert/Longue-Vue/compare/v0.19.0...v0.19.1) (2026-05-11)
+
+
+### Bug Fixes
+
+* change argos by server in values ([7f839e4](https://github.com/sthalbert/Longue-Vue/commit/7f839e4e69f2267f1860b8a8291b827effeb6d8f))
+* change argos by server in values ([f222167](https://github.com/sthalbert/Longue-Vue/commit/f2221679f0b94b22128965c106f31946c5fd641c))
+* **longue-vue-collector:** clarify I/O-bound comment in values.yaml ([1bbbd38](https://github.com/sthalbert/Longue-Vue/commit/1bbbd389c4166c09c2bef62d798848520d8a7c39))
+* **longue-vue-collector:** clarify I/O-bound comment in values.yaml ([5106cf0](https://github.com/sthalbert/Longue-Vue/commit/5106cf0a18d8fb7e85beb3074559e2752506c2ce))
+* **ui:** bump @vitejs/plugin-react for vite 8 and fix stray CSS brace ([630aa0d](https://github.com/sthalbert/Longue-Vue/commit/630aa0d6ff9f0d59f3e463bb0ef995015fc49ba0))
+* **ui:** polyfill localStorage/sessionStorage in tests for Node 22+ ([b7ab24c](https://github.com/sthalbert/Longue-Vue/commit/b7ab24c7e0d5524962edfe0bcea5813f94f09112))
+
 ## [0.19.0](https://github.com/sthalbert/Longue-Vue/compare/v0.18.0...v0.19.0) (2026-05-10)
 
 
