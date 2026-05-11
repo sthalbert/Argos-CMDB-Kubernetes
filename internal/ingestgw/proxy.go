@@ -93,6 +93,7 @@ func (s *Server) proxyRequest( //nolint:gocyclo // central proxy dispatcher; fla
 	}
 
 	upStart := time.Now()
+	// #nosec G704 -- reverse proxy by design; upstream scheme/host fixed by operator config in buildUpstreamURL
 	resp, err := s.upstream.Do(upReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {

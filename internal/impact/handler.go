@@ -63,6 +63,7 @@ func HandleImpact(store TraverserStore) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		// #nosec G104 -- response write to HTTP client; nothing to handle
 		json.NewEncoder(w).Encode(graph) //nolint:errcheck // response write to HTTP client
 	}
 }

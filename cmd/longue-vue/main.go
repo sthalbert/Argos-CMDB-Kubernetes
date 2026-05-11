@@ -669,7 +669,7 @@ func buildIngestServer(
 // Empty / missing files produce an explicit error so the operator sees
 // the misconfiguration at boot.
 func loadPEMCertPool(path string) (*x509.CertPool, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // operator-supplied path; fail loud if missing
+	data, err := os.ReadFile(path) // #nosec G304 -- operator-supplied path; fail loud if missing
 	if err != nil {
 		return nil, fmt.Errorf("read %q: %w", path, err)
 	}

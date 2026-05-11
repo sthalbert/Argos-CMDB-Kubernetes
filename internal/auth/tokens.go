@@ -27,8 +27,8 @@ import (
 //   - `<suffix>` is 32 URL-safe characters, random. Together with the
 //     prefix, argon2id-hashed at rest.
 const (
-	TokenScheme       = "longue_vue_pat_"
-	TokenSchemeLegacy = "argos_pat_"
+	TokenScheme       = "longue_vue_pat_" // #nosec G101 -- token scheme prefix (style ghp_), not a credential value
+	TokenSchemeLegacy = "argos_pat_"      // #nosec G101 -- legacy token scheme prefix, not a credential value
 	tokenPrefixLen    = 8
 	tokenSuffixBytes  = 24 // 24 raw → 32 chars base64-url-unpadded
 )
