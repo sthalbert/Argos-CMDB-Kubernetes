@@ -41,3 +41,7 @@ ui/debug-*.mjs
 # Local archives
 /longue-vue.zip
 *.zip
+
+# Local-only forbidden-words pre-commit scanner
+/.forbidden-words
+/scripts/check-forbidden-words.sh
