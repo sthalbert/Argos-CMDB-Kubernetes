@@ -473,7 +473,8 @@ export default function VirtualMachines() {
               {sorted.length === 0 ? (
                 <p className="muted empty">No virtual machines match these filters.</p>
               ) : (
-                <table className="entities" ref={tableRef}>
+                <div className="table-wrap">
+                  <table className="entities" ref={tableRef}>
                   <thead>
                     <tr>
                       <SortHeader
@@ -629,6 +630,7 @@ export default function VirtualMachines() {
                     })}
                   </tbody>
                 </table>
+                </div>
               )}
               {vms.next_cursor && (
                 <p className="muted" style={{ marginTop: '0.75rem' }}>

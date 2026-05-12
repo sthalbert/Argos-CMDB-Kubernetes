@@ -73,7 +73,7 @@
   --stroke: 1px;
   --stroke-thick: 2px;
   --stroke-accent: 3px;
-  --container-max: 1200px;
+  --container-max: 1600px;
 }
 
 * {
@@ -253,7 +253,11 @@ main {
   padding: 1.75rem 1.5rem;
   width: var(--container-max);
   max-width: 100%;
-  margin: 0 auto;
+  /* Left-aligned: previously `margin: 0 auto` which centered the content
+     in `.app-main`, leaving a multi-hundred-px gutter on the LEFT between
+     the sidebar and the content on wide screens. We sit flush against the
+     sidebar instead, like every modern sidebar-based app. */
+  margin: 0;
   box-sizing: border-box;
 }
 
@@ -620,6 +624,13 @@ h2 svg {
   line-height: 1.45;
 }
 
+/* Wraps a wide <table className="entities"> so it scrolls horizontally
+   instead of bleeding past `<main>` when columns can't be narrowed any
+   further (e.g. 11-column VM list with long image names). */
+.table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
 table.entities {
   width: 100%;
   border-collapse: collapse;
