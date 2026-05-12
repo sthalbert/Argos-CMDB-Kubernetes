@@ -22,6 +22,11 @@ import { useCallback, useEffect, useRef } from 'react';
 
 const STORAGE_PREFIX = 'lv.col-widths.';
 const MIN_WIDTH = 40;
+// Cap on the initial natural-width capture so that a single long unbroken
+// token in a tbody cell (think `ubuntu-22.04-amd64-very-long-image-name`)
+// can't seed a 1000px column that blows the table past its container.
+// Users can still drag a column wider — this only bounds the first paint.
+const INITIAL_MAX_WIDTH = 320;
 
 function loadWidths(key: string): number[] {
   try {
@@ -84,7 +89,8 @@ export function useResizableColumns(storageKey: string) {
       // appearance.
       const widths: number[] = ths.map((th, i) => {
         if (saved[i] && saved[i] > 0) return saved[i];
-        return Math.max(MIN_WIDTH, Math.round(th.getBoundingClientRect().width));
+        const natural = Math.round(th.getBoundingClientRect().width);
+        return Math.min(INITIAL_MAX_WIDTH, Math.max(MIN_WIDTH, natural));
       });
 
       // Build (or reuse) a colgroup. We mark our own with data-lv-resize
