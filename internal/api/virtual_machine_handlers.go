@@ -163,7 +163,7 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 			Tags:                 req.Tags,
 			Labels:               req.Labels,
 		}
-		vm, err := store.UpsertVirtualMachine(r.Context(), in)
+		vm, _, err := store.UpsertVirtualMachine(r.Context(), in)
 		if err != nil {
 			if errors.Is(err, ErrConflict) {
 				writeJSON(w, http.StatusConflict, map[string]any{

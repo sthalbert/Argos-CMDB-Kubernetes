@@ -1351,18 +1351,18 @@ func liveWorkloadIDsForNamespace(ctx context.Context, tx pgx.Tx, namespaceID uui
 // UpsertNamespace inserts-or-updates a namespace keyed by (cluster_id, name).
 //
 //nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; history capture adds branches
-func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error) {
+func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Namespace{}, err
+		return api.Namespace{}, api.OutcomeBusinessChanged, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Namespace{}, fmt.Errorf("begin upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("begin upsert namespace: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -1399,9 +1399,9 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Namespace{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.Namespace{}, fmt.Errorf("upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert namespace: %w", err)
 	}
 
 	actualID := *n.Id
@@ -1417,9 +1417,9 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Namespace{}, fmt.Errorf("commit upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("commit upsert namespace: %w", err)
 	}
-	return n, nil
+	return n, api.OutcomeBusinessChanged, nil
 }
 
 // CreatePod inserts a new pod.
@@ -1671,17 +1671,17 @@ func (p *PG) DeletePod(ctx context.Context, id uuid.UUID) error {
 // UpsertPod inserts-or-updates a pod keyed by (namespace_id, name).
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
+func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Pod{}, err
+		return api.Pod{}, api.OutcomeBusinessChanged, err
 	}
 	containersJSON, err := marshalPorts(in.Containers)
 	if err != nil {
-		return api.Pod{}, err
+		return api.Pod{}, api.OutcomeBusinessChanged, err
 	}
 
 	const q = `
@@ -1707,11 +1707,11 @@ func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 	pod, err := scanPod(row)
 	if err != nil {
 		if pErr := classifyPodFKError(err, in.NamespaceId, in.WorkloadId); pErr != nil {
-			return api.Pod{}, pErr
+			return api.Pod{}, api.OutcomeBusinessChanged, pErr
 		}
-		return api.Pod{}, fmt.Errorf("upsert pod: %w", err)
+		return api.Pod{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert pod: %w", err)
 	}
-	return pod, nil
+	return pod, api.OutcomeBusinessChanged, nil
 }
 
 // DeletePodsNotIn removes every pod in the given namespace whose name is not
@@ -1981,26 +1981,26 @@ func (p *PG) DeleteWorkload(ctx context.Context, id uuid.UUID) error {
 // UpsertWorkload inserts-or-updates a workload keyed by (namespace_id, kind, name).
 //
 //nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; history capture adds branches
-func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error) {
+func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Workload{}, err
+		return api.Workload{}, api.OutcomeBusinessChanged, err
 	}
 	specJSON, err := marshalSpec(in.Spec)
 	if err != nil {
-		return api.Workload{}, err
+		return api.Workload{}, api.OutcomeBusinessChanged, err
 	}
 	containersJSON, err := marshalPorts(in.Containers)
 	if err != nil {
-		return api.Workload{}, err
+		return api.Workload{}, api.OutcomeBusinessChanged, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Workload{}, fmt.Errorf("begin upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("begin upsert workload: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -2037,9 +2037,9 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Workload{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Workload{}, fmt.Errorf("upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert workload: %w", err)
 	}
 
 	actualID := *w.Id
@@ -2055,9 +2055,9 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Workload{}, fmt.Errorf("commit upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("commit upsert workload: %w", err)
 	}
-	return w, nil
+	return w, api.OutcomeBusinessChanged, nil
 }
 
 // DeleteWorkloadsNotIn soft-deletes workloads in the namespace whose
@@ -2420,25 +2420,25 @@ func (p *PG) DeleteService(ctx context.Context, id uuid.UUID) error {
 // UpsertService inserts-or-updates a service keyed by (namespace_id, name).
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
+func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Service{}, err
+		return api.Service{}, api.OutcomeBusinessChanged, err
 	}
 	selectorJSON, err := marshalLabels(in.Selector)
 	if err != nil {
-		return api.Service{}, err
+		return api.Service{}, api.OutcomeBusinessChanged, err
 	}
 	portsJSON, err := marshalPorts(in.Ports)
 	if err != nil {
-		return api.Service{}, err
+		return api.Service{}, api.OutcomeBusinessChanged, err
 	}
 	lbJSON, err := marshalPorts(in.LoadBalancer)
 	if err != nil {
-		return api.Service{}, err
+		return api.Service{}, api.OutcomeBusinessChanged, err
 	}
 
 	var svcType *string
@@ -2466,11 +2466,11 @@ func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Servi
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Service{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Service{}, api.OutcomeBusinessChanged, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Service{}, fmt.Errorf("upsert service: %w", err)
+		return api.Service{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert service: %w", err)
 	}
-	return s, nil
+	return s, api.OutcomeBusinessChanged, nil
 }
 
 // DeleteServicesNotIn mirrors DeletePodsNotIn.
@@ -2713,25 +2713,25 @@ func (p *PG) DeleteIngress(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpsertIngress inserts-or-updates an ingress keyed by (namespace_id, name).
-func (p *PG) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error) {
+func (p *PG) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, api.OutcomeBusinessChanged, err
 	}
 	rulesJSON, err := marshalPorts(in.Rules)
 	if err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, api.OutcomeBusinessChanged, err
 	}
 	tlsJSON, err := marshalPorts(in.Tls)
 	if err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, api.OutcomeBusinessChanged, err
 	}
 	lbJSON, err := marshalPorts(in.LoadBalancer)
 	if err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, api.OutcomeBusinessChanged, err
 	}
 
 	q := `
@@ -2752,11 +2752,11 @@ func (p *PG) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingre
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Ingress{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Ingress{}, api.OutcomeBusinessChanged, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Ingress{}, fmt.Errorf("upsert ingress: %w", err)
+		return api.Ingress{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert ingress: %w", err)
 	}
-	return ing, nil
+	return ing, api.OutcomeBusinessChanged, nil
 }
 
 // DeleteIngressesNotIn mirrors DeleteServicesNotIn.
@@ -3051,18 +3051,18 @@ func detectNodeUpsertChangeType(ctx context.Context, tx pgx.Tx, clusterID uuid.U
 // conflict only mutable columns are overwritten so created_at is preserved.
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error) {
+func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	values, err := nodeInsertValues(&in, id, now)
 	if err != nil {
-		return api.Node{}, err
+		return api.Node{}, api.OutcomeBusinessChanged, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Node{}, fmt.Errorf("begin upsert node: %w", err)
+		return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("begin upsert node: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -3109,9 +3109,9 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Node{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.Node{}, fmt.Errorf("upsert node: %w", err)
+		return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert node: %w", err)
 	}
 
 	actualID := *n.Id
@@ -3121,9 +3121,9 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Node{}, fmt.Errorf("commit upsert node: %w", err)
+		return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("commit upsert node: %w", err)
 	}
-	return n, nil
+	return n, api.OutcomeBusinessChanged, nil
 }
 
 func scanNode(row pgx.Row) (api.Node, error) {
@@ -3631,13 +3631,13 @@ func (p *PG) DeletePersistentVolume(ctx context.Context, id uuid.UUID) error {
 // UpsertPersistentVolume inserts-or-updates a PV keyed by (cluster_id, name).
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
+func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.PersistentVolume{}, err
+		return api.PersistentVolume{}, api.OutcomeBusinessChanged, err
 	}
 
 	const q = `
@@ -3678,11 +3678,11 @@ func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolume
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.PersistentVolume{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.PersistentVolume{}, api.OutcomeBusinessChanged, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.PersistentVolume{}, fmt.Errorf("upsert persistent volume: %w", err)
+		return api.PersistentVolume{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert persistent volume: %w", err)
 	}
-	return pv, nil
+	return pv, api.OutcomeBusinessChanged, nil
 }
 
 // DeletePersistentVolumesNotIn removes cluster-scoped PVs whose name is not in keepNames.
@@ -3987,13 +3987,13 @@ func (p *PG) DeletePersistentVolumeClaim(ctx context.Context, id uuid.UUID) erro
 // UpsertPersistentVolumeClaim inserts-or-updates a PVC keyed by (namespace_id, name).
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
+func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.PersistentVolumeClaim{}, err
+		return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, err
 	}
 
 	const q = `
@@ -4025,11 +4025,11 @@ func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentV
 	pvc, err := scanPersistentVolumeClaim(row)
 	if err != nil {
 		if pErr := classifyPVCFKError(err, in.NamespaceId, in.BoundVolumeId); pErr != nil {
-			return api.PersistentVolumeClaim{}, pErr
+			return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, pErr
 		}
-		return api.PersistentVolumeClaim{}, fmt.Errorf("upsert pvc: %w", err)
+		return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert pvc: %w", err)
 	}
-	return pvc, nil
+	return pvc, api.OutcomeBusinessChanged, nil
 }
 
 // DeletePersistentVolumeClaimsNotIn removes namespace-scoped PVCs whose name

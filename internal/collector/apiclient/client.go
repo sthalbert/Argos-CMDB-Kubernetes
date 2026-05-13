@@ -161,12 +161,12 @@ func (s *Store) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterU
 // UpsertNode creates or updates a node record.
 //
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface.
-func (s *Store) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error) {
+func (s *Store) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.UpsertOutcome, error) {
 	var out api.Node
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/nodes", in, &out); err != nil {
-		return api.Node{}, fmt.Errorf("upsert node: %w", err)
+		return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert node: %w", err)
 	}
-	return out, nil
+	return out, api.OutcomeBusinessChanged, nil
 }
 
 // DeleteNodesNotIn removes nodes not in the keepNames list for the given cluster.
@@ -177,12 +177,12 @@ func (s *Store) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepN
 // UpsertNamespace creates or updates a namespace record.
 //
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface.
-func (s *Store) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error) {
+func (s *Store) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, api.UpsertOutcome, error) {
 	var out api.Namespace
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/namespaces", in, &out); err != nil {
-		return api.Namespace{}, fmt.Errorf("upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert namespace: %w", err)
 	}
-	return out, nil
+	return out, api.OutcomeBusinessChanged, nil
 }
 
 // DeleteNamespacesNotIn removes namespaces not in the keepNames list for the given cluster.
@@ -193,12 +193,12 @@ func (s *Store) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, 
 // UpsertPod creates or updates a pod record.
 //
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface.
-func (s *Store) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
+func (s *Store) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, api.UpsertOutcome, error) {
 	var out api.Pod
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/pods", in, &out); err != nil {
-		return api.Pod{}, fmt.Errorf("upsert pod: %w", err)
+		return api.Pod{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert pod: %w", err)
 	}
-	return out, nil
+	return out, api.OutcomeBusinessChanged, nil
 }
 
 // DeletePodsNotIn removes pods not in the keepNames list for the given namespace.
@@ -209,12 +209,12 @@ func (s *Store) DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keep
 // UpsertWorkload creates or updates a workload record.
 //
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface.
-func (s *Store) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error) {
+func (s *Store) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, api.UpsertOutcome, error) {
 	var out api.Workload
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/workloads", in, &out); err != nil {
-		return api.Workload{}, fmt.Errorf("upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert workload: %w", err)
 	}
-	return out, nil
+	return out, api.OutcomeBusinessChanged, nil
 }
 
 // DeleteWorkloadsNotIn removes workloads not in the keep lists for the given namespace.
@@ -234,12 +234,12 @@ func (s *Store) DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID,
 // UpsertService creates or updates a service record.
 //
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface.
-func (s *Store) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
+func (s *Store) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, api.UpsertOutcome, error) {
 	var out api.Service
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/services", in, &out); err != nil {
-		return api.Service{}, fmt.Errorf("upsert service: %w", err)
+		return api.Service{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert service: %w", err)
 	}
-	return out, nil
+	return out, api.OutcomeBusinessChanged, nil
 }
 
 // DeleteServicesNotIn removes services not in the keepNames list for the given namespace.
@@ -248,12 +248,12 @@ func (s *Store) DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, 
 }
 
 // UpsertIngress creates or updates an ingress record.
-func (s *Store) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error) {
+func (s *Store) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, api.UpsertOutcome, error) {
 	var out api.Ingress
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/ingresses", in, &out); err != nil {
-		return api.Ingress{}, fmt.Errorf("upsert ingress: %w", err)
+		return api.Ingress{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert ingress: %w", err)
 	}
-	return out, nil
+	return out, api.OutcomeBusinessChanged, nil
 }
 
 // DeleteIngressesNotIn removes ingresses not in the keepNames list for the given namespace.
@@ -264,12 +264,12 @@ func (s *Store) DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID,
 // UpsertPersistentVolume creates or updates a persistent volume record.
 //
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface.
-func (s *Store) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
+func (s *Store) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, api.UpsertOutcome, error) {
 	var out api.PersistentVolume
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/persistentvolumes", in, &out); err != nil {
-		return api.PersistentVolume{}, fmt.Errorf("upsert persistent volume: %w", err)
+		return api.PersistentVolume{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert persistent volume: %w", err)
 	}
-	return out, nil
+	return out, api.OutcomeBusinessChanged, nil
 }
 
 // DeletePersistentVolumesNotIn removes PVs not in the keepNames list for the given cluster.
@@ -280,12 +280,12 @@ func (s *Store) DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid
 // UpsertPersistentVolumeClaim creates or updates a PVC record.
 //
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface.
-func (s *Store) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
+func (s *Store) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
 	var out api.PersistentVolumeClaim
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/persistentvolumeclaims", in, &out); err != nil {
-		return api.PersistentVolumeClaim{}, fmt.Errorf("upsert persistent volume claim: %w", err)
+		return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert persistent volume claim: %w", err)
 	}
-	return out, nil
+	return out, api.OutcomeBusinessChanged, nil
 }
 
 // DeletePersistentVolumeClaimsNotIn removes PVCs not in the keepNames list for the given namespace.

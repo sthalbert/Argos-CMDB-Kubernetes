@@ -26,7 +26,7 @@ func TestListNodesIncludeTerminated(t *testing.T) {
 	}
 
 	// Create three nodes: two live and one to be soft-deleted.
-	node1, err := pg.UpsertNode(ctx, api.NodeCreate{
+	node1, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId: *cluster.Id,
 		Name:      "live-1",
 	})
@@ -37,7 +37,7 @@ func TestListNodesIncludeTerminated(t *testing.T) {
 		t.Fatal("node1.Id is nil")
 	}
 
-	node2, err := pg.UpsertNode(ctx, api.NodeCreate{
+	node2, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId: *cluster.Id,
 		Name:      "live-2",
 	})
@@ -48,7 +48,7 @@ func TestListNodesIncludeTerminated(t *testing.T) {
 		t.Fatal("node2.Id is nil")
 	}
 
-	node3, err := pg.UpsertNode(ctx, api.NodeCreate{
+	node3, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId: *cluster.Id,
 		Name:      "soon-dead",
 	})
@@ -129,7 +129,7 @@ func TestListNamespacesIncludeTerminated(t *testing.T) {
 	}
 
 	// Create three namespaces: two live and one to be soft-deleted.
-	ns1, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	ns1, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "ns-live-1",
 	})
@@ -140,7 +140,7 @@ func TestListNamespacesIncludeTerminated(t *testing.T) {
 		t.Fatal("ns1.Id is nil")
 	}
 
-	ns2, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	ns2, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "ns-live-2",
 	})
@@ -151,7 +151,7 @@ func TestListNamespacesIncludeTerminated(t *testing.T) {
 		t.Fatal("ns2.Id is nil")
 	}
 
-	ns3, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	ns3, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "ns-soon-dead",
 	})

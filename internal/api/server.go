@@ -395,7 +395,7 @@ func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (C
 		}, nil
 	}
 
-	n, err := s.store.UpsertNode(ctx, body)
+	n, _, err := s.store.UpsertNode(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateNode404ApplicationProblemPlusJSONResponse{
@@ -519,7 +519,7 @@ func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequest
 		}, nil
 	}
 
-	n, err := s.store.UpsertNamespace(ctx, body)
+	n, _, err := s.store.UpsertNamespace(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateNamespace404ApplicationProblemPlusJSONResponse{
@@ -640,7 +640,7 @@ func (s *Server) CreatePod(ctx context.Context, req CreatePodRequestObject) (Cre
 		}, nil
 	}
 
-	p, err := s.store.UpsertPod(ctx, body)
+	p, _, err := s.store.UpsertPod(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePod404ApplicationProblemPlusJSONResponse{
@@ -782,7 +782,7 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 		}, nil
 	}
 
-	wl, err := s.store.UpsertWorkload(ctx, body)
+	wl, _, err := s.store.UpsertWorkload(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateWorkload404ApplicationProblemPlusJSONResponse{
@@ -906,7 +906,7 @@ func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObje
 		}, nil
 	}
 
-	svc, err := s.store.UpsertService(ctx, body)
+	svc, _, err := s.store.UpsertService(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateService404ApplicationProblemPlusJSONResponse{
@@ -1023,7 +1023,7 @@ func (s *Server) CreateIngress(ctx context.Context, req CreateIngressRequestObje
 		}, nil
 	}
 
-	ing, err := s.store.UpsertIngress(ctx, body)
+	ing, _, err := s.store.UpsertIngress(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateIngress404ApplicationProblemPlusJSONResponse{
@@ -1140,7 +1140,7 @@ func (s *Server) CreatePersistentVolume(ctx context.Context, req CreatePersisten
 		}, nil
 	}
 
-	pv, err := s.store.UpsertPersistentVolume(ctx, body)
+	pv, _, err := s.store.UpsertPersistentVolume(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePersistentVolume404ApplicationProblemPlusJSONResponse{
@@ -1253,7 +1253,7 @@ func (s *Server) CreatePersistentVolumeClaim(
 		}, nil
 	}
 
-	pvc, err := s.store.UpsertPersistentVolumeClaim(ctx, body)
+	pvc, _, err := s.store.UpsertPersistentVolumeClaim(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePersistentVolumeClaim404ApplicationProblemPlusJSONResponse{

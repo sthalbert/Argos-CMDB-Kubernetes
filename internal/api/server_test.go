@@ -813,15 +813,15 @@ func (m *memStore) DeletePod(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) { //nolint:gocritic // interface-mandated signature
+func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return Pod{}, ErrNotFound
+		return Pod{}, OutcomeBusinessChanged, ErrNotFound
 	}
 	if in.WorkloadId != nil {
 		if _, ok := m.workloadsByID[*in.WorkloadId]; !ok {
-			return Pod{}, fmt.Errorf("workload %s does not exist: %w", in.WorkloadId, ErrNotFound)
+			return Pod{}, OutcomeBusinessChanged, fmt.Errorf("workload %s does not exist: %w", in.WorkloadId, ErrNotFound)
 		}
 	}
 	key := podNatKey(in.NamespaceId, in.Name)
@@ -838,7 +838,7 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) { //n
 		p.WorkloadId = in.WorkloadId
 		p.UpdatedAt = &now
 		m.podsByID[existingID] = p
-		return p, nil
+		return p, OutcomeBusinessChanged, nil
 	}
 
 	id := uuid.New()
@@ -857,7 +857,7 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, error) { //n
 	}
 	m.podsByID[id] = p
 	m.podsByNatKey[key] = id
-	return p, nil
+	return p, OutcomeBusinessChanged, nil
 }
 
 func (m *memStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
@@ -999,11 +999,11 @@ func (m *memStore) DeleteWorkload(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workload, error) { //nolint:gocritic // interface-mandated signature
+func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workload, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return Workload{}, ErrNotFound
+		return Workload{}, OutcomeBusinessChanged, ErrNotFound
 	}
 	key := workloadNatKey(in.NamespaceId, in.Kind, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1018,7 +1018,7 @@ func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workloa
 		wl.Spec = in.Spec
 		wl.UpdatedAt = &now
 		m.workloadsByID[existingID] = wl
-		return wl, nil
+		return wl, OutcomeBusinessChanged, nil
 	}
 
 	id := uuid.New()
@@ -1037,7 +1037,7 @@ func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workloa
 	}
 	m.workloadsByID[id] = wl
 	m.workloadsByNatKey[key] = id
-	return wl, nil
+	return wl, OutcomeBusinessChanged, nil
 }
 
 func (m *memStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
@@ -1162,11 +1162,11 @@ func (m *memStore) DeleteIngress(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertIngress(_ context.Context, in IngressCreate) (Ingress, error) {
+func (m *memStore) UpsertIngress(_ context.Context, in IngressCreate) (Ingress, UpsertOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return Ingress{}, ErrNotFound
+		return Ingress{}, OutcomeBusinessChanged, ErrNotFound
 	}
 	key := ingressNatKey(in.NamespaceId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1180,7 +1180,7 @@ func (m *memStore) UpsertIngress(_ context.Context, in IngressCreate) (Ingress, 
 		i.Labels = in.Labels
 		i.UpdatedAt = &now
 		m.ingressesByID[existingID] = i
-		return i, nil
+		return i, OutcomeBusinessChanged, nil
 	}
 	id := uuid.New()
 	i := Ingress{
@@ -1197,7 +1197,7 @@ func (m *memStore) UpsertIngress(_ context.Context, in IngressCreate) (Ingress, 
 	}
 	m.ingressesByID[id] = i
 	m.ingressesByNatKey[key] = id
-	return i, nil
+	return i, OutcomeBusinessChanged, nil
 }
 
 func (m *memStore) DeleteIngressesNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
@@ -1325,11 +1325,11 @@ func (m *memStore) DeleteService(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, error) { //nolint:gocritic // interface-mandated signature
+func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return Service{}, ErrNotFound
+		return Service{}, OutcomeBusinessChanged, ErrNotFound
 	}
 	key := serviceNatKey(in.NamespaceId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1344,7 +1344,7 @@ func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, 
 		s.Labels = in.Labels
 		s.UpdatedAt = &now
 		m.servicesByID[existingID] = s
-		return s, nil
+		return s, OutcomeBusinessChanged, nil
 	}
 	id := uuid.New()
 	s := Service{
@@ -1362,7 +1362,7 @@ func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, 
 	}
 	m.servicesByID[id] = s
 	m.servicesByNatKey[key] = id
-	return s, nil
+	return s, OutcomeBusinessChanged, nil
 }
 
 func (m *memStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
@@ -1387,11 +1387,11 @@ func (m *memStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID,
 	return deleted, nil
 }
 
-func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Namespace, error) { //nolint:gocritic // interface-mandated signature
+func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Namespace, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
-		return Namespace{}, ErrNotFound
+		return Namespace{}, OutcomeBusinessChanged, ErrNotFound
 	}
 	key := nsNatKey(in.ClusterId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1404,7 +1404,7 @@ func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Names
 		n.Labels = in.Labels
 		n.UpdatedAt = &now
 		m.nsByID[existingID] = n
-		return n, nil
+		return n, OutcomeBusinessChanged, nil
 	}
 
 	id := uuid.New()
@@ -1425,7 +1425,7 @@ func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Names
 	}
 	m.nsByID[id] = n
 	m.nsByNatKey[key] = id
-	return n, nil
+	return n, OutcomeBusinessChanged, nil
 }
 
 func (m *memStore) DeleteNodesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
@@ -1472,11 +1472,11 @@ func (m *memStore) DeleteNamespacesNotIn(_ context.Context, clusterID uuid.UUID,
 	return deleted, nil
 }
 
-func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) { //nolint:gocritic // interface-mandated signature
+func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
-		return Node{}, ErrNotFound
+		return Node{}, OutcomeBusinessChanged, ErrNotFound
 	}
 	key := nodeNatKey(in.ClusterId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1491,7 +1491,7 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) { 
 		copyNodeCollectorFieldsFromCreate(&n, in)
 		n.UpdatedAt = &now
 		m.nodesByID[existingID] = n
-		return n, nil
+		return n, OutcomeBusinessChanged, nil
 	}
 
 	id := uuid.New()
@@ -1505,7 +1505,7 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, error) { 
 	copyNodeMutableFromCreate(&n, in)
 	m.nodesByID[id] = n
 	m.nodesByNatKey[key] = id
-	return n, nil
+	return n, OutcomeBusinessChanged, nil
 }
 
 func pvNatKey(clusterID uuid.UUID, name string) string {
@@ -1649,11 +1649,11 @@ func (m *memStore) DeletePersistentVolume(_ context.Context, id uuid.UUID) error
 //nolint:gocritic // interface-mandated signature
 func (m *memStore) UpsertPersistentVolume(
 	_ context.Context, in PersistentVolumeCreate,
-) (PersistentVolume, error) {
+) (PersistentVolume, UpsertOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
-		return PersistentVolume{}, ErrNotFound
+		return PersistentVolume{}, OutcomeBusinessChanged, ErrNotFound
 	}
 	key := pvNatKey(in.ClusterId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1673,7 +1673,7 @@ func (m *memStore) UpsertPersistentVolume(
 		pv.Labels = in.Labels
 		pv.UpdatedAt = &now
 		m.pvsByID[existingID] = pv
-		return pv, nil
+		return pv, OutcomeBusinessChanged, nil
 	}
 
 	id := uuid.New()
@@ -1696,7 +1696,7 @@ func (m *memStore) UpsertPersistentVolume(
 	}
 	m.pvsByID[id] = pv
 	m.pvsByNatKey[key] = id
-	return pv, nil
+	return pv, OutcomeBusinessChanged, nil
 }
 
 func (m *memStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
@@ -1850,15 +1850,15 @@ func (m *memStore) DeletePersistentVolumeClaim(_ context.Context, id uuid.UUID) 
 //nolint:gocritic // interface-mandated signature
 func (m *memStore) UpsertPersistentVolumeClaim(
 	_ context.Context, in PersistentVolumeClaimCreate,
-) (PersistentVolumeClaim, error) {
+) (PersistentVolumeClaim, UpsertOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return PersistentVolumeClaim{}, ErrNotFound
+		return PersistentVolumeClaim{}, OutcomeBusinessChanged, ErrNotFound
 	}
 	if in.BoundVolumeId != nil {
 		if _, ok := m.pvsByID[*in.BoundVolumeId]; !ok {
-			return PersistentVolumeClaim{}, fmt.Errorf("persistent volume %s does not exist: %w", in.BoundVolumeId, ErrNotFound)
+			return PersistentVolumeClaim{}, OutcomeBusinessChanged, fmt.Errorf("persistent volume %s does not exist: %w", in.BoundVolumeId, ErrNotFound)
 		}
 	}
 	key := pvcNatKey(in.NamespaceId, in.Name)
@@ -1876,7 +1876,7 @@ func (m *memStore) UpsertPersistentVolumeClaim(
 		pvc.Labels = in.Labels
 		pvc.UpdatedAt = &now
 		m.pvcsByID[existingID] = pvc
-		return pvc, nil
+		return pvc, OutcomeBusinessChanged, nil
 	}
 
 	id := uuid.New()
@@ -1896,7 +1896,7 @@ func (m *memStore) UpsertPersistentVolumeClaim(
 	}
 	m.pvcsByID[id] = pvc
 	m.pvcsByNatKey[key] = id
-	return pvc, nil
+	return pvc, OutcomeBusinessChanged, nil
 }
 
 func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {

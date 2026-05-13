@@ -206,7 +206,7 @@ func TestPGUpsertNode(t *testing.T) {
 	}
 
 	kv1 := "v1.29.5"
-	first, err := pg.UpsertNode(ctx, api.NodeCreate{
+	first, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId:      *cluster.Id,
 		Name:           "node-a",
 		KubeletVersion: &kv1,
@@ -220,7 +220,7 @@ func TestPGUpsertNode(t *testing.T) {
 
 	// Second upsert with new kubelet version must mutate the SAME row.
 	kv2 := "v1.29.6"
-	second, err := pg.UpsertNode(ctx, api.NodeCreate{
+	second, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId:      *cluster.Id,
 		Name:           "node-a",
 		KubeletVersion: &kv2,
@@ -242,7 +242,7 @@ func TestPGUpsertNode(t *testing.T) {
 	}
 
 	// Unknown cluster yields NotFound, not Conflict.
-	if _, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: uuid.New(), Name: "x"}); !errors.Is(err, api.ErrNotFound) {
+	if _, _, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: uuid.New(), Name: "x"}); !errors.Is(err, api.ErrNotFound) {
 		t.Errorf("upsert with unknown cluster: want ErrNotFound, got %v", err)
 	}
 }
@@ -310,7 +310,7 @@ func TestPGUpsertNamespace(t *testing.T) {
 	}
 
 	phaseA := testPhaseActive
-	first, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	first, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "default",
 		Phase:     &phaseA,
@@ -320,7 +320,7 @@ func TestPGUpsertNamespace(t *testing.T) {
 	}
 
 	phaseB := "Terminating"
-	second, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	second, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "default",
 		Phase:     &phaseB,
@@ -505,7 +505,7 @@ func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	first, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	first, _, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
@@ -523,7 +523,7 @@ func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("terminated_at should be non-NULL after soft-delete")
 	}
 
-	resurrected, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	resurrected, _, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
 	if err != nil {
 		t.Fatalf("resurrect upsert: %v", err)
 	}
@@ -551,7 +551,7 @@ func TestPGUpsertNamespace_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	first, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	first, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
@@ -569,7 +569,7 @@ func TestPGUpsertNamespace_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("terminated_at should be non-NULL after soft-delete")
 	}
 
-	resurrected, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	resurrected, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
 	if err != nil {
 		t.Fatalf("resurrect upsert: %v", err)
 	}
@@ -603,7 +603,7 @@ func TestPGUpsertWorkload_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	first, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	first, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
@@ -621,7 +621,7 @@ func TestPGUpsertWorkload_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("terminated_at should be non-NULL after soft-delete")
 	}
 
-	resurrected, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	resurrected, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
 	if err != nil {
 		t.Fatalf("resurrect upsert: %v", err)
 	}
@@ -744,12 +744,12 @@ func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	}
 
 	phaseA := "Pending"
-	first, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseA})
+	first, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseA})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
 	phaseB := "Running"
-	second, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseB})
+	second, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseB})
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
 	}
@@ -761,7 +761,7 @@ func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	}
 
 	// Seed a second pod then reconcile to keep only one.
-	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
+	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
 		t.Fatalf("create b: %v", err)
 	}
 	deleted, err := pg.DeletePodsNotIn(ctx, *ns.Id, []string{"a"})
@@ -873,12 +873,12 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 
 	// Upsert (Deployment, web) twice — id preserved, updated_at advances.
 	r1 := 2
-	first, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r1})
+	first, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r1})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
 	r2 := 4
-	second, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r2})
+	second, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r2})
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
 	}
@@ -890,10 +890,10 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 	}
 
 	// Seed a StatefulSet with the same name and a DaemonSet — reconcile keeping only Deployment/web.
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.StatefulSet, Name: "web"}); err != nil {
+	if _, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.StatefulSet, Name: "web"}); err != nil {
 		t.Fatalf("sts: %v", err)
 	}
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.DaemonSet, Name: "fluent-bit"}); err != nil {
+	if _, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.DaemonSet, Name: "fluent-bit"}); err != nil {
 		t.Fatalf("ds: %v", err)
 	}
 
@@ -1005,12 +1005,12 @@ func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	first, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a"})
+	first, _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a"})
 	if err != nil {
 		t.Fatalf("first: %v", err)
 	}
 	newType := api.LoadBalancer
-	second, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a", Type: &newType})
+	second, _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a", Type: &newType})
 	if err != nil {
 		t.Fatalf("second: %v", err)
 	}
@@ -1021,7 +1021,7 @@ func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
 		t.Errorf("updated_at did not advance")
 	}
 
-	if _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
+	if _, _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
 		t.Fatalf("b: %v", err)
 	}
 	deleted, err := pg.DeleteServicesNotIn(ctx, *ns.Id, []string{"a"})
@@ -1064,7 +1064,7 @@ func TestPGPodAndWorkloadContainersRoundTrip(t *testing.T) {
 		{"name": "app", "image": "nginx:1.25", "image_id": "docker.io/library/nginx@sha256:abc", "init": false},
 		{"name": "migrate", "image": "busybox:1.36", "init": true},
 	}
-	storedPod, err := pg.UpsertPod(ctx, api.PodCreate{
+	storedPod, _, err := pg.UpsertPod(ctx, api.PodCreate{
 		NamespaceId: *ns.Id,
 		Name:        "web-0",
 		Containers:  &podContainers,
@@ -1089,7 +1089,7 @@ func TestPGPodAndWorkloadContainersRoundTrip(t *testing.T) {
 	wlContainers := api.ContainerList{
 		{"name": "app", "image": "nginx:1.25", "init": false},
 	}
-	storedWL, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+	storedWL, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
 		NamespaceId: *ns.Id,
 		Kind:        api.Deployment,
 		Name:        "web",
@@ -1180,7 +1180,7 @@ func TestPGPodWorkloadFK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second workload: %v", err)
 	}
-	upserted, err := pg.UpsertPod(ctx, api.PodCreate{
+	upserted, _, err := pg.UpsertPod(ctx, api.PodCreate{
 		NamespaceId: *ns.Id,
 		Name:        "web-abc-1",
 		WorkloadId:  wl2.Id,
@@ -1354,7 +1354,7 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 	}
 
 	// Upsert round-trips the FK too.
-	upserted, err := pg.UpsertPersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
+	upserted, _, err := pg.UpsertPersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
 		NamespaceId:      *ns.Id,
 		Name:             "data-0",
 		VolumeName:       &pv.Name,
@@ -1440,13 +1440,13 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}
 	otherContainers := api.ContainerList{{"name": "misc", "image": "busybox:1.36", "init": false}}
 
-	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-1", NodeName: &node1, Containers: &nginxContainers}); err != nil {
+	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-1", NodeName: &node1, Containers: &nginxContainers}); err != nil {
 		t.Fatalf("web-1: %v", err)
 	}
-	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "api-1", NodeName: &node1, Containers: &log4jContainers}); err != nil {
+	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "api-1", NodeName: &node1, Containers: &log4jContainers}); err != nil {
 		t.Fatalf("api-1: %v", err)
 	}
-	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "misc-1", NodeName: &node2, Containers: &otherContainers}); err != nil {
+	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "misc-1", NodeName: &node2, Containers: &otherContainers}); err != nil {
 		t.Fatalf("misc-1: %v", err)
 	}
 
@@ -1500,12 +1500,12 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}
 
 	// Same image filter works for workloads.
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+	if _, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
 		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "api", Containers: &log4jContainers,
 	}); err != nil {
 		t.Fatalf("workload api: %v", err)
 	}
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+	if _, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
 		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Containers: &nginxContainers,
 	}); err != nil {
 		t.Fatalf("workload web: %v", err)
@@ -1745,7 +1745,7 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 		Labels:                      &labels,
 	}
 
-	stored, err := pg.UpsertNode(ctx, in)
+	stored, _, err := pg.UpsertNode(ctx, in)
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -1816,7 +1816,7 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 	in2.Conditions = &empty
 	in2.Unschedulable = &unschTrue
 	in2.Ready = &reDown
-	if _, err := pg.UpsertNode(ctx, in2); err != nil {
+	if _, _, err := pg.UpsertNode(ctx, in2); err != nil {
 		t.Fatalf("re-upsert: %v", err)
 	}
 	got2, err := pg.GetNode(ctx, *stored.Id)
@@ -2231,7 +2231,7 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 	// the ON CONFLICT DO UPDATE SET clause.
 	phase := testPhaseActive
 	colLabels := map[string]string{"kubernetes.io/metadata.name": nsName}
-	if _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	if _, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      nsName,
 		Phase:     &phase,
@@ -2352,7 +2352,7 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 	osImage := "Ubuntu 22.04.4 LTS"
 	labels := map[string]string{"kubernetes.io/hostname": nodeName}
 	ready := true
-	if _, err := pg.UpsertNode(ctx, api.NodeCreate{
+	if _, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId:      *cluster.Id,
 		Name:           nodeName,
 		Role:           &role,
@@ -2432,7 +2432,7 @@ func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("node: %v", err)
 	}
-	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	wl, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
 	if err != nil {
 		t.Fatalf("workload: %v", err)
 	}
@@ -2487,7 +2487,7 @@ func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("namespace: %v", err)
 	}
-	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	wl, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
 	if err != nil {
 		t.Fatalf("workload: %v", err)
 	}

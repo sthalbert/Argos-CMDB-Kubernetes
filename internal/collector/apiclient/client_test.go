@@ -186,7 +186,7 @@ func TestUpsertNodeMethod(t *testing.T) {
 
 	s := newTestStore(t, srv, nil)
 	clusterID := uuid.New()
-	node, err := s.UpsertNode(context.Background(), api.NodeCreate{
+	node, _, err := s.UpsertNode(context.Background(), api.NodeCreate{
 		ClusterId: clusterID,
 		Name:      "node-1",
 	})
@@ -322,7 +322,7 @@ func TestNoRetryOn403(t *testing.T) {
 	defer srv.Close()
 
 	s := newTestStore(t, srv, nil)
-	_, err := s.UpsertNode(context.Background(), api.NodeCreate{Name: "x"})
+	_, _, err := s.UpsertNode(context.Background(), api.NodeCreate{Name: "x"})
 	if err == nil {
 		t.Fatal("expected error on 403")
 	}

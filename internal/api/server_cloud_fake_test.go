@@ -305,13 +305,13 @@ func (m *memStore) CountCloudAccountsWithSecrets(_ context.Context) (int, error)
 }
 
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (m *memStore) UpsertVirtualMachine(_ context.Context, in VirtualMachineUpsert) (VirtualMachine, error) {
+func (m *memStore) UpsertVirtualMachine(_ context.Context, in VirtualMachineUpsert) (VirtualMachine, UpsertOutcome, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
 	// Check provider_vm_id conflict — simulate the nodes.provider_id dedup
 	// by also checking for a conflict marker tag.
 	if v, ok := in.Tags["argos.test.is_kube"]; ok && v == "true" {
-		return VirtualMachine{}, ErrConflict
+		return VirtualMachine{}, OutcomeBusinessChanged, ErrConflict
 	}
 	for vmID, vm := range cloudFake.vms {
 		if vm.CloudAccountID == in.CloudAccountID && vm.ProviderVMID == in.ProviderVMID {
@@ -322,7 +322,7 @@ func (m *memStore) UpsertVirtualMachine(_ context.Context, in VirtualMachineUpse
 			vm.LastSeenAt = vm.UpdatedAt
 			vm.TerminatedAt = nil
 			cloudFake.vms[vmID] = vm
-			return vm, nil
+			return vm, OutcomeBusinessChanged, nil
 		}
 	}
 	now := time.Now().UTC()
@@ -342,7 +342,7 @@ func (m *memStore) UpsertVirtualMachine(_ context.Context, in VirtualMachineUpse
 		LastSeenAt:         now,
 	}
 	cloudFake.vms[vm.ID] = vm
-	return vm, nil
+	return vm, OutcomeBusinessChanged, nil
 }
 
 func (m *memStore) GetVirtualMachine(_ context.Context, id uuid.UUID) (VirtualMachine, error) {

@@ -44,7 +44,7 @@ const vmColumns = `id, cloud_account_id,
 // already known as a Kubernetes node.
 //
 //nolint:gocritic // hugeParam: Store interface requires value param; insert columns are inherently long
-func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpsert) (api.VirtualMachine, error) {
+func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpsert) (api.VirtualMachine, api.UpsertOutcome, error) {
 	// Server-side dedup. Outscale's CCM sets node.spec.providerID to a
 	// string containing the VmId, e.g. "aws:///<az>/i-96fff41b". A
 	// substring match catches every observed format.
@@ -61,17 +61,17 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 	//     the validator, the SQL is still safe.
 	if in.ProviderVMID != "" {
 		if !validProviderVMID(in.ProviderVMID) {
-			return api.VirtualMachine{}, fmt.Errorf("provider_vm_id %q contains disallowed characters: %w", in.ProviderVMID, api.ErrConflict)
+			return api.VirtualMachine{}, api.OutcomeBusinessChanged, fmt.Errorf("provider_vm_id %q contains disallowed characters: %w", in.ProviderVMID, api.ErrConflict)
 		}
 		var existsCount int
 		if err := p.pool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM nodes WHERE provider_id LIKE '%' || $1 || '%' ESCAPE '\'`,
 			escapeLIKE(in.ProviderVMID),
 		).Scan(&existsCount); err != nil {
-			return api.VirtualMachine{}, fmt.Errorf("dedup check against nodes: %w", err)
+			return api.VirtualMachine{}, api.OutcomeBusinessChanged, fmt.Errorf("dedup check against nodes: %w", err)
 		}
 		if existsCount > 0 {
-			return api.VirtualMachine{}, fmt.Errorf("provider_vm_id %q already inventoried as a node: %w", in.ProviderVMID, api.ErrConflict)
+			return api.VirtualMachine{}, api.OutcomeBusinessChanged, fmt.Errorf("provider_vm_id %q already inventoried as a node: %w", in.ProviderVMID, api.ErrConflict)
 		}
 	}
 
@@ -84,11 +84,11 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 
 	tagsJSON, err := marshalStringMap(in.Tags)
 	if err != nil {
-		return api.VirtualMachine{}, fmt.Errorf("marshal tags: %w", err)
+		return api.VirtualMachine{}, api.OutcomeBusinessChanged, fmt.Errorf("marshal tags: %w", err)
 	}
 	labelsJSON, err := marshalStringMap(in.Labels)
 	if err != nil {
-		return api.VirtualMachine{}, fmt.Errorf("marshal labels: %w", err)
+		return api.VirtualMachine{}, api.OutcomeBusinessChanged, fmt.Errorf("marshal labels: %w", err)
 	}
 
 	const q = `
@@ -173,9 +173,13 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 		now,
 	).Scan(&rowID)
 	if err != nil {
-		return api.VirtualMachine{}, fmt.Errorf("upsert virtual machine: %w", err)
+		return api.VirtualMachine{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert virtual machine: %w", err)
 	}
-	return p.GetVirtualMachine(ctx, rowID)
+	vm, err := p.GetVirtualMachine(ctx, rowID)
+	if err != nil {
+		return api.VirtualMachine{}, api.OutcomeBusinessChanged, err
+	}
+	return vm, api.OutcomeBusinessChanged, nil
 }
 
 // GetVirtualMachine fetches a VM by id.

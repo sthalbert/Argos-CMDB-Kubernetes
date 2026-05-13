@@ -254,21 +254,21 @@ type KubeSource interface {
 type CmdbStore interface {
 	EnsureCluster(ctx context.Context, in api.ClusterCreate) (cluster api.Cluster, created bool, err error)
 	UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error)
-	UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error)
+	UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.UpsertOutcome, error)
 	DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
-	UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error)
+	UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, api.UpsertOutcome, error)
 	DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
-	UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error)
+	UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, api.UpsertOutcome, error)
 	DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
-	UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error)
+	UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, api.UpsertOutcome, error)
 	DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error)
-	UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, error)
+	UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, api.UpsertOutcome, error)
 	DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
-	UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error)
+	UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, api.UpsertOutcome, error)
 	DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
-	UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error)
+	UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, api.UpsertOutcome, error)
 	DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
-	UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error)
+	UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, api.UpsertOutcome, error)
 	DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
 
@@ -440,7 +440,7 @@ func (c *Collector) ingestNodes(ctx context.Context, clusterID uuid.UUID) {
 			labels := n.Labels
 			in.Labels = &labels
 		}
-		if _, err := c.store.UpsertNode(ctx, in); err != nil {
+		if _, _, err := c.store.UpsertNode(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "nodes", "upsert")
 			slog.Warn("collector: upsert node failed",
 				slog.Any("error", err), slog.String("node", n.Name), slog.String("cluster_name", c.clusterName))
@@ -495,7 +495,7 @@ func (c *Collector) ingestNamespaces(ctx context.Context, clusterID uuid.UUID) m
 			labels := ns.Labels
 			in.Labels = &labels
 		}
-		stored, err := c.store.UpsertNamespace(ctx, in)
+		stored, _, err := c.store.UpsertNamespace(ctx, in)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "namespaces", "upsert")
 			slog.Warn("collector: upsert namespace failed",
@@ -622,7 +622,7 @@ func (c *Collector) ingestPods(ctx context.Context, namespaceIDsByName map[strin
 			continue
 		}
 		in := buildPodCreate(p, nsID, workloadIDs, rsOwners)
-		if _, err := c.store.UpsertPod(ctx, in); err != nil {
+		if _, _, err := c.store.UpsertPod(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "pods", "upsert")
 			slog.Warn("collector: upsert pod failed",
 				slog.Any("error", err), slog.String("pod", p.Name), slog.String("namespace", p.Namespace), slog.String("cluster_name", c.clusterName))
@@ -691,7 +691,7 @@ func (c *Collector) ingestWorkloads(ctx context.Context, namespaceIDsByName map[
 			labels := w.Labels
 			in.Labels = &labels
 		}
-		stored, err := c.store.UpsertWorkload(ctx, in)
+		stored, _, err := c.store.UpsertWorkload(ctx, in)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "workloads", "upsert")
 			slog.Warn("collector: upsert workload failed",
@@ -748,7 +748,7 @@ func (c *Collector) ingestServices(ctx context.Context, namespaceIDsByName map[s
 			continue
 		}
 		in := buildServiceCreate(s, nsID)
-		if _, err := c.store.UpsertService(ctx, in); err != nil {
+		if _, _, err := c.store.UpsertService(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "services", "upsert")
 			slog.Warn("collector: upsert service failed",
 				slog.Any("error", err), slog.String("service", s.Name),
@@ -796,7 +796,7 @@ func (c *Collector) ingestIngresses(ctx context.Context, namespaceIDsByName map[
 			continue
 		}
 		in := buildIngressCreate(ing, nsID)
-		if _, err := c.store.UpsertIngress(ctx, in); err != nil {
+		if _, _, err := c.store.UpsertIngress(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "ingresses", "upsert")
 			slog.Warn("collector: upsert ingress failed",
 				slog.Any("error", err), slog.String("ingress", ing.Name),
@@ -1031,7 +1031,7 @@ func (c *Collector) ingestPersistentVolumes(ctx context.Context, clusterID uuid.
 			labels := pv.Labels
 			in.Labels = &labels
 		}
-		stored, err := c.store.UpsertPersistentVolume(ctx, in)
+		stored, _, err := c.store.UpsertPersistentVolume(ctx, in)
 		if err != nil {
 			metrics.ObserveError(c.clusterName, "persistentvolumes", "upsert")
 			slog.Warn("collector: upsert persistent volume failed",
@@ -1091,7 +1091,7 @@ func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceI
 			continue
 		}
 		in := buildPVCCreate(pvc, nsID, pvIDsByName)
-		if _, err := c.store.UpsertPersistentVolumeClaim(ctx, in); err != nil {
+		if _, _, err := c.store.UpsertPersistentVolumeClaim(ctx, in); err != nil {
 			metrics.ObserveError(c.clusterName, "persistentvolumeclaims", "upsert")
 			slog.Warn("collector: upsert pvc failed",
 				slog.Any("error", err), slog.String("pvc", pvc.Name),

@@ -104,17 +104,17 @@ func TestTimeTravelCapture_SoftDeleteCascade(t *testing.T) {
 	require.NoError(t, err)
 	clusterID := *cluster.Id
 
-	ns, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: clusterID, Name: "ns-" + uuid.New().String()[:8],
 	})
 	require.NoError(t, err)
 
-	node, err := pg.UpsertNode(ctx, api.NodeCreate{
+	node, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId: clusterID, Name: "node-" + uuid.New().String()[:8],
 	})
 	require.NoError(t, err)
 
-	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+	wl, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
 		NamespaceId: *ns.Id,
 		Kind:        api.Deployment,
 		Name:        "wl-" + uuid.New().String()[:8],
@@ -149,7 +149,7 @@ func TestTimeTravelCapture_Resurrection(t *testing.T) {
 	clusterID := *cluster.Id
 
 	nsName := "resurrect-ns-" + uuid.New().String()[:8]
-	ns, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: clusterID, Name: nsName,
 	})
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestTimeTravelCapture_Resurrection(t *testing.T) {
 	require.NoError(t, err)
 
 	// Resurrect via UpsertNamespace.
-	ns2, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	ns2, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: clusterID, Name: nsName,
 	})
 	require.NoError(t, err)

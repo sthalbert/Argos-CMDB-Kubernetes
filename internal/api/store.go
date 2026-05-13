@@ -135,9 +135,12 @@ type Store interface {
 
 	// UpsertNode inserts a node when no row exists for (cluster_id, name),
 	// or updates the mutable fields of the existing row when it does. The
-	// returned Node always reflects the post-operation state. Returns
-	// ErrNotFound if the parent cluster does not exist.
-	UpsertNode(ctx context.Context, in NodeCreate) (Node, error)
+	// returned Node always reflects the post-operation state. The second
+	// return value classifies the operation for audit filtering (ADR-0024):
+	// OutcomeInserted for a fresh insert, OutcomeBusinessChanged when a
+	// business field changed, OutcomeNoChange when only clock fields moved.
+	// Returns ErrNotFound if the parent cluster does not exist.
+	UpsertNode(ctx context.Context, in NodeCreate) (Node, UpsertOutcome, error)
 
 	// DeleteNodesNotIn removes every node of the given cluster whose name is
 	// not in keepNames. When keepNames is empty the entire set of nodes for
@@ -173,8 +176,11 @@ type Store interface {
 	// terminated in a single transaction. See ADR-0021 §IMP-007.
 	SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error
 
-	// UpsertNamespace mirrors UpsertNode for namespaces.
-	UpsertNamespace(ctx context.Context, in NamespaceCreate) (Namespace, error)
+	// UpsertNamespace mirrors UpsertNode for namespaces. The second return
+	// value classifies the operation for audit filtering (ADR-0024):
+	// OutcomeInserted for a fresh insert, OutcomeBusinessChanged when a
+	// business field changed, OutcomeNoChange when only clock fields moved.
+	UpsertNamespace(ctx context.Context, in NamespaceCreate) (Namespace, UpsertOutcome, error)
 
 	// DeleteNamespacesNotIn mirrors DeleteNodesNotIn for namespaces.
 	DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
@@ -198,8 +204,11 @@ type Store interface {
 	// DeletePod removes a pod by id. Returns ErrNotFound if absent.
 	DeletePod(ctx context.Context, id uuid.UUID) error
 
-	// UpsertPod mirrors UpsertNode, keyed on (namespace_id, name).
-	UpsertPod(ctx context.Context, in PodCreate) (Pod, error)
+	// UpsertPod mirrors UpsertNode, keyed on (namespace_id, name). The second
+	// return value classifies the operation for audit filtering (ADR-0024):
+	// OutcomeInserted for a fresh insert, OutcomeBusinessChanged when a
+	// business field changed, OutcomeNoChange when only clock fields moved.
+	UpsertPod(ctx context.Context, in PodCreate) (Pod, UpsertOutcome, error)
 
 	// DeletePodsNotIn mirrors DeleteNodesNotIn, scoped to a single namespace.
 	DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
@@ -224,8 +233,11 @@ type Store interface {
 	// DeleteWorkload removes a workload by id.
 	DeleteWorkload(ctx context.Context, id uuid.UUID) error
 
-	// UpsertWorkload mirrors UpsertPod; keyed on (namespace_id, kind, name).
-	UpsertWorkload(ctx context.Context, in WorkloadCreate) (Workload, error)
+	// UpsertWorkload mirrors UpsertPod; keyed on (namespace_id, kind, name). The second
+	// return value classifies the operation for audit filtering (ADR-0024):
+	// OutcomeInserted for a fresh insert, OutcomeBusinessChanged when a
+	// business field changed, OutcomeNoChange when only clock fields moved.
+	UpsertWorkload(ctx context.Context, in WorkloadCreate) (Workload, UpsertOutcome, error)
 
 	// DeleteWorkloadsNotIn removes workloads in the namespace whose
 	// (kind, name) tuple is not in keep. An empty keep slice clears every
@@ -248,8 +260,11 @@ type Store interface {
 	// DeleteService removes by id.
 	DeleteService(ctx context.Context, id uuid.UUID) error
 
-	// UpsertService mirrors UpsertPod; keyed on (namespace_id, name).
-	UpsertService(ctx context.Context, in ServiceCreate) (Service, error)
+	// UpsertService mirrors UpsertPod; keyed on (namespace_id, name). The second
+	// return value classifies the operation for audit filtering (ADR-0024):
+	// OutcomeInserted for a fresh insert, OutcomeBusinessChanged when a
+	// business field changed, OutcomeNoChange when only clock fields moved.
+	UpsertService(ctx context.Context, in ServiceCreate) (Service, UpsertOutcome, error)
 
 	// DeleteServicesNotIn mirrors DeletePodsNotIn, scoped to a single namespace.
 	DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
@@ -269,8 +284,11 @@ type Store interface {
 	// DeleteIngress removes by id.
 	DeleteIngress(ctx context.Context, id uuid.UUID) error
 
-	// UpsertIngress mirrors UpsertService; keyed on (namespace_id, name).
-	UpsertIngress(ctx context.Context, in IngressCreate) (Ingress, error)
+	// UpsertIngress mirrors UpsertService; keyed on (namespace_id, name). The second
+	// return value classifies the operation for audit filtering (ADR-0024):
+	// OutcomeInserted for a fresh insert, OutcomeBusinessChanged when a
+	// business field changed, OutcomeNoChange when only clock fields moved.
+	UpsertIngress(ctx context.Context, in IngressCreate) (Ingress, UpsertOutcome, error)
 
 	// DeleteIngressesNotIn mirrors DeleteServicesNotIn.
 	DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
@@ -294,8 +312,11 @@ type Store interface {
 	// DeletePersistentVolume removes by id.
 	DeletePersistentVolume(ctx context.Context, id uuid.UUID) error
 
-	// UpsertPersistentVolume mirrors UpsertNode; keyed on (cluster_id, name).
-	UpsertPersistentVolume(ctx context.Context, in PersistentVolumeCreate) (PersistentVolume, error)
+	// UpsertPersistentVolume mirrors UpsertNode; keyed on (cluster_id, name). The second
+	// return value classifies the operation for audit filtering (ADR-0024):
+	// OutcomeInserted for a fresh insert, OutcomeBusinessChanged when a
+	// business field changed, OutcomeNoChange when only clock fields moved.
+	UpsertPersistentVolume(ctx context.Context, in PersistentVolumeCreate) (PersistentVolume, UpsertOutcome, error)
 
 	// DeletePersistentVolumesNotIn removes cluster-scoped PVs whose name is
 	// not in keepNames. An empty keep slice clears every PV in that cluster.
@@ -320,8 +341,11 @@ type Store interface {
 	// DeletePersistentVolumeClaim removes by id.
 	DeletePersistentVolumeClaim(ctx context.Context, id uuid.UUID) error
 
-	// UpsertPersistentVolumeClaim mirrors UpsertPod; keyed on (namespace_id, name).
-	UpsertPersistentVolumeClaim(ctx context.Context, in PersistentVolumeClaimCreate) (PersistentVolumeClaim, error)
+	// UpsertPersistentVolumeClaim mirrors UpsertPod; keyed on (namespace_id, name). The second
+	// return value classifies the operation for audit filtering (ADR-0024):
+	// OutcomeInserted for a fresh insert, OutcomeBusinessChanged when a
+	// business field changed, OutcomeNoChange when only clock fields moved.
+	UpsertPersistentVolumeClaim(ctx context.Context, in PersistentVolumeClaimCreate) (PersistentVolumeClaim, UpsertOutcome, error)
 
 	// DeletePersistentVolumeClaimsNotIn mirrors DeletePodsNotIn.
 	DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
@@ -564,8 +588,11 @@ type Store interface {
 	// (cloud_account_id, provider_vm_id). Server-side dedup against
 	// nodes.provider_id: returns ErrConflict if the provider_vm_id already
 	// appears in any node's provider_id (the VM is already inventoried as
-	// a Kubernetes node).
-	UpsertVirtualMachine(ctx context.Context, in VirtualMachineUpsert) (VirtualMachine, error)
+	// a Kubernetes node). The second return value classifies the operation
+	// for audit filtering (ADR-0024): OutcomeInserted for a fresh insert,
+	// OutcomeBusinessChanged when a business field changed, OutcomeNoChange
+	// when only clock fields moved.
+	UpsertVirtualMachine(ctx context.Context, in VirtualMachineUpsert) (VirtualMachine, UpsertOutcome, error)
 
 	// GetVirtualMachine fetches by id. ErrNotFound when absent.
 	GetVirtualMachine(ctx context.Context, id uuid.UUID) (VirtualMachine, error)
