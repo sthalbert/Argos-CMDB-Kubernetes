@@ -23,6 +23,7 @@ import (
 
 	"github.com/sthalbert/longue-vue/internal/auth"
 	"github.com/sthalbert/longue-vue/internal/httputil"
+	"github.com/sthalbert/longue-vue/internal/metrics"
 )
 
 // AuditRecorder is the narrow slice of Store the middleware needs.
@@ -39,7 +40,9 @@ type AuditRecorder interface {
 // derived context that cannot propagate values back to the middleware's
 // original request context.
 type auditBag struct {
-	details map[string]any
+	details     map[string]any
+	skip        bool
+	skipReason_ string // set via SetAuditSkipReason; defaults to "no_change"
 }
 
 type ctxKeyAuditBag struct{}
@@ -58,6 +61,41 @@ func SetAuditDetails(ctx context.Context, details map[string]any) {
 	if bag, ok := ctx.Value(ctxKeyAuditBag{}).(*auditBag); ok && bag != nil {
 		bag.details = details
 	}
+}
+
+// SetAuditSkip marks the current request as droppable by the audit
+// middleware. Handlers call this when the request did not change any
+// business state (e.g., a collector upsert that touched only clock
+// fields, or a reconcile that deleted zero rows). The middleware honors
+// the flag unless the response status is >= 400 (forensic) or the path
+// is on the auth-endpoint allowlist. See ADR-0024.
+//
+// Safe to call when no bag is present (no-op).
+func SetAuditSkip(ctx context.Context) {
+	if bag, ok := ctx.Value(ctxKeyAuditBag{}).(*auditBag); ok && bag != nil {
+		bag.skip = true
+	}
+}
+
+// SetAuditSkipReason overrides the default "no_change" reason label on
+// the Prometheus skipped counter. Call from reconcile handlers that
+// dropped zero rows with reason="reconcile_empty".
+func SetAuditSkipReason(ctx context.Context, reason string) {
+	if bag, ok := ctx.Value(ctxKeyAuditBag{}).(*auditBag); ok && bag != nil {
+		bag.skipReason_ = reason
+	}
+}
+
+// authAlwaysAuditPaths is the small set of auth endpoints where every
+// call must produce an audit row, even when a handler set the skip
+// flag. Login attempts, logout, password changes and OIDC handshakes
+// must remain visible regardless of state-change semantics.
+var authAlwaysAuditPaths = map[string]struct{}{ //nolint:gochecknoglobals // read-only lookup
+	"/v1/auth/login":           {},
+	"/v1/auth/logout":          {},
+	"/v1/auth/change-password": {},
+	"/v1/auth/oidc/authorize":  {},
+	"/v1/auth/oidc/callback":   {},
 }
 
 // AuditMiddleware wraps the generated router and records every call
@@ -103,6 +141,13 @@ func AuditMiddleware(recorder AuditRecorder, source string, trustedProxies []*ne
 
 			rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r)
+
+			if bag.skip && rw.status < 400 {
+				if _, alwaysAudit := authAlwaysAuditPaths[r.URL.Path]; !alwaysAudit {
+					metrics.ObserveAuditSkipped(auditActorKind(r), auditResourceType(r), bag.skipReason())
+					return
+				}
+			}
 
 			ev := buildAuditEvent(r, rw.status, bodySnap, trustedProxies)
 			ev.Source = source
@@ -326,6 +371,39 @@ func scrubSecrets(raw []byte) any {
 		}
 	}
 	return obj
+}
+
+// auditActorKind mirrors buildAuditEvent's actor classification but
+// returns just the kind label used by Prometheus.
+func auditActorKind(r *http.Request) string {
+	if c := auth.CallerFromContext(r.Context()); c != nil {
+		switch c.Kind {
+		case auth.CallerKindUser:
+			return "user"
+		case auth.CallerKindToken:
+			return "token"
+		}
+	}
+	return "anonymous"
+}
+
+// auditResourceType returns the resource label for the skipped counter.
+// Falls back to "unknown" when the URL does not match a known shape.
+func auditResourceType(r *http.Request) string {
+	t, _ := deriveResource(r)
+	if t == "" {
+		return "unknown"
+	}
+	return t
+}
+
+// skipReason returns the Prom-label reason value. Defaults to
+// "no_change"; reconcile handlers override via SetAuditSkipReason.
+func (b *auditBag) skipReason() string {
+	if b.skipReason_ == "" {
+		return "no_change"
+	}
+	return b.skipReason_
 }
 
 // statusRecorder is the tiniest http.ResponseWriter wrapper that

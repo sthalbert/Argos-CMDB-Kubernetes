@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -221,5 +223,109 @@ func TestListAuditEventsHandler(t *testing.T) {
 	}
 	if len(got.Items) != 3 {
 		t.Errorf("expected 3 items, got %d", len(got.Items))
+	}
+}
+
+type recorderStub struct{ inserts atomic.Int32 }
+
+func (r *recorderStub) InsertAuditEvent(_ context.Context, _ AuditEventInsert) error {
+	r.inserts.Add(1)
+	return nil
+}
+
+func TestAuditMiddleware_SkipRespected(t *testing.T) {
+	t.Parallel()
+	rec := &recorderStub{}
+	mw := AuditMiddleware(rec, "api", nil)
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		SetAuditSkip(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/pods", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp.Body.Close()
+
+	if got := rec.inserts.Load(); got != 0 {
+		t.Errorf("SetAuditSkip + 2xx should drop insert; got %d inserts", got)
+	}
+}
+
+func TestAuditMiddleware_SkipBypassedOnError(t *testing.T) {
+	t.Parallel()
+	rec := &recorderStub{}
+	mw := AuditMiddleware(rec, "api", nil)
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		SetAuditSkip(r.Context())
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/pods", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp.Body.Close()
+
+	if got := rec.inserts.Load(); got != 1 {
+		t.Errorf("status >= 400 must bypass skip; got %d inserts", got)
+	}
+}
+
+func TestAuditMiddleware_SkipBypassedOnAuthPath(t *testing.T) {
+	t.Parallel()
+	authPaths := []string{
+		"/v1/auth/login", "/v1/auth/logout", "/v1/auth/change-password",
+		"/v1/auth/oidc/authorize", "/v1/auth/oidc/callback",
+	}
+	for _, p := range authPaths {
+		p := p
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+			rec := &recorderStub{}
+			mw := AuditMiddleware(rec, "api", nil)
+			h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				SetAuditSkip(r.Context())
+				w.WriteHeader(http.StatusOK)
+			}))
+			srv := httptest.NewServer(h)
+			defer srv.Close()
+
+			resp, err := http.Post(srv.URL+p, "application/json", strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatalf("post: %v", err)
+			}
+			resp.Body.Close()
+
+			if got := rec.inserts.Load(); got != 1 {
+				t.Errorf("auth path must bypass skip; got %d inserts on %s", got, p)
+			}
+		})
+	}
+}
+
+func TestAuditMiddleware_NoSkipKeepsExistingBehaviour(t *testing.T) {
+	t.Parallel()
+	rec := &recorderStub{}
+	mw := AuditMiddleware(rec, "api", nil)
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/pods", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp.Body.Close()
+
+	if got := rec.inserts.Load(); got != 1 {
+		t.Errorf("no skip + 2xx should insert; got %d inserts", got)
 	}
 }
