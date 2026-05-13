@@ -1155,6 +1155,139 @@ func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
 	}
 }
 
+func TestPG_UpsertService_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "svc-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	clusterIP := "10.0.0.1"
+	svcType := api.ServiceType("ClusterIP")
+	_, outcome, err := pg.UpsertService(ctx, api.ServiceCreate{
+		NamespaceId: *ns.Id,
+		Name:        "svc-a",
+		Type:        &svcType,
+		ClusterIp:   &clusterIP,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertService_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "svc-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	clusterIP := "10.0.0.1"
+	svcType := api.ServiceType("ClusterIP")
+	payload := api.ServiceCreate{
+		NamespaceId: *ns.Id,
+		Name:        "svc-a",
+		Type:        &svcType,
+		ClusterIp:   &clusterIP,
+	}
+
+	if _, _, err := pg.UpsertService(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertService(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertService_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "svc-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	clusterIP := "10.0.0.1"
+	svcType := api.ServiceType("ClusterIP")
+	sel1 := map[string]string{"app": "web"}
+	ports1 := []map[string]interface{}{{"port": float64(80), "protocol": "TCP"}}
+	lb1 := []map[string]interface{}{{"ip": "0.0.0.0"}}
+	labels1 := map[string]string{"env": "prod"}
+	base := api.ServiceCreate{
+		NamespaceId:  *ns.Id,
+		Name:         "svc-a",
+		Type:         &svcType,
+		ClusterIp:    &clusterIP,
+		Selector:     &sel1,
+		Ports:        &ports1,
+		LoadBalancer: &lb1,
+		Labels:       &labels1,
+	}
+	if _, _, err := pg.UpsertService(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	svcType2 := api.ServiceType("NodePort")
+	ip2 := "10.0.0.2"
+	sel2 := map[string]string{"app": "v2"}
+	ports2 := []map[string]interface{}{{"port": float64(8080), "protocol": "TCP"}}
+	lb2 := []map[string]interface{}{{"ip": "1.2.3.4"}}
+	labels2 := map[string]string{"k": "v"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.ServiceCreate)
+	}{
+		{"type", func(p *api.ServiceCreate) { p.Type = &svcType2 }},
+		{"cluster_ip", func(p *api.ServiceCreate) { p.ClusterIp = &ip2 }},
+		{"selector", func(p *api.ServiceCreate) { p.Selector = &sel2 }},
+		{"ports", func(p *api.ServiceCreate) { p.Ports = &ports2 }},
+		{"load_balancer", func(p *api.ServiceCreate) { p.LoadBalancer = &lb2 }},
+		{"labels", func(p *api.ServiceCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		m := m
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertService(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertService(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+}
+
 // TestPGPodAndWorkloadContainersRoundTrip verifies the new containers JSONB
 // column survives an upsert + read cycle on both Pod and Workload. Each entity
 // type writes its own subset of fields into the generic map: Pod has

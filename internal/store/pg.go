@@ -2507,19 +2507,19 @@ func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Servi
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Service{}, api.OutcomeBusinessChanged, err
+		return api.Service{}, api.OutcomeNoChange, err
 	}
 	selectorJSON, err := marshalLabels(in.Selector)
 	if err != nil {
-		return api.Service{}, api.OutcomeBusinessChanged, err
+		return api.Service{}, api.OutcomeNoChange, err
 	}
 	portsJSON, err := marshalPorts(in.Ports)
 	if err != nil {
-		return api.Service{}, api.OutcomeBusinessChanged, err
+		return api.Service{}, api.OutcomeNoChange, err
 	}
 	lbJSON, err := marshalPorts(in.LoadBalancer)
 	if err != nil {
-		return api.Service{}, api.OutcomeBusinessChanged, err
+		return api.Service{}, api.OutcomeNoChange, err
 	}
 
 	var svcType *string
@@ -2528,30 +2528,120 @@ func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Servi
 		svcType = &t
 	}
 
-	q := `
-		INSERT INTO services (` + serviceColumns + `) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
-		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			type          = EXCLUDED.type,
-			cluster_ip    = EXCLUDED.cluster_ip,
-			selector      = EXCLUDED.selector,
-			ports         = EXCLUDED.ports,
-			load_balancer = EXCLUDED.load_balancer,
-			labels        = EXCLUDED.labels,
-			updated_at    = EXCLUDED.updated_at
-		RETURNING ` + serviceColumns
+	// AUDIT_BUSINESS_FIELDS: type, cluster_ip, selector, ports, load_balancer,
+	// labels. updated_at is a clock field — excluded from business_changed
+	// detection so reconcile-only ticks turn into NoChange.
+	const q = `
+		WITH old AS (
+		  SELECT type, cluster_ip, selector, ports, load_balancer, labels
+		    FROM services WHERE namespace_id = $2 AND name = $3
+		),
+		upserted AS (
+		  INSERT INTO services (
+		      id, namespace_id, name, type, cluster_ip,
+		      selector, ports, load_balancer, labels, created_at, updated_at
+		  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+		  ON CONFLICT (namespace_id, name) DO UPDATE SET
+		      type          = EXCLUDED.type,
+		      cluster_ip    = EXCLUDED.cluster_ip,
+		      selector      = EXCLUDED.selector,
+		      ports         = EXCLUDED.ports,
+		      load_balancer = EXCLUDED.load_balancer,
+		      labels        = EXCLUDED.labels,
+		      updated_at    = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, name, type, cluster_ip,
+		            selector, ports, load_balancer, labels, created_at, updated_at,
+		            xmax
+		)
+		SELECT u.id, u.namespace_id, u.name, u.type, u.cluster_ip,
+		       u.selector, u.ports, u.load_balancer, u.labels,
+		       u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.type          IS DISTINCT FROM u.type          OR
+		           o.cluster_ip    IS DISTINCT FROM u.cluster_ip    OR
+		           o.selector      IS DISTINCT FROM u.selector      OR
+		           o.ports         IS DISTINCT FROM u.ports         OR
+		           o.load_balancer IS DISTINCT FROM u.load_balancer OR
+		           o.labels        IS DISTINCT FROM u.labels
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
+	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, svcType, in.ClusterIp,
 		selectorJSON, portsJSON, lbJSON, labelsJSON, now,
 	)
-	s, err := scanService(row)
-	if err != nil {
+
+	var (
+		s               api.Service
+		svcID           uuid.UUID
+		namespaceID     uuid.UUID
+		createdAt       time.Time
+		updatedAt       time.Time
+		svcTypeOut      sql.NullString
+		clusterIP       sql.NullString
+		selectorOut     []byte
+		portsOut        []byte
+		lbOut           []byte
+		labelsOut       []byte
+		inserted        bool
+		businessChanged bool
+	)
+	if err := row.Scan(
+		&svcID, &namespaceID, &s.Name,
+		&svcTypeOut, &clusterIP,
+		&selectorOut, &portsOut, &lbOut, &labelsOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Service{}, api.OutcomeBusinessChanged, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Service{}, api.OutcomeNoChange, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Service{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert service: %w", err)
+		return api.Service{}, api.OutcomeNoChange, fmt.Errorf("upsert service: %w", err)
 	}
-	return s, api.OutcomeBusinessChanged, nil
+	s.Id = &svcID
+	s.NamespaceId = namespaceID
+	s.CreatedAt = &createdAt
+	s.UpdatedAt = &updatedAt
+	s.ClusterIp = nullableString(clusterIP)
+	if svcTypeOut.Valid {
+		t := api.ServiceType(svcTypeOut.String)
+		s.Type = &t
+	}
+	if len(selectorOut) > 0 {
+		var sel map[string]string
+		if err := json.Unmarshal(selectorOut, &sel); err != nil {
+			return api.Service{}, api.OutcomeNoChange, fmt.Errorf("unmarshal service selector: %w", err)
+		}
+		if len(sel) > 0 {
+			s.Selector = &sel
+		}
+	}
+	if len(portsOut) > 0 {
+		var ports []map[string]interface{}
+		if err := json.Unmarshal(portsOut, &ports); err != nil {
+			return api.Service{}, api.OutcomeNoChange, fmt.Errorf("unmarshal service ports: %w", err)
+		}
+		if len(ports) > 0 {
+			s.Ports = &ports
+		}
+	}
+	if lb, err := unmarshalMapArray(lbOut); err != nil {
+		return api.Service{}, api.OutcomeNoChange, fmt.Errorf("unmarshal service load_balancer: %w", err)
+	} else {
+		s.LoadBalancer = lb
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return api.Service{}, api.OutcomeNoChange, fmt.Errorf("unmarshal service labels: %w", err)
+		}
+		if len(labels) > 0 {
+			s.Labels = &labels
+		}
+	}
+	return s, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeleteServicesNotIn mirrors DeletePodsNotIn.
