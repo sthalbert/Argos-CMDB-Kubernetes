@@ -865,6 +865,7 @@ func TestPG_UpsertPod_OutcomeBusinessChanged_PerField(t *testing.T) {
 	node2 := "node-2"
 	ip2 := "10.0.0.2"
 	labels := map[string]string{"k": "v"}
+	containers := api.ContainerList{{"name": "app", "image": "nginx:1.99"}}
 
 	mutations := []struct {
 		name string
@@ -874,6 +875,7 @@ func TestPG_UpsertPod_OutcomeBusinessChanged_PerField(t *testing.T) {
 		{"node_name", func(p *api.PodCreate) { p.NodeName = &node2 }},
 		{"pod_ip", func(p *api.PodCreate) { p.PodIp = &ip2 }},
 		{"labels", func(p *api.PodCreate) { p.Labels = &labels }},
+		{"containers", func(p *api.PodCreate) { p.Containers = &containers }},
 	}
 	for _, m := range mutations {
 		m := m
