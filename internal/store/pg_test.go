@@ -782,6 +782,118 @@ func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	}
 }
 
+func TestPG_UpsertPod_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pod-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := "Running"
+	_, outcome, err := pg.UpsertPod(ctx, api.PodCreate{
+		NamespaceId: *ns.Id,
+		Name:        "pod-a",
+		Phase:       &phase,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertPod_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pod-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := "Running"
+	payload := api.PodCreate{NamespaceId: *ns.Id, Name: "pod-a", Phase: &phase}
+
+	if _, _, err := pg.UpsertPod(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertPod(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertPod_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pod-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phaseRunning := "Running"
+	node1 := "node-1"
+	ip1 := "10.0.0.1"
+	base := api.PodCreate{
+		NamespaceId: *ns.Id, Name: "pod-a",
+		Phase: &phaseRunning, NodeName: &node1, PodIp: &ip1,
+	}
+	if _, _, err := pg.UpsertPod(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	phasePending := "Pending"
+	node2 := "node-2"
+	ip2 := "10.0.0.2"
+	labels := map[string]string{"k": "v"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.PodCreate)
+	}{
+		{"phase", func(p *api.PodCreate) { p.Phase = &phasePending }},
+		{"node_name", func(p *api.PodCreate) { p.NodeName = &node2 }},
+		{"pod_ip", func(p *api.PodCreate) { p.PodIp = &ip2 }},
+		{"labels", func(p *api.PodCreate) { p.Labels = &labels }},
+	}
+	for _, m := range mutations {
+		m := m
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertPod(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertPod(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+}
+
 //nolint:gocyclo // integration test exercises multiple CRUD branches
 func TestPGWorkloadCRUD(t *testing.T) {
 	pg := newTestPG(t)

@@ -91,6 +91,20 @@ func (p *PG) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// classifyOutcome maps the CTE's (inserted, business_changed) tuple to the
+// corresponding api.UpsertOutcome — used by every Upsert* impl that computes
+// audit-noop detection. See ADR-0024.
+func classifyOutcome(inserted, businessChanged bool) api.UpsertOutcome {
+	switch {
+	case inserted:
+		return api.OutcomeInserted
+	case businessChanged:
+		return api.OutcomeBusinessChanged
+	default:
+		return api.OutcomeNoChange
+	}
+}
+
 // EnsureCluster inserts a cluster row when no row with the same name exists,
 // or returns the existing row unchanged when one does. The returned bool is
 // true when a new row was inserted, false when an existing row was returned.
@@ -1677,41 +1691,108 @@ func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, api.Upse
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Pod{}, api.OutcomeBusinessChanged, err
+		return api.Pod{}, api.OutcomeNoChange, err
 	}
 	containersJSON, err := marshalPorts(in.Containers)
 	if err != nil {
-		return api.Pod{}, api.OutcomeBusinessChanged, err
+		return api.Pod{}, api.OutcomeNoChange, err
 	}
 
+	// AUDIT_BUSINESS_FIELDS: phase, node_name, pod_ip, workload_id,
+	// containers, labels. updated_at is a clock field — excluded from
+	// business_changed detection so reconcile-only ticks turn into NoChange.
 	const q = `
-		INSERT INTO pods (
-			id, namespace_id, name, phase, node_name, pod_ip,
-			workload_id, containers, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
-		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			phase       = EXCLUDED.phase,
-			node_name   = EXCLUDED.node_name,
-			pod_ip      = EXCLUDED.pod_ip,
-			workload_id = EXCLUDED.workload_id,
-			containers  = EXCLUDED.containers,
-			labels      = EXCLUDED.labels,
-			updated_at  = EXCLUDED.updated_at
-		RETURNING id, namespace_id, name, phase, node_name, pod_ip,
-		          workload_id, containers, labels, created_at, updated_at
+		WITH old AS (
+		  SELECT phase, node_name, pod_ip, workload_id, containers, labels
+		    FROM pods WHERE namespace_id = $2 AND name = $3
+		),
+		upserted AS (
+		  INSERT INTO pods (
+		      id, namespace_id, name, phase, node_name, pod_ip,
+		      workload_id, containers, labels, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		  ON CONFLICT (namespace_id, name) DO UPDATE SET
+		      phase       = EXCLUDED.phase,
+		      node_name   = EXCLUDED.node_name,
+		      pod_ip      = EXCLUDED.pod_ip,
+		      workload_id = EXCLUDED.workload_id,
+		      containers  = EXCLUDED.containers,
+		      labels      = EXCLUDED.labels,
+		      updated_at  = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, name, phase, node_name, pod_ip,
+		            workload_id, containers, labels, created_at, updated_at,
+		            xmax
+		)
+		SELECT u.id, u.namespace_id, u.name, u.phase, u.node_name, u.pod_ip,
+		       u.workload_id, u.containers, u.labels, u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.phase       IS DISTINCT FROM u.phase       OR
+		           o.node_name   IS DISTINCT FROM u.node_name   OR
+		           o.pod_ip      IS DISTINCT FROM u.pod_ip      OR
+		           o.workload_id IS DISTINCT FROM u.workload_id OR
+		           o.containers  IS DISTINCT FROM u.containers  OR
+		           o.labels      IS DISTINCT FROM u.labels
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, in.Phase, in.NodeName, in.PodIp,
 		in.WorkloadId, containersJSON, labelsJSON, now,
 	)
-	pod, err := scanPod(row)
-	if err != nil {
+
+	var (
+		pod             api.Pod
+		podID           uuid.UUID
+		namespaceID     uuid.UUID
+		createdAt       time.Time
+		updatedAt       time.Time
+		phase           sql.NullString
+		nodeName        sql.NullString
+		podIP           sql.NullString
+		workloadID      *uuid.UUID
+		containersOut   []byte
+		labelsOut       []byte
+		inserted        bool
+		businessChanged bool
+	)
+	if err := row.Scan(
+		&podID, &namespaceID, &pod.Name,
+		&phase, &nodeName, &podIP,
+		&workloadID, &containersOut, &labelsOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
 		if pErr := classifyPodFKError(err, in.NamespaceId, in.WorkloadId); pErr != nil {
-			return api.Pod{}, api.OutcomeBusinessChanged, pErr
+			return api.Pod{}, api.OutcomeNoChange, pErr
 		}
-		return api.Pod{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert pod: %w", err)
+		return api.Pod{}, api.OutcomeNoChange, fmt.Errorf("upsert pod: %w", err)
 	}
-	return pod, api.OutcomeBusinessChanged, nil
+	pod.Id = &podID
+	pod.NamespaceId = namespaceID
+	pod.CreatedAt = &createdAt
+	pod.UpdatedAt = &updatedAt
+	pod.Phase = nullableString(phase)
+	pod.NodeName = nullableString(nodeName)
+	pod.PodIp = nullableString(podIP)
+	if workloadID != nil {
+		pod.WorkloadId = workloadID
+	}
+	if cs, err := unmarshalContainers(containersOut); err != nil {
+		return api.Pod{}, api.OutcomeNoChange, fmt.Errorf("unmarshal pod containers: %w", err)
+	} else if cs != nil {
+		pod.Containers = cs
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return api.Pod{}, api.OutcomeNoChange, fmt.Errorf("unmarshal pod labels: %w", err)
+		}
+		if len(labels) > 0 {
+			pod.Labels = &labels
+		}
+	}
+	return pod, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeletePodsNotIn removes every pod in the given namespace whose name is not
