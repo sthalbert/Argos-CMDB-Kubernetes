@@ -172,6 +172,15 @@ var (
 		Name:      "client_cert_failures_total",
 		Help:      "Failed mTLS client-cert validations on the ingest listener, per reason (bad_ca / expired / cn_not_allowed / none_provided).",
 	}, []string{"reason"})
+
+	auditEventsSkipped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "longue_vue",
+		Subsystem: "audit",
+		Name:      "events_skipped_total",
+		Help: "audit_events INSERTs suppressed by the no-op filter, labelled " +
+			"by actor kind, resource type, and reason " +
+			"(no_change|reconcile_empty). See ADR-0024.",
+	}, []string{"actor_kind", "resource_type", "reason"})
 )
 
 func init() {
@@ -199,6 +208,7 @@ func init() {
 		ingestVerifyTotal,
 		ingestListenerClientCertFailures,
 		timeTravelWritesTotal,
+		auditEventsSkipped,
 	)
 }
 
@@ -327,6 +337,19 @@ func ObserveMCPToolCall(tool string, duration time.Duration) {
 // the upserts reflect live state, which is what the freshness signal tracks.
 func MarkPoll(cluster, resource string) {
 	collectorLastPoll.WithLabelValues(cluster, resource).Set(float64(time.Now().Unix()))
+}
+
+// ObserveAuditSkipped increments the audit-skipped counter. actor_kind is
+// "user" | "token" | "anonymous"; resource_type is the singular resource
+// label (e.g., "pod"); reason is "no_change" or "reconcile_empty".
+func ObserveAuditSkipped(actorKind, resourceType, reason string) {
+	auditEventsSkipped.WithLabelValues(actorKind, resourceType, reason).Inc()
+}
+
+// AuditEventsSkippedFor returns the per-labelset Counter for tests. Not
+// for production code paths — production should call ObserveAuditSkipped.
+func AuditEventsSkippedFor(actorKind, resourceType, reason string) prometheus.Counter {
+	return auditEventsSkipped.WithLabelValues(actorKind, resourceType, reason)
 }
 
 // InstrumentHandler wraps an http.Handler with request counting + duration
