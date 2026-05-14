@@ -25,7 +25,9 @@ Deleting a cluster is the single most destructive operation in longue-vue. The `
 Today the `DELETE /v1/clusters/{id}` endpoint is gated on the `delete` scope, which per ADR-0007 is granted exclusively to the `admin` role. That satisfies the "only admins can do it" requirement at the scope level. However, two gaps remain:
 
 1. **No explicit confirmation safeguard.** A single `DELETE` call — whether from the UI, a script, or an accidental `curl` — immediately drops the cluster and all its children. There is no "are you sure?" at the API level and no soft-delete window.
-2. **Audit coverage is implicit.** The `AuditMiddleware` already captures every non-GET request including `DELETE /v1/clusters/{id}`, recording the actor, timestamp, HTTP method/path, response status, and scrubbed body. But the audit record does not capture _what_ was lost — no count of cascaded children, no cluster name snapshot. If the cluster row is gone, the audit event's `resource_id` (a UUID) becomes an opaque string with no human context.
+2. **Audit coverage is implicit.** The `AuditMiddleware` already captures every non-GET request[^noop] including `DELETE /v1/clusters/{id}`, recording the actor, timestamp, HTTP method/path, response status, and scrubbed body. But the audit record does not capture _what_ was lost — no count of cascaded children, no cluster name snapshot. If the cluster row is gone, the audit event's `resource_id` (a UUID) becomes an opaque string with no human context.
+
+[^noop]: ADR-0024 refined this criterion from "every non-GET request" to "every state-changing write": idempotent no-op upserts and empty reconciles are filtered out. Cluster deletions are never no-op (they always remove at least the `clusters` row), so the conclusions of this ADR stand unchanged.
 
 ANSSI SecNumCloud chapter 8 (asset management) requires that the CMDB maintain an accurate, auditable inventory. Deleting an entire cluster's worth of assets is a significant event that must be traceable to a named human actor with enough context to answer "what happened and what was lost."
 
