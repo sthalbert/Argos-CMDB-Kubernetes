@@ -1365,6 +1365,10 @@ func (s *Server) ReconcileNodes(ctx context.Context, req ReconcileNodesRequestOb
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcileNodes200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
@@ -1380,6 +1384,10 @@ func (s *Server) ReconcileNamespaces(ctx context.Context, req ReconcileNamespace
 	n, err := s.store.DeleteNamespacesNotIn(ctx, body.ClusterId, body.KeepNames)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
 	}
 	return ReconcileNamespaces200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1399,6 +1407,10 @@ func (s *Server) ReconcilePersistentVolumes(
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcilePersistentVolumes200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
@@ -1414,6 +1426,10 @@ func (s *Server) ReconcilePods(ctx context.Context, req ReconcilePodsRequestObje
 	n, err := s.store.DeletePodsNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
 	}
 	return ReconcilePods200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1438,6 +1454,10 @@ func (s *Server) ReconcileWorkloads(ctx context.Context, req ReconcileWorkloadsR
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcileWorkloads200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
@@ -1454,6 +1474,10 @@ func (s *Server) ReconcileServices(ctx context.Context, req ReconcileServicesReq
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcileServices200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
@@ -1469,6 +1493,10 @@ func (s *Server) ReconcileIngresses(ctx context.Context, req ReconcileIngressesR
 	n, err := s.store.DeleteIngressesNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
 	}
 	return ReconcileIngresses200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1487,6 +1515,10 @@ func (s *Server) ReconcilePersistentVolumeClaims(
 	n, err := s.store.DeletePersistentVolumeClaimsNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
 	}
 	return ReconcilePersistentVolumeClaims200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
