@@ -1874,6 +1874,158 @@ func TestPG_UpsertNamespace_OutcomeBusinessChanged_PerField(t *testing.T) {
 	})
 }
 
+func TestPG_UpsertPersistentVolume_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pv-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	capacity := "10Gi"
+	_, outcome, err := pg.UpsertPersistentVolume(ctx, api.PersistentVolumeCreate{
+		ClusterId: *cluster.Id,
+		Name:      "pv-a",
+		Capacity:  &capacity,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertPersistentVolume_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pv-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	capacity := "10Gi"
+	modes := []string{"ReadWriteOnce"}
+	reclaim := "Retain"
+	phase := "Bound"
+	sc := "gp3"
+	driver := "ebs.csi.aws.com"
+	handle := "vol-abc"
+	claimNs := "apps"
+	claimName := "data-0"
+	labels := map[string]string{"tier": "fast"}
+	payload := api.PersistentVolumeCreate{
+		ClusterId:         *cluster.Id,
+		Name:              "pv-a",
+		Capacity:          &capacity,
+		AccessModes:       &modes,
+		ReclaimPolicy:     &reclaim,
+		Phase:             &phase,
+		StorageClassName:  &sc,
+		CsiDriver:         &driver,
+		VolumeHandle:      &handle,
+		ClaimRefNamespace: &claimNs,
+		ClaimRefName:      &claimName,
+		Labels:            &labels,
+	}
+
+	if _, _, err := pg.UpsertPersistentVolume(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertPersistentVolume(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+//nolint:gocyclo // table-driven covers a representative slice of PV business fields
+func TestPG_UpsertPersistentVolume_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pv-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	capacity := "10Gi"
+	modes := []string{"ReadWriteOnce"}
+	reclaim := "Retain"
+	phase := "Bound"
+	sc := "gp3"
+	driver := "ebs.csi.aws.com"
+	handle := "vol-abc"
+	claimNs := "apps"
+	claimName := "data-0"
+	labels := map[string]string{"tier": "fast"}
+	base := api.PersistentVolumeCreate{
+		ClusterId:         *cluster.Id,
+		Name:              "pv-a",
+		Capacity:          &capacity,
+		AccessModes:       &modes,
+		ReclaimPolicy:     &reclaim,
+		Phase:             &phase,
+		StorageClassName:  &sc,
+		CsiDriver:         &driver,
+		VolumeHandle:      &handle,
+		ClaimRefNamespace: &claimNs,
+		ClaimRefName:      &claimName,
+		Labels:            &labels,
+	}
+	if _, _, err := pg.UpsertPersistentVolume(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	capacity2 := "20Gi"
+	modes2 := []string{"ReadWriteMany"}
+	reclaim2 := "Delete"
+	phase2 := "Released"
+	sc2 := "io2"
+	driver2 := "efs.csi.aws.com"
+	handle2 := "vol-def"
+	claimNs2 := "other"
+	claimName2 := "data-1"
+	labels2 := map[string]string{"tier": "slow"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.PersistentVolumeCreate)
+	}{
+		{"capacity", func(p *api.PersistentVolumeCreate) { p.Capacity = &capacity2 }},
+		{"access_modes", func(p *api.PersistentVolumeCreate) { p.AccessModes = &modes2 }},
+		{"reclaim_policy", func(p *api.PersistentVolumeCreate) { p.ReclaimPolicy = &reclaim2 }},
+		{"phase", func(p *api.PersistentVolumeCreate) { p.Phase = &phase2 }},
+		{"storage_class_name", func(p *api.PersistentVolumeCreate) { p.StorageClassName = &sc2 }},
+		{"csi_driver", func(p *api.PersistentVolumeCreate) { p.CsiDriver = &driver2 }},
+		{"volume_handle", func(p *api.PersistentVolumeCreate) { p.VolumeHandle = &handle2 }},
+		{"claim_ref_namespace", func(p *api.PersistentVolumeCreate) { p.ClaimRefNamespace = &claimNs2 }},
+		{"claim_ref_name", func(p *api.PersistentVolumeCreate) { p.ClaimRefName = &claimName2 }},
+		{"labels", func(p *api.PersistentVolumeCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		m := m
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertPersistentVolume(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertPersistentVolume(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+}
+
 // TestPGPodAndWorkloadContainersRoundTrip verifies the new containers JSONB
 // column survives an upsert + read cycle on both Pod and Workload. Each entity
 // type writes its own subset of fields into the generic map: Pod has

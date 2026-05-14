@@ -4063,34 +4063,64 @@ func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolume
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.PersistentVolume{}, api.OutcomeBusinessChanged, err
+		return api.PersistentVolume{}, api.OutcomeNoChange, err
 	}
 
+	// AUDIT_BUSINESS_FIELDS: capacity, access_modes, reclaim_policy, phase,
+	// storage_class_name, csi_driver, volume_handle, claim_ref_namespace,
+	// claim_ref_name, labels. updated_at is a clock field — excluded.
 	const q = `
-		INSERT INTO persistent_volumes (
-			id, cluster_id, name, capacity, access_modes,
-			reclaim_policy, phase, storage_class_name,
-			csi_driver, volume_handle,
-			claim_ref_namespace, claim_ref_name,
-			labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
-		ON CONFLICT (cluster_id, name) DO UPDATE SET
-			capacity            = EXCLUDED.capacity,
-			access_modes        = EXCLUDED.access_modes,
-			reclaim_policy      = EXCLUDED.reclaim_policy,
-			phase               = EXCLUDED.phase,
-			storage_class_name  = EXCLUDED.storage_class_name,
-			csi_driver          = EXCLUDED.csi_driver,
-			volume_handle       = EXCLUDED.volume_handle,
-			claim_ref_namespace = EXCLUDED.claim_ref_namespace,
-			claim_ref_name      = EXCLUDED.claim_ref_name,
-			labels              = EXCLUDED.labels,
-			updated_at          = EXCLUDED.updated_at
-		RETURNING id, cluster_id, name, capacity, access_modes,
-		          reclaim_policy, phase, storage_class_name,
-		          csi_driver, volume_handle,
-		          claim_ref_namespace, claim_ref_name,
-		          labels, created_at, updated_at
+		WITH old AS (
+		  SELECT capacity, access_modes, reclaim_policy, phase,
+		         storage_class_name, csi_driver, volume_handle,
+		         claim_ref_namespace, claim_ref_name, labels
+		    FROM persistent_volumes WHERE cluster_id=$2 AND name=$3
+		),
+		upserted AS (
+		  INSERT INTO persistent_volumes (
+		    id, cluster_id, name, capacity, access_modes,
+		    reclaim_policy, phase, storage_class_name,
+		    csi_driver, volume_handle,
+		    claim_ref_namespace, claim_ref_name,
+		    labels, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
+		  ON CONFLICT (cluster_id, name) DO UPDATE SET
+		      capacity            = EXCLUDED.capacity,
+		      access_modes        = EXCLUDED.access_modes,
+		      reclaim_policy      = EXCLUDED.reclaim_policy,
+		      phase               = EXCLUDED.phase,
+		      storage_class_name  = EXCLUDED.storage_class_name,
+		      csi_driver          = EXCLUDED.csi_driver,
+		      volume_handle       = EXCLUDED.volume_handle,
+		      claim_ref_namespace = EXCLUDED.claim_ref_namespace,
+		      claim_ref_name      = EXCLUDED.claim_ref_name,
+		      labels              = EXCLUDED.labels,
+		      updated_at          = EXCLUDED.updated_at
+		  RETURNING id, cluster_id, name, capacity, access_modes,
+		            reclaim_policy, phase, storage_class_name,
+		            csi_driver, volume_handle,
+		            claim_ref_namespace, claim_ref_name,
+		            labels, created_at, updated_at, xmax
+		)
+		SELECT id, cluster_id, name, capacity, access_modes,
+		       reclaim_policy, phase, storage_class_name,
+		       csi_driver, volume_handle,
+		       claim_ref_namespace, claim_ref_name,
+		       labels, created_at, updated_at,
+		       (xmax = 0) AS inserted,
+		       (xmax <> 0 AND (
+		           o.capacity            IS DISTINCT FROM upserted.capacity            OR
+		           o.access_modes        IS DISTINCT FROM upserted.access_modes        OR
+		           o.reclaim_policy      IS DISTINCT FROM upserted.reclaim_policy      OR
+		           o.phase               IS DISTINCT FROM upserted.phase               OR
+		           o.storage_class_name  IS DISTINCT FROM upserted.storage_class_name  OR
+		           o.csi_driver          IS DISTINCT FROM upserted.csi_driver          OR
+		           o.volume_handle       IS DISTINCT FROM upserted.volume_handle       OR
+		           o.claim_ref_namespace IS DISTINCT FROM upserted.claim_ref_namespace OR
+		           o.claim_ref_name      IS DISTINCT FROM upserted.claim_ref_name      OR
+		           o.labels              IS DISTINCT FROM upserted.labels
+		       )) AS business_changed
+		  FROM upserted LEFT JOIN old o ON true
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name,
@@ -4100,15 +4130,16 @@ func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolume
 		in.ClaimRefNamespace, in.ClaimRefName,
 		labelsJSON, now,
 	)
-	pv, err := scanPersistentVolume(row)
+	var inserted, businessChanged bool
+	pv, err := scanPersistentVolume(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.PersistentVolume{}, api.OutcomeBusinessChanged, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.PersistentVolume{}, api.OutcomeNoChange, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.PersistentVolume{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert persistent volume: %w", err)
+		return api.PersistentVolume{}, api.OutcomeNoChange, fmt.Errorf("upsert persistent volume: %w", err)
 	}
-	return pv, api.OutcomeBusinessChanged, nil
+	return pv, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeletePersistentVolumesNotIn removes cluster-scoped PVs whose name is not in keepNames.
