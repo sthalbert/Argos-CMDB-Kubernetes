@@ -519,8 +519,12 @@ func (s *fakeStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uu
 	return deleted, nil
 }
 
+//
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface
-func (s *fakeStore) UpsertPersistentVolumeClaim(_ context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
+func (s *fakeStore) UpsertPersistentVolumeClaim(
+	_ context.Context,
+	in api.PersistentVolumeClaimCreate,
+) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertPVCErr != nil {

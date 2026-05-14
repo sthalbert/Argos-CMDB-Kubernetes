@@ -21,7 +21,7 @@ func runReconcileEmptyAuditSkip(t *testing.T, h http.Handler, path, emptyBody, d
 
 	post := func(label, body string) *AuditBagTestView {
 		t.Helper()
-		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		ctx, bag := WithAuditBagForTest(r.Context())
 		w := httptest.NewRecorder()
@@ -181,4 +181,3 @@ func TestReconcilePersistentVolumeClaims_EmptyCallsSetAuditSkip(t *testing.T) {
 	deleteBody := fmt.Sprintf(`{"namespace_id":%q,"keep_names":[]}`, nsID)
 	runReconcileEmptyAuditSkip(t, h, "/v1/persistentvolumeclaims/reconcile", emptyBody, deleteBody)
 }
-

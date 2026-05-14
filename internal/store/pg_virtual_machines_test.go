@@ -81,7 +81,6 @@ func TestPG_UpsertVirtualMachine_OutcomeNoChange_ClockOnly(t *testing.T) {
 	}
 }
 
-//nolint:gocyclo // table-driven covers a representative slice of VM business fields
 func TestPG_UpsertVirtualMachine_OutcomeBusinessChanged_PerField(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -128,7 +127,6 @@ func TestPG_UpsertVirtualMachine_OutcomeBusinessChanged_PerField(t *testing.T) {
 		{"labels", func(p *api.VirtualMachineUpsert) { p.Labels = map[string]string{"team": "infra"} }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)

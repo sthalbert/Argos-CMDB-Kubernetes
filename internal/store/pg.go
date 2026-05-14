@@ -113,8 +113,14 @@ type scanRowWith struct {
 	extra []any
 }
 
+// Scan forwards to the wrapped row, appending the extra destinations after
+// the caller's so a single Scan call can hydrate both the normal columns
+// and the CTE outcome bools.
 func (r scanRowWith) Scan(dest ...any) error {
-	return r.row.Scan(append(dest, r.extra...)...)
+	if err := r.row.Scan(append(dest, r.extra...)...); err != nil {
+		return fmt.Errorf("scan row: %w", err)
+	}
+	return nil
 }
 
 // EnsureCluster inserts a cluster row when no row with the same name exists,
@@ -1718,7 +1724,7 @@ func (p *PG) DeletePod(ctx context.Context, id uuid.UUID) error {
 
 // UpsertPod inserts-or-updates a pod keyed by (namespace_id, name).
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
+//nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; CTE drives branch count
 func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -2612,7 +2618,7 @@ func (p *PG) DeleteService(ctx context.Context, id uuid.UUID) error {
 
 // UpsertService inserts-or-updates a service keyed by (namespace_id, name).
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
+//nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; CTE drives branch count
 func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -2997,7 +3003,7 @@ func (p *PG) DeleteIngress(ctx context.Context, id uuid.UUID) error {
 
 // UpsertIngress inserts-or-updates an ingress keyed by (namespace_id, name).
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
+//nolint:gocyclo // CTE drives branch count
 func (p *PG) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -4444,7 +4450,10 @@ func (p *PG) DeletePersistentVolumeClaim(ctx context.Context, id uuid.UUID) erro
 // UpsertPersistentVolumeClaim inserts-or-updates a PVC keyed by (namespace_id, name).
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
+func (p *PG) UpsertPersistentVolumeClaim(
+	ctx context.Context,
+	in api.PersistentVolumeClaimCreate,
+) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 

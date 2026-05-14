@@ -116,6 +116,8 @@ var authAlwaysAuditPaths = map[string]struct{}{ //nolint:gochecknoglobals // rea
 // the audit row. Pass nil to ignore XFF unconditionally — the secure
 // default and what tests should use unless they're specifically
 // exercising proxy-trust behavior.
+//
+//nolint:gocyclo // skip-decision branches each carry distinct compliance semantics
 func AuditMiddleware(recorder AuditRecorder, source string, trustedProxies []*net.IPNet) MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

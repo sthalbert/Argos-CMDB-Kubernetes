@@ -280,7 +280,10 @@ func (s *Store) DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid
 // UpsertPersistentVolumeClaim creates or updates a PVC record.
 //
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface.
-func (s *Store) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
+func (s *Store) UpsertPersistentVolumeClaim(
+	ctx context.Context,
+	in api.PersistentVolumeClaimCreate,
+) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
 	var out api.PersistentVolumeClaim
 	if err := s.doJSON(ctx, http.MethodPost, "/v1/persistentvolumeclaims", in, &out); err != nil {
 		return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert persistent volume claim: %w", err)

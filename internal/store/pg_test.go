@@ -16,11 +16,21 @@ import (
 
 // Test-scoped string constants to satisfy goconst.
 const (
-	testPhaseActive    = "Active"
-	testKubeletVersion = "v1.30.3"
-	testOwner          = "team-platform"
-	testCriticality    = "critical"
-	testAnnotationSNC  = "snc"
+	testPhaseActive      = "Active"
+	testPhaseRunning     = "Running"
+	testPhaseTerminating = "Terminating"
+	testPhaseBound       = "Bound"
+	testKubeletVersion   = "v1.30.3"
+	testOwner            = "team-platform"
+	testCriticality      = "critical"
+	testAnnotationSNC    = "snc"
+	testIP1              = "10.0.0.1"
+	testImageNginx       = "nginx"
+	testRoleWorker       = "worker"
+	testQty15Gi          = "15Gi"
+	testQty10Gi          = "10Gi"
+	testQty5Gi           = "5Gi"
+	testStorageClassGP3  = "gp3"
 )
 
 // newTestPG returns a PG connected to PGX_TEST_DATABASE, or calls t.Skip
@@ -274,7 +284,7 @@ func TestPGNamespaceCRUD(t *testing.T) {
 		t.Errorf("unknown cluster should be ErrNotFound, got %v", err)
 	}
 
-	newPhase := "Terminating"
+	newPhase := testPhaseTerminating
 	updated, err := pg.UpdateNamespace(ctx, *ns.Id, api.NamespaceUpdate{Phase: &newPhase})
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -686,7 +696,7 @@ func TestPGPodCRUD(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	phase := "Running"
+	phase := testPhaseRunning
 	pod, err := pg.CreatePod(ctx, api.PodCreate{
 		NamespaceId: *ns.Id,
 		Name:        "coredns-abc",
@@ -795,7 +805,7 @@ func TestPG_UpsertPod_OutcomeInserted(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	phase := "Running"
+	phase := testPhaseRunning
 	_, outcome, err := pg.UpsertPod(ctx, api.PodCreate{
 		NamespaceId: *ns.Id,
 		Name:        "pod-a",
@@ -822,7 +832,7 @@ func TestPG_UpsertPod_OutcomeNoChange_ClockOnly(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	phase := "Running"
+	phase := testPhaseRunning
 	payload := api.PodCreate{NamespaceId: *ns.Id, Name: "pod-a", Phase: &phase}
 
 	if _, _, err := pg.UpsertPod(ctx, payload); err != nil {
@@ -852,7 +862,7 @@ func TestPG_UpsertPod_OutcomeBusinessChanged_PerField(t *testing.T) {
 
 	phaseRunning := "Running"
 	node1 := "node-1"
-	ip1 := "10.0.0.1"
+	ip1 := testIP1
 	base := api.PodCreate{
 		NamespaceId: *ns.Id, Name: "pod-a",
 		Phase: &phaseRunning, NodeName: &node1, PodIp: &ip1,
@@ -878,7 +888,6 @@ func TestPG_UpsertPod_OutcomeBusinessChanged_PerField(t *testing.T) {
 		{"containers", func(p *api.PodCreate) { p.Containers = &containers }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)
@@ -1066,7 +1075,7 @@ func TestPGServiceCRUD(t *testing.T) {
 	}
 
 	svcType := api.ClusterIP
-	clusterIP := "10.0.0.1"
+	clusterIP := testIP1
 	svc, err := pg.CreateService(ctx, api.ServiceCreate{
 		NamespaceId: *ns.Id,
 		Name:        "web",
@@ -1168,7 +1177,7 @@ func TestPG_UpsertService_OutcomeInserted(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	clusterIP := "10.0.0.1"
+	clusterIP := testIP1
 	svcType := api.ServiceType("ClusterIP")
 	_, outcome, err := pg.UpsertService(ctx, api.ServiceCreate{
 		NamespaceId: *ns.Id,
@@ -1197,7 +1206,7 @@ func TestPG_UpsertService_OutcomeNoChange_ClockOnly(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	clusterIP := "10.0.0.1"
+	clusterIP := testIP1
 	svcType := api.ServiceType("ClusterIP")
 	payload := api.ServiceCreate{
 		NamespaceId: *ns.Id,
@@ -1231,7 +1240,7 @@ func TestPG_UpsertService_OutcomeBusinessChanged_PerField(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	clusterIP := "10.0.0.1"
+	clusterIP := testIP1
 	svcType := api.ServiceType("ClusterIP")
 	sel1 := map[string]string{"app": "web"}
 	ports1 := []map[string]interface{}{{"port": float64(80), "protocol": "TCP"}}
@@ -1270,7 +1279,6 @@ func TestPG_UpsertService_OutcomeBusinessChanged_PerField(t *testing.T) {
 		{"labels", func(p *api.ServiceCreate) { p.Labels = &labels2 }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)
@@ -1357,6 +1365,7 @@ func TestPG_UpsertWorkload_OutcomeNoChange_ClockOnly(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // table-driven covers a representative slice of workload business fields
 func TestPG_UpsertWorkload_OutcomeBusinessChanged_PerField(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1406,7 +1415,6 @@ func TestPG_UpsertWorkload_OutcomeBusinessChanged_PerField(t *testing.T) {
 		{"spec", func(p *api.WorkloadCreate) { p.Spec = &spec2 }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)
@@ -1459,7 +1467,7 @@ func TestPG_UpsertIngress_OutcomeInserted(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	cls := "nginx"
+	cls := testImageNginx
 	_, outcome, err := pg.UpsertIngress(ctx, api.IngressCreate{
 		NamespaceId:      *ns.Id,
 		Name:             "ing-a",
@@ -1486,7 +1494,7 @@ func TestPG_UpsertIngress_OutcomeNoChange_ClockOnly(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	cls := "nginx"
+	cls := testImageNginx
 	rules := []map[string]interface{}{{"host": "a.example"}}
 	tls := []map[string]interface{}{{"secretName": "tls-a"}}
 	lb := []map[string]interface{}{{"ip": "1.2.3.4"}}
@@ -1526,7 +1534,7 @@ func TestPG_UpsertIngress_OutcomeBusinessChanged_PerField(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	cls := "nginx"
+	cls := testImageNginx
 	rules1 := []map[string]interface{}{{"host": "a.example"}}
 	tls1 := []map[string]interface{}{{"secretName": "tls-a"}}
 	lb1 := []map[string]interface{}{{"ip": "1.2.3.4"}}
@@ -1561,7 +1569,6 @@ func TestPG_UpsertIngress_OutcomeBusinessChanged_PerField(t *testing.T) {
 		{"labels", func(p *api.IngressCreate) { p.Labels = &labels2 }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)
@@ -1588,7 +1595,7 @@ func TestPG_UpsertNode_OutcomeInserted(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	role := "worker"
+	role := testRoleWorker
 	_, outcome, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId: *cluster.Id,
 		Name:      "node-a",
@@ -1611,11 +1618,11 @@ func TestPG_UpsertNode_OutcomeNoChange_ClockOnly(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	role := "worker"
+	role := testRoleWorker
 	kubeletV := "v1.29.0"
 	providerID := "aws:///us-east-1a/i-0123456789abcdef"
 	capCPU := "8"
-	allocMem := "15Gi"
+	allocMem := testQty15Gi
 	unsched := false
 	ready := true
 	conditions := []map[string]interface{}{{"type": "Ready", "status": "True"}}
@@ -1648,7 +1655,6 @@ func TestPG_UpsertNode_OutcomeNoChange_ClockOnly(t *testing.T) {
 	}
 }
 
-//nolint:gocyclo // table-driven covers a representative slice of node business fields
 func TestPG_UpsertNode_OutcomeBusinessChanged_PerField(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1659,11 +1665,11 @@ func TestPG_UpsertNode_OutcomeBusinessChanged_PerField(t *testing.T) {
 	}
 
 	displayName := "node-a.example"
-	role := "worker"
+	role := testRoleWorker
 	kubeletV := "v1.29.0"
 	providerID := "aws:///us-east-1a/i-0123456789abcdef"
 	capCPU := "8"
-	allocMem := "15Gi"
+	allocMem := testQty15Gi
 	unsched := false
 	ready := true
 	conditions := []map[string]interface{}{{"type": "Ready", "status": "True"}}
@@ -1717,7 +1723,6 @@ func TestPG_UpsertNode_OutcomeBusinessChanged_PerField(t *testing.T) {
 		{"labels", func(p *api.NodeCreate) { p.Labels = &labels2 }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)
@@ -1759,7 +1764,7 @@ func TestPG_UpsertNamespace_OutcomeInserted(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	phase := "Active"
+	phase := testPhaseActive
 	_, outcome, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "default",
@@ -1783,7 +1788,7 @@ func TestPG_UpsertNamespace_OutcomeNoChange_ClockOnly(t *testing.T) {
 	}
 
 	displayName := "Default"
-	phase := "Active"
+	phase := testPhaseActive
 	labels := map[string]string{"team": "platform"}
 	payload := api.NamespaceCreate{
 		ClusterId:   *cluster.Id,
@@ -1815,7 +1820,7 @@ func TestPG_UpsertNamespace_OutcomeBusinessChanged_PerField(t *testing.T) {
 	}
 
 	displayName := "Default"
-	phase := "Active"
+	phase := testPhaseActive
 	labels := map[string]string{"team": "platform"}
 	base := api.NamespaceCreate{
 		ClusterId:   *cluster.Id,
@@ -1841,7 +1846,6 @@ func TestPG_UpsertNamespace_OutcomeBusinessChanged_PerField(t *testing.T) {
 		{"labels", func(p *api.NamespaceCreate) { p.Labels = &labels2 }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)
@@ -1883,7 +1887,7 @@ func TestPG_UpsertPersistentVolume_OutcomeInserted(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	capacity := "10Gi"
+	capacity := testQty10Gi
 	_, outcome, err := pg.UpsertPersistentVolume(ctx, api.PersistentVolumeCreate{
 		ClusterId: *cluster.Id,
 		Name:      "pv-a",
@@ -1906,11 +1910,11 @@ func TestPG_UpsertPersistentVolume_OutcomeNoChange_ClockOnly(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	capacity := "10Gi"
+	capacity := testQty10Gi
 	modes := []string{"ReadWriteOnce"}
 	reclaim := "Retain"
-	phase := "Bound"
-	sc := "gp3"
+	phase := testPhaseBound
+	sc := testStorageClassGP3
 	driver := "ebs.csi.aws.com"
 	handle := "vol-abc"
 	claimNs := "apps"
@@ -1943,7 +1947,6 @@ func TestPG_UpsertPersistentVolume_OutcomeNoChange_ClockOnly(t *testing.T) {
 	}
 }
 
-//nolint:gocyclo // table-driven covers a representative slice of PV business fields
 func TestPG_UpsertPersistentVolume_OutcomeBusinessChanged_PerField(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -1953,11 +1956,11 @@ func TestPG_UpsertPersistentVolume_OutcomeBusinessChanged_PerField(t *testing.T)
 		t.Fatalf("cluster: %v", err)
 	}
 
-	capacity := "10Gi"
+	capacity := testQty10Gi
 	modes := []string{"ReadWriteOnce"}
 	reclaim := "Retain"
-	phase := "Bound"
-	sc := "gp3"
+	phase := testPhaseBound
+	sc := testStorageClassGP3
 	driver := "ebs.csi.aws.com"
 	handle := "vol-abc"
 	claimNs := "apps"
@@ -2008,7 +2011,6 @@ func TestPG_UpsertPersistentVolume_OutcomeBusinessChanged_PerField(t *testing.T)
 		{"labels", func(p *api.PersistentVolumeCreate) { p.Labels = &labels2 }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)
@@ -2039,7 +2041,7 @@ func TestPG_UpsertPersistentVolumeClaim_OutcomeInserted(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	phase := "Bound"
+	phase := testPhaseBound
 	_, outcome, err := pg.UpsertPersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
 		NamespaceId: *ns.Id,
 		Name:        "data-0",
@@ -2066,11 +2068,11 @@ func TestPG_UpsertPersistentVolumeClaim_OutcomeNoChange_ClockOnly(t *testing.T) 
 		t.Fatalf("namespace: %v", err)
 	}
 
-	phase := "Bound"
-	sc := "gp3"
+	phase := testPhaseBound
+	sc := testStorageClassGP3
 	vol := "pv-a"
 	modes := []string{"ReadWriteOnce"}
-	req := "5Gi"
+	req := testQty5Gi
 	labels := map[string]string{"tier": "fast"}
 	payload := api.PersistentVolumeClaimCreate{
 		NamespaceId:      *ns.Id,
@@ -2095,7 +2097,6 @@ func TestPG_UpsertPersistentVolumeClaim_OutcomeNoChange_ClockOnly(t *testing.T) 
 	}
 }
 
-//nolint:gocyclo // table-driven covers a representative slice of PVC business fields
 func TestPG_UpsertPersistentVolumeClaim_OutcomeBusinessChanged_PerField(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -2109,11 +2110,11 @@ func TestPG_UpsertPersistentVolumeClaim_OutcomeBusinessChanged_PerField(t *testi
 		t.Fatalf("namespace: %v", err)
 	}
 
-	phase := "Bound"
-	sc := "gp3"
+	phase := testPhaseBound
+	sc := testStorageClassGP3
 	vol := "pv-a"
 	modes := []string{"ReadWriteOnce"}
-	req := "5Gi"
+	req := testQty5Gi
 	labels := map[string]string{"tier": "fast"}
 	base := api.PersistentVolumeClaimCreate{
 		NamespaceId:      *ns.Id,
@@ -2148,7 +2149,6 @@ func TestPG_UpsertPersistentVolumeClaim_OutcomeBusinessChanged_PerField(t *testi
 		{"labels", func(p *api.PersistentVolumeClaimCreate) { p.Labels = &labels2 }},
 	}
 	for _, m := range mutations {
-		m := m
 		t.Run(m.name, func(t *testing.T) {
 			pl := base
 			m.mut(&pl)
@@ -2433,7 +2433,7 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	capacity := "10Gi"
+	capacity := testQty10Gi
 	modes := []string{"ReadWriteOnce"}
 	pv, err := pg.CreatePersistentVolume(ctx, api.PersistentVolumeCreate{
 		ClusterId:   *cluster.Id,
@@ -2452,7 +2452,7 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 	}
 
 	// PVC bound to the PV — FK round-trip.
-	req := "5Gi"
+	req := testQty5Gi
 	pvc, err := pg.CreatePersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
 		NamespaceId:      *ns.Id,
 		Name:             "data-0",
@@ -2571,7 +2571,8 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "api-1", NodeName: &node1, Containers: &log4jContainers}); err != nil {
 		t.Fatalf("api-1: %v", err)
 	}
-	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "misc-1", NodeName: &node2, Containers: &otherContainers}); err != nil {
+	miscPod := api.PodCreate{NamespaceId: *ns.Id, Name: "misc-1", NodeName: &node2, Containers: &otherContainers}
+	if _, _, err := pg.UpsertPod(ctx, miscPod); err != nil {
 		t.Fatalf("misc-1: %v", err)
 	}
 
@@ -2715,7 +2716,7 @@ func TestPGAuthSubstrate(t *testing.T) {
 		CreatedAt: now,
 		ExpiresAt: expires,
 		UserAgent: "go-test/1.0",
-		SourceIP:  "10.0.0.1",
+		SourceIP:  testIP1,
 	}); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -2805,7 +2806,7 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	role := "worker"
+	role := testRoleWorker
 	kubeletV := testKubeletVersion
 	kubeProxyV := testKubeletVersion
 	runtimeV := "containerd://1.7.13"
@@ -2824,7 +2825,7 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 	capPods := "110"
 	capEph := "100Gi"
 	allocCPU := "3900m"
-	allocMem := "15Gi"
+	allocMem := testQty15Gi
 	allocPods := "110"
 	allocEph := "95Gi"
 	unschedulable := false
@@ -3095,7 +3096,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 			ActorID: &userID, ActorKind: "user", ActorUsername: "alice", ActorRole: "admin",
 			Action: "cluster.create", ResourceType: "cluster", ResourceID: "c1",
 			HTTPMethod: "POST", HTTPPath: "/v1/clusters", HTTPStatus: 201,
-			SourceIP: "10.0.0.1", UserAgent: "curl/8",
+			SourceIP: testIP1, UserAgent: "curl/8",
 			Details: map[string]any{"body": map[string]any{"name": "prod"}},
 		},
 		{
@@ -3472,7 +3473,7 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 	// fields populated and every curated/hardware_model field nil. The
 	// PG DO UPDATE SET clause deliberately omits the curated columns
 	// and hardware_model, so the operator-set values must survive.
-	role := "worker"
+	role := testRoleWorker
 	kubelet := testKubeletVersion
 	osImage := "Ubuntu 22.04.4 LTS"
 	labels := map[string]string{"kubernetes.io/hostname": nodeName}

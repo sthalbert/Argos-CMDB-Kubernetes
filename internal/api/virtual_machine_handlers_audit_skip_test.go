@@ -39,7 +39,7 @@ func TestHandleUpsertVirtualMachine_NoOpCallsSetAuditSkip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: marshal: %v", label, err)
 		}
-		req := httptest.NewRequest(http.MethodPost, "/v1/virtual-machines", bytes.NewReader(b))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/virtual-machines", bytes.NewReader(b))
 		req.Header.Set("Content-Type", "application/json")
 		ctx, bag := WithAuditBagForTest(req.Context())
 		w := httptest.NewRecorder()

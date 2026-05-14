@@ -449,9 +449,9 @@ func callerIdentifier(caller *auth.Caller) string {
 		return caller.Username
 	case auth.CallerKindToken:
 		if caller.TokenName != "" {
-			return "token:" + caller.TokenName
+			return string(AuditEventActorKindToken) + ":" + caller.TokenName
 		}
-		return "token"
+		return string(AuditEventActorKindToken)
 	default:
 		return ""
 	}

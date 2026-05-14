@@ -902,8 +902,12 @@ type notifyingStore struct {
 	tickDone chan struct{}
 }
 
+//
 //nolint:gocritic // signature is fixed by the collector.CmdbStore interface
-func (s *notifyingStore) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
+func (s *notifyingStore) UpsertPersistentVolumeClaim(
+	ctx context.Context,
+	in api.PersistentVolumeClaimCreate,
+) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
 	pvc, outcome, err := s.CmdbStore.UpsertPersistentVolumeClaim(ctx, in)
 	if err == nil {
 		s.once.Do(func() { close(s.tickDone) })

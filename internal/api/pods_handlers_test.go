@@ -13,6 +13,8 @@ import (
 // wiring: a brand-new POST must NOT mark the audit bag skip, while an
 // identical replay (same business fields, store classifies NoChange)
 // MUST flip skip=true so AuditMiddleware drops the row.
+//
+//nolint:gocyclo // sequenced three-phase scenario keeps fresh/identical/mutated checks contiguous
 func TestCreatePod_NoOpCallsSetAuditSkip(t *testing.T) {
 	t.Parallel()
 	store := newMemStore()
@@ -39,7 +41,7 @@ func TestCreatePod_NoOpCallsSetAuditSkip(t *testing.T) {
 	podBody := fmt.Sprintf(`{"namespace_id":%q,"name":"pod-a","phase":"Running"}`, ns.Id.String())
 
 	// First POST: new pod, must NOT skip.
-	r1 := httptest.NewRequest(http.MethodPost, "/v1/pods", strings.NewReader(podBody))
+	r1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/pods", strings.NewReader(podBody))
 	r1.Header.Set("Content-Type", "application/json")
 	ctx1, bag1 := WithAuditBagForTest(r1.Context())
 	w1 := httptest.NewRecorder()
@@ -53,7 +55,7 @@ func TestCreatePod_NoOpCallsSetAuditSkip(t *testing.T) {
 
 	// Second POST: identical body, store classifies NoChange, handler
 	// MUST mark skip.
-	r2 := httptest.NewRequest(http.MethodPost, "/v1/pods", strings.NewReader(podBody))
+	r2 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/pods", strings.NewReader(podBody))
 	r2.Header.Set("Content-Type", "application/json")
 	ctx2, bag2 := WithAuditBagForTest(r2.Context())
 	w2 := httptest.NewRecorder()
@@ -67,7 +69,7 @@ func TestCreatePod_NoOpCallsSetAuditSkip(t *testing.T) {
 
 	// Third POST: change phase → BusinessChanged, must NOT skip.
 	changedBody := fmt.Sprintf(`{"namespace_id":%q,"name":"pod-a","phase":"Succeeded"}`, ns.Id.String())
-	r3 := httptest.NewRequest(http.MethodPost, "/v1/pods", strings.NewReader(changedBody))
+	r3 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/pods", strings.NewReader(changedBody))
 	r3.Header.Set("Content-Type", "application/json")
 	ctx3, bag3 := WithAuditBagForTest(r3.Context())
 	w3 := httptest.NewRecorder()

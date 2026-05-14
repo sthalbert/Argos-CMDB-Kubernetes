@@ -832,7 +832,8 @@ func (m *memStore) DeletePod(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
+//nolint:gocyclo,gocritic // mirrors PG snapshot+compare per business field
+func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, UpsertOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -1027,7 +1028,11 @@ func (m *memStore) DeleteWorkload(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workload, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
+//nolint:gocritic // hugeParam: interface-mandated signature
+func (m *memStore) UpsertWorkload(
+	_ context.Context,
+	in WorkloadCreate,
+) (Workload, UpsertOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -1363,7 +1368,11 @@ func (m *memStore) DeleteService(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
+//nolint:gocritic // hugeParam: interface-mandated signature
+func (m *memStore) UpsertService(
+	_ context.Context,
+	in ServiceCreate,
+) (Service, UpsertOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
@@ -1430,7 +1439,11 @@ func (m *memStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID,
 	return deleted, nil
 }
 
-func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Namespace, UpsertOutcome, error) { //nolint:gocritic // interface-mandated signature
+//nolint:gocritic // hugeParam: interface-mandated signature
+func (m *memStore) UpsertNamespace(
+	_ context.Context,
+	in NamespaceCreate,
+) (Namespace, UpsertOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {

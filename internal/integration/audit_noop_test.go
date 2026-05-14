@@ -16,6 +16,8 @@ import (
 // /v1/pods calls collapse into exactly one audit row plus two skipped-
 // counter increments. Validates the full chain — handler → store
 // outcome detection → audit middleware bypass → metrics.
+//
+//nolint:gocyclo // sequential seed + replay + counter + audit-list checks
 func TestAuditNoOp_IdempotentUpsertsProduceOneAuditRow(t *testing.T) {
 	env := newTestEnv(t)
 
@@ -40,7 +42,7 @@ func TestAuditNoOp_IdempotentUpsertsProduceOneAuditRow(t *testing.T) {
 	before := testutil.ToFloat64(metrics.AuditEventsSkippedFor("token", "pod", "no_change"))
 
 	podBody := fmt.Sprintf(`{"namespace_id":%q,"name":"pod-noop","phase":"Running"}`, nsID)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		resp := env.doReq(t, http.MethodPost, "/v1/pods", podBody)
 		if resp.StatusCode != http.StatusCreated {
 			_ = resp.Body.Close()

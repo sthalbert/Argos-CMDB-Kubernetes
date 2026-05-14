@@ -61,7 +61,11 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 	//     the validator, the SQL is still safe.
 	if in.ProviderVMID != "" {
 		if !validProviderVMID(in.ProviderVMID) {
-			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("provider_vm_id %q contains disallowed characters: %w", in.ProviderVMID, api.ErrConflict)
+			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf(
+				"provider_vm_id %q contains disallowed characters: %w",
+				in.ProviderVMID,
+				api.ErrConflict,
+			)
 		}
 		var existsCount int
 		if err := p.pool.QueryRow(ctx,
@@ -71,7 +75,11 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("dedup check against nodes: %w", err)
 		}
 		if existsCount > 0 {
-			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("provider_vm_id %q already inventoried as a node: %w", in.ProviderVMID, api.ErrConflict)
+			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf(
+				"provider_vm_id %q already inventoried as a node: %w",
+				in.ProviderVMID,
+				api.ErrConflict,
+			)
 		}
 	}
 
