@@ -640,7 +640,7 @@ func (s *Server) CreatePod(ctx context.Context, req CreatePodRequestObject) (Cre
 		}, nil
 	}
 
-	p, _, err := s.store.UpsertPod(ctx, body)
+	p, outcome, err := s.store.UpsertPod(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePod404ApplicationProblemPlusJSONResponse{
@@ -653,6 +653,9 @@ func (s *Server) CreatePod(ctx context.Context, req CreatePodRequestObject) (Cre
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	p = withPodLayer(p)
 

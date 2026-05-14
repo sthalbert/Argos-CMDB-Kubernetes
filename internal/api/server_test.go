@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,24 @@ import (
 
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
+
+// stringPtrEqual reports whether two optional strings have equal values,
+// treating two nils as equal and nil-vs-non-nil as different.
+func stringPtrEqual(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// uuidPtrEqual mirrors stringPtrEqual for UUID pointers used by optional
+// foreign keys in upsert payloads.
+func uuidPtrEqual(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
 
 // memStore is an in-memory api.Store implementation used to exercise the
 // HTTP handlers without a PostgreSQL dependency.
@@ -817,11 +836,11 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, UpsertOutcom
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return Pod{}, OutcomeBusinessChanged, ErrNotFound
+		return Pod{}, OutcomeNoChange, ErrNotFound
 	}
 	if in.WorkloadId != nil {
 		if _, ok := m.workloadsByID[*in.WorkloadId]; !ok {
-			return Pod{}, OutcomeBusinessChanged, fmt.Errorf("workload %s does not exist: %w", in.WorkloadId, ErrNotFound)
+			return Pod{}, OutcomeNoChange, fmt.Errorf("workload %s does not exist: %w", in.WorkloadId, ErrNotFound)
 		}
 	}
 	key := podNatKey(in.NamespaceId, in.Name)
@@ -830,6 +849,12 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, UpsertOutcom
 
 	if existingID, exists := m.podsByNatKey[key]; exists {
 		p := m.podsByID[existingID]
+		businessChanged := !stringPtrEqual(p.Phase, in.Phase) ||
+			!stringPtrEqual(p.NodeName, in.NodeName) ||
+			!stringPtrEqual(p.PodIp, in.PodIp) ||
+			!uuidPtrEqual(p.WorkloadId, in.WorkloadId) ||
+			!reflect.DeepEqual(p.Containers, in.Containers) ||
+			!reflect.DeepEqual(p.Labels, in.Labels)
 		p.Phase = in.Phase
 		p.NodeName = in.NodeName
 		p.PodIp = in.PodIp
@@ -838,7 +863,10 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, UpsertOutcom
 		p.WorkloadId = in.WorkloadId
 		p.UpdatedAt = &now
 		m.podsByID[existingID] = p
-		return p, OutcomeBusinessChanged, nil
+		if businessChanged {
+			return p, OutcomeBusinessChanged, nil
+		}
+		return p, OutcomeNoChange, nil
 	}
 
 	id := uuid.New()
@@ -857,7 +885,7 @@ func (m *memStore) UpsertPod(_ context.Context, in PodCreate) (Pod, UpsertOutcom
 	}
 	m.podsByID[id] = p
 	m.podsByNatKey[key] = id
-	return p, OutcomeBusinessChanged, nil
+	return p, OutcomeInserted, nil
 }
 
 func (m *memStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
