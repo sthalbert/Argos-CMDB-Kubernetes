@@ -4450,27 +4450,51 @@ func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentV
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, err
+		return api.PersistentVolumeClaim{}, api.OutcomeNoChange, err
 	}
 
+	// AUDIT_BUSINESS_FIELDS: phase, storage_class_name, volume_name,
+	// bound_volume_id, access_modes, requested_storage, labels.
+	// updated_at is a clock field — excluded.
 	const q = `
-		INSERT INTO persistent_volume_claims (
-			id, namespace_id, name, phase, storage_class_name,
-			volume_name, bound_volume_id, access_modes, requested_storage,
-			labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			phase              = EXCLUDED.phase,
-			storage_class_name = EXCLUDED.storage_class_name,
-			volume_name        = EXCLUDED.volume_name,
-			bound_volume_id    = EXCLUDED.bound_volume_id,
-			access_modes       = EXCLUDED.access_modes,
-			requested_storage  = EXCLUDED.requested_storage,
-			labels             = EXCLUDED.labels,
-			updated_at         = EXCLUDED.updated_at
-		RETURNING id, namespace_id, name, phase, storage_class_name,
-		          volume_name, bound_volume_id, access_modes, requested_storage,
-		          labels, created_at, updated_at
+		WITH old AS (
+		  SELECT phase, storage_class_name, volume_name, bound_volume_id,
+		         access_modes, requested_storage, labels
+		    FROM persistent_volume_claims WHERE namespace_id=$2 AND name=$3
+		),
+		upserted AS (
+		  INSERT INTO persistent_volume_claims (
+		    id, namespace_id, name, phase, storage_class_name,
+		    volume_name, bound_volume_id, access_modes, requested_storage,
+		    labels, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+		  ON CONFLICT (namespace_id, name) DO UPDATE SET
+		      phase              = EXCLUDED.phase,
+		      storage_class_name = EXCLUDED.storage_class_name,
+		      volume_name        = EXCLUDED.volume_name,
+		      bound_volume_id    = EXCLUDED.bound_volume_id,
+		      access_modes       = EXCLUDED.access_modes,
+		      requested_storage  = EXCLUDED.requested_storage,
+		      labels             = EXCLUDED.labels,
+		      updated_at         = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, name, phase, storage_class_name,
+		            volume_name, bound_volume_id, access_modes, requested_storage,
+		            labels, created_at, updated_at, xmax
+		)
+		SELECT id, namespace_id, name, phase, storage_class_name,
+		       volume_name, bound_volume_id, access_modes, requested_storage,
+		       labels, created_at, updated_at,
+		       (xmax = 0) AS inserted,
+		       (xmax <> 0 AND (
+		           o.phase              IS DISTINCT FROM upserted.phase              OR
+		           o.storage_class_name IS DISTINCT FROM upserted.storage_class_name OR
+		           o.volume_name        IS DISTINCT FROM upserted.volume_name        OR
+		           o.bound_volume_id    IS DISTINCT FROM upserted.bound_volume_id    OR
+		           o.access_modes       IS DISTINCT FROM upserted.access_modes       OR
+		           o.requested_storage  IS DISTINCT FROM upserted.requested_storage  OR
+		           o.labels             IS DISTINCT FROM upserted.labels
+		       )) AS business_changed
+		  FROM upserted LEFT JOIN old o ON true
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name,
@@ -4479,14 +4503,15 @@ func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentV
 		accessModesValue(in.AccessModes), in.RequestedStorage,
 		labelsJSON, now,
 	)
-	pvc, err := scanPersistentVolumeClaim(row)
+	var inserted, businessChanged bool
+	pvc, err := scanPersistentVolumeClaim(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
 	if err != nil {
 		if pErr := classifyPVCFKError(err, in.NamespaceId, in.BoundVolumeId); pErr != nil {
-			return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, pErr
+			return api.PersistentVolumeClaim{}, api.OutcomeNoChange, pErr
 		}
-		return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert pvc: %w", err)
+		return api.PersistentVolumeClaim{}, api.OutcomeNoChange, fmt.Errorf("upsert pvc: %w", err)
 	}
-	return pvc, api.OutcomeBusinessChanged, nil
+	return pvc, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeletePersistentVolumeClaimsNotIn removes namespace-scoped PVCs whose name

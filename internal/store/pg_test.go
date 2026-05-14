@@ -2026,6 +2026,146 @@ func TestPG_UpsertPersistentVolume_OutcomeBusinessChanged_PerField(t *testing.T)
 	}
 }
 
+func TestPG_UpsertPersistentVolumeClaim_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pvc-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := "Bound"
+	_, outcome, err := pg.UpsertPersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
+		NamespaceId: *ns.Id,
+		Name:        "data-0",
+		Phase:       &phase,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertPersistentVolumeClaim_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pvc-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := "Bound"
+	sc := "gp3"
+	vol := "pv-a"
+	modes := []string{"ReadWriteOnce"}
+	req := "5Gi"
+	labels := map[string]string{"tier": "fast"}
+	payload := api.PersistentVolumeClaimCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "data-0",
+		Phase:            &phase,
+		StorageClassName: &sc,
+		VolumeName:       &vol,
+		AccessModes:      &modes,
+		RequestedStorage: &req,
+		Labels:           &labels,
+	}
+
+	if _, _, err := pg.UpsertPersistentVolumeClaim(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertPersistentVolumeClaim(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+//nolint:gocyclo // table-driven covers a representative slice of PVC business fields
+func TestPG_UpsertPersistentVolumeClaim_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pvc-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := "Bound"
+	sc := "gp3"
+	vol := "pv-a"
+	modes := []string{"ReadWriteOnce"}
+	req := "5Gi"
+	labels := map[string]string{"tier": "fast"}
+	base := api.PersistentVolumeClaimCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "data-0",
+		Phase:            &phase,
+		StorageClassName: &sc,
+		VolumeName:       &vol,
+		AccessModes:      &modes,
+		RequestedStorage: &req,
+		Labels:           &labels,
+	}
+	if _, _, err := pg.UpsertPersistentVolumeClaim(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	phase2 := "Lost"
+	sc2 := "io2"
+	vol2 := "pv-b"
+	modes2 := []string{"ReadWriteMany"}
+	req2 := "10Gi"
+	labels2 := map[string]string{"tier": "slow"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.PersistentVolumeClaimCreate)
+	}{
+		{"phase", func(p *api.PersistentVolumeClaimCreate) { p.Phase = &phase2 }},
+		{"storage_class_name", func(p *api.PersistentVolumeClaimCreate) { p.StorageClassName = &sc2 }},
+		{"volume_name", func(p *api.PersistentVolumeClaimCreate) { p.VolumeName = &vol2 }},
+		{"access_modes", func(p *api.PersistentVolumeClaimCreate) { p.AccessModes = &modes2 }},
+		{"requested_storage", func(p *api.PersistentVolumeClaimCreate) { p.RequestedStorage = &req2 }},
+		{"labels", func(p *api.PersistentVolumeClaimCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		m := m
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertPersistentVolumeClaim(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertPersistentVolumeClaim(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+}
+
 // TestPGPodAndWorkloadContainersRoundTrip verifies the new containers JSONB
 // column survives an upsert + read cycle on both Pod and Workload. Each entity
 // type writes its own subset of fields into the generic map: Pod has
