@@ -1031,7 +1031,7 @@ func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workloa
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return Workload{}, OutcomeBusinessChanged, ErrNotFound
+		return Workload{}, OutcomeNoChange, ErrNotFound
 	}
 	key := workloadNatKey(in.NamespaceId, in.Kind, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1039,14 +1039,19 @@ func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workloa
 
 	if existingID, exists := m.workloadsByNatKey[key]; exists {
 		wl := m.workloadsByID[existingID]
+		before := wl
 		wl.Replicas = in.Replicas
 		wl.ReadyReplicas = in.ReadyReplicas
 		wl.Containers = in.Containers
 		wl.Labels = in.Labels
 		wl.Spec = in.Spec
+		businessChanged := !reflect.DeepEqual(before, wl)
 		wl.UpdatedAt = &now
 		m.workloadsByID[existingID] = wl
-		return wl, OutcomeBusinessChanged, nil
+		if businessChanged {
+			return wl, OutcomeBusinessChanged, nil
+		}
+		return wl, OutcomeNoChange, nil
 	}
 
 	id := uuid.New()
@@ -1065,7 +1070,7 @@ func (m *memStore) UpsertWorkload(_ context.Context, in WorkloadCreate) (Workloa
 	}
 	m.workloadsByID[id] = wl
 	m.workloadsByNatKey[key] = id
-	return wl, OutcomeBusinessChanged, nil
+	return wl, OutcomeInserted, nil
 }
 
 func (m *memStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
@@ -1194,21 +1199,26 @@ func (m *memStore) UpsertIngress(_ context.Context, in IngressCreate) (Ingress, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return Ingress{}, OutcomeBusinessChanged, ErrNotFound
+		return Ingress{}, OutcomeNoChange, ErrNotFound
 	}
 	key := ingressNatKey(in.NamespaceId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
 	m.createdN++
 	if existingID, exists := m.ingressesByNatKey[key]; exists {
 		i := m.ingressesByID[existingID]
+		before := i
 		i.IngressClassName = in.IngressClassName
 		i.Rules = in.Rules
 		i.Tls = in.Tls
 		i.LoadBalancer = in.LoadBalancer
 		i.Labels = in.Labels
+		businessChanged := !reflect.DeepEqual(before, i)
 		i.UpdatedAt = &now
 		m.ingressesByID[existingID] = i
-		return i, OutcomeBusinessChanged, nil
+		if businessChanged {
+			return i, OutcomeBusinessChanged, nil
+		}
+		return i, OutcomeNoChange, nil
 	}
 	id := uuid.New()
 	i := Ingress{
@@ -1225,7 +1235,7 @@ func (m *memStore) UpsertIngress(_ context.Context, in IngressCreate) (Ingress, 
 	}
 	m.ingressesByID[id] = i
 	m.ingressesByNatKey[key] = id
-	return i, OutcomeBusinessChanged, nil
+	return i, OutcomeInserted, nil
 }
 
 func (m *memStore) DeleteIngressesNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
@@ -1357,22 +1367,27 @@ func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return Service{}, OutcomeBusinessChanged, ErrNotFound
+		return Service{}, OutcomeNoChange, ErrNotFound
 	}
 	key := serviceNatKey(in.NamespaceId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
 	m.createdN++
 	if existingID, exists := m.servicesByNatKey[key]; exists {
 		s := m.servicesByID[existingID]
+		before := s
 		s.Type = in.Type
 		s.ClusterIp = in.ClusterIp
 		s.Selector = in.Selector
 		s.Ports = in.Ports
 		s.LoadBalancer = in.LoadBalancer
 		s.Labels = in.Labels
+		businessChanged := !reflect.DeepEqual(before, s)
 		s.UpdatedAt = &now
 		m.servicesByID[existingID] = s
-		return s, OutcomeBusinessChanged, nil
+		if businessChanged {
+			return s, OutcomeBusinessChanged, nil
+		}
+		return s, OutcomeNoChange, nil
 	}
 	id := uuid.New()
 	s := Service{
@@ -1390,7 +1405,7 @@ func (m *memStore) UpsertService(_ context.Context, in ServiceCreate) (Service, 
 	}
 	m.servicesByID[id] = s
 	m.servicesByNatKey[key] = id
-	return s, OutcomeBusinessChanged, nil
+	return s, OutcomeInserted, nil
 }
 
 func (m *memStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
@@ -1419,7 +1434,7 @@ func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Names
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
-		return Namespace{}, OutcomeBusinessChanged, ErrNotFound
+		return Namespace{}, OutcomeNoChange, ErrNotFound
 	}
 	key := nsNatKey(in.ClusterId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1427,12 +1442,17 @@ func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Names
 
 	if existingID, exists := m.nsByNatKey[key]; exists {
 		n := m.nsByID[existingID]
+		before := n
 		n.DisplayName = in.DisplayName
 		n.Phase = in.Phase
 		n.Labels = in.Labels
+		businessChanged := !reflect.DeepEqual(before, n)
 		n.UpdatedAt = &now
 		m.nsByID[existingID] = n
-		return n, OutcomeBusinessChanged, nil
+		if businessChanged {
+			return n, OutcomeBusinessChanged, nil
+		}
+		return n, OutcomeNoChange, nil
 	}
 
 	id := uuid.New()
@@ -1453,7 +1473,7 @@ func (m *memStore) UpsertNamespace(_ context.Context, in NamespaceCreate) (Names
 	}
 	m.nsByID[id] = n
 	m.nsByNatKey[key] = id
-	return n, OutcomeBusinessChanged, nil
+	return n, OutcomeInserted, nil
 }
 
 func (m *memStore) DeleteNodesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
@@ -1504,7 +1524,7 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, UpsertOut
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
-		return Node{}, OutcomeBusinessChanged, ErrNotFound
+		return Node{}, OutcomeNoChange, ErrNotFound
 	}
 	key := nodeNatKey(in.ClusterId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1512,14 +1532,19 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, UpsertOut
 
 	if existingID, exists := m.nodesByNatKey[key]; exists {
 		n := m.nodesByID[existingID]
+		before := n
 		// On conflict: copy only collector-owned fields. Mirrors the
 		// DO UPDATE SET clause on the PG side so operator-set curated
 		// columns (owner / criticality / notes / runbook_url /
 		// annotations / hardware_model) survive the collector's tick.
 		copyNodeCollectorFieldsFromCreate(&n, in)
+		businessChanged := !reflect.DeepEqual(before, n)
 		n.UpdatedAt = &now
 		m.nodesByID[existingID] = n
-		return n, OutcomeBusinessChanged, nil
+		if businessChanged {
+			return n, OutcomeBusinessChanged, nil
+		}
+		return n, OutcomeNoChange, nil
 	}
 
 	id := uuid.New()
@@ -1533,7 +1558,7 @@ func (m *memStore) UpsertNode(_ context.Context, in NodeCreate) (Node, UpsertOut
 	copyNodeMutableFromCreate(&n, in)
 	m.nodesByID[id] = n
 	m.nodesByNatKey[key] = id
-	return n, OutcomeBusinessChanged, nil
+	return n, OutcomeInserted, nil
 }
 
 func pvNatKey(clusterID uuid.UUID, name string) string {
@@ -1681,7 +1706,7 @@ func (m *memStore) UpsertPersistentVolume(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.byID[in.ClusterId]; !ok {
-		return PersistentVolume{}, OutcomeBusinessChanged, ErrNotFound
+		return PersistentVolume{}, OutcomeNoChange, ErrNotFound
 	}
 	key := pvNatKey(in.ClusterId, in.Name)
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -1689,6 +1714,7 @@ func (m *memStore) UpsertPersistentVolume(
 
 	if existingID, exists := m.pvsByNatKey[key]; exists {
 		pv := m.pvsByID[existingID]
+		before := pv
 		pv.Capacity = in.Capacity
 		pv.AccessModes = in.AccessModes
 		pv.ReclaimPolicy = in.ReclaimPolicy
@@ -1699,9 +1725,13 @@ func (m *memStore) UpsertPersistentVolume(
 		pv.ClaimRefNamespace = in.ClaimRefNamespace
 		pv.ClaimRefName = in.ClaimRefName
 		pv.Labels = in.Labels
+		businessChanged := !reflect.DeepEqual(before, pv)
 		pv.UpdatedAt = &now
 		m.pvsByID[existingID] = pv
-		return pv, OutcomeBusinessChanged, nil
+		if businessChanged {
+			return pv, OutcomeBusinessChanged, nil
+		}
+		return pv, OutcomeNoChange, nil
 	}
 
 	id := uuid.New()
@@ -1724,7 +1754,7 @@ func (m *memStore) UpsertPersistentVolume(
 	}
 	m.pvsByID[id] = pv
 	m.pvsByNatKey[key] = id
-	return pv, OutcomeBusinessChanged, nil
+	return pv, OutcomeInserted, nil
 }
 
 func (m *memStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
@@ -1882,11 +1912,11 @@ func (m *memStore) UpsertPersistentVolumeClaim(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.nsByID[in.NamespaceId]; !ok {
-		return PersistentVolumeClaim{}, OutcomeBusinessChanged, ErrNotFound
+		return PersistentVolumeClaim{}, OutcomeNoChange, ErrNotFound
 	}
 	if in.BoundVolumeId != nil {
 		if _, ok := m.pvsByID[*in.BoundVolumeId]; !ok {
-			return PersistentVolumeClaim{}, OutcomeBusinessChanged, fmt.Errorf("persistent volume %s does not exist: %w", in.BoundVolumeId, ErrNotFound)
+			return PersistentVolumeClaim{}, OutcomeNoChange, fmt.Errorf("persistent volume %s does not exist: %w", in.BoundVolumeId, ErrNotFound)
 		}
 	}
 	key := pvcNatKey(in.NamespaceId, in.Name)
@@ -1895,6 +1925,7 @@ func (m *memStore) UpsertPersistentVolumeClaim(
 
 	if existingID, exists := m.pvcsByNatKey[key]; exists {
 		pvc := m.pvcsByID[existingID]
+		before := pvc
 		pvc.Phase = in.Phase
 		pvc.StorageClassName = in.StorageClassName
 		pvc.VolumeName = in.VolumeName
@@ -1902,9 +1933,13 @@ func (m *memStore) UpsertPersistentVolumeClaim(
 		pvc.AccessModes = in.AccessModes
 		pvc.RequestedStorage = in.RequestedStorage
 		pvc.Labels = in.Labels
+		businessChanged := !reflect.DeepEqual(before, pvc)
 		pvc.UpdatedAt = &now
 		m.pvcsByID[existingID] = pvc
-		return pvc, OutcomeBusinessChanged, nil
+		if businessChanged {
+			return pvc, OutcomeBusinessChanged, nil
+		}
+		return pvc, OutcomeNoChange, nil
 	}
 
 	id := uuid.New()
@@ -1924,7 +1959,7 @@ func (m *memStore) UpsertPersistentVolumeClaim(
 	}
 	m.pvcsByID[id] = pvc
 	m.pvcsByNatKey[key] = id
-	return pvc, OutcomeBusinessChanged, nil
+	return pvc, OutcomeInserted, nil
 }
 
 func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {

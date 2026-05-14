@@ -395,7 +395,7 @@ func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (C
 		}, nil
 	}
 
-	n, _, err := s.store.UpsertNode(ctx, body)
+	n, outcome, err := s.store.UpsertNode(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateNode404ApplicationProblemPlusJSONResponse{
@@ -408,6 +408,9 @@ func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (C
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	n = withNodeLayer(n)
 
@@ -519,7 +522,7 @@ func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequest
 		}, nil
 	}
 
-	n, _, err := s.store.UpsertNamespace(ctx, body)
+	n, outcome, err := s.store.UpsertNamespace(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateNamespace404ApplicationProblemPlusJSONResponse{
@@ -532,6 +535,9 @@ func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequest
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	n = withNamespaceLayer(n)
 
@@ -785,7 +791,7 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 		}, nil
 	}
 
-	wl, _, err := s.store.UpsertWorkload(ctx, body)
+	wl, outcome, err := s.store.UpsertWorkload(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateWorkload404ApplicationProblemPlusJSONResponse{
@@ -798,6 +804,9 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	wl = withWorkloadLayer(wl)
 
@@ -909,7 +918,7 @@ func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObje
 		}, nil
 	}
 
-	svc, _, err := s.store.UpsertService(ctx, body)
+	svc, outcome, err := s.store.UpsertService(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateService404ApplicationProblemPlusJSONResponse{
@@ -922,6 +931,9 @@ func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObje
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	svc = withServiceLayer(svc)
 
@@ -1026,7 +1038,7 @@ func (s *Server) CreateIngress(ctx context.Context, req CreateIngressRequestObje
 		}, nil
 	}
 
-	ing, _, err := s.store.UpsertIngress(ctx, body)
+	ing, outcome, err := s.store.UpsertIngress(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateIngress404ApplicationProblemPlusJSONResponse{
@@ -1039,6 +1051,9 @@ func (s *Server) CreateIngress(ctx context.Context, req CreateIngressRequestObje
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	ing = withIngressLayer(ing)
 
@@ -1143,7 +1158,7 @@ func (s *Server) CreatePersistentVolume(ctx context.Context, req CreatePersisten
 		}, nil
 	}
 
-	pv, _, err := s.store.UpsertPersistentVolume(ctx, body)
+	pv, outcome, err := s.store.UpsertPersistentVolume(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePersistentVolume404ApplicationProblemPlusJSONResponse{
@@ -1156,6 +1171,9 @@ func (s *Server) CreatePersistentVolume(ctx context.Context, req CreatePersisten
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	pv = withPersistentVolumeLayer(pv)
 
@@ -1256,7 +1274,7 @@ func (s *Server) CreatePersistentVolumeClaim(
 		}, nil
 	}
 
-	pvc, _, err := s.store.UpsertPersistentVolumeClaim(ctx, body)
+	pvc, outcome, err := s.store.UpsertPersistentVolumeClaim(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePersistentVolumeClaim404ApplicationProblemPlusJSONResponse{
@@ -1269,6 +1287,9 @@ func (s *Server) CreatePersistentVolumeClaim(
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	pvc = withPersistentVolumeClaimLayer(pvc)
 
