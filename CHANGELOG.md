@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.19.2](https://github.com/sthalbert/Longue-Vue/compare/v0.19.1...v0.19.2) (2026-05-12)
+
+
+### Bug Fixes
+
+* **ui:** keep wide tables inside the viewport and reclaim wasted left gutter ([7fc2a18](https://github.com/sthalbert/Longue-Vue/commit/7fc2a18f8d868cc1bc52c35fa3732cc052a0e692))
+* **ui:** keep wide tables inside the viewport and reclaim wasted left… ([d038518](https://github.com/sthalbert/Longue-Vue/commit/d0385185b3bdc9979b5da541a4fd3f14b8cba0c8))
+
 ## [0.19.1](https://github.com/sthalbert/Longue-Vue/compare/v0.19.0...v0.19.1) (2026-05-11)
 
 
