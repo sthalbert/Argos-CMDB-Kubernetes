@@ -6,6 +6,8 @@ on:
   pull_request:
   schedule:
     - cron: "23 4 * * 1"
+  # Manual re-trigger escape hatch for missed push events (see ci.yml).
+  workflow_dispatch:
 
 permissions:
   contents: read
