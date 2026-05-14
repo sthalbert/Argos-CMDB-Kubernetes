@@ -286,9 +286,12 @@ and implemented as a follow-up PR series:
 
 - **IMP-005**: **Audit trail**: changes to classification fields land
   in `audit_events` automatically — the audit middleware (ADR-0007
-  follow-up) already records every PATCH with a scrubbed body. The
-  body diff will include the before/after DICT values, which is
-  exactly what an SNC assessor needs to verify §8.3 traceability.
+  follow-up) records every **state-changing** write (ADR-0024
+  refinement: idempotent no-op upserts are filtered, but any PATCH
+  that mutates a classification field necessarily changes business
+  state and is therefore recorded with a scrubbed body). The body diff
+  will include the before/after DICT values, which is exactly what an
+  SNC assessor needs to verify §8.3 traceability.
 
 - **IMP-006**: **Dependency-Track integration for §8.1.c**: document
   in `docs/compliance/snc-chapter-8.md` that the CMDB's role is to
