@@ -531,6 +531,10 @@ func HandleReconcileVirtualMachines(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
+		if n == 0 {
+			SetAuditSkipReason(r.Context(), "reconcile_empty")
+			SetAuditSkip(r.Context())
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"tombstoned": n})
 	}
 }
