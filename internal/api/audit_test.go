@@ -226,17 +226,19 @@ func TestListAuditEventsHandler(t *testing.T) {
 	}
 }
 
-// postEmptyJSON POSTs an empty JSON body to url with context bound to the
-// test deadline. Wrapper exists so callers don't trip the noctx linter
-// on http.Post; tests in this file only ever send `{}`.
-func postEmptyJSON(t *testing.T, url string) (*http.Response, error) {
+// postEmptyJSON POSTs an empty JSON body to srv with context bound to the
+// test deadline. Uses srv.Client() instead of http.DefaultClient so parallel
+// subtests don't race on httptest.Server.Close(), which calls
+// CloseIdleConnections on http.DefaultTransport and can rip a connection
+// out from under a sibling subtest's in-flight request.
+func postEmptyJSON(t *testing.T, srv *httptest.Server, path string) (*http.Response, error) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, strings.NewReader(`{}`))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+path, strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return http.DefaultClient.Do(req) //nolint:wrapcheck // pass-through helper for tests
+	return srv.Client().Do(req) //nolint:wrapcheck // pass-through helper for tests
 }
 
 type recorderStub struct{ inserts atomic.Int32 }
@@ -258,7 +260,7 @@ func TestAuditMiddleware_SkipRespected(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	resp, err := postEmptyJSON(t, srv.URL+"/v1/pods")
+	resp, err := postEmptyJSON(t, srv, "/v1/pods")
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
@@ -280,7 +282,7 @@ func TestAuditMiddleware_SkipBypassedOnError(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	resp, err := postEmptyJSON(t, srv.URL+"/v1/pods")
+	resp, err := postEmptyJSON(t, srv, "/v1/pods")
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
@@ -309,7 +311,7 @@ func TestAuditMiddleware_SkipBypassedOnAuthPath(t *testing.T) {
 			srv := httptest.NewServer(h)
 			defer srv.Close()
 
-			resp, err := postEmptyJSON(t, srv.URL+p)
+			resp, err := postEmptyJSON(t, srv, p)
 			if err != nil {
 				t.Fatalf("post: %v", err)
 			}
@@ -332,7 +334,7 @@ func TestAuditMiddleware_NoSkipKeepsExistingBehaviour(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	resp, err := postEmptyJSON(t, srv.URL+"/v1/pods")
+	resp, err := postEmptyJSON(t, srv, "/v1/pods")
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
