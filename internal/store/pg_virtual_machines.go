@@ -44,7 +44,7 @@ const vmColumns = `id, cloud_account_id,
 // already known as a Kubernetes node.
 //
 //nolint:gocritic // hugeParam: Store interface requires value param; insert columns are inherently long
-func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpsert) (api.VirtualMachine, error) {
+func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpsert) (api.VirtualMachine, api.UpsertOutcome, error) {
 	// Server-side dedup. Outscale's CCM sets node.spec.providerID to a
 	// string containing the VmId, e.g. "aws:///<az>/i-96fff41b". A
 	// substring match catches every observed format.
@@ -61,17 +61,25 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 	//     the validator, the SQL is still safe.
 	if in.ProviderVMID != "" {
 		if !validProviderVMID(in.ProviderVMID) {
-			return api.VirtualMachine{}, fmt.Errorf("provider_vm_id %q contains disallowed characters: %w", in.ProviderVMID, api.ErrConflict)
+			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf(
+				"provider_vm_id %q contains disallowed characters: %w",
+				in.ProviderVMID,
+				api.ErrConflict,
+			)
 		}
 		var existsCount int
 		if err := p.pool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM nodes WHERE provider_id LIKE '%' || $1 || '%' ESCAPE '\'`,
 			escapeLIKE(in.ProviderVMID),
 		).Scan(&existsCount); err != nil {
-			return api.VirtualMachine{}, fmt.Errorf("dedup check against nodes: %w", err)
+			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("dedup check against nodes: %w", err)
 		}
 		if existsCount > 0 {
-			return api.VirtualMachine{}, fmt.Errorf("provider_vm_id %q already inventoried as a node: %w", in.ProviderVMID, api.ErrConflict)
+			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf(
+				"provider_vm_id %q already inventoried as a node: %w",
+				in.ProviderVMID,
+				api.ErrConflict,
+			)
 		}
 	}
 
@@ -84,80 +92,155 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 
 	tagsJSON, err := marshalStringMap(in.Tags)
 	if err != nil {
-		return api.VirtualMachine{}, fmt.Errorf("marshal tags: %w", err)
+		return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("marshal tags: %w", err)
 	}
 	labelsJSON, err := marshalStringMap(in.Labels)
 	if err != nil {
-		return api.VirtualMachine{}, fmt.Errorf("marshal labels: %w", err)
+		return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("marshal labels: %w", err)
 	}
 
+	// AUDIT_BUSINESS_FIELDS: name, role, private_ip, public_ip,
+	// private_dns_name, vpc_id, subnet_id, nics, security_groups,
+	// instance_type, architecture, zone, region, image_id, image_name,
+	// keypair_name, boot_mode, provider_account_id, provider_creation_date,
+	// power_state, state_reason, ready, deletion_protection, kernel_version,
+	// operating_system, capacity_cpu, capacity_memory, block_devices,
+	// root_device_type, root_device_name, tags, labels, terminated_at
+	// (restore flips it). Excluded: applications (curator-only, never
+	// written by collector); last_seen_at and updated_at (clock fields);
+	// owner/criticality/notes/runbook_url/annotations/display_name
+	// (curator metadata, never overwritten by collector upsert).
 	const q = `
-		INSERT INTO virtual_machines (
-			id, cloud_account_id,
-			provider_vm_id, name, display_name, role,
-			private_ip, public_ip, private_dns_name, vpc_id, subnet_id,
-			nics, security_groups,
-			instance_type, architecture, zone, region,
-			image_id, image_name, keypair_name, boot_mode, provider_account_id, provider_creation_date,
-			power_state, state_reason, ready, deletion_protection,
-			kernel_version, operating_system,
-			capacity_cpu, capacity_memory,
-			block_devices, root_device_type, root_device_name,
-			tags, labels, annotations,
-			created_at, updated_at, last_seen_at
-		) VALUES (
-			$1, $2,
-			$3, $4, NULL, $5,
-			$6, $7, $8, $9, $10,
-			$11, $12,
-			$13, $14, $15, $16,
-			$17, $18, $19, $20, $21, $22,
-			$23, $24, $25, $26,
-			$27, $28,
-			$29, $30,
-			$31, $32, $33,
-			$34, $35, '{}'::jsonb,
-			$36, $36, $36
+		WITH old AS (
+		  SELECT name, role, private_ip, public_ip, private_dns_name,
+		         vpc_id, subnet_id, nics, security_groups,
+		         instance_type, architecture, zone, region,
+		         image_id, image_name, keypair_name, boot_mode,
+		         provider_account_id, provider_creation_date,
+		         power_state, state_reason, ready, deletion_protection,
+		         kernel_version, operating_system,
+		         capacity_cpu, capacity_memory,
+		         block_devices, root_device_type, root_device_name,
+		         tags, labels, terminated_at
+		    FROM virtual_machines
+		    WHERE cloud_account_id=$2 AND provider_vm_id=$3
+		),
+		upserted AS (
+		  INSERT INTO virtual_machines (
+		    id, cloud_account_id,
+		    provider_vm_id, name, display_name, role,
+		    private_ip, public_ip, private_dns_name, vpc_id, subnet_id,
+		    nics, security_groups,
+		    instance_type, architecture, zone, region,
+		    image_id, image_name, keypair_name, boot_mode, provider_account_id, provider_creation_date,
+		    power_state, state_reason, ready, deletion_protection,
+		    kernel_version, operating_system,
+		    capacity_cpu, capacity_memory,
+		    block_devices, root_device_type, root_device_name,
+		    tags, labels, annotations,
+		    created_at, updated_at, last_seen_at
+		  ) VALUES (
+		    $1, $2,
+		    $3, $4, NULL, $5,
+		    $6, $7, $8, $9, $10,
+		    $11, $12,
+		    $13, $14, $15, $16,
+		    $17, $18, $19, $20, $21, $22,
+		    $23, $24, $25, $26,
+		    $27, $28,
+		    $29, $30,
+		    $31, $32, $33,
+		    $34, $35, '{}'::jsonb,
+		    $36, $36, $36
+		  )
+		  ON CONFLICT (cloud_account_id, provider_vm_id) DO UPDATE
+		  SET name                  = EXCLUDED.name,
+		      role                  = COALESCE(virtual_machines.role, EXCLUDED.role),
+		      private_ip            = EXCLUDED.private_ip,
+		      public_ip             = EXCLUDED.public_ip,
+		      private_dns_name      = EXCLUDED.private_dns_name,
+		      vpc_id                = EXCLUDED.vpc_id,
+		      subnet_id             = EXCLUDED.subnet_id,
+		      nics                  = EXCLUDED.nics,
+		      security_groups       = EXCLUDED.security_groups,
+		      instance_type         = EXCLUDED.instance_type,
+		      architecture          = EXCLUDED.architecture,
+		      zone                  = EXCLUDED.zone,
+		      region                = EXCLUDED.region,
+		      image_id              = EXCLUDED.image_id,
+		      image_name            = EXCLUDED.image_name,
+		      keypair_name          = EXCLUDED.keypair_name,
+		      boot_mode             = EXCLUDED.boot_mode,
+		      provider_account_id   = EXCLUDED.provider_account_id,
+		      provider_creation_date= EXCLUDED.provider_creation_date,
+		      power_state           = EXCLUDED.power_state,
+		      state_reason          = EXCLUDED.state_reason,
+		      ready                 = EXCLUDED.ready,
+		      deletion_protection   = EXCLUDED.deletion_protection,
+		      kernel_version        = EXCLUDED.kernel_version,
+		      operating_system      = EXCLUDED.operating_system,
+		      capacity_cpu          = EXCLUDED.capacity_cpu,
+		      capacity_memory       = EXCLUDED.capacity_memory,
+		      block_devices         = EXCLUDED.block_devices,
+		      root_device_type      = EXCLUDED.root_device_type,
+		      root_device_name      = EXCLUDED.root_device_name,
+		      tags                  = EXCLUDED.tags,
+		      labels                = EXCLUDED.labels,
+		      updated_at            = EXCLUDED.updated_at,
+		      last_seen_at          = EXCLUDED.last_seen_at,
+		      terminated_at         = NULL
+		  RETURNING id, name, role, private_ip, public_ip, private_dns_name,
+		            vpc_id, subnet_id, nics, security_groups,
+		            instance_type, architecture, zone, region,
+		            image_id, image_name, keypair_name, boot_mode,
+		            provider_account_id, provider_creation_date,
+		            power_state, state_reason, ready, deletion_protection,
+		            kernel_version, operating_system,
+		            capacity_cpu, capacity_memory,
+		            block_devices, root_device_type, root_device_name,
+		            tags, labels, terminated_at, xmax
 		)
-		ON CONFLICT (cloud_account_id, provider_vm_id) DO UPDATE
-		SET name                  = EXCLUDED.name,
-		    role                  = COALESCE(virtual_machines.role, EXCLUDED.role),
-		    private_ip            = EXCLUDED.private_ip,
-		    public_ip             = EXCLUDED.public_ip,
-		    private_dns_name      = EXCLUDED.private_dns_name,
-		    vpc_id                = EXCLUDED.vpc_id,
-		    subnet_id             = EXCLUDED.subnet_id,
-		    nics                  = EXCLUDED.nics,
-		    security_groups       = EXCLUDED.security_groups,
-		    instance_type         = EXCLUDED.instance_type,
-		    architecture          = EXCLUDED.architecture,
-		    zone                  = EXCLUDED.zone,
-		    region                = EXCLUDED.region,
-		    image_id              = EXCLUDED.image_id,
-		    image_name            = EXCLUDED.image_name,
-		    keypair_name          = EXCLUDED.keypair_name,
-		    boot_mode             = EXCLUDED.boot_mode,
-		    provider_account_id   = EXCLUDED.provider_account_id,
-		    provider_creation_date= EXCLUDED.provider_creation_date,
-		    power_state           = EXCLUDED.power_state,
-		    state_reason          = EXCLUDED.state_reason,
-		    ready                 = EXCLUDED.ready,
-		    deletion_protection   = EXCLUDED.deletion_protection,
-		    kernel_version        = EXCLUDED.kernel_version,
-		    operating_system      = EXCLUDED.operating_system,
-		    capacity_cpu          = EXCLUDED.capacity_cpu,
-		    capacity_memory       = EXCLUDED.capacity_memory,
-		    block_devices         = EXCLUDED.block_devices,
-		    root_device_type      = EXCLUDED.root_device_type,
-		    root_device_name      = EXCLUDED.root_device_name,
-		    tags                  = EXCLUDED.tags,
-		    labels                = EXCLUDED.labels,
-		    updated_at            = EXCLUDED.updated_at,
-		    last_seen_at          = EXCLUDED.last_seen_at,
-		    terminated_at         = NULL
-		RETURNING id
+		SELECT id,
+		       (xmax = 0) AS inserted,
+		       (xmax <> 0 AND (
+		           o.name                  IS DISTINCT FROM upserted.name                  OR
+		           o.role                  IS DISTINCT FROM upserted.role                  OR
+		           o.private_ip            IS DISTINCT FROM upserted.private_ip            OR
+		           o.public_ip             IS DISTINCT FROM upserted.public_ip             OR
+		           o.private_dns_name      IS DISTINCT FROM upserted.private_dns_name      OR
+		           o.vpc_id                IS DISTINCT FROM upserted.vpc_id                OR
+		           o.subnet_id             IS DISTINCT FROM upserted.subnet_id             OR
+		           o.nics                  IS DISTINCT FROM upserted.nics                  OR
+		           o.security_groups       IS DISTINCT FROM upserted.security_groups       OR
+		           o.instance_type         IS DISTINCT FROM upserted.instance_type         OR
+		           o.architecture          IS DISTINCT FROM upserted.architecture          OR
+		           o.zone                  IS DISTINCT FROM upserted.zone                  OR
+		           o.region                IS DISTINCT FROM upserted.region                OR
+		           o.image_id              IS DISTINCT FROM upserted.image_id              OR
+		           o.image_name            IS DISTINCT FROM upserted.image_name            OR
+		           o.keypair_name          IS DISTINCT FROM upserted.keypair_name          OR
+		           o.boot_mode             IS DISTINCT FROM upserted.boot_mode             OR
+		           o.provider_account_id   IS DISTINCT FROM upserted.provider_account_id   OR
+		           o.provider_creation_date IS DISTINCT FROM upserted.provider_creation_date OR
+		           o.power_state           IS DISTINCT FROM upserted.power_state           OR
+		           o.state_reason          IS DISTINCT FROM upserted.state_reason          OR
+		           o.ready                 IS DISTINCT FROM upserted.ready                 OR
+		           o.deletion_protection   IS DISTINCT FROM upserted.deletion_protection   OR
+		           o.kernel_version        IS DISTINCT FROM upserted.kernel_version        OR
+		           o.operating_system      IS DISTINCT FROM upserted.operating_system      OR
+		           o.capacity_cpu          IS DISTINCT FROM upserted.capacity_cpu          OR
+		           o.capacity_memory       IS DISTINCT FROM upserted.capacity_memory       OR
+		           o.block_devices         IS DISTINCT FROM upserted.block_devices         OR
+		           o.root_device_type      IS DISTINCT FROM upserted.root_device_type      OR
+		           o.root_device_name      IS DISTINCT FROM upserted.root_device_name      OR
+		           o.tags                  IS DISTINCT FROM upserted.tags                  OR
+		           o.labels                IS DISTINCT FROM upserted.labels                OR
+		           o.terminated_at         IS DISTINCT FROM upserted.terminated_at
+		       )) AS business_changed
+		  FROM upserted LEFT JOIN old o ON true
 	`
 	var rowID uuid.UUID
+	var inserted, businessChanged bool
 	err = p.pool.QueryRow(ctx, q,
 		id, in.CloudAccountID,
 		in.ProviderVMID, in.Name, in.Role,
@@ -171,11 +254,15 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 		bdJSON, in.RootDeviceType, in.RootDeviceName,
 		tagsJSON, labelsJSON,
 		now,
-	).Scan(&rowID)
+	).Scan(&rowID, &inserted, &businessChanged)
 	if err != nil {
-		return api.VirtualMachine{}, fmt.Errorf("upsert virtual machine: %w", err)
+		return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("upsert virtual machine: %w", err)
 	}
-	return p.GetVirtualMachine(ctx, rowID)
+	vm, err := p.GetVirtualMachine(ctx, rowID)
+	if err != nil {
+		return api.VirtualMachine{}, api.OutcomeNoChange, err
+	}
+	return vm, classifyOutcome(inserted, businessChanged), nil
 }
 
 // GetVirtualMachine fetches a VM by id.

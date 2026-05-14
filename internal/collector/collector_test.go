@@ -203,11 +203,11 @@ func (s *fakeStore) UpdateCluster(_ context.Context, id uuid.UUID, in api.Cluste
 }
 
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface
-func (s *fakeStore) UpsertNode(_ context.Context, in api.NodeCreate) (api.Node, error) {
+func (s *fakeStore) UpsertNode(_ context.Context, in api.NodeCreate) (api.Node, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertErr != nil {
-		return api.Node{}, s.upsertErr
+		return api.Node{}, api.OutcomeBusinessChanged, s.upsertErr
 	}
 	s.upsertedNode = append(s.upsertedNode, in)
 	key := in.ClusterId.String() + "/" + in.Name
@@ -218,7 +218,7 @@ func (s *fakeStore) UpsertNode(_ context.Context, in api.NodeCreate) (api.Node, 
 		ClusterId:      in.ClusterId,
 		Name:           in.Name,
 		KubeletVersion: in.KubeletVersion,
-	}, nil
+	}, api.OutcomeBusinessChanged, nil
 }
 
 func (s *fakeStore) DeleteNodesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
@@ -273,11 +273,11 @@ func (s *fakeStore) DeleteNamespacesNotIn(_ context.Context, clusterID uuid.UUID
 }
 
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface
-func (s *fakeStore) UpsertNamespace(_ context.Context, in api.NamespaceCreate) (api.Namespace, error) {
+func (s *fakeStore) UpsertNamespace(_ context.Context, in api.NamespaceCreate) (api.Namespace, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertNSErr != nil {
-		return api.Namespace{}, s.upsertNSErr
+		return api.Namespace{}, api.OutcomeBusinessChanged, s.upsertNSErr
 	}
 	s.upsertedNS = append(s.upsertedNS, in)
 	key := in.ClusterId.String() + "/" + in.Name
@@ -291,15 +291,15 @@ func (s *fakeStore) UpsertNamespace(_ context.Context, in api.NamespaceCreate) (
 		ClusterId: in.ClusterId,
 		Name:      in.Name,
 		Phase:     in.Phase,
-	}, nil
+	}, api.OutcomeBusinessChanged, nil
 }
 
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface
-func (s *fakeStore) UpsertPod(_ context.Context, in api.PodCreate) (api.Pod, error) {
+func (s *fakeStore) UpsertPod(_ context.Context, in api.PodCreate) (api.Pod, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertPodErr != nil {
-		return api.Pod{}, s.upsertPodErr
+		return api.Pod{}, api.OutcomeBusinessChanged, s.upsertPodErr
 	}
 	s.upsertedPod = append(s.upsertedPod, in)
 	key := in.NamespaceId.String() + "/" + in.Name
@@ -310,7 +310,7 @@ func (s *fakeStore) UpsertPod(_ context.Context, in api.PodCreate) (api.Pod, err
 		NamespaceId: in.NamespaceId,
 		Name:        in.Name,
 		Phase:       in.Phase,
-	}, nil
+	}, api.OutcomeBusinessChanged, nil
 }
 
 func (s *fakeStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
@@ -339,11 +339,11 @@ func (s *fakeStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, ke
 }
 
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface
-func (s *fakeStore) UpsertService(_ context.Context, in api.ServiceCreate) (api.Service, error) {
+func (s *fakeStore) UpsertService(_ context.Context, in api.ServiceCreate) (api.Service, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertServiceErr != nil {
-		return api.Service{}, s.upsertServiceErr
+		return api.Service{}, api.OutcomeBusinessChanged, s.upsertServiceErr
 	}
 	s.upsertedService = append(s.upsertedService, in)
 	key := in.NamespaceId.String() + "/" + in.Name
@@ -354,14 +354,14 @@ func (s *fakeStore) UpsertService(_ context.Context, in api.ServiceCreate) (api.
 		NamespaceId: in.NamespaceId,
 		Name:        in.Name,
 		Type:        in.Type,
-	}, nil
+	}, api.OutcomeBusinessChanged, nil
 }
 
-func (s *fakeStore) UpsertIngress(_ context.Context, in api.IngressCreate) (api.Ingress, error) {
+func (s *fakeStore) UpsertIngress(_ context.Context, in api.IngressCreate) (api.Ingress, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertIngressErr != nil {
-		return api.Ingress{}, s.upsertIngressErr
+		return api.Ingress{}, api.OutcomeBusinessChanged, s.upsertIngressErr
 	}
 	s.upsertedIngress = append(s.upsertedIngress, in)
 	key := in.NamespaceId.String() + "/" + in.Name
@@ -371,7 +371,7 @@ func (s *fakeStore) UpsertIngress(_ context.Context, in api.IngressCreate) (api.
 		Id:          &id,
 		NamespaceId: in.NamespaceId,
 		Name:        in.Name,
-	}, nil
+	}, api.OutcomeBusinessChanged, nil
 }
 
 func (s *fakeStore) DeleteIngressesNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
@@ -425,11 +425,11 @@ func (s *fakeStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID
 }
 
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface
-func (s *fakeStore) UpsertWorkload(_ context.Context, in api.WorkloadCreate) (api.Workload, error) {
+func (s *fakeStore) UpsertWorkload(_ context.Context, in api.WorkloadCreate) (api.Workload, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertWorkloadErr != nil {
-		return api.Workload{}, s.upsertWorkloadErr
+		return api.Workload{}, api.OutcomeBusinessChanged, s.upsertWorkloadErr
 	}
 	s.upsertedWorkload = append(s.upsertedWorkload, in)
 	key := in.NamespaceId.String() + "/" + string(in.Kind) + "/" + in.Name
@@ -440,7 +440,7 @@ func (s *fakeStore) UpsertWorkload(_ context.Context, in api.WorkloadCreate) (ap
 		NamespaceId: in.NamespaceId,
 		Kind:        in.Kind,
 		Name:        in.Name,
-	}, nil
+	}, api.OutcomeBusinessChanged, nil
 }
 
 func (s *fakeStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
@@ -474,11 +474,11 @@ func (s *fakeStore) DeleteWorkloadsNotIn(_ context.Context, namespaceID uuid.UUI
 }
 
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface
-func (s *fakeStore) UpsertPersistentVolume(_ context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
+func (s *fakeStore) UpsertPersistentVolume(_ context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertPVErr != nil {
-		return api.PersistentVolume{}, s.upsertPVErr
+		return api.PersistentVolume{}, api.OutcomeBusinessChanged, s.upsertPVErr
 	}
 	s.upsertedPV = append(s.upsertedPV, in)
 	key := in.ClusterId.String() + "/" + in.Name
@@ -491,7 +491,7 @@ func (s *fakeStore) UpsertPersistentVolume(_ context.Context, in api.PersistentV
 		Id:        &id,
 		ClusterId: in.ClusterId,
 		Name:      in.Name,
-	}, nil
+	}, api.OutcomeBusinessChanged, nil
 }
 
 func (s *fakeStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
@@ -519,12 +519,16 @@ func (s *fakeStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uu
 	return deleted, nil
 }
 
+//
 //nolint:gocritic // hugeParam: signature matches CmdbStore interface
-func (s *fakeStore) UpsertPersistentVolumeClaim(_ context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
+func (s *fakeStore) UpsertPersistentVolumeClaim(
+	_ context.Context,
+	in api.PersistentVolumeClaimCreate,
+) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.upsertPVCErr != nil {
-		return api.PersistentVolumeClaim{}, s.upsertPVCErr
+		return api.PersistentVolumeClaim{}, api.OutcomeBusinessChanged, s.upsertPVCErr
 	}
 	s.upsertedPVC = append(s.upsertedPVC, in)
 	key := in.NamespaceId.String() + "/" + in.Name
@@ -535,7 +539,7 @@ func (s *fakeStore) UpsertPersistentVolumeClaim(_ context.Context, in api.Persis
 		NamespaceId:   in.NamespaceId,
 		Name:          in.Name,
 		BoundVolumeId: in.BoundVolumeId,
-	}, nil
+	}, api.OutcomeBusinessChanged, nil
 }
 
 func (s *fakeStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {

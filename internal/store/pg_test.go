@@ -16,11 +16,21 @@ import (
 
 // Test-scoped string constants to satisfy goconst.
 const (
-	testPhaseActive    = "Active"
-	testKubeletVersion = "v1.30.3"
-	testOwner          = "team-platform"
-	testCriticality    = "critical"
-	testAnnotationSNC  = "snc"
+	testPhaseActive      = "Active"
+	testPhaseRunning     = "Running"
+	testPhaseTerminating = "Terminating"
+	testPhaseBound       = "Bound"
+	testKubeletVersion   = "v1.30.3"
+	testOwner            = "team-platform"
+	testCriticality      = "critical"
+	testAnnotationSNC    = "snc"
+	testIP1              = "10.0.0.1"
+	testImageNginx       = "nginx"
+	testRoleWorker       = "worker"
+	testQty15Gi          = "15Gi"
+	testQty10Gi          = "10Gi"
+	testQty5Gi           = "5Gi"
+	testStorageClassGP3  = "gp3"
 )
 
 // newTestPG returns a PG connected to PGX_TEST_DATABASE, or calls t.Skip
@@ -48,8 +58,10 @@ func newTestPG(t *testing.T) *PG {
 		// auth tables stand on their own so TRUNCATE them alongside.
 		// api_tokens RESTRICTs on user deletion, so truncate them in
 		// order (api_tokens → users gets CASCADEd via sessions / identities).
+		// cloud_accounts is independent of clusters; CASCADE wipes
+		// virtual_machines via FK so the VM upsert tests see a clean slate.
 		_, _ = pg.pool.Exec(context.Background(),
-			"TRUNCATE clusters, image_versions, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
+			"TRUNCATE clusters, cloud_accounts, image_versions, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
 		pg.Close()
 	})
 	return pg
@@ -206,7 +218,7 @@ func TestPGUpsertNode(t *testing.T) {
 	}
 
 	kv1 := "v1.29.5"
-	first, err := pg.UpsertNode(ctx, api.NodeCreate{
+	first, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId:      *cluster.Id,
 		Name:           "node-a",
 		KubeletVersion: &kv1,
@@ -220,7 +232,7 @@ func TestPGUpsertNode(t *testing.T) {
 
 	// Second upsert with new kubelet version must mutate the SAME row.
 	kv2 := "v1.29.6"
-	second, err := pg.UpsertNode(ctx, api.NodeCreate{
+	second, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId:      *cluster.Id,
 		Name:           "node-a",
 		KubeletVersion: &kv2,
@@ -242,7 +254,7 @@ func TestPGUpsertNode(t *testing.T) {
 	}
 
 	// Unknown cluster yields NotFound, not Conflict.
-	if _, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: uuid.New(), Name: "x"}); !errors.Is(err, api.ErrNotFound) {
+	if _, _, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: uuid.New(), Name: "x"}); !errors.Is(err, api.ErrNotFound) {
 		t.Errorf("upsert with unknown cluster: want ErrNotFound, got %v", err)
 	}
 }
@@ -274,7 +286,7 @@ func TestPGNamespaceCRUD(t *testing.T) {
 		t.Errorf("unknown cluster should be ErrNotFound, got %v", err)
 	}
 
-	newPhase := "Terminating"
+	newPhase := testPhaseTerminating
 	updated, err := pg.UpdateNamespace(ctx, *ns.Id, api.NamespaceUpdate{Phase: &newPhase})
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -310,7 +322,7 @@ func TestPGUpsertNamespace(t *testing.T) {
 	}
 
 	phaseA := testPhaseActive
-	first, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	first, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "default",
 		Phase:     &phaseA,
@@ -320,7 +332,7 @@ func TestPGUpsertNamespace(t *testing.T) {
 	}
 
 	phaseB := "Terminating"
-	second, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	second, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      "default",
 		Phase:     &phaseB,
@@ -505,7 +517,7 @@ func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	first, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	first, _, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
@@ -523,7 +535,7 @@ func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("terminated_at should be non-NULL after soft-delete")
 	}
 
-	resurrected, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
+	resurrected, _, err := pg.UpsertNode(ctx, api.NodeCreate{ClusterId: *cluster.Id, Name: "node-a"})
 	if err != nil {
 		t.Fatalf("resurrect upsert: %v", err)
 	}
@@ -551,7 +563,7 @@ func TestPGUpsertNamespace_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	first, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	first, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
@@ -569,7 +581,7 @@ func TestPGUpsertNamespace_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("terminated_at should be non-NULL after soft-delete")
 	}
 
-	resurrected, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	resurrected, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
 	if err != nil {
 		t.Fatalf("resurrect upsert: %v", err)
 	}
@@ -603,7 +615,7 @@ func TestPGUpsertWorkload_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	first, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	first, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
@@ -621,7 +633,7 @@ func TestPGUpsertWorkload_ResurrectsTerminated(t *testing.T) {
 		t.Fatalf("terminated_at should be non-NULL after soft-delete")
 	}
 
-	resurrected, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	resurrected, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
 	if err != nil {
 		t.Fatalf("resurrect upsert: %v", err)
 	}
@@ -686,7 +698,7 @@ func TestPGPodCRUD(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	phase := "Running"
+	phase := testPhaseRunning
 	pod, err := pg.CreatePod(ctx, api.PodCreate{
 		NamespaceId: *ns.Id,
 		Name:        "coredns-abc",
@@ -744,12 +756,12 @@ func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	}
 
 	phaseA := "Pending"
-	first, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseA})
+	first, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseA})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
 	phaseB := "Running"
-	second, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseB})
+	second, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "a", Phase: &phaseB})
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
 	}
@@ -761,7 +773,7 @@ func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	}
 
 	// Seed a second pod then reconcile to keep only one.
-	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
+	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
 		t.Fatalf("create b: %v", err)
 	}
 	deleted, err := pg.DeletePodsNotIn(ctx, *ns.Id, []string{"a"})
@@ -779,6 +791,119 @@ func TestPGUpsertPodAndDeleteNotIn(t *testing.T) {
 	}
 	if deleted != 1 {
 		t.Errorf("deleted=%d on nil keep, want 1", deleted)
+	}
+}
+
+func TestPG_UpsertPod_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pod-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := testPhaseRunning
+	_, outcome, err := pg.UpsertPod(ctx, api.PodCreate{
+		NamespaceId: *ns.Id,
+		Name:        "pod-a",
+		Phase:       &phase,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertPod_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pod-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := testPhaseRunning
+	payload := api.PodCreate{NamespaceId: *ns.Id, Name: "pod-a", Phase: &phase}
+
+	if _, _, err := pg.UpsertPod(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertPod(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertPod_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pod-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phaseRunning := "Running"
+	node1 := "node-1"
+	ip1 := testIP1
+	base := api.PodCreate{
+		NamespaceId: *ns.Id, Name: "pod-a",
+		Phase: &phaseRunning, NodeName: &node1, PodIp: &ip1,
+	}
+	if _, _, err := pg.UpsertPod(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	phasePending := "Pending"
+	node2 := "node-2"
+	ip2 := "10.0.0.2"
+	labels := map[string]string{"k": "v"}
+	containers := api.ContainerList{{"name": "app", "image": "nginx:1.99"}}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.PodCreate)
+	}{
+		{"phase", func(p *api.PodCreate) { p.Phase = &phasePending }},
+		{"node_name", func(p *api.PodCreate) { p.NodeName = &node2 }},
+		{"pod_ip", func(p *api.PodCreate) { p.PodIp = &ip2 }},
+		{"labels", func(p *api.PodCreate) { p.Labels = &labels }},
+		{"containers", func(p *api.PodCreate) { p.Containers = &containers }},
+	}
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertPod(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertPod(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
 	}
 }
 
@@ -873,12 +998,12 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 
 	// Upsert (Deployment, web) twice — id preserved, updated_at advances.
 	r1 := 2
-	first, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r1})
+	first, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r1})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
 	r2 := 4
-	second, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r2})
+	second, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Replicas: &r2})
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
 	}
@@ -890,10 +1015,10 @@ func TestPGUpsertWorkloadAndReconcileByKindName(t *testing.T) {
 	}
 
 	// Seed a StatefulSet with the same name and a DaemonSet — reconcile keeping only Deployment/web.
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.StatefulSet, Name: "web"}); err != nil {
+	if _, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.StatefulSet, Name: "web"}); err != nil {
 		t.Fatalf("sts: %v", err)
 	}
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.DaemonSet, Name: "fluent-bit"}); err != nil {
+	if _, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.DaemonSet, Name: "fluent-bit"}); err != nil {
 		t.Fatalf("ds: %v", err)
 	}
 
@@ -952,7 +1077,7 @@ func TestPGServiceCRUD(t *testing.T) {
 	}
 
 	svcType := api.ClusterIP
-	clusterIP := "10.0.0.1"
+	clusterIP := testIP1
 	svc, err := pg.CreateService(ctx, api.ServiceCreate{
 		NamespaceId: *ns.Id,
 		Name:        "web",
@@ -1005,12 +1130,12 @@ func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	first, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a"})
+	first, _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a"})
 	if err != nil {
 		t.Fatalf("first: %v", err)
 	}
 	newType := api.LoadBalancer
-	second, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a", Type: &newType})
+	second, _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "a", Type: &newType})
 	if err != nil {
 		t.Fatalf("second: %v", err)
 	}
@@ -1021,7 +1146,7 @@ func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
 		t.Errorf("updated_at did not advance")
 	}
 
-	if _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
+	if _, _, err := pg.UpsertService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "b"}); err != nil {
 		t.Fatalf("b: %v", err)
 	}
 	deleted, err := pg.DeleteServicesNotIn(ctx, *ns.Id, []string{"a"})
@@ -1038,6 +1163,1008 @@ func TestPGUpsertServiceAndDeleteNotIn(t *testing.T) {
 	}
 	if deleted != 1 {
 		t.Errorf("nil reconcile deleted=%d, want 1", deleted)
+	}
+}
+
+func TestPG_UpsertService_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "svc-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	clusterIP := testIP1
+	svcType := api.ServiceType("ClusterIP")
+	_, outcome, err := pg.UpsertService(ctx, api.ServiceCreate{
+		NamespaceId: *ns.Id,
+		Name:        "svc-a",
+		Type:        &svcType,
+		ClusterIp:   &clusterIP,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertService_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "svc-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	clusterIP := testIP1
+	svcType := api.ServiceType("ClusterIP")
+	payload := api.ServiceCreate{
+		NamespaceId: *ns.Id,
+		Name:        "svc-a",
+		Type:        &svcType,
+		ClusterIp:   &clusterIP,
+	}
+
+	if _, _, err := pg.UpsertService(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertService(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertService_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "svc-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	clusterIP := testIP1
+	svcType := api.ServiceType("ClusterIP")
+	sel1 := map[string]string{"app": "web"}
+	ports1 := []map[string]interface{}{{"port": float64(80), "protocol": "TCP"}}
+	lb1 := []map[string]interface{}{{"ip": "0.0.0.0"}}
+	labels1 := map[string]string{"env": "prod"}
+	base := api.ServiceCreate{
+		NamespaceId:  *ns.Id,
+		Name:         "svc-a",
+		Type:         &svcType,
+		ClusterIp:    &clusterIP,
+		Selector:     &sel1,
+		Ports:        &ports1,
+		LoadBalancer: &lb1,
+		Labels:       &labels1,
+	}
+	if _, _, err := pg.UpsertService(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	svcType2 := api.ServiceType("NodePort")
+	ip2 := "10.0.0.2"
+	sel2 := map[string]string{"app": "v2"}
+	ports2 := []map[string]interface{}{{"port": float64(8080), "protocol": "TCP"}}
+	lb2 := []map[string]interface{}{{"ip": "1.2.3.4"}}
+	labels2 := map[string]string{"k": "v"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.ServiceCreate)
+	}{
+		{"type", func(p *api.ServiceCreate) { p.Type = &svcType2 }},
+		{"cluster_ip", func(p *api.ServiceCreate) { p.ClusterIp = &ip2 }},
+		{"selector", func(p *api.ServiceCreate) { p.Selector = &sel2 }},
+		{"ports", func(p *api.ServiceCreate) { p.Ports = &ports2 }},
+		{"load_balancer", func(p *api.ServiceCreate) { p.LoadBalancer = &lb2 }},
+		{"labels", func(p *api.ServiceCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertService(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertService(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+}
+
+func TestPG_UpsertWorkload_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "wl-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	replicas := 3
+	_, outcome, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id,
+		Kind:        api.Deployment,
+		Name:        "wl-a",
+		Replicas:    &replicas,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertWorkload_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "wl-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	replicas := 3
+	readyReplicas := 2
+	containers := api.ContainerList{{"name": "app", "image": "nginx:1.27"}}
+	labels := map[string]string{"k": "v"}
+	spec := map[string]interface{}{"strategy": "RollingUpdate"}
+	payload := api.WorkloadCreate{
+		NamespaceId:   *ns.Id,
+		Kind:          api.Deployment,
+		Name:          "wl-a",
+		Replicas:      &replicas,
+		ReadyReplicas: &readyReplicas,
+		Containers:    &containers,
+		Labels:        &labels,
+		Spec:          &spec,
+	}
+
+	if _, _, err := pg.UpsertWorkload(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertWorkload(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+//nolint:gocyclo // table-driven covers a representative slice of workload business fields
+func TestPG_UpsertWorkload_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "wl-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	replicas := 3
+	readyReplicas := 2
+	containers := api.ContainerList{{"name": "app", "image": "nginx:1.27"}}
+	labels := map[string]string{"k": "v"}
+	spec := map[string]interface{}{"strategy": "RollingUpdate"}
+	base := api.WorkloadCreate{
+		NamespaceId:   *ns.Id,
+		Kind:          api.Deployment,
+		Name:          "wl-a",
+		Replicas:      &replicas,
+		ReadyReplicas: &readyReplicas,
+		Containers:    &containers,
+		Labels:        &labels,
+		Spec:          &spec,
+	}
+	if _, _, err := pg.UpsertWorkload(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	replicas2 := 5
+	readyReplicas2 := 4
+	containers2 := api.ContainerList{{"name": "app", "image": "nginx:1.28"}}
+	labels2 := map[string]string{"k": "v2"}
+	spec2 := map[string]interface{}{"strategy": "Recreate"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.WorkloadCreate)
+	}{
+		{"replicas", func(p *api.WorkloadCreate) { p.Replicas = &replicas2 }},
+		{"ready_replicas", func(p *api.WorkloadCreate) { p.ReadyReplicas = &readyReplicas2 }},
+		{"containers", func(p *api.WorkloadCreate) { p.Containers = &containers2 }},
+		{"labels", func(p *api.WorkloadCreate) { p.Labels = &labels2 }},
+		{"spec", func(p *api.WorkloadCreate) { p.Spec = &spec2 }},
+	}
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertWorkload(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertWorkload(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+
+	// terminated_at restore: soft-delete then re-upsert should be BusinessChanged
+	// because terminated_at flips from non-NULL -> NULL.
+	t.Run("terminated_at_restore", func(t *testing.T) {
+		// Soft-delete by excluding this workload from the keep list.
+		if _, err := pg.DeleteWorkloadsNotIn(ctx, *ns.Id,
+			[]string{"OtherKind"}, []string{"never"}); err != nil {
+			t.Fatalf("soft-delete: %v", err)
+		}
+		// Re-upsert the same base payload — terminated_at flips NULL.
+		_, outcome, err := pg.UpsertWorkload(ctx, base)
+		if err != nil {
+			t.Fatalf("restore upsert: %v", err)
+		}
+		if outcome != api.OutcomeBusinessChanged {
+			t.Errorf("restore upsert outcome = %v, want BusinessChanged", outcome)
+		}
+		// Reset for any subsequent sub-tests (none here, but keeps invariant).
+		if _, _, err := pg.UpsertWorkload(ctx, base); err != nil {
+			t.Fatalf("reset after restore: %v", err)
+		}
+	})
+}
+
+func TestPG_UpsertIngress_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ing-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	cls := testImageNginx
+	_, outcome, err := pg.UpsertIngress(ctx, api.IngressCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "ing-a",
+		IngressClassName: &cls,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertIngress_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ing-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	cls := testImageNginx
+	rules := []map[string]interface{}{{"host": "a.example"}}
+	tls := []map[string]interface{}{{"secretName": "tls-a"}}
+	lb := []map[string]interface{}{{"ip": "1.2.3.4"}}
+	labels := map[string]string{"env": "prod"}
+	payload := api.IngressCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "ing-a",
+		IngressClassName: &cls,
+		Rules:            &rules,
+		Tls:              &tls,
+		LoadBalancer:     &lb,
+		Labels:           &labels,
+	}
+
+	if _, _, err := pg.UpsertIngress(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertIngress(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertIngress_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ing-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	cls := testImageNginx
+	rules1 := []map[string]interface{}{{"host": "a.example"}}
+	tls1 := []map[string]interface{}{{"secretName": "tls-a"}}
+	lb1 := []map[string]interface{}{{"ip": "1.2.3.4"}}
+	labels1 := map[string]string{"k": "v"}
+	base := api.IngressCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "ing-a",
+		IngressClassName: &cls,
+		Rules:            &rules1,
+		Tls:              &tls1,
+		LoadBalancer:     &lb1,
+		Labels:           &labels1,
+	}
+	if _, _, err := pg.UpsertIngress(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	cls2 := "traefik"
+	rules2 := []map[string]interface{}{{"host": "b.example"}}
+	tls2 := []map[string]interface{}{{"secretName": "tls-b"}}
+	lb2 := []map[string]interface{}{{"ip": "5.6.7.8"}}
+	labels2 := map[string]string{"k": "v2"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.IngressCreate)
+	}{
+		{"ingress_class_name", func(p *api.IngressCreate) { p.IngressClassName = &cls2 }},
+		{"rules", func(p *api.IngressCreate) { p.Rules = &rules2 }},
+		{"tls", func(p *api.IngressCreate) { p.Tls = &tls2 }},
+		{"load_balancer", func(p *api.IngressCreate) { p.LoadBalancer = &lb2 }},
+		{"labels", func(p *api.IngressCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertIngress(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertIngress(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+}
+
+func TestPG_UpsertNode_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "node-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	role := testRoleWorker
+	_, outcome, err := pg.UpsertNode(ctx, api.NodeCreate{
+		ClusterId: *cluster.Id,
+		Name:      "node-a",
+		Role:      &role,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertNode_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "node-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	role := testRoleWorker
+	kubeletV := "v1.29.0"
+	providerID := "aws:///us-east-1a/i-0123456789abcdef"
+	capCPU := "8"
+	allocMem := testQty15Gi
+	unsched := false
+	ready := true
+	conditions := []map[string]interface{}{{"type": "Ready", "status": "True"}}
+	taints := []map[string]interface{}{{"key": "dedicated", "value": "gpu", "effect": "NoSchedule"}}
+	labels := map[string]string{"env": "prod"}
+	payload := api.NodeCreate{
+		ClusterId:         *cluster.Id,
+		Name:              "node-a",
+		Role:              &role,
+		KubeletVersion:    &kubeletV,
+		ProviderId:        &providerID,
+		CapacityCpu:       &capCPU,
+		AllocatableMemory: &allocMem,
+		Unschedulable:     &unsched,
+		Ready:             &ready,
+		Conditions:        &conditions,
+		Taints:            &taints,
+		Labels:            &labels,
+	}
+
+	if _, _, err := pg.UpsertNode(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertNode(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertNode_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "node-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	displayName := "node-a.example"
+	role := testRoleWorker
+	kubeletV := "v1.29.0"
+	providerID := "aws:///us-east-1a/i-0123456789abcdef"
+	capCPU := "8"
+	allocMem := testQty15Gi
+	unsched := false
+	ready := true
+	conditions := []map[string]interface{}{{"type": "Ready", "status": "True"}}
+	taints := []map[string]interface{}{{"key": "dedicated", "value": "gpu", "effect": "NoSchedule"}}
+	labels := map[string]string{"env": "prod"}
+	base := api.NodeCreate{
+		ClusterId:         *cluster.Id,
+		Name:              "node-a",
+		DisplayName:       &displayName,
+		Role:              &role,
+		KubeletVersion:    &kubeletV,
+		ProviderId:        &providerID,
+		CapacityCpu:       &capCPU,
+		AllocatableMemory: &allocMem,
+		Unschedulable:     &unsched,
+		Ready:             &ready,
+		Conditions:        &conditions,
+		Taints:            &taints,
+		Labels:            &labels,
+	}
+	if _, _, err := pg.UpsertNode(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	displayName2 := "node-a.alt.example"
+	role2 := "control-plane"
+	kubeletV2 := "v1.30.1"
+	providerID2 := "aws:///us-east-1b/i-99999999"
+	capCPU2 := "16"
+	allocMem2 := "30Gi"
+	unsched2 := true
+	ready2 := false
+	conditions2 := []map[string]interface{}{{"type": "Ready", "status": "False"}}
+	taints2 := []map[string]interface{}{{"key": "dedicated", "value": "cpu", "effect": "NoSchedule"}}
+	labels2 := map[string]string{"env": "stage"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.NodeCreate)
+	}{
+		{"display_name", func(p *api.NodeCreate) { p.DisplayName = &displayName2 }},
+		{"role", func(p *api.NodeCreate) { p.Role = &role2 }},
+		{"kubelet_version", func(p *api.NodeCreate) { p.KubeletVersion = &kubeletV2 }},
+		{"provider_id", func(p *api.NodeCreate) { p.ProviderId = &providerID2 }},
+		{"capacity_cpu", func(p *api.NodeCreate) { p.CapacityCpu = &capCPU2 }},
+		{"allocatable_memory", func(p *api.NodeCreate) { p.AllocatableMemory = &allocMem2 }},
+		{"unschedulable", func(p *api.NodeCreate) { p.Unschedulable = &unsched2 }},
+		{"ready", func(p *api.NodeCreate) { p.Ready = &ready2 }},
+		{"conditions", func(p *api.NodeCreate) { p.Conditions = &conditions2 }},
+		{"taints", func(p *api.NodeCreate) { p.Taints = &taints2 }},
+		{"labels", func(p *api.NodeCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertNode(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertNode(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+
+	// terminated_at restore: soft-delete then re-upsert should be BusinessChanged
+	// because terminated_at flips from non-NULL -> NULL.
+	t.Run("terminated_at_restore", func(t *testing.T) {
+		if _, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, nil); err != nil {
+			t.Fatalf("soft-delete: %v", err)
+		}
+		_, outcome, err := pg.UpsertNode(ctx, base)
+		if err != nil {
+			t.Fatalf("restore upsert: %v", err)
+		}
+		if outcome != api.OutcomeBusinessChanged {
+			t.Errorf("restore upsert outcome = %v, want BusinessChanged", outcome)
+		}
+	})
+}
+
+func TestPG_UpsertNamespace_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ns-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	phase := testPhaseActive
+	_, outcome, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+		ClusterId: *cluster.Id,
+		Name:      "default",
+		Phase:     &phase,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertNamespace_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ns-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	displayName := "Default"
+	phase := testPhaseActive
+	labels := map[string]string{"team": "platform"}
+	payload := api.NamespaceCreate{
+		ClusterId:   *cluster.Id,
+		Name:        "default",
+		DisplayName: &displayName,
+		Phase:       &phase,
+		Labels:      &labels,
+	}
+
+	if _, _, err := pg.UpsertNamespace(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertNamespace(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertNamespace_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ns-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	displayName := "Default"
+	phase := testPhaseActive
+	labels := map[string]string{"team": "platform"}
+	base := api.NamespaceCreate{
+		ClusterId:   *cluster.Id,
+		Name:        "default",
+		DisplayName: &displayName,
+		Phase:       &phase,
+		Labels:      &labels,
+	}
+	if _, _, err := pg.UpsertNamespace(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	displayName2 := "Default (renamed)"
+	phase2 := "Terminating"
+	labels2 := map[string]string{"team": "infra"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.NamespaceCreate)
+	}{
+		{"display_name", func(p *api.NamespaceCreate) { p.DisplayName = &displayName2 }},
+		{"phase", func(p *api.NamespaceCreate) { p.Phase = &phase2 }},
+		{"labels", func(p *api.NamespaceCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertNamespace(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertNamespace(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+
+	// terminated_at restore: soft-delete then re-upsert should be BusinessChanged
+	// because terminated_at flips from non-NULL -> NULL.
+	t.Run("terminated_at_restore", func(t *testing.T) {
+		if _, err := pg.DeleteNamespacesNotIn(ctx, *cluster.Id, nil); err != nil {
+			t.Fatalf("soft-delete: %v", err)
+		}
+		_, outcome, err := pg.UpsertNamespace(ctx, base)
+		if err != nil {
+			t.Fatalf("restore upsert: %v", err)
+		}
+		if outcome != api.OutcomeBusinessChanged {
+			t.Errorf("restore upsert outcome = %v, want BusinessChanged", outcome)
+		}
+	})
+}
+
+func TestPG_UpsertPersistentVolume_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pv-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	capacity := testQty10Gi
+	_, outcome, err := pg.UpsertPersistentVolume(ctx, api.PersistentVolumeCreate{
+		ClusterId: *cluster.Id,
+		Name:      "pv-a",
+		Capacity:  &capacity,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertPersistentVolume_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pv-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	capacity := testQty10Gi
+	modes := []string{"ReadWriteOnce"}
+	reclaim := "Retain"
+	phase := testPhaseBound
+	sc := testStorageClassGP3
+	driver := "ebs.csi.aws.com"
+	handle := "vol-abc"
+	claimNs := "apps"
+	claimName := "data-0"
+	labels := map[string]string{"tier": "fast"}
+	payload := api.PersistentVolumeCreate{
+		ClusterId:         *cluster.Id,
+		Name:              "pv-a",
+		Capacity:          &capacity,
+		AccessModes:       &modes,
+		ReclaimPolicy:     &reclaim,
+		Phase:             &phase,
+		StorageClassName:  &sc,
+		CsiDriver:         &driver,
+		VolumeHandle:      &handle,
+		ClaimRefNamespace: &claimNs,
+		ClaimRefName:      &claimName,
+		Labels:            &labels,
+	}
+
+	if _, _, err := pg.UpsertPersistentVolume(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertPersistentVolume(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertPersistentVolume_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pv-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	capacity := testQty10Gi
+	modes := []string{"ReadWriteOnce"}
+	reclaim := "Retain"
+	phase := testPhaseBound
+	sc := testStorageClassGP3
+	driver := "ebs.csi.aws.com"
+	handle := "vol-abc"
+	claimNs := "apps"
+	claimName := "data-0"
+	labels := map[string]string{"tier": "fast"}
+	base := api.PersistentVolumeCreate{
+		ClusterId:         *cluster.Id,
+		Name:              "pv-a",
+		Capacity:          &capacity,
+		AccessModes:       &modes,
+		ReclaimPolicy:     &reclaim,
+		Phase:             &phase,
+		StorageClassName:  &sc,
+		CsiDriver:         &driver,
+		VolumeHandle:      &handle,
+		ClaimRefNamespace: &claimNs,
+		ClaimRefName:      &claimName,
+		Labels:            &labels,
+	}
+	if _, _, err := pg.UpsertPersistentVolume(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	capacity2 := "20Gi"
+	modes2 := []string{"ReadWriteMany"}
+	reclaim2 := "Delete"
+	phase2 := "Released"
+	sc2 := "io2"
+	driver2 := "efs.csi.aws.com"
+	handle2 := "vol-def"
+	claimNs2 := "other"
+	claimName2 := "data-1"
+	labels2 := map[string]string{"tier": "slow"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.PersistentVolumeCreate)
+	}{
+		{"capacity", func(p *api.PersistentVolumeCreate) { p.Capacity = &capacity2 }},
+		{"access_modes", func(p *api.PersistentVolumeCreate) { p.AccessModes = &modes2 }},
+		{"reclaim_policy", func(p *api.PersistentVolumeCreate) { p.ReclaimPolicy = &reclaim2 }},
+		{"phase", func(p *api.PersistentVolumeCreate) { p.Phase = &phase2 }},
+		{"storage_class_name", func(p *api.PersistentVolumeCreate) { p.StorageClassName = &sc2 }},
+		{"csi_driver", func(p *api.PersistentVolumeCreate) { p.CsiDriver = &driver2 }},
+		{"volume_handle", func(p *api.PersistentVolumeCreate) { p.VolumeHandle = &handle2 }},
+		{"claim_ref_namespace", func(p *api.PersistentVolumeCreate) { p.ClaimRefNamespace = &claimNs2 }},
+		{"claim_ref_name", func(p *api.PersistentVolumeCreate) { p.ClaimRefName = &claimName2 }},
+		{"labels", func(p *api.PersistentVolumeCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertPersistentVolume(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertPersistentVolume(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+}
+
+func TestPG_UpsertPersistentVolumeClaim_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pvc-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := testPhaseBound
+	_, outcome, err := pg.UpsertPersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
+		NamespaceId: *ns.Id,
+		Name:        "data-0",
+		Phase:       &phase,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertPersistentVolumeClaim_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pvc-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := testPhaseBound
+	sc := testStorageClassGP3
+	vol := "pv-a"
+	modes := []string{"ReadWriteOnce"}
+	req := testQty5Gi
+	labels := map[string]string{"tier": "fast"}
+	payload := api.PersistentVolumeClaimCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "data-0",
+		Phase:            &phase,
+		StorageClassName: &sc,
+		VolumeName:       &vol,
+		AccessModes:      &modes,
+		RequestedStorage: &req,
+		Labels:           &labels,
+	}
+
+	if _, _, err := pg.UpsertPersistentVolumeClaim(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertPersistentVolumeClaim(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertPersistentVolumeClaim_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "pvc-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	phase := testPhaseBound
+	sc := testStorageClassGP3
+	vol := "pv-a"
+	modes := []string{"ReadWriteOnce"}
+	req := testQty5Gi
+	labels := map[string]string{"tier": "fast"}
+	base := api.PersistentVolumeClaimCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "data-0",
+		Phase:            &phase,
+		StorageClassName: &sc,
+		VolumeName:       &vol,
+		AccessModes:      &modes,
+		RequestedStorage: &req,
+		Labels:           &labels,
+	}
+	if _, _, err := pg.UpsertPersistentVolumeClaim(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	phase2 := "Lost"
+	sc2 := "io2"
+	vol2 := "pv-b"
+	modes2 := []string{"ReadWriteMany"}
+	req2 := "10Gi"
+	labels2 := map[string]string{"tier": "slow"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.PersistentVolumeClaimCreate)
+	}{
+		{"phase", func(p *api.PersistentVolumeClaimCreate) { p.Phase = &phase2 }},
+		{"storage_class_name", func(p *api.PersistentVolumeClaimCreate) { p.StorageClassName = &sc2 }},
+		{"volume_name", func(p *api.PersistentVolumeClaimCreate) { p.VolumeName = &vol2 }},
+		{"access_modes", func(p *api.PersistentVolumeClaimCreate) { p.AccessModes = &modes2 }},
+		{"requested_storage", func(p *api.PersistentVolumeClaimCreate) { p.RequestedStorage = &req2 }},
+		{"labels", func(p *api.PersistentVolumeClaimCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertPersistentVolumeClaim(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertPersistentVolumeClaim(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
 	}
 }
 
@@ -1064,7 +2191,7 @@ func TestPGPodAndWorkloadContainersRoundTrip(t *testing.T) {
 		{"name": "app", "image": "nginx:1.25", "image_id": "docker.io/library/nginx@sha256:abc", "init": false},
 		{"name": "migrate", "image": "busybox:1.36", "init": true},
 	}
-	storedPod, err := pg.UpsertPod(ctx, api.PodCreate{
+	storedPod, _, err := pg.UpsertPod(ctx, api.PodCreate{
 		NamespaceId: *ns.Id,
 		Name:        "web-0",
 		Containers:  &podContainers,
@@ -1089,7 +2216,7 @@ func TestPGPodAndWorkloadContainersRoundTrip(t *testing.T) {
 	wlContainers := api.ContainerList{
 		{"name": "app", "image": "nginx:1.25", "init": false},
 	}
-	storedWL, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+	storedWL, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
 		NamespaceId: *ns.Id,
 		Kind:        api.Deployment,
 		Name:        "web",
@@ -1180,7 +2307,7 @@ func TestPGPodWorkloadFK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second workload: %v", err)
 	}
-	upserted, err := pg.UpsertPod(ctx, api.PodCreate{
+	upserted, _, err := pg.UpsertPod(ctx, api.PodCreate{
 		NamespaceId: *ns.Id,
 		Name:        "web-abc-1",
 		WorkloadId:  wl2.Id,
@@ -1308,7 +2435,7 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 		t.Fatalf("namespace: %v", err)
 	}
 
-	capacity := "10Gi"
+	capacity := testQty10Gi
 	modes := []string{"ReadWriteOnce"}
 	pv, err := pg.CreatePersistentVolume(ctx, api.PersistentVolumeCreate{
 		ClusterId:   *cluster.Id,
@@ -1327,7 +2454,7 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 	}
 
 	// PVC bound to the PV — FK round-trip.
-	req := "5Gi"
+	req := testQty5Gi
 	pvc, err := pg.CreatePersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
 		NamespaceId:      *ns.Id,
 		Name:             "data-0",
@@ -1354,7 +2481,7 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 	}
 
 	// Upsert round-trips the FK too.
-	upserted, err := pg.UpsertPersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
+	upserted, _, err := pg.UpsertPersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
 		NamespaceId:      *ns.Id,
 		Name:             "data-0",
 		VolumeName:       &pv.Name,
@@ -1440,13 +2567,14 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}
 	otherContainers := api.ContainerList{{"name": "misc", "image": "busybox:1.36", "init": false}}
 
-	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-1", NodeName: &node1, Containers: &nginxContainers}); err != nil {
+	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-1", NodeName: &node1, Containers: &nginxContainers}); err != nil {
 		t.Fatalf("web-1: %v", err)
 	}
-	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "api-1", NodeName: &node1, Containers: &log4jContainers}); err != nil {
+	if _, _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "api-1", NodeName: &node1, Containers: &log4jContainers}); err != nil {
 		t.Fatalf("api-1: %v", err)
 	}
-	if _, err := pg.UpsertPod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "misc-1", NodeName: &node2, Containers: &otherContainers}); err != nil {
+	miscPod := api.PodCreate{NamespaceId: *ns.Id, Name: "misc-1", NodeName: &node2, Containers: &otherContainers}
+	if _, _, err := pg.UpsertPod(ctx, miscPod); err != nil {
 		t.Fatalf("misc-1: %v", err)
 	}
 
@@ -1500,12 +2628,12 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}
 
 	// Same image filter works for workloads.
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+	if _, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
 		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "api", Containers: &log4jContainers,
 	}); err != nil {
 		t.Fatalf("workload api: %v", err)
 	}
-	if _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+	if _, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
 		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web", Containers: &nginxContainers,
 	}); err != nil {
 		t.Fatalf("workload web: %v", err)
@@ -1590,7 +2718,7 @@ func TestPGAuthSubstrate(t *testing.T) {
 		CreatedAt: now,
 		ExpiresAt: expires,
 		UserAgent: "go-test/1.0",
-		SourceIP:  "10.0.0.1",
+		SourceIP:  testIP1,
 	}); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1680,7 +2808,7 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 		t.Fatalf("cluster: %v", err)
 	}
 
-	role := "worker"
+	role := testRoleWorker
 	kubeletV := testKubeletVersion
 	kubeProxyV := testKubeletVersion
 	runtimeV := "containerd://1.7.13"
@@ -1699,7 +2827,7 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 	capPods := "110"
 	capEph := "100Gi"
 	allocCPU := "3900m"
-	allocMem := "15Gi"
+	allocMem := testQty15Gi
 	allocPods := "110"
 	allocEph := "95Gi"
 	unschedulable := false
@@ -1745,7 +2873,7 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 		Labels:                      &labels,
 	}
 
-	stored, err := pg.UpsertNode(ctx, in)
+	stored, _, err := pg.UpsertNode(ctx, in)
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -1816,7 +2944,7 @@ func TestPGNodeEnrichmentRoundTrip(t *testing.T) {
 	in2.Conditions = &empty
 	in2.Unschedulable = &unschTrue
 	in2.Ready = &reDown
-	if _, err := pg.UpsertNode(ctx, in2); err != nil {
+	if _, _, err := pg.UpsertNode(ctx, in2); err != nil {
 		t.Fatalf("re-upsert: %v", err)
 	}
 	got2, err := pg.GetNode(ctx, *stored.Id)
@@ -1970,7 +3098,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 			ActorID: &userID, ActorKind: "user", ActorUsername: "alice", ActorRole: "admin",
 			Action: "cluster.create", ResourceType: "cluster", ResourceID: "c1",
 			HTTPMethod: "POST", HTTPPath: "/v1/clusters", HTTPStatus: 201,
-			SourceIP: "10.0.0.1", UserAgent: "curl/8",
+			SourceIP: testIP1, UserAgent: "curl/8",
 			Details: map[string]any{"body": map[string]any{"name": "prod"}},
 		},
 		{
@@ -2231,7 +3359,7 @@ func TestPGNamespaceCuratedMetadata(t *testing.T) {
 	// the ON CONFLICT DO UPDATE SET clause.
 	phase := testPhaseActive
 	colLabels := map[string]string{"kubernetes.io/metadata.name": nsName}
-	if _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+	if _, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
 		ClusterId: *cluster.Id,
 		Name:      nsName,
 		Phase:     &phase,
@@ -2347,12 +3475,12 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 	// fields populated and every curated/hardware_model field nil. The
 	// PG DO UPDATE SET clause deliberately omits the curated columns
 	// and hardware_model, so the operator-set values must survive.
-	role := "worker"
+	role := testRoleWorker
 	kubelet := testKubeletVersion
 	osImage := "Ubuntu 22.04.4 LTS"
 	labels := map[string]string{"kubernetes.io/hostname": nodeName}
 	ready := true
-	if _, err := pg.UpsertNode(ctx, api.NodeCreate{
+	if _, _, err := pg.UpsertNode(ctx, api.NodeCreate{
 		ClusterId:      *cluster.Id,
 		Name:           nodeName,
 		Role:           &role,
@@ -2432,7 +3560,7 @@ func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("node: %v", err)
 	}
-	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	wl, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
 	if err != nil {
 		t.Fatalf("workload: %v", err)
 	}
@@ -2487,7 +3615,7 @@ func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("namespace: %v", err)
 	}
-	wl, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
+	wl, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web"})
 	if err != nil {
 		t.Fatalf("workload: %v", err)
 	}

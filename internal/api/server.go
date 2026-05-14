@@ -395,7 +395,7 @@ func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (C
 		}, nil
 	}
 
-	n, err := s.store.UpsertNode(ctx, body)
+	n, outcome, err := s.store.UpsertNode(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateNode404ApplicationProblemPlusJSONResponse{
@@ -408,6 +408,9 @@ func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (C
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	n = withNodeLayer(n)
 
@@ -519,7 +522,7 @@ func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequest
 		}, nil
 	}
 
-	n, err := s.store.UpsertNamespace(ctx, body)
+	n, outcome, err := s.store.UpsertNamespace(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateNamespace404ApplicationProblemPlusJSONResponse{
@@ -532,6 +535,9 @@ func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequest
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	n = withNamespaceLayer(n)
 
@@ -640,7 +646,7 @@ func (s *Server) CreatePod(ctx context.Context, req CreatePodRequestObject) (Cre
 		}, nil
 	}
 
-	p, err := s.store.UpsertPod(ctx, body)
+	p, outcome, err := s.store.UpsertPod(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePod404ApplicationProblemPlusJSONResponse{
@@ -653,6 +659,9 @@ func (s *Server) CreatePod(ctx context.Context, req CreatePodRequestObject) (Cre
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	p = withPodLayer(p)
 
@@ -782,7 +791,7 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 		}, nil
 	}
 
-	wl, err := s.store.UpsertWorkload(ctx, body)
+	wl, outcome, err := s.store.UpsertWorkload(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateWorkload404ApplicationProblemPlusJSONResponse{
@@ -795,6 +804,9 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	wl = withWorkloadLayer(wl)
 
@@ -906,7 +918,7 @@ func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObje
 		}, nil
 	}
 
-	svc, err := s.store.UpsertService(ctx, body)
+	svc, outcome, err := s.store.UpsertService(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateService404ApplicationProblemPlusJSONResponse{
@@ -919,6 +931,9 @@ func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObje
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	svc = withServiceLayer(svc)
 
@@ -1023,7 +1038,7 @@ func (s *Server) CreateIngress(ctx context.Context, req CreateIngressRequestObje
 		}, nil
 	}
 
-	ing, err := s.store.UpsertIngress(ctx, body)
+	ing, outcome, err := s.store.UpsertIngress(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreateIngress404ApplicationProblemPlusJSONResponse{
@@ -1036,6 +1051,9 @@ func (s *Server) CreateIngress(ctx context.Context, req CreateIngressRequestObje
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	ing = withIngressLayer(ing)
 
@@ -1140,7 +1158,7 @@ func (s *Server) CreatePersistentVolume(ctx context.Context, req CreatePersisten
 		}, nil
 	}
 
-	pv, err := s.store.UpsertPersistentVolume(ctx, body)
+	pv, outcome, err := s.store.UpsertPersistentVolume(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePersistentVolume404ApplicationProblemPlusJSONResponse{
@@ -1153,6 +1171,9 @@ func (s *Server) CreatePersistentVolume(ctx context.Context, req CreatePersisten
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	pv = withPersistentVolumeLayer(pv)
 
@@ -1253,7 +1274,7 @@ func (s *Server) CreatePersistentVolumeClaim(
 		}, nil
 	}
 
-	pvc, err := s.store.UpsertPersistentVolumeClaim(ctx, body)
+	pvc, outcome, err := s.store.UpsertPersistentVolumeClaim(ctx, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return CreatePersistentVolumeClaim404ApplicationProblemPlusJSONResponse{
@@ -1266,6 +1287,9 @@ func (s *Server) CreatePersistentVolumeClaim(
 			}, nil
 		}
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if outcome == OutcomeNoChange {
+		SetAuditSkip(ctx)
 	}
 	pvc = withPersistentVolumeClaimLayer(pvc)
 
@@ -1341,6 +1365,10 @@ func (s *Server) ReconcileNodes(ctx context.Context, req ReconcileNodesRequestOb
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcileNodes200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
@@ -1356,6 +1384,10 @@ func (s *Server) ReconcileNamespaces(ctx context.Context, req ReconcileNamespace
 	n, err := s.store.DeleteNamespacesNotIn(ctx, body.ClusterId, body.KeepNames)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
 	}
 	return ReconcileNamespaces200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1375,6 +1407,10 @@ func (s *Server) ReconcilePersistentVolumes(
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcilePersistentVolumes200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
@@ -1390,6 +1426,10 @@ func (s *Server) ReconcilePods(ctx context.Context, req ReconcilePodsRequestObje
 	n, err := s.store.DeletePodsNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
 	}
 	return ReconcilePods200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1414,6 +1454,10 @@ func (s *Server) ReconcileWorkloads(ctx context.Context, req ReconcileWorkloadsR
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcileWorkloads200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
@@ -1430,6 +1474,10 @@ func (s *Server) ReconcileServices(ctx context.Context, req ReconcileServicesReq
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcileServices200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
 
@@ -1445,6 +1493,10 @@ func (s *Server) ReconcileIngresses(ctx context.Context, req ReconcileIngressesR
 	n, err := s.store.DeleteIngressesNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
 	}
 	return ReconcileIngresses200JSONResponse(ReconcileResult{Deleted: n}), nil
 }
@@ -1463,6 +1515,10 @@ func (s *Server) ReconcilePersistentVolumeClaims(
 	n, err := s.store.DeletePersistentVolumeClaimsNotIn(ctx, body.NamespaceId, body.KeepNames)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
 	}
 	return ReconcilePersistentVolumeClaims200JSONResponse(ReconcileResult{Deleted: n}), nil
 }

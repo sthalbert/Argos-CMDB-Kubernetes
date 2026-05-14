@@ -6,6 +6,7 @@ package api
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -305,24 +306,33 @@ func (m *memStore) CountCloudAccountsWithSecrets(_ context.Context) (int, error)
 }
 
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (m *memStore) UpsertVirtualMachine(_ context.Context, in VirtualMachineUpsert) (VirtualMachine, error) {
+func (m *memStore) UpsertVirtualMachine(_ context.Context, in VirtualMachineUpsert) (VirtualMachine, UpsertOutcome, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
 	// Check provider_vm_id conflict — simulate the nodes.provider_id dedup
 	// by also checking for a conflict marker tag.
 	if v, ok := in.Tags["argos.test.is_kube"]; ok && v == "true" {
-		return VirtualMachine{}, ErrConflict
+		return VirtualMachine{}, OutcomeNoChange, ErrConflict
 	}
 	for vmID, vm := range cloudFake.vms {
 		if vm.CloudAccountID == in.CloudAccountID && vm.ProviderVMID == in.ProviderVMID {
+			before := vm
 			vm.Name = in.Name
 			vm.PowerState = in.PowerState
 			vm.Ready = in.Ready
-			vm.UpdatedAt = time.Now().UTC()
-			vm.LastSeenAt = vm.UpdatedAt
 			vm.TerminatedAt = nil
+			businessChanged := vm.Name != before.Name ||
+				vm.PowerState != before.PowerState ||
+				vm.Ready != before.Ready ||
+				!reflect.DeepEqual(vm.TerminatedAt, before.TerminatedAt)
+			now := time.Now().UTC()
+			vm.UpdatedAt = now
+			vm.LastSeenAt = now
 			cloudFake.vms[vmID] = vm
-			return vm, nil
+			if businessChanged {
+				return vm, OutcomeBusinessChanged, nil
+			}
+			return vm, OutcomeNoChange, nil
 		}
 	}
 	now := time.Now().UTC()
@@ -342,7 +352,7 @@ func (m *memStore) UpsertVirtualMachine(_ context.Context, in VirtualMachineUpse
 		LastSeenAt:         now,
 	}
 	cloudFake.vms[vm.ID] = vm
-	return vm, nil
+	return vm, OutcomeInserted, nil
 }
 
 func (m *memStore) GetVirtualMachine(_ context.Context, id uuid.UUID) (VirtualMachine, error) {

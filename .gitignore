@@ -45,3 +45,6 @@ ui/debug-*.mjs
 # Local-only forbidden-words pre-commit scanner
 /.forbidden-words
 /scripts/check-forbidden-words.sh
+
+# Isolated worktrees for subagent-driven development
+/.worktrees/

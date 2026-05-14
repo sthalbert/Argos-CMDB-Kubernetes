@@ -91,6 +91,38 @@ func (p *PG) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// classifyOutcome maps the CTE's (inserted, business_changed) tuple to the
+// corresponding api.UpsertOutcome — used by every Upsert* impl that computes
+// audit-noop detection. See ADR-0024.
+func classifyOutcome(inserted, businessChanged bool) api.UpsertOutcome {
+	switch {
+	case inserted:
+		return api.OutcomeInserted
+	case businessChanged:
+		return api.OutcomeBusinessChanged
+	default:
+		return api.OutcomeNoChange
+	}
+}
+
+// scanRowWith wraps a pgx.Row so a scan* helper can be reused while the
+// caller threads extra destinations (e.g. the audit CTE's inserted /
+// business_changed bool tail) onto the same row.Scan call.
+type scanRowWith struct {
+	row   pgx.Row
+	extra []any
+}
+
+// Scan forwards to the wrapped row, appending the extra destinations after
+// the caller's so a single Scan call can hydrate both the normal columns
+// and the CTE outcome bools.
+func (r scanRowWith) Scan(dest ...any) error {
+	if err := r.row.Scan(append(dest, r.extra...)...); err != nil {
+		return fmt.Errorf("scan row: %w", err)
+	}
+	return nil
+}
+
 // EnsureCluster inserts a cluster row when no row with the same name exists,
 // or returns the existing row unchanged when one does. The returned bool is
 // true when a new row was inserted, false when an existing row was returned.
@@ -627,6 +659,21 @@ const nodeColumns = `id, cluster_id, name, display_name, role,
 	labels,
 	owner, criticality, notes, runbook_url, annotations, hardware_model,
 	created_at, updated_at`
+
+// nodeColumnsUAliased is nodeColumns with every column qualified by the `u`
+// alias — used by UpsertNode's final SELECT, which joins `upserted u` against
+// the snapshot CTE `old o` and must disambiguate columns present in both.
+const nodeColumnsUAliased = `u.id, u.cluster_id, u.name, u.display_name, u.role,
+	u.kubelet_version, u.kube_proxy_version, u.container_runtime_version,
+	u.os_image, u.operating_system, u.kernel_version, u.architecture,
+	u.internal_ip, u.external_ip, u.pod_cidr,
+	u.provider_id, u.instance_type, u.zone,
+	u.capacity_cpu, u.capacity_memory, u.capacity_pods, u.capacity_ephemeral_storage,
+	u.allocatable_cpu, u.allocatable_memory, u.allocatable_pods, u.allocatable_ephemeral_storage,
+	u.conditions, u.taints, u.unschedulable, u.ready,
+	u.labels,
+	u.owner, u.criticality, u.notes, u.runbook_url, u.annotations, u.hardware_model,
+	u.created_at, u.updated_at`
 
 func nodeInsertValues(in *api.NodeCreate, id uuid.UUID, now time.Time) ([]any, error) {
 	labelsJSON, err := marshalLabels(in.Labels)
@@ -1351,18 +1398,18 @@ func liveWorkloadIDsForNamespace(ctx context.Context, tx pgx.Tx, namespaceID uui
 // UpsertNamespace inserts-or-updates a namespace keyed by (cluster_id, name).
 //
 //nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; history capture adds branches
-func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, error) {
+func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.Namespace, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Namespace{}, err
+		return api.Namespace{}, api.OutcomeNoChange, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Namespace{}, fmt.Errorf("begin upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("begin upsert namespace: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -1376,32 +1423,54 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	isCreate := prevID == nil
 	isRestore := prevID != nil && prevTerminatedAt != nil
 
+	// AUDIT_BUSINESS_FIELDS: display_name, phase, labels, terminated_at
+	// (restore flips it). updated_at is a clock field — excluded.
+	// Curator fields (owner/criticality/notes/runbook_url/annotations) are
+	// not touched by the collector upsert and excluded from the OR-chain.
 	const q = `
-		INSERT INTO namespaces (
-			id, cluster_id, name, display_name, phase,
-			labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-		ON CONFLICT (cluster_id, name) DO UPDATE SET
-			display_name  = EXCLUDED.display_name,
-			phase         = EXCLUDED.phase,
-			labels        = EXCLUDED.labels,
-			terminated_at = NULL,
-			updated_at    = EXCLUDED.updated_at
-		RETURNING id, cluster_id, name, display_name, phase, labels,
-		          owner, criticality, notes, runbook_url, annotations,
-		          created_at, updated_at
+		WITH old AS (
+		  SELECT display_name, phase, labels, terminated_at
+		    FROM namespaces WHERE cluster_id=$2 AND name=$3
+		),
+		upserted AS (
+		  INSERT INTO namespaces (
+		    id, cluster_id, name, display_name, phase,
+		    labels, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+		  ON CONFLICT (cluster_id, name) DO UPDATE SET
+		      display_name  = EXCLUDED.display_name,
+		      phase         = EXCLUDED.phase,
+		      labels        = EXCLUDED.labels,
+		      terminated_at = NULL,
+		      updated_at    = EXCLUDED.updated_at
+		  RETURNING id, cluster_id, name, display_name, phase, labels,
+		            owner, criticality, notes, runbook_url, annotations,
+		            created_at, updated_at, terminated_at, xmax
+		)
+		SELECT u.id, u.cluster_id, u.name, u.display_name, u.phase, u.labels,
+		       u.owner, u.criticality, u.notes, u.runbook_url, u.annotations,
+		       u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.display_name  IS DISTINCT FROM u.display_name  OR
+		           o.phase         IS DISTINCT FROM u.phase         OR
+		           o.labels        IS DISTINCT FROM u.labels        OR
+		           o.terminated_at IS DISTINCT FROM u.terminated_at
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := tx.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
 		labelsJSON, now,
 	)
-	n, err := scanNamespace(row)
+	var inserted, businessChanged bool
+	n, err := scanNamespace(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Namespace{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.Namespace{}, fmt.Errorf("upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("upsert namespace: %w", err)
 	}
 
 	actualID := *n.Id
@@ -1417,9 +1486,9 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Namespace{}, fmt.Errorf("commit upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("commit upsert namespace: %w", err)
 	}
-	return n, nil
+	return n, classifyOutcome(inserted, businessChanged), nil
 }
 
 // CreatePod inserts a new pod.
@@ -1670,48 +1739,115 @@ func (p *PG) DeletePod(ctx context.Context, id uuid.UUID) error {
 
 // UpsertPod inserts-or-updates a pod keyed by (namespace_id, name).
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
+//nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; CTE drives branch count
+func (p *PG) UpsertPod(ctx context.Context, in api.PodCreate) (api.Pod, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Pod{}, err
+		return api.Pod{}, api.OutcomeNoChange, err
 	}
 	containersJSON, err := marshalPorts(in.Containers)
 	if err != nil {
-		return api.Pod{}, err
+		return api.Pod{}, api.OutcomeNoChange, err
 	}
 
+	// AUDIT_BUSINESS_FIELDS: phase, node_name, pod_ip, workload_id,
+	// containers, labels. updated_at is a clock field — excluded from
+	// business_changed detection so reconcile-only ticks turn into NoChange.
 	const q = `
-		INSERT INTO pods (
-			id, namespace_id, name, phase, node_name, pod_ip,
-			workload_id, containers, labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
-		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			phase       = EXCLUDED.phase,
-			node_name   = EXCLUDED.node_name,
-			pod_ip      = EXCLUDED.pod_ip,
-			workload_id = EXCLUDED.workload_id,
-			containers  = EXCLUDED.containers,
-			labels      = EXCLUDED.labels,
-			updated_at  = EXCLUDED.updated_at
-		RETURNING id, namespace_id, name, phase, node_name, pod_ip,
-		          workload_id, containers, labels, created_at, updated_at
+		WITH old AS (
+		  SELECT phase, node_name, pod_ip, workload_id, containers, labels
+		    FROM pods WHERE namespace_id = $2 AND name = $3
+		),
+		upserted AS (
+		  INSERT INTO pods (
+		      id, namespace_id, name, phase, node_name, pod_ip,
+		      workload_id, containers, labels, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		  ON CONFLICT (namespace_id, name) DO UPDATE SET
+		      phase       = EXCLUDED.phase,
+		      node_name   = EXCLUDED.node_name,
+		      pod_ip      = EXCLUDED.pod_ip,
+		      workload_id = EXCLUDED.workload_id,
+		      containers  = EXCLUDED.containers,
+		      labels      = EXCLUDED.labels,
+		      updated_at  = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, name, phase, node_name, pod_ip,
+		            workload_id, containers, labels, created_at, updated_at,
+		            xmax
+		)
+		SELECT u.id, u.namespace_id, u.name, u.phase, u.node_name, u.pod_ip,
+		       u.workload_id, u.containers, u.labels, u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.phase       IS DISTINCT FROM u.phase       OR
+		           o.node_name   IS DISTINCT FROM u.node_name   OR
+		           o.pod_ip      IS DISTINCT FROM u.pod_ip      OR
+		           o.workload_id IS DISTINCT FROM u.workload_id OR
+		           o.containers  IS DISTINCT FROM u.containers  OR
+		           o.labels      IS DISTINCT FROM u.labels
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, in.Phase, in.NodeName, in.PodIp,
 		in.WorkloadId, containersJSON, labelsJSON, now,
 	)
-	pod, err := scanPod(row)
-	if err != nil {
+
+	var (
+		pod             api.Pod
+		podID           uuid.UUID
+		namespaceID     uuid.UUID
+		createdAt       time.Time
+		updatedAt       time.Time
+		phase           sql.NullString
+		nodeName        sql.NullString
+		podIP           sql.NullString
+		workloadID      *uuid.UUID
+		containersOut   []byte
+		labelsOut       []byte
+		inserted        bool
+		businessChanged bool
+	)
+	if err := row.Scan(
+		&podID, &namespaceID, &pod.Name,
+		&phase, &nodeName, &podIP,
+		&workloadID, &containersOut, &labelsOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
 		if pErr := classifyPodFKError(err, in.NamespaceId, in.WorkloadId); pErr != nil {
-			return api.Pod{}, pErr
+			return api.Pod{}, api.OutcomeNoChange, pErr
 		}
-		return api.Pod{}, fmt.Errorf("upsert pod: %w", err)
+		return api.Pod{}, api.OutcomeNoChange, fmt.Errorf("upsert pod: %w", err)
 	}
-	return pod, nil
+	pod.Id = &podID
+	pod.NamespaceId = namespaceID
+	pod.CreatedAt = &createdAt
+	pod.UpdatedAt = &updatedAt
+	pod.Phase = nullableString(phase)
+	pod.NodeName = nullableString(nodeName)
+	pod.PodIp = nullableString(podIP)
+	if workloadID != nil {
+		pod.WorkloadId = workloadID
+	}
+	if cs, err := unmarshalContainers(containersOut); err != nil {
+		return api.Pod{}, api.OutcomeNoChange, fmt.Errorf("unmarshal pod containers: %w", err)
+	} else if cs != nil {
+		pod.Containers = cs
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return api.Pod{}, api.OutcomeNoChange, fmt.Errorf("unmarshal pod labels: %w", err)
+		}
+		if len(labels) > 0 {
+			pod.Labels = &labels
+		}
+	}
+	return pod, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeletePodsNotIn removes every pod in the given namespace whose name is not
@@ -1981,26 +2117,26 @@ func (p *PG) DeleteWorkload(ctx context.Context, id uuid.UUID) error {
 // UpsertWorkload inserts-or-updates a workload keyed by (namespace_id, kind, name).
 //
 //nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; history capture adds branches
-func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, error) {
+func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Workload{}, err
+		return api.Workload{}, api.OutcomeNoChange, err
 	}
 	specJSON, err := marshalSpec(in.Spec)
 	if err != nil {
-		return api.Workload{}, err
+		return api.Workload{}, api.OutcomeNoChange, err
 	}
 	containersJSON, err := marshalPorts(in.Containers)
 	if err != nil {
-		return api.Workload{}, err
+		return api.Workload{}, api.OutcomeNoChange, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Workload{}, fmt.Errorf("begin upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("begin upsert workload: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -2013,33 +2149,111 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	isCreate := prevWLID == nil
 	isRestore := prevWLID != nil && prevTerminatedAt != nil
 
+	// AUDIT_BUSINESS_FIELDS: replicas, ready_replicas, containers, labels, spec,
+	// terminated_at (restore flips it). updated_at is a clock field — excluded.
 	const q = `
-		INSERT INTO workloads (
-			id, namespace_id, kind, name, replicas, ready_replicas,
-			containers, labels, spec, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
-		ON CONFLICT (namespace_id, kind, name) DO UPDATE SET
-			replicas       = EXCLUDED.replicas,
-			ready_replicas = EXCLUDED.ready_replicas,
-			containers     = EXCLUDED.containers,
-			labels         = EXCLUDED.labels,
-			spec           = EXCLUDED.spec,
-			terminated_at  = NULL,
-			updated_at     = EXCLUDED.updated_at
-		RETURNING id, namespace_id, kind, name, replicas, ready_replicas,
-		          containers, labels, spec, created_at, updated_at
+		WITH old AS (
+		  SELECT replicas, ready_replicas, containers, labels, spec, terminated_at
+		    FROM workloads WHERE namespace_id=$2 AND kind=$3 AND name=$4
+		),
+		upserted AS (
+		  INSERT INTO workloads (
+		      id, namespace_id, kind, name, replicas, ready_replicas,
+		      containers, labels, spec, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		  ON CONFLICT (namespace_id, kind, name) DO UPDATE SET
+		      replicas       = EXCLUDED.replicas,
+		      ready_replicas = EXCLUDED.ready_replicas,
+		      containers     = EXCLUDED.containers,
+		      labels         = EXCLUDED.labels,
+		      spec           = EXCLUDED.spec,
+		      terminated_at  = NULL,
+		      updated_at     = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, kind, name, replicas, ready_replicas,
+		            containers, labels, spec, created_at, updated_at,
+		            terminated_at, xmax
+		)
+		SELECT u.id, u.namespace_id, u.kind, u.name, u.replicas, u.ready_replicas,
+		       u.containers, u.labels, u.spec, u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.replicas       IS DISTINCT FROM u.replicas       OR
+		           o.ready_replicas IS DISTINCT FROM u.ready_replicas OR
+		           o.containers     IS DISTINCT FROM u.containers     OR
+		           o.labels         IS DISTINCT FROM u.labels         OR
+		           o.spec           IS DISTINCT FROM u.spec           OR
+		           o.terminated_at  IS DISTINCT FROM u.terminated_at
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := tx.QueryRow(ctx, q,
 		id, in.NamespaceId, string(in.Kind), in.Name, in.Replicas, in.ReadyReplicas,
 		containersJSON, labelsJSON, specJSON, now,
 	)
-	w, err := scanWorkload(row)
-	if err != nil {
+
+	var (
+		w               api.Workload
+		wID             uuid.UUID
+		namespaceID     uuid.UUID
+		kind            string
+		replicas        sql.NullInt32
+		readyReplicas   sql.NullInt32
+		createdAt       time.Time
+		updatedAt       time.Time
+		containersOut   []byte
+		labelsOut       []byte
+		specOut         []byte
+		inserted        bool
+		businessChanged bool
+	)
+	if err := row.Scan(
+		&wID, &namespaceID, &kind, &w.Name,
+		&replicas, &readyReplicas,
+		&containersOut, &labelsOut, &specOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Workload{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Workload{}, fmt.Errorf("upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("upsert workload: %w", err)
+	}
+	w.Id = &wID
+	w.NamespaceId = namespaceID
+	w.Kind = api.WorkloadKind(kind)
+	w.CreatedAt = &createdAt
+	w.UpdatedAt = &updatedAt
+	if replicas.Valid {
+		v := int(replicas.Int32)
+		w.Replicas = &v
+	}
+	if readyReplicas.Valid {
+		v := int(readyReplicas.Int32)
+		w.ReadyReplicas = &v
+	}
+	if cs, err := unmarshalContainers(containersOut); err != nil {
+		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload containers: %w", err)
+	} else if cs != nil {
+		w.Containers = cs
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload labels: %w", err)
+		}
+		if len(labels) > 0 {
+			w.Labels = &labels
+		}
+	}
+	if len(specOut) > 0 {
+		var spec map[string]interface{}
+		if err := json.Unmarshal(specOut, &spec); err != nil {
+			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload spec: %w", err)
+		}
+		if len(spec) > 0 {
+			w.Spec = &spec
+		}
 	}
 
 	actualID := *w.Id
@@ -2055,9 +2269,9 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Workload{}, fmt.Errorf("commit upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("commit upsert workload: %w", err)
 	}
-	return w, nil
+	return w, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeleteWorkloadsNotIn soft-deletes workloads in the namespace whose
@@ -2419,26 +2633,26 @@ func (p *PG) DeleteService(ctx context.Context, id uuid.UUID) error {
 
 // UpsertService inserts-or-updates a service keyed by (namespace_id, name).
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, error) {
+//nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; CTE drives branch count
+func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Service, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Service{}, err
+		return api.Service{}, api.OutcomeNoChange, err
 	}
 	selectorJSON, err := marshalLabels(in.Selector)
 	if err != nil {
-		return api.Service{}, err
+		return api.Service{}, api.OutcomeNoChange, err
 	}
 	portsJSON, err := marshalPorts(in.Ports)
 	if err != nil {
-		return api.Service{}, err
+		return api.Service{}, api.OutcomeNoChange, err
 	}
 	lbJSON, err := marshalPorts(in.LoadBalancer)
 	if err != nil {
-		return api.Service{}, err
+		return api.Service{}, api.OutcomeNoChange, err
 	}
 
 	var svcType *string
@@ -2447,30 +2661,120 @@ func (p *PG) UpsertService(ctx context.Context, in api.ServiceCreate) (api.Servi
 		svcType = &t
 	}
 
-	q := `
-		INSERT INTO services (` + serviceColumns + `) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
-		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			type          = EXCLUDED.type,
-			cluster_ip    = EXCLUDED.cluster_ip,
-			selector      = EXCLUDED.selector,
-			ports         = EXCLUDED.ports,
-			load_balancer = EXCLUDED.load_balancer,
-			labels        = EXCLUDED.labels,
-			updated_at    = EXCLUDED.updated_at
-		RETURNING ` + serviceColumns
+	// AUDIT_BUSINESS_FIELDS: type, cluster_ip, selector, ports, load_balancer,
+	// labels. updated_at is a clock field — excluded from business_changed
+	// detection so reconcile-only ticks turn into NoChange.
+	const q = `
+		WITH old AS (
+		  SELECT type, cluster_ip, selector, ports, load_balancer, labels
+		    FROM services WHERE namespace_id = $2 AND name = $3
+		),
+		upserted AS (
+		  INSERT INTO services (
+		      id, namespace_id, name, type, cluster_ip,
+		      selector, ports, load_balancer, labels, created_at, updated_at
+		  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+		  ON CONFLICT (namespace_id, name) DO UPDATE SET
+		      type          = EXCLUDED.type,
+		      cluster_ip    = EXCLUDED.cluster_ip,
+		      selector      = EXCLUDED.selector,
+		      ports         = EXCLUDED.ports,
+		      load_balancer = EXCLUDED.load_balancer,
+		      labels        = EXCLUDED.labels,
+		      updated_at    = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, name, type, cluster_ip,
+		            selector, ports, load_balancer, labels, created_at, updated_at,
+		            xmax
+		)
+		SELECT u.id, u.namespace_id, u.name, u.type, u.cluster_ip,
+		       u.selector, u.ports, u.load_balancer, u.labels,
+		       u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.type          IS DISTINCT FROM u.type          OR
+		           o.cluster_ip    IS DISTINCT FROM u.cluster_ip    OR
+		           o.selector      IS DISTINCT FROM u.selector      OR
+		           o.ports         IS DISTINCT FROM u.ports         OR
+		           o.load_balancer IS DISTINCT FROM u.load_balancer OR
+		           o.labels        IS DISTINCT FROM u.labels
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
+	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, svcType, in.ClusterIp,
 		selectorJSON, portsJSON, lbJSON, labelsJSON, now,
 	)
-	s, err := scanService(row)
-	if err != nil {
+
+	var (
+		s               api.Service
+		svcID           uuid.UUID
+		namespaceID     uuid.UUID
+		createdAt       time.Time
+		updatedAt       time.Time
+		svcTypeOut      sql.NullString
+		clusterIP       sql.NullString
+		selectorOut     []byte
+		portsOut        []byte
+		lbOut           []byte
+		labelsOut       []byte
+		inserted        bool
+		businessChanged bool
+	)
+	if err := row.Scan(
+		&svcID, &namespaceID, &s.Name,
+		&svcTypeOut, &clusterIP,
+		&selectorOut, &portsOut, &lbOut, &labelsOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Service{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Service{}, api.OutcomeNoChange, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Service{}, fmt.Errorf("upsert service: %w", err)
+		return api.Service{}, api.OutcomeNoChange, fmt.Errorf("upsert service: %w", err)
 	}
-	return s, nil
+	s.Id = &svcID
+	s.NamespaceId = namespaceID
+	s.CreatedAt = &createdAt
+	s.UpdatedAt = &updatedAt
+	s.ClusterIp = nullableString(clusterIP)
+	if svcTypeOut.Valid {
+		t := api.ServiceType(svcTypeOut.String)
+		s.Type = &t
+	}
+	if len(selectorOut) > 0 {
+		var sel map[string]string
+		if err := json.Unmarshal(selectorOut, &sel); err != nil {
+			return api.Service{}, api.OutcomeNoChange, fmt.Errorf("unmarshal service selector: %w", err)
+		}
+		if len(sel) > 0 {
+			s.Selector = &sel
+		}
+	}
+	if len(portsOut) > 0 {
+		var ports []map[string]interface{}
+		if err := json.Unmarshal(portsOut, &ports); err != nil {
+			return api.Service{}, api.OutcomeNoChange, fmt.Errorf("unmarshal service ports: %w", err)
+		}
+		if len(ports) > 0 {
+			s.Ports = &ports
+		}
+	}
+	if lb, err := unmarshalMapArray(lbOut); err != nil {
+		return api.Service{}, api.OutcomeNoChange, fmt.Errorf("unmarshal service load_balancer: %w", err)
+	} else {
+		s.LoadBalancer = lb
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return api.Service{}, api.OutcomeNoChange, fmt.Errorf("unmarshal service labels: %w", err)
+		}
+		if len(labels) > 0 {
+			s.Labels = &labels
+		}
+	}
+	return s, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeleteServicesNotIn mirrors DeletePodsNotIn.
@@ -2713,50 +3017,137 @@ func (p *PG) DeleteIngress(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpsertIngress inserts-or-updates an ingress keyed by (namespace_id, name).
-func (p *PG) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error) {
+//
+//nolint:gocyclo // CTE drives branch count
+func (p *PG) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, api.OutcomeNoChange, err
 	}
 	rulesJSON, err := marshalPorts(in.Rules)
 	if err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, api.OutcomeNoChange, err
 	}
 	tlsJSON, err := marshalPorts(in.Tls)
 	if err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, api.OutcomeNoChange, err
 	}
 	lbJSON, err := marshalPorts(in.LoadBalancer)
 	if err != nil {
-		return api.Ingress{}, err
+		return api.Ingress{}, api.OutcomeNoChange, err
 	}
 
-	q := `
-		INSERT INTO ingresses (` + ingressColumns + `) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
-		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			ingress_class_name = EXCLUDED.ingress_class_name,
-			rules              = EXCLUDED.rules,
-			tls                = EXCLUDED.tls,
-			load_balancer      = EXCLUDED.load_balancer,
-			labels             = EXCLUDED.labels,
-			updated_at         = EXCLUDED.updated_at
-		RETURNING ` + ingressColumns
+	// AUDIT_BUSINESS_FIELDS: ingress_class_name, rules, tls, load_balancer,
+	// labels. updated_at is a clock field — excluded from business_changed.
+	const q = `
+		WITH old AS (
+		  SELECT ingress_class_name, rules, tls, load_balancer, labels
+		    FROM ingresses WHERE namespace_id = $2 AND name = $3
+		),
+		upserted AS (
+		  INSERT INTO ingresses (
+		      id, namespace_id, name, ingress_class_name,
+		      rules, tls, load_balancer, labels, created_at, updated_at
+		  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+		  ON CONFLICT (namespace_id, name) DO UPDATE SET
+		      ingress_class_name = EXCLUDED.ingress_class_name,
+		      rules              = EXCLUDED.rules,
+		      tls                = EXCLUDED.tls,
+		      load_balancer      = EXCLUDED.load_balancer,
+		      labels             = EXCLUDED.labels,
+		      updated_at         = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, name, ingress_class_name,
+		            rules, tls, load_balancer, labels, created_at, updated_at,
+		            xmax
+		)
+		SELECT u.id, u.namespace_id, u.name, u.ingress_class_name,
+		       u.rules, u.tls, u.load_balancer, u.labels,
+		       u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.ingress_class_name IS DISTINCT FROM u.ingress_class_name OR
+		           o.rules              IS DISTINCT FROM u.rules              OR
+		           o.tls                IS DISTINCT FROM u.tls                OR
+		           o.load_balancer      IS DISTINCT FROM u.load_balancer      OR
+		           o.labels             IS DISTINCT FROM u.labels
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
+	`
+
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, in.IngressClassName,
 		rulesJSON, tlsJSON, lbJSON, labelsJSON, now,
 	)
-	ing, err := scanIngress(row)
-	if err != nil {
+
+	var (
+		i                api.Ingress
+		ingID            uuid.UUID
+		namespaceID      uuid.UUID
+		createdAt        time.Time
+		updatedAt        time.Time
+		ingressClassName sql.NullString
+		rulesOut         []byte
+		tlsOut           []byte
+		lbOut            []byte
+		labelsOut        []byte
+		inserted         bool
+		businessChanged  bool
+	)
+	if err := row.Scan(
+		&ingID, &namespaceID, &i.Name,
+		&ingressClassName,
+		&rulesOut, &tlsOut, &lbOut, &labelsOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Ingress{}, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Ingress{}, fmt.Errorf("upsert ingress: %w", err)
+		return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("upsert ingress: %w", err)
 	}
-	return ing, nil
+	i.Id = &ingID
+	i.NamespaceId = namespaceID
+	i.CreatedAt = &createdAt
+	i.UpdatedAt = &updatedAt
+	i.IngressClassName = nullableString(ingressClassName)
+	if len(rulesOut) > 0 {
+		var rules []map[string]interface{}
+		if err := json.Unmarshal(rulesOut, &rules); err != nil {
+			return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("unmarshal ingress rules: %w", err)
+		}
+		if len(rules) > 0 {
+			i.Rules = &rules
+		}
+	}
+	if len(tlsOut) > 0 {
+		var tls []map[string]interface{}
+		if err := json.Unmarshal(tlsOut, &tls); err != nil {
+			return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("unmarshal ingress tls: %w", err)
+		}
+		if len(tls) > 0 {
+			i.Tls = &tls
+		}
+	}
+	if lb, err := unmarshalMapArray(lbOut); err != nil {
+		return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("unmarshal ingress load_balancer: %w", err)
+	} else {
+		i.LoadBalancer = lb
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("unmarshal ingress labels: %w", err)
+		}
+		if len(labels) > 0 {
+			i.Labels = &labels
+		}
+	}
+
+	return i, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeleteIngressesNotIn mirrors DeleteServicesNotIn.
@@ -3051,67 +3442,123 @@ func detectNodeUpsertChangeType(ctx context.Context, tx pgx.Tx, clusterID uuid.U
 // conflict only mutable columns are overwritten so created_at is preserved.
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error) {
+func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	values, err := nodeInsertValues(&in, id, now)
 	if err != nil {
-		return api.Node{}, err
+		return api.Node{}, api.OutcomeNoChange, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Node{}, fmt.Errorf("begin upsert node: %w", err)
+		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("begin upsert node: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	changeType := detectNodeUpsertChangeType(ctx, tx, in.ClusterId, in.Name)
 
+	// AUDIT_BUSINESS_FIELDS: display_name, role, kubelet_version, kube_proxy_version,
+	// container_runtime_version, os_image, operating_system, kernel_version, architecture,
+	// internal_ip, external_ip, pod_cidr, provider_id, instance_type, zone,
+	// capacity_cpu, capacity_memory, capacity_pods, capacity_ephemeral_storage,
+	// allocatable_cpu, allocatable_memory, allocatable_pods, allocatable_ephemeral_storage,
+	// conditions, taints, unschedulable, ready, labels, terminated_at (restore flips it).
+	// updated_at is a clock field — excluded. Curator-only fields
+	// (owner/criticality/notes/runbook_url/annotations/hardware_model) are not touched
+	// by the collector upsert and excluded from the OR-chain.
 	const q = `
-		INSERT INTO nodes (` + nodeColumns + `)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$38)
-		ON CONFLICT (cluster_id, name) DO UPDATE SET
-			display_name                  = EXCLUDED.display_name,
-			role                          = EXCLUDED.role,
-			kubelet_version               = EXCLUDED.kubelet_version,
-			kube_proxy_version            = EXCLUDED.kube_proxy_version,
-			container_runtime_version     = EXCLUDED.container_runtime_version,
-			os_image                      = EXCLUDED.os_image,
-			operating_system              = EXCLUDED.operating_system,
-			kernel_version                = EXCLUDED.kernel_version,
-			architecture                  = EXCLUDED.architecture,
-			internal_ip                   = EXCLUDED.internal_ip,
-			external_ip                   = EXCLUDED.external_ip,
-			pod_cidr                      = EXCLUDED.pod_cidr,
-			provider_id                   = EXCLUDED.provider_id,
-			instance_type                 = EXCLUDED.instance_type,
-			zone                          = EXCLUDED.zone,
-			capacity_cpu                  = EXCLUDED.capacity_cpu,
-			capacity_memory               = EXCLUDED.capacity_memory,
-			capacity_pods                 = EXCLUDED.capacity_pods,
-			capacity_ephemeral_storage    = EXCLUDED.capacity_ephemeral_storage,
-			allocatable_cpu               = EXCLUDED.allocatable_cpu,
-			allocatable_memory            = EXCLUDED.allocatable_memory,
-			allocatable_pods              = EXCLUDED.allocatable_pods,
-			allocatable_ephemeral_storage = EXCLUDED.allocatable_ephemeral_storage,
-			conditions                    = EXCLUDED.conditions,
-			taints                        = EXCLUDED.taints,
-			unschedulable                 = EXCLUDED.unschedulable,
-			ready                         = EXCLUDED.ready,
-			labels                        = EXCLUDED.labels,
-			terminated_at                 = NULL,
-			updated_at                    = EXCLUDED.updated_at
-		RETURNING ` + nodeColumns + `
+		WITH old AS (
+		  SELECT display_name, role, kubelet_version, kube_proxy_version,
+		         container_runtime_version, os_image, operating_system, kernel_version,
+		         architecture, internal_ip, external_ip, pod_cidr,
+		         provider_id, instance_type, zone,
+		         capacity_cpu, capacity_memory, capacity_pods, capacity_ephemeral_storage,
+		         allocatable_cpu, allocatable_memory, allocatable_pods, allocatable_ephemeral_storage,
+		         conditions, taints, unschedulable, ready, labels, terminated_at
+		    FROM nodes WHERE cluster_id=$2 AND name=$3
+		),
+		upserted AS (
+		  INSERT INTO nodes (` + nodeColumns + `)
+		    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$38)
+		  ON CONFLICT (cluster_id, name) DO UPDATE SET
+		      display_name                  = EXCLUDED.display_name,
+		      role                          = EXCLUDED.role,
+		      kubelet_version               = EXCLUDED.kubelet_version,
+		      kube_proxy_version            = EXCLUDED.kube_proxy_version,
+		      container_runtime_version     = EXCLUDED.container_runtime_version,
+		      os_image                      = EXCLUDED.os_image,
+		      operating_system              = EXCLUDED.operating_system,
+		      kernel_version                = EXCLUDED.kernel_version,
+		      architecture                  = EXCLUDED.architecture,
+		      internal_ip                   = EXCLUDED.internal_ip,
+		      external_ip                   = EXCLUDED.external_ip,
+		      pod_cidr                      = EXCLUDED.pod_cidr,
+		      provider_id                   = EXCLUDED.provider_id,
+		      instance_type                 = EXCLUDED.instance_type,
+		      zone                          = EXCLUDED.zone,
+		      capacity_cpu                  = EXCLUDED.capacity_cpu,
+		      capacity_memory               = EXCLUDED.capacity_memory,
+		      capacity_pods                 = EXCLUDED.capacity_pods,
+		      capacity_ephemeral_storage    = EXCLUDED.capacity_ephemeral_storage,
+		      allocatable_cpu               = EXCLUDED.allocatable_cpu,
+		      allocatable_memory            = EXCLUDED.allocatable_memory,
+		      allocatable_pods              = EXCLUDED.allocatable_pods,
+		      allocatable_ephemeral_storage = EXCLUDED.allocatable_ephemeral_storage,
+		      conditions                    = EXCLUDED.conditions,
+		      taints                        = EXCLUDED.taints,
+		      unschedulable                 = EXCLUDED.unschedulable,
+		      ready                         = EXCLUDED.ready,
+		      labels                        = EXCLUDED.labels,
+		      terminated_at                 = NULL,
+		      updated_at                    = EXCLUDED.updated_at
+		  RETURNING ` + nodeColumns + `, terminated_at, xmax
+		)
+		SELECT ` + nodeColumnsUAliased + `,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.display_name                  IS DISTINCT FROM u.display_name                  OR
+		           o.role                          IS DISTINCT FROM u.role                          OR
+		           o.kubelet_version               IS DISTINCT FROM u.kubelet_version               OR
+		           o.kube_proxy_version            IS DISTINCT FROM u.kube_proxy_version            OR
+		           o.container_runtime_version     IS DISTINCT FROM u.container_runtime_version     OR
+		           o.os_image                      IS DISTINCT FROM u.os_image                      OR
+		           o.operating_system              IS DISTINCT FROM u.operating_system              OR
+		           o.kernel_version                IS DISTINCT FROM u.kernel_version                OR
+		           o.architecture                  IS DISTINCT FROM u.architecture                  OR
+		           o.internal_ip                   IS DISTINCT FROM u.internal_ip                   OR
+		           o.external_ip                   IS DISTINCT FROM u.external_ip                   OR
+		           o.pod_cidr                      IS DISTINCT FROM u.pod_cidr                      OR
+		           o.provider_id                   IS DISTINCT FROM u.provider_id                   OR
+		           o.instance_type                 IS DISTINCT FROM u.instance_type                 OR
+		           o.zone                          IS DISTINCT FROM u.zone                          OR
+		           o.capacity_cpu                  IS DISTINCT FROM u.capacity_cpu                  OR
+		           o.capacity_memory               IS DISTINCT FROM u.capacity_memory               OR
+		           o.capacity_pods                 IS DISTINCT FROM u.capacity_pods                 OR
+		           o.capacity_ephemeral_storage    IS DISTINCT FROM u.capacity_ephemeral_storage    OR
+		           o.allocatable_cpu               IS DISTINCT FROM u.allocatable_cpu               OR
+		           o.allocatable_memory            IS DISTINCT FROM u.allocatable_memory            OR
+		           o.allocatable_pods              IS DISTINCT FROM u.allocatable_pods              OR
+		           o.allocatable_ephemeral_storage IS DISTINCT FROM u.allocatable_ephemeral_storage OR
+		           o.conditions                    IS DISTINCT FROM u.conditions                    OR
+		           o.taints                        IS DISTINCT FROM u.taints                        OR
+		           o.unschedulable                 IS DISTINCT FROM u.unschedulable                 OR
+		           o.ready                         IS DISTINCT FROM u.ready                         OR
+		           o.labels                        IS DISTINCT FROM u.labels                        OR
+		           o.terminated_at                 IS DISTINCT FROM u.terminated_at
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := tx.QueryRow(ctx, q, values...)
-	n, err := scanNode(row)
+	var inserted, businessChanged bool
+	n, err := scanNode(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Node{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.Node{}, api.OutcomeNoChange, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.Node{}, fmt.Errorf("upsert node: %w", err)
+		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("upsert node: %w", err)
 	}
 
 	actualID := *n.Id
@@ -3121,9 +3568,9 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Node{}, fmt.Errorf("commit upsert node: %w", err)
+		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("commit upsert node: %w", err)
 	}
-	return n, nil
+	return n, classifyOutcome(inserted, businessChanged), nil
 }
 
 func scanNode(row pgx.Row) (api.Node, error) {
@@ -3631,40 +4078,70 @@ func (p *PG) DeletePersistentVolume(ctx context.Context, id uuid.UUID) error {
 // UpsertPersistentVolume inserts-or-updates a PV keyed by (cluster_id, name).
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, error) {
+func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolumeCreate) (api.PersistentVolume, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.PersistentVolume{}, err
+		return api.PersistentVolume{}, api.OutcomeNoChange, err
 	}
 
+	// AUDIT_BUSINESS_FIELDS: capacity, access_modes, reclaim_policy, phase,
+	// storage_class_name, csi_driver, volume_handle, claim_ref_namespace,
+	// claim_ref_name, labels. updated_at is a clock field — excluded.
 	const q = `
-		INSERT INTO persistent_volumes (
-			id, cluster_id, name, capacity, access_modes,
-			reclaim_policy, phase, storage_class_name,
-			csi_driver, volume_handle,
-			claim_ref_namespace, claim_ref_name,
-			labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
-		ON CONFLICT (cluster_id, name) DO UPDATE SET
-			capacity            = EXCLUDED.capacity,
-			access_modes        = EXCLUDED.access_modes,
-			reclaim_policy      = EXCLUDED.reclaim_policy,
-			phase               = EXCLUDED.phase,
-			storage_class_name  = EXCLUDED.storage_class_name,
-			csi_driver          = EXCLUDED.csi_driver,
-			volume_handle       = EXCLUDED.volume_handle,
-			claim_ref_namespace = EXCLUDED.claim_ref_namespace,
-			claim_ref_name      = EXCLUDED.claim_ref_name,
-			labels              = EXCLUDED.labels,
-			updated_at          = EXCLUDED.updated_at
-		RETURNING id, cluster_id, name, capacity, access_modes,
-		          reclaim_policy, phase, storage_class_name,
-		          csi_driver, volume_handle,
-		          claim_ref_namespace, claim_ref_name,
-		          labels, created_at, updated_at
+		WITH old AS (
+		  SELECT capacity, access_modes, reclaim_policy, phase,
+		         storage_class_name, csi_driver, volume_handle,
+		         claim_ref_namespace, claim_ref_name, labels
+		    FROM persistent_volumes WHERE cluster_id=$2 AND name=$3
+		),
+		upserted AS (
+		  INSERT INTO persistent_volumes (
+		    id, cluster_id, name, capacity, access_modes,
+		    reclaim_policy, phase, storage_class_name,
+		    csi_driver, volume_handle,
+		    claim_ref_namespace, claim_ref_name,
+		    labels, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
+		  ON CONFLICT (cluster_id, name) DO UPDATE SET
+		      capacity            = EXCLUDED.capacity,
+		      access_modes        = EXCLUDED.access_modes,
+		      reclaim_policy      = EXCLUDED.reclaim_policy,
+		      phase               = EXCLUDED.phase,
+		      storage_class_name  = EXCLUDED.storage_class_name,
+		      csi_driver          = EXCLUDED.csi_driver,
+		      volume_handle       = EXCLUDED.volume_handle,
+		      claim_ref_namespace = EXCLUDED.claim_ref_namespace,
+		      claim_ref_name      = EXCLUDED.claim_ref_name,
+		      labels              = EXCLUDED.labels,
+		      updated_at          = EXCLUDED.updated_at
+		  RETURNING id, cluster_id, name, capacity, access_modes,
+		            reclaim_policy, phase, storage_class_name,
+		            csi_driver, volume_handle,
+		            claim_ref_namespace, claim_ref_name,
+		            labels, created_at, updated_at, xmax
+		)
+		SELECT u.id, u.cluster_id, u.name, u.capacity, u.access_modes,
+		       u.reclaim_policy, u.phase, u.storage_class_name,
+		       u.csi_driver, u.volume_handle,
+		       u.claim_ref_namespace, u.claim_ref_name,
+		       u.labels, u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.capacity            IS DISTINCT FROM u.capacity            OR
+		           o.access_modes        IS DISTINCT FROM u.access_modes        OR
+		           o.reclaim_policy      IS DISTINCT FROM u.reclaim_policy      OR
+		           o.phase               IS DISTINCT FROM u.phase               OR
+		           o.storage_class_name  IS DISTINCT FROM u.storage_class_name  OR
+		           o.csi_driver          IS DISTINCT FROM u.csi_driver          OR
+		           o.volume_handle       IS DISTINCT FROM u.volume_handle       OR
+		           o.claim_ref_namespace IS DISTINCT FROM u.claim_ref_namespace OR
+		           o.claim_ref_name      IS DISTINCT FROM u.claim_ref_name      OR
+		           o.labels              IS DISTINCT FROM u.labels
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name,
@@ -3674,15 +4151,16 @@ func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolume
 		in.ClaimRefNamespace, in.ClaimRefName,
 		labelsJSON, now,
 	)
-	pv, err := scanPersistentVolume(row)
+	var inserted, businessChanged bool
+	pv, err := scanPersistentVolume(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.PersistentVolume{}, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.PersistentVolume{}, api.OutcomeNoChange, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.PersistentVolume{}, fmt.Errorf("upsert persistent volume: %w", err)
+		return api.PersistentVolume{}, api.OutcomeNoChange, fmt.Errorf("upsert persistent volume: %w", err)
 	}
-	return pv, nil
+	return pv, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeletePersistentVolumesNotIn removes cluster-scoped PVs whose name is not in keepNames.
@@ -3987,33 +4465,60 @@ func (p *PG) DeletePersistentVolumeClaim(ctx context.Context, id uuid.UUID) erro
 // UpsertPersistentVolumeClaim inserts-or-updates a PVC keyed by (namespace_id, name).
 //
 //nolint:gocritic // hugeParam: Store interface requires value param
-func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentVolumeClaimCreate) (api.PersistentVolumeClaim, error) {
+func (p *PG) UpsertPersistentVolumeClaim(
+	ctx context.Context,
+	in api.PersistentVolumeClaimCreate,
+) (api.PersistentVolumeClaim, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.PersistentVolumeClaim{}, err
+		return api.PersistentVolumeClaim{}, api.OutcomeNoChange, err
 	}
 
+	// AUDIT_BUSINESS_FIELDS: phase, storage_class_name, volume_name,
+	// bound_volume_id, access_modes, requested_storage, labels.
+	// updated_at is a clock field — excluded.
 	const q = `
-		INSERT INTO persistent_volume_claims (
-			id, namespace_id, name, phase, storage_class_name,
-			volume_name, bound_volume_id, access_modes, requested_storage,
-			labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			phase              = EXCLUDED.phase,
-			storage_class_name = EXCLUDED.storage_class_name,
-			volume_name        = EXCLUDED.volume_name,
-			bound_volume_id    = EXCLUDED.bound_volume_id,
-			access_modes       = EXCLUDED.access_modes,
-			requested_storage  = EXCLUDED.requested_storage,
-			labels             = EXCLUDED.labels,
-			updated_at         = EXCLUDED.updated_at
-		RETURNING id, namespace_id, name, phase, storage_class_name,
-		          volume_name, bound_volume_id, access_modes, requested_storage,
-		          labels, created_at, updated_at
+		WITH old AS (
+		  SELECT phase, storage_class_name, volume_name, bound_volume_id,
+		         access_modes, requested_storage, labels
+		    FROM persistent_volume_claims WHERE namespace_id=$2 AND name=$3
+		),
+		upserted AS (
+		  INSERT INTO persistent_volume_claims (
+		    id, namespace_id, name, phase, storage_class_name,
+		    volume_name, bound_volume_id, access_modes, requested_storage,
+		    labels, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+		  ON CONFLICT (namespace_id, name) DO UPDATE SET
+		      phase              = EXCLUDED.phase,
+		      storage_class_name = EXCLUDED.storage_class_name,
+		      volume_name        = EXCLUDED.volume_name,
+		      bound_volume_id    = EXCLUDED.bound_volume_id,
+		      access_modes       = EXCLUDED.access_modes,
+		      requested_storage  = EXCLUDED.requested_storage,
+		      labels             = EXCLUDED.labels,
+		      updated_at         = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, name, phase, storage_class_name,
+		            volume_name, bound_volume_id, access_modes, requested_storage,
+		            labels, created_at, updated_at, xmax
+		)
+		SELECT u.id, u.namespace_id, u.name, u.phase, u.storage_class_name,
+		       u.volume_name, u.bound_volume_id, u.access_modes, u.requested_storage,
+		       u.labels, u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.phase              IS DISTINCT FROM u.phase              OR
+		           o.storage_class_name IS DISTINCT FROM u.storage_class_name OR
+		           o.volume_name        IS DISTINCT FROM u.volume_name        OR
+		           o.bound_volume_id    IS DISTINCT FROM u.bound_volume_id    OR
+		           o.access_modes       IS DISTINCT FROM u.access_modes       OR
+		           o.requested_storage  IS DISTINCT FROM u.requested_storage  OR
+		           o.labels             IS DISTINCT FROM u.labels
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name,
@@ -4022,14 +4527,15 @@ func (p *PG) UpsertPersistentVolumeClaim(ctx context.Context, in api.PersistentV
 		accessModesValue(in.AccessModes), in.RequestedStorage,
 		labelsJSON, now,
 	)
-	pvc, err := scanPersistentVolumeClaim(row)
+	var inserted, businessChanged bool
+	pvc, err := scanPersistentVolumeClaim(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
 	if err != nil {
 		if pErr := classifyPVCFKError(err, in.NamespaceId, in.BoundVolumeId); pErr != nil {
-			return api.PersistentVolumeClaim{}, pErr
+			return api.PersistentVolumeClaim{}, api.OutcomeNoChange, pErr
 		}
-		return api.PersistentVolumeClaim{}, fmt.Errorf("upsert pvc: %w", err)
+		return api.PersistentVolumeClaim{}, api.OutcomeNoChange, fmt.Errorf("upsert pvc: %w", err)
 	}
-	return pvc, nil
+	return pvc, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeletePersistentVolumeClaimsNotIn removes namespace-scoped PVCs whose name

@@ -88,3 +88,15 @@ func TestHandlerExposesRegisteredMetrics(t *testing.T) {
 		}
 	}
 }
+
+func TestObserveAuditSkipped(t *testing.T) {
+	t.Parallel()
+	ObserveAuditSkipped("token", "pod", "no_change")
+	ObserveAuditSkipped("token", "pod", "no_change")
+	ObserveAuditSkipped("user", "user", "no_change")
+
+	got := testutil.ToFloat64(AuditEventsSkippedFor("token", "pod", "no_change"))
+	if got != 2 {
+		t.Errorf("token+pod+no_change counter = %v, want 2", got)
+	}
+}

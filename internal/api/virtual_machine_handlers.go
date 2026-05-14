@@ -163,7 +163,7 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 			Tags:                 req.Tags,
 			Labels:               req.Labels,
 		}
-		vm, err := store.UpsertVirtualMachine(r.Context(), in)
+		vm, outcome, err := store.UpsertVirtualMachine(r.Context(), in)
 		if err != nil {
 			if errors.Is(err, ErrConflict) {
 				writeJSON(w, http.StatusConflict, map[string]any{
@@ -175,6 +175,9 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 			slog.Error("upsert virtual machine", slog.Any("error", err))
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
+		}
+		if outcome == OutcomeNoChange {
+			SetAuditSkip(r.Context())
 		}
 		writeJSON(w, http.StatusOK, vm)
 	}
@@ -446,9 +449,9 @@ func callerIdentifier(caller *auth.Caller) string {
 		return caller.Username
 	case auth.CallerKindToken:
 		if caller.TokenName != "" {
-			return "token:" + caller.TokenName
+			return string(AuditEventActorKindToken) + ":" + caller.TokenName
 		}
-		return "token"
+		return string(AuditEventActorKindToken)
 	default:
 		return ""
 	}
@@ -527,6 +530,10 @@ func HandleReconcileVirtualMachines(store Store) http.HandlerFunc {
 			slog.Error("reconcile virtual machines", slog.Any("error", err))
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
+		}
+		if n == 0 {
+			SetAuditSkipReason(r.Context(), "reconcile_empty")
+			SetAuditSkip(r.Context())
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tombstoned": n})
 	}
