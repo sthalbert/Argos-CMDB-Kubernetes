@@ -1288,6 +1288,164 @@ func TestPG_UpsertService_OutcomeBusinessChanged_PerField(t *testing.T) {
 	}
 }
 
+func TestPG_UpsertWorkload_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "wl-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	replicas := 3
+	_, outcome, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id,
+		Kind:        api.Deployment,
+		Name:        "wl-a",
+		Replicas:    &replicas,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertWorkload_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "wl-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	replicas := 3
+	readyReplicas := 2
+	containers := api.ContainerList{{"name": "app", "image": "nginx:1.27"}}
+	labels := map[string]string{"k": "v"}
+	spec := map[string]interface{}{"strategy": "RollingUpdate"}
+	payload := api.WorkloadCreate{
+		NamespaceId:   *ns.Id,
+		Kind:          api.Deployment,
+		Name:          "wl-a",
+		Replicas:      &replicas,
+		ReadyReplicas: &readyReplicas,
+		Containers:    &containers,
+		Labels:        &labels,
+		Spec:          &spec,
+	}
+
+	if _, _, err := pg.UpsertWorkload(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertWorkload(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertWorkload_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "wl-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	replicas := 3
+	readyReplicas := 2
+	containers := api.ContainerList{{"name": "app", "image": "nginx:1.27"}}
+	labels := map[string]string{"k": "v"}
+	spec := map[string]interface{}{"strategy": "RollingUpdate"}
+	base := api.WorkloadCreate{
+		NamespaceId:   *ns.Id,
+		Kind:          api.Deployment,
+		Name:          "wl-a",
+		Replicas:      &replicas,
+		ReadyReplicas: &readyReplicas,
+		Containers:    &containers,
+		Labels:        &labels,
+		Spec:          &spec,
+	}
+	if _, _, err := pg.UpsertWorkload(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	replicas2 := 5
+	readyReplicas2 := 4
+	containers2 := api.ContainerList{{"name": "app", "image": "nginx:1.28"}}
+	labels2 := map[string]string{"k": "v2"}
+	spec2 := map[string]interface{}{"strategy": "Recreate"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.WorkloadCreate)
+	}{
+		{"replicas", func(p *api.WorkloadCreate) { p.Replicas = &replicas2 }},
+		{"ready_replicas", func(p *api.WorkloadCreate) { p.ReadyReplicas = &readyReplicas2 }},
+		{"containers", func(p *api.WorkloadCreate) { p.Containers = &containers2 }},
+		{"labels", func(p *api.WorkloadCreate) { p.Labels = &labels2 }},
+		{"spec", func(p *api.WorkloadCreate) { p.Spec = &spec2 }},
+	}
+	for _, m := range mutations {
+		m := m
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertWorkload(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertWorkload(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+
+	// terminated_at restore: soft-delete then re-upsert should be BusinessChanged
+	// because terminated_at flips from non-NULL -> NULL.
+	t.Run("terminated_at_restore", func(t *testing.T) {
+		// Soft-delete by excluding this workload from the keep list.
+		if _, err := pg.DeleteWorkloadsNotIn(ctx, *ns.Id,
+			[]string{"OtherKind"}, []string{"never"}); err != nil {
+			t.Fatalf("soft-delete: %v", err)
+		}
+		// Re-upsert the same base payload — terminated_at flips NULL.
+		_, outcome, err := pg.UpsertWorkload(ctx, base)
+		if err != nil {
+			t.Fatalf("restore upsert: %v", err)
+		}
+		if outcome != api.OutcomeBusinessChanged {
+			t.Errorf("restore upsert outcome = %v, want BusinessChanged", outcome)
+		}
+		// Reset for any subsequent sub-tests (none here, but keeps invariant).
+		if _, _, err := pg.UpsertWorkload(ctx, base); err != nil {
+			t.Fatalf("reset after restore: %v", err)
+		}
+	})
+}
+
 // TestPGPodAndWorkloadContainersRoundTrip verifies the new containers JSONB
 // column survives an upsert + read cycle on both Pod and Workload. Each entity
 // type writes its own subset of fields into the generic map: Pod has

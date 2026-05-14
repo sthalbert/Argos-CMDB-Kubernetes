@@ -2068,20 +2068,20 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Workload{}, api.OutcomeBusinessChanged, err
+		return api.Workload{}, api.OutcomeNoChange, err
 	}
 	specJSON, err := marshalSpec(in.Spec)
 	if err != nil {
-		return api.Workload{}, api.OutcomeBusinessChanged, err
+		return api.Workload{}, api.OutcomeNoChange, err
 	}
 	containersJSON, err := marshalPorts(in.Containers)
 	if err != nil {
-		return api.Workload{}, api.OutcomeBusinessChanged, err
+		return api.Workload{}, api.OutcomeNoChange, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("begin upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("begin upsert workload: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -2094,33 +2094,111 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	isCreate := prevWLID == nil
 	isRestore := prevWLID != nil && prevTerminatedAt != nil
 
+	// AUDIT_BUSINESS_FIELDS: replicas, ready_replicas, containers, labels, spec,
+	// terminated_at (restore flips it). updated_at is a clock field — excluded.
 	const q = `
-		INSERT INTO workloads (
-			id, namespace_id, kind, name, replicas, ready_replicas,
-			containers, labels, spec, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
-		ON CONFLICT (namespace_id, kind, name) DO UPDATE SET
-			replicas       = EXCLUDED.replicas,
-			ready_replicas = EXCLUDED.ready_replicas,
-			containers     = EXCLUDED.containers,
-			labels         = EXCLUDED.labels,
-			spec           = EXCLUDED.spec,
-			terminated_at  = NULL,
-			updated_at     = EXCLUDED.updated_at
-		RETURNING id, namespace_id, kind, name, replicas, ready_replicas,
-		          containers, labels, spec, created_at, updated_at
+		WITH old AS (
+		  SELECT replicas, ready_replicas, containers, labels, spec, terminated_at
+		    FROM workloads WHERE namespace_id=$2 AND kind=$3 AND name=$4
+		),
+		upserted AS (
+		  INSERT INTO workloads (
+		      id, namespace_id, kind, name, replicas, ready_replicas,
+		      containers, labels, spec, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		  ON CONFLICT (namespace_id, kind, name) DO UPDATE SET
+		      replicas       = EXCLUDED.replicas,
+		      ready_replicas = EXCLUDED.ready_replicas,
+		      containers     = EXCLUDED.containers,
+		      labels         = EXCLUDED.labels,
+		      spec           = EXCLUDED.spec,
+		      terminated_at  = NULL,
+		      updated_at     = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, kind, name, replicas, ready_replicas,
+		            containers, labels, spec, created_at, updated_at,
+		            terminated_at, xmax
+		)
+		SELECT u.id, u.namespace_id, u.kind, u.name, u.replicas, u.ready_replicas,
+		       u.containers, u.labels, u.spec, u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.replicas       IS DISTINCT FROM u.replicas       OR
+		           o.ready_replicas IS DISTINCT FROM u.ready_replicas OR
+		           o.containers     IS DISTINCT FROM u.containers     OR
+		           o.labels         IS DISTINCT FROM u.labels         OR
+		           o.spec           IS DISTINCT FROM u.spec           OR
+		           o.terminated_at  IS DISTINCT FROM u.terminated_at
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := tx.QueryRow(ctx, q,
 		id, in.NamespaceId, string(in.Kind), in.Name, in.Replicas, in.ReadyReplicas,
 		containersJSON, labelsJSON, specJSON, now,
 	)
-	w, err := scanWorkload(row)
-	if err != nil {
+
+	var (
+		w               api.Workload
+		wID             uuid.UUID
+		namespaceID     uuid.UUID
+		kind            string
+		replicas        sql.NullInt32
+		readyReplicas   sql.NullInt32
+		createdAt       time.Time
+		updatedAt       time.Time
+		containersOut   []byte
+		labelsOut       []byte
+		specOut         []byte
+		inserted        bool
+		businessChanged bool
+	)
+	if err := row.Scan(
+		&wID, &namespaceID, &kind, &w.Name,
+		&replicas, &readyReplicas,
+		&containersOut, &labelsOut, &specOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("upsert workload: %w", err)
+	}
+	w.Id = &wID
+	w.NamespaceId = namespaceID
+	w.Kind = api.WorkloadKind(kind)
+	w.CreatedAt = &createdAt
+	w.UpdatedAt = &updatedAt
+	if replicas.Valid {
+		v := int(replicas.Int32)
+		w.Replicas = &v
+	}
+	if readyReplicas.Valid {
+		v := int(readyReplicas.Int32)
+		w.ReadyReplicas = &v
+	}
+	if cs, err := unmarshalContainers(containersOut); err != nil {
+		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload containers: %w", err)
+	} else if cs != nil {
+		w.Containers = cs
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload labels: %w", err)
+		}
+		if len(labels) > 0 {
+			w.Labels = &labels
+		}
+	}
+	if len(specOut) > 0 {
+		var spec map[string]interface{}
+		if err := json.Unmarshal(specOut, &spec); err != nil {
+			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload spec: %w", err)
+		}
+		if len(spec) > 0 {
+			w.Spec = &spec
+		}
 	}
 
 	actualID := *w.Id
@@ -2136,9 +2214,9 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Workload{}, api.OutcomeBusinessChanged, fmt.Errorf("commit upsert workload: %w", err)
+		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("commit upsert workload: %w", err)
 	}
-	return w, api.OutcomeBusinessChanged, nil
+	return w, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeleteWorkloadsNotIn soft-deletes workloads in the namespace whose
