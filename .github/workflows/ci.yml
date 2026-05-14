@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual re-trigger escape hatch for the occasional GitHub Actions push-event
+  # miss (PR #159's merge to main produced zero runs). Lets a maintainer fire
+  # the workflow from the Actions UI or `gh workflow run` without an empty
+  # commit on a protected branch.
+  workflow_dispatch:
 
 permissions:
   contents: read
