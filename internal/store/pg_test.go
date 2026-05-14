@@ -1750,6 +1750,130 @@ func TestPG_UpsertNode_OutcomeBusinessChanged_PerField(t *testing.T) {
 	})
 }
 
+func TestPG_UpsertNamespace_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ns-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	phase := "Active"
+	_, outcome, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+		ClusterId: *cluster.Id,
+		Name:      "default",
+		Phase:     &phase,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertNamespace_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ns-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	displayName := "Default"
+	phase := "Active"
+	labels := map[string]string{"team": "platform"}
+	payload := api.NamespaceCreate{
+		ClusterId:   *cluster.Id,
+		Name:        "default",
+		DisplayName: &displayName,
+		Phase:       &phase,
+		Labels:      &labels,
+	}
+
+	if _, _, err := pg.UpsertNamespace(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertNamespace(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertNamespace_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ns-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	displayName := "Default"
+	phase := "Active"
+	labels := map[string]string{"team": "platform"}
+	base := api.NamespaceCreate{
+		ClusterId:   *cluster.Id,
+		Name:        "default",
+		DisplayName: &displayName,
+		Phase:       &phase,
+		Labels:      &labels,
+	}
+	if _, _, err := pg.UpsertNamespace(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	displayName2 := "Default (renamed)"
+	phase2 := "Terminating"
+	labels2 := map[string]string{"team": "infra"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.NamespaceCreate)
+	}{
+		{"display_name", func(p *api.NamespaceCreate) { p.DisplayName = &displayName2 }},
+		{"phase", func(p *api.NamespaceCreate) { p.Phase = &phase2 }},
+		{"labels", func(p *api.NamespaceCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		m := m
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertNamespace(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertNamespace(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+
+	// terminated_at restore: soft-delete then re-upsert should be BusinessChanged
+	// because terminated_at flips from non-NULL -> NULL.
+	t.Run("terminated_at_restore", func(t *testing.T) {
+		if _, err := pg.DeleteNamespacesNotIn(ctx, *cluster.Id, nil); err != nil {
+			t.Fatalf("soft-delete: %v", err)
+		}
+		_, outcome, err := pg.UpsertNamespace(ctx, base)
+		if err != nil {
+			t.Fatalf("restore upsert: %v", err)
+		}
+		if outcome != api.OutcomeBusinessChanged {
+			t.Errorf("restore upsert outcome = %v, want BusinessChanged", outcome)
+		}
+	})
+}
+
 // TestPGPodAndWorkloadContainersRoundTrip verifies the new containers JSONB
 // column survives an upsert + read cycle on both Pod and Workload. Each entity
 // type writes its own subset of fields into the generic map: Pod has

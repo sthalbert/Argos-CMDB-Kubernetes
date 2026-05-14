@@ -1383,12 +1383,12 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Namespace{}, api.OutcomeBusinessChanged, err
+		return api.Namespace{}, api.OutcomeNoChange, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("begin upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("begin upsert namespace: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -1402,32 +1402,54 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	isCreate := prevID == nil
 	isRestore := prevID != nil && prevTerminatedAt != nil
 
+	// AUDIT_BUSINESS_FIELDS: display_name, phase, labels, terminated_at
+	// (restore flips it). updated_at is a clock field — excluded.
+	// Curator fields (owner/criticality/notes/runbook_url/annotations) are
+	// not touched by the collector upsert and excluded from the OR-chain.
 	const q = `
-		INSERT INTO namespaces (
-			id, cluster_id, name, display_name, phase,
-			labels, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-		ON CONFLICT (cluster_id, name) DO UPDATE SET
-			display_name  = EXCLUDED.display_name,
-			phase         = EXCLUDED.phase,
-			labels        = EXCLUDED.labels,
-			terminated_at = NULL,
-			updated_at    = EXCLUDED.updated_at
-		RETURNING id, cluster_id, name, display_name, phase, labels,
-		          owner, criticality, notes, runbook_url, annotations,
-		          created_at, updated_at
+		WITH old AS (
+		  SELECT display_name, phase, labels, terminated_at
+		    FROM namespaces WHERE cluster_id=$2 AND name=$3
+		),
+		upserted AS (
+		  INSERT INTO namespaces (
+		    id, cluster_id, name, display_name, phase,
+		    labels, created_at, updated_at
+		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+		  ON CONFLICT (cluster_id, name) DO UPDATE SET
+		      display_name  = EXCLUDED.display_name,
+		      phase         = EXCLUDED.phase,
+		      labels        = EXCLUDED.labels,
+		      terminated_at = NULL,
+		      updated_at    = EXCLUDED.updated_at
+		  RETURNING id, cluster_id, name, display_name, phase, labels,
+		            owner, criticality, notes, runbook_url, annotations,
+		            created_at, updated_at, terminated_at, xmax
+		)
+		SELECT id, cluster_id, name, display_name, phase, labels,
+		       owner, criticality, notes, runbook_url, annotations,
+		       created_at, updated_at,
+		       (xmax = 0) AS inserted,
+		       (xmax <> 0 AND (
+		           o.display_name  IS DISTINCT FROM upserted.display_name  OR
+		           o.phase         IS DISTINCT FROM upserted.phase         OR
+		           o.labels        IS DISTINCT FROM upserted.labels        OR
+		           o.terminated_at IS DISTINCT FROM upserted.terminated_at
+		       )) AS business_changed
+		  FROM upserted LEFT JOIN old o ON true
 	`
 	row := tx.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
 		labelsJSON, now,
 	)
-	n, err := scanNamespace(row)
+	var inserted, businessChanged bool
+	n, err := scanNamespace(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("upsert namespace: %w", err)
 	}
 
 	actualID := *n.Id
@@ -1443,9 +1465,9 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Namespace{}, api.OutcomeBusinessChanged, fmt.Errorf("commit upsert namespace: %w", err)
+		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("commit upsert namespace: %w", err)
 	}
-	return n, api.OutcomeBusinessChanged, nil
+	return n, classifyOutcome(inserted, businessChanged), nil
 }
 
 // CreatePod inserts a new pod.
