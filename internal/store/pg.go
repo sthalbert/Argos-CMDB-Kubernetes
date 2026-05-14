@@ -2962,50 +2962,137 @@ func (p *PG) DeleteIngress(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpsertIngress inserts-or-updates an ingress keyed by (namespace_id, name).
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
-		return api.Ingress{}, api.OutcomeBusinessChanged, err
+		return api.Ingress{}, api.OutcomeNoChange, err
 	}
 	rulesJSON, err := marshalPorts(in.Rules)
 	if err != nil {
-		return api.Ingress{}, api.OutcomeBusinessChanged, err
+		return api.Ingress{}, api.OutcomeNoChange, err
 	}
 	tlsJSON, err := marshalPorts(in.Tls)
 	if err != nil {
-		return api.Ingress{}, api.OutcomeBusinessChanged, err
+		return api.Ingress{}, api.OutcomeNoChange, err
 	}
 	lbJSON, err := marshalPorts(in.LoadBalancer)
 	if err != nil {
-		return api.Ingress{}, api.OutcomeBusinessChanged, err
+		return api.Ingress{}, api.OutcomeNoChange, err
 	}
 
-	q := `
-		INSERT INTO ingresses (` + ingressColumns + `) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
-		ON CONFLICT (namespace_id, name) DO UPDATE SET
-			ingress_class_name = EXCLUDED.ingress_class_name,
-			rules              = EXCLUDED.rules,
-			tls                = EXCLUDED.tls,
-			load_balancer      = EXCLUDED.load_balancer,
-			labels             = EXCLUDED.labels,
-			updated_at         = EXCLUDED.updated_at
-		RETURNING ` + ingressColumns
+	// AUDIT_BUSINESS_FIELDS: ingress_class_name, rules, tls, load_balancer,
+	// labels. updated_at is a clock field — excluded from business_changed.
+	const q = `
+		WITH old AS (
+		  SELECT ingress_class_name, rules, tls, load_balancer, labels
+		    FROM ingresses WHERE namespace_id = $2 AND name = $3
+		),
+		upserted AS (
+		  INSERT INTO ingresses (
+		      id, namespace_id, name, ingress_class_name,
+		      rules, tls, load_balancer, labels, created_at, updated_at
+		  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+		  ON CONFLICT (namespace_id, name) DO UPDATE SET
+		      ingress_class_name = EXCLUDED.ingress_class_name,
+		      rules              = EXCLUDED.rules,
+		      tls                = EXCLUDED.tls,
+		      load_balancer      = EXCLUDED.load_balancer,
+		      labels             = EXCLUDED.labels,
+		      updated_at         = EXCLUDED.updated_at
+		  RETURNING id, namespace_id, name, ingress_class_name,
+		            rules, tls, load_balancer, labels, created_at, updated_at,
+		            xmax
+		)
+		SELECT u.id, u.namespace_id, u.name, u.ingress_class_name,
+		       u.rules, u.tls, u.load_balancer, u.labels,
+		       u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.ingress_class_name IS DISTINCT FROM u.ingress_class_name OR
+		           o.rules              IS DISTINCT FROM u.rules              OR
+		           o.tls                IS DISTINCT FROM u.tls                OR
+		           o.load_balancer      IS DISTINCT FROM u.load_balancer      OR
+		           o.labels             IS DISTINCT FROM u.labels
+		       )) AS business_changed
+		  FROM upserted u LEFT JOIN old o ON true
+	`
+
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name, in.IngressClassName,
 		rulesJSON, tlsJSON, lbJSON, labelsJSON, now,
 	)
-	ing, err := scanIngress(row)
-	if err != nil {
+
+	var (
+		i                api.Ingress
+		ingID            uuid.UUID
+		namespaceID      uuid.UUID
+		createdAt        time.Time
+		updatedAt        time.Time
+		ingressClassName sql.NullString
+		rulesOut         []byte
+		tlsOut           []byte
+		lbOut            []byte
+		labelsOut        []byte
+		inserted         bool
+		businessChanged  bool
+	)
+	if err := row.Scan(
+		&ingID, &namespaceID, &i.Name,
+		&ingressClassName,
+		&rulesOut, &tlsOut, &lbOut, &labelsOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Ingress{}, api.OutcomeBusinessChanged, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
 		}
-		return api.Ingress{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert ingress: %w", err)
+		return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("upsert ingress: %w", err)
 	}
-	return ing, api.OutcomeBusinessChanged, nil
+	i.Id = &ingID
+	i.NamespaceId = namespaceID
+	i.CreatedAt = &createdAt
+	i.UpdatedAt = &updatedAt
+	i.IngressClassName = nullableString(ingressClassName)
+	if len(rulesOut) > 0 {
+		var rules []map[string]interface{}
+		if err := json.Unmarshal(rulesOut, &rules); err != nil {
+			return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("unmarshal ingress rules: %w", err)
+		}
+		if len(rules) > 0 {
+			i.Rules = &rules
+		}
+	}
+	if len(tlsOut) > 0 {
+		var tls []map[string]interface{}
+		if err := json.Unmarshal(tlsOut, &tls); err != nil {
+			return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("unmarshal ingress tls: %w", err)
+		}
+		if len(tls) > 0 {
+			i.Tls = &tls
+		}
+	}
+	if lb, err := unmarshalMapArray(lbOut); err != nil {
+		return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("unmarshal ingress load_balancer: %w", err)
+	} else {
+		i.LoadBalancer = lb
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return api.Ingress{}, api.OutcomeNoChange, fmt.Errorf("unmarshal ingress labels: %w", err)
+		}
+		if len(labels) > 0 {
+			i.Labels = &labels
+		}
+	}
+
+	return i, classifyOutcome(inserted, businessChanged), nil
 }
 
 // DeleteIngressesNotIn mirrors DeleteServicesNotIn.

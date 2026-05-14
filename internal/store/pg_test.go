@@ -1446,6 +1446,139 @@ func TestPG_UpsertWorkload_OutcomeBusinessChanged_PerField(t *testing.T) {
 	})
 }
 
+func TestPG_UpsertIngress_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ing-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	cls := "nginx"
+	_, outcome, err := pg.UpsertIngress(ctx, api.IngressCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "ing-a",
+		IngressClassName: &cls,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertIngress_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ing-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	cls := "nginx"
+	rules := []map[string]interface{}{{"host": "a.example"}}
+	tls := []map[string]interface{}{{"secretName": "tls-a"}}
+	lb := []map[string]interface{}{{"ip": "1.2.3.4"}}
+	labels := map[string]string{"env": "prod"}
+	payload := api.IngressCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "ing-a",
+		IngressClassName: &cls,
+		Rules:            &rules,
+		Tls:              &tls,
+		LoadBalancer:     &lb,
+		Labels:           &labels,
+	}
+
+	if _, _, err := pg.UpsertIngress(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertIngress(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+func TestPG_UpsertIngress_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "ing-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+
+	cls := "nginx"
+	rules1 := []map[string]interface{}{{"host": "a.example"}}
+	tls1 := []map[string]interface{}{{"secretName": "tls-a"}}
+	lb1 := []map[string]interface{}{{"ip": "1.2.3.4"}}
+	labels1 := map[string]string{"k": "v"}
+	base := api.IngressCreate{
+		NamespaceId:      *ns.Id,
+		Name:             "ing-a",
+		IngressClassName: &cls,
+		Rules:            &rules1,
+		Tls:              &tls1,
+		LoadBalancer:     &lb1,
+		Labels:           &labels1,
+	}
+	if _, _, err := pg.UpsertIngress(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	cls2 := "traefik"
+	rules2 := []map[string]interface{}{{"host": "b.example"}}
+	tls2 := []map[string]interface{}{{"secretName": "tls-b"}}
+	lb2 := []map[string]interface{}{{"ip": "5.6.7.8"}}
+	labels2 := map[string]string{"k": "v2"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.IngressCreate)
+	}{
+		{"ingress_class_name", func(p *api.IngressCreate) { p.IngressClassName = &cls2 }},
+		{"rules", func(p *api.IngressCreate) { p.Rules = &rules2 }},
+		{"tls", func(p *api.IngressCreate) { p.Tls = &tls2 }},
+		{"load_balancer", func(p *api.IngressCreate) { p.LoadBalancer = &lb2 }},
+		{"labels", func(p *api.IngressCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		m := m
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertIngress(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertIngress(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+}
+
 // TestPGPodAndWorkloadContainersRoundTrip verifies the new containers JSONB
 // column survives an upsert + read cycle on both Pod and Workload. Each entity
 // type writes its own subset of fields into the generic map: Pod has
