@@ -163,7 +163,7 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 			Tags:                 req.Tags,
 			Labels:               req.Labels,
 		}
-		vm, _, err := store.UpsertVirtualMachine(r.Context(), in)
+		vm, outcome, err := store.UpsertVirtualMachine(r.Context(), in)
 		if err != nil {
 			if errors.Is(err, ErrConflict) {
 				writeJSON(w, http.StatusConflict, map[string]any{
@@ -175,6 +175,9 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 			slog.Error("upsert virtual machine", slog.Any("error", err))
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
+		}
+		if outcome == OutcomeNoChange {
+			SetAuditSkip(r.Context())
 		}
 		writeJSON(w, http.StatusOK, vm)
 	}
