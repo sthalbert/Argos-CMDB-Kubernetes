@@ -105,6 +105,18 @@ func classifyOutcome(inserted, businessChanged bool) api.UpsertOutcome {
 	}
 }
 
+// scanRowWith wraps a pgx.Row so a scan* helper can be reused while the
+// caller threads extra destinations (e.g. the audit CTE's inserted /
+// business_changed bool tail) onto the same row.Scan call.
+type scanRowWith struct {
+	row   pgx.Row
+	extra []any
+}
+
+func (r scanRowWith) Scan(dest ...any) error {
+	return r.row.Scan(append(dest, r.extra...)...)
+}
+
 // EnsureCluster inserts a cluster row when no row with the same name exists,
 // or returns the existing row unchanged when one does. The returned bool is
 // true when a new row was inserted, false when an existing row was returned.
@@ -3393,61 +3405,117 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.U
 
 	values, err := nodeInsertValues(&in, id, now)
 	if err != nil {
-		return api.Node{}, api.OutcomeBusinessChanged, err
+		return api.Node{}, api.OutcomeNoChange, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("begin upsert node: %w", err)
+		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("begin upsert node: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	changeType := detectNodeUpsertChangeType(ctx, tx, in.ClusterId, in.Name)
 
+	// AUDIT_BUSINESS_FIELDS: display_name, role, kubelet_version, kube_proxy_version,
+	// container_runtime_version, os_image, operating_system, kernel_version, architecture,
+	// internal_ip, external_ip, pod_cidr, provider_id, instance_type, zone,
+	// capacity_cpu, capacity_memory, capacity_pods, capacity_ephemeral_storage,
+	// allocatable_cpu, allocatable_memory, allocatable_pods, allocatable_ephemeral_storage,
+	// conditions, taints, unschedulable, ready, labels, terminated_at (restore flips it).
+	// updated_at is a clock field — excluded. Curator-only fields
+	// (owner/criticality/notes/runbook_url/annotations/hardware_model) are not touched
+	// by the collector upsert and excluded from the OR-chain.
 	const q = `
-		INSERT INTO nodes (` + nodeColumns + `)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$38)
-		ON CONFLICT (cluster_id, name) DO UPDATE SET
-			display_name                  = EXCLUDED.display_name,
-			role                          = EXCLUDED.role,
-			kubelet_version               = EXCLUDED.kubelet_version,
-			kube_proxy_version            = EXCLUDED.kube_proxy_version,
-			container_runtime_version     = EXCLUDED.container_runtime_version,
-			os_image                      = EXCLUDED.os_image,
-			operating_system              = EXCLUDED.operating_system,
-			kernel_version                = EXCLUDED.kernel_version,
-			architecture                  = EXCLUDED.architecture,
-			internal_ip                   = EXCLUDED.internal_ip,
-			external_ip                   = EXCLUDED.external_ip,
-			pod_cidr                      = EXCLUDED.pod_cidr,
-			provider_id                   = EXCLUDED.provider_id,
-			instance_type                 = EXCLUDED.instance_type,
-			zone                          = EXCLUDED.zone,
-			capacity_cpu                  = EXCLUDED.capacity_cpu,
-			capacity_memory               = EXCLUDED.capacity_memory,
-			capacity_pods                 = EXCLUDED.capacity_pods,
-			capacity_ephemeral_storage    = EXCLUDED.capacity_ephemeral_storage,
-			allocatable_cpu               = EXCLUDED.allocatable_cpu,
-			allocatable_memory            = EXCLUDED.allocatable_memory,
-			allocatable_pods              = EXCLUDED.allocatable_pods,
-			allocatable_ephemeral_storage = EXCLUDED.allocatable_ephemeral_storage,
-			conditions                    = EXCLUDED.conditions,
-			taints                        = EXCLUDED.taints,
-			unschedulable                 = EXCLUDED.unschedulable,
-			ready                         = EXCLUDED.ready,
-			labels                        = EXCLUDED.labels,
-			terminated_at                 = NULL,
-			updated_at                    = EXCLUDED.updated_at
-		RETURNING ` + nodeColumns + `
+		WITH old AS (
+		  SELECT display_name, role, kubelet_version, kube_proxy_version,
+		         container_runtime_version, os_image, operating_system, kernel_version,
+		         architecture, internal_ip, external_ip, pod_cidr,
+		         provider_id, instance_type, zone,
+		         capacity_cpu, capacity_memory, capacity_pods, capacity_ephemeral_storage,
+		         allocatable_cpu, allocatable_memory, allocatable_pods, allocatable_ephemeral_storage,
+		         conditions, taints, unschedulable, ready, labels, terminated_at
+		    FROM nodes WHERE cluster_id=$2 AND name=$3
+		),
+		upserted AS (
+		  INSERT INTO nodes (` + nodeColumns + `)
+		    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$38)
+		  ON CONFLICT (cluster_id, name) DO UPDATE SET
+		      display_name                  = EXCLUDED.display_name,
+		      role                          = EXCLUDED.role,
+		      kubelet_version               = EXCLUDED.kubelet_version,
+		      kube_proxy_version            = EXCLUDED.kube_proxy_version,
+		      container_runtime_version     = EXCLUDED.container_runtime_version,
+		      os_image                      = EXCLUDED.os_image,
+		      operating_system              = EXCLUDED.operating_system,
+		      kernel_version                = EXCLUDED.kernel_version,
+		      architecture                  = EXCLUDED.architecture,
+		      internal_ip                   = EXCLUDED.internal_ip,
+		      external_ip                   = EXCLUDED.external_ip,
+		      pod_cidr                      = EXCLUDED.pod_cidr,
+		      provider_id                   = EXCLUDED.provider_id,
+		      instance_type                 = EXCLUDED.instance_type,
+		      zone                          = EXCLUDED.zone,
+		      capacity_cpu                  = EXCLUDED.capacity_cpu,
+		      capacity_memory               = EXCLUDED.capacity_memory,
+		      capacity_pods                 = EXCLUDED.capacity_pods,
+		      capacity_ephemeral_storage    = EXCLUDED.capacity_ephemeral_storage,
+		      allocatable_cpu               = EXCLUDED.allocatable_cpu,
+		      allocatable_memory            = EXCLUDED.allocatable_memory,
+		      allocatable_pods              = EXCLUDED.allocatable_pods,
+		      allocatable_ephemeral_storage = EXCLUDED.allocatable_ephemeral_storage,
+		      conditions                    = EXCLUDED.conditions,
+		      taints                        = EXCLUDED.taints,
+		      unschedulable                 = EXCLUDED.unschedulable,
+		      ready                         = EXCLUDED.ready,
+		      labels                        = EXCLUDED.labels,
+		      terminated_at                 = NULL,
+		      updated_at                    = EXCLUDED.updated_at
+		  RETURNING ` + nodeColumns + `, terminated_at, xmax
+		)
+		SELECT ` + nodeColumns + `,
+		       (xmax = 0) AS inserted,
+		       (xmax <> 0 AND (
+		           o.display_name                  IS DISTINCT FROM upserted.display_name                  OR
+		           o.role                          IS DISTINCT FROM upserted.role                          OR
+		           o.kubelet_version               IS DISTINCT FROM upserted.kubelet_version               OR
+		           o.kube_proxy_version            IS DISTINCT FROM upserted.kube_proxy_version            OR
+		           o.container_runtime_version     IS DISTINCT FROM upserted.container_runtime_version     OR
+		           o.os_image                      IS DISTINCT FROM upserted.os_image                      OR
+		           o.operating_system              IS DISTINCT FROM upserted.operating_system              OR
+		           o.kernel_version                IS DISTINCT FROM upserted.kernel_version                OR
+		           o.architecture                  IS DISTINCT FROM upserted.architecture                  OR
+		           o.internal_ip                   IS DISTINCT FROM upserted.internal_ip                   OR
+		           o.external_ip                   IS DISTINCT FROM upserted.external_ip                   OR
+		           o.pod_cidr                      IS DISTINCT FROM upserted.pod_cidr                      OR
+		           o.provider_id                   IS DISTINCT FROM upserted.provider_id                   OR
+		           o.instance_type                 IS DISTINCT FROM upserted.instance_type                 OR
+		           o.zone                          IS DISTINCT FROM upserted.zone                          OR
+		           o.capacity_cpu                  IS DISTINCT FROM upserted.capacity_cpu                  OR
+		           o.capacity_memory               IS DISTINCT FROM upserted.capacity_memory               OR
+		           o.capacity_pods                 IS DISTINCT FROM upserted.capacity_pods                 OR
+		           o.capacity_ephemeral_storage    IS DISTINCT FROM upserted.capacity_ephemeral_storage    OR
+		           o.allocatable_cpu               IS DISTINCT FROM upserted.allocatable_cpu               OR
+		           o.allocatable_memory            IS DISTINCT FROM upserted.allocatable_memory            OR
+		           o.allocatable_pods              IS DISTINCT FROM upserted.allocatable_pods              OR
+		           o.allocatable_ephemeral_storage IS DISTINCT FROM upserted.allocatable_ephemeral_storage OR
+		           o.conditions                    IS DISTINCT FROM upserted.conditions                    OR
+		           o.taints                        IS DISTINCT FROM upserted.taints                        OR
+		           o.unschedulable                 IS DISTINCT FROM upserted.unschedulable                 OR
+		           o.ready                         IS DISTINCT FROM upserted.ready                         OR
+		           o.labels                        IS DISTINCT FROM upserted.labels                        OR
+		           o.terminated_at                 IS DISTINCT FROM upserted.terminated_at
+		       )) AS business_changed
+		  FROM upserted LEFT JOIN old o ON true
 	`
 	row := tx.QueryRow(ctx, q, values...)
-	n, err := scanNode(row)
+	var inserted, businessChanged bool
+	n, err := scanNode(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			return api.Node{}, api.OutcomeNoChange, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
 		}
-		return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("upsert node: %w", err)
+		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("upsert node: %w", err)
 	}
 
 	actualID := *n.Id
@@ -3457,9 +3525,9 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.U
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return api.Node{}, api.OutcomeBusinessChanged, fmt.Errorf("commit upsert node: %w", err)
+		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("commit upsert node: %w", err)
 	}
-	return n, api.OutcomeBusinessChanged, nil
+	return n, classifyOutcome(inserted, businessChanged), nil
 }
 
 func scanNode(row pgx.Row) (api.Node, error) {

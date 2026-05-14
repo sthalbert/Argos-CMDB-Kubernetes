@@ -1579,6 +1579,177 @@ func TestPG_UpsertIngress_OutcomeBusinessChanged_PerField(t *testing.T) {
 	}
 }
 
+func TestPG_UpsertNode_OutcomeInserted(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "node-outcome-inserted"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	role := "worker"
+	_, outcome, err := pg.UpsertNode(ctx, api.NodeCreate{
+		ClusterId: *cluster.Id,
+		Name:      "node-a",
+		Role:      &role,
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if outcome != api.OutcomeInserted {
+		t.Errorf("first upsert outcome = %v, want Inserted", outcome)
+	}
+}
+
+func TestPG_UpsertNode_OutcomeNoChange_ClockOnly(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "node-outcome-nochange"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	role := "worker"
+	kubeletV := "v1.29.0"
+	providerID := "aws:///us-east-1a/i-0123456789abcdef"
+	capCPU := "8"
+	allocMem := "15Gi"
+	unsched := false
+	ready := true
+	conditions := []map[string]interface{}{{"type": "Ready", "status": "True"}}
+	taints := []map[string]interface{}{{"key": "dedicated", "value": "gpu", "effect": "NoSchedule"}}
+	labels := map[string]string{"env": "prod"}
+	payload := api.NodeCreate{
+		ClusterId:         *cluster.Id,
+		Name:              "node-a",
+		Role:              &role,
+		KubeletVersion:    &kubeletV,
+		ProviderId:        &providerID,
+		CapacityCpu:       &capCPU,
+		AllocatableMemory: &allocMem,
+		Unschedulable:     &unsched,
+		Ready:             &ready,
+		Conditions:        &conditions,
+		Taints:            &taints,
+		Labels:            &labels,
+	}
+
+	if _, _, err := pg.UpsertNode(ctx, payload); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_, outcome, err := pg.UpsertNode(ctx, payload)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if outcome != api.OutcomeNoChange {
+		t.Errorf("identical second upsert outcome = %v, want NoChange", outcome)
+	}
+}
+
+//nolint:gocyclo // table-driven covers a representative slice of node business fields
+func TestPG_UpsertNode_OutcomeBusinessChanged_PerField(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "node-outcome-changed"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+
+	displayName := "node-a.example"
+	role := "worker"
+	kubeletV := "v1.29.0"
+	providerID := "aws:///us-east-1a/i-0123456789abcdef"
+	capCPU := "8"
+	allocMem := "15Gi"
+	unsched := false
+	ready := true
+	conditions := []map[string]interface{}{{"type": "Ready", "status": "True"}}
+	taints := []map[string]interface{}{{"key": "dedicated", "value": "gpu", "effect": "NoSchedule"}}
+	labels := map[string]string{"env": "prod"}
+	base := api.NodeCreate{
+		ClusterId:         *cluster.Id,
+		Name:              "node-a",
+		DisplayName:       &displayName,
+		Role:              &role,
+		KubeletVersion:    &kubeletV,
+		ProviderId:        &providerID,
+		CapacityCpu:       &capCPU,
+		AllocatableMemory: &allocMem,
+		Unschedulable:     &unsched,
+		Ready:             &ready,
+		Conditions:        &conditions,
+		Taints:            &taints,
+		Labels:            &labels,
+	}
+	if _, _, err := pg.UpsertNode(ctx, base); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	displayName2 := "node-a.alt.example"
+	role2 := "control-plane"
+	kubeletV2 := "v1.30.1"
+	providerID2 := "aws:///us-east-1b/i-99999999"
+	capCPU2 := "16"
+	allocMem2 := "30Gi"
+	unsched2 := true
+	ready2 := false
+	conditions2 := []map[string]interface{}{{"type": "Ready", "status": "False"}}
+	taints2 := []map[string]interface{}{{"key": "dedicated", "value": "cpu", "effect": "NoSchedule"}}
+	labels2 := map[string]string{"env": "stage"}
+
+	mutations := []struct {
+		name string
+		mut  func(p *api.NodeCreate)
+	}{
+		{"display_name", func(p *api.NodeCreate) { p.DisplayName = &displayName2 }},
+		{"role", func(p *api.NodeCreate) { p.Role = &role2 }},
+		{"kubelet_version", func(p *api.NodeCreate) { p.KubeletVersion = &kubeletV2 }},
+		{"provider_id", func(p *api.NodeCreate) { p.ProviderId = &providerID2 }},
+		{"capacity_cpu", func(p *api.NodeCreate) { p.CapacityCpu = &capCPU2 }},
+		{"allocatable_memory", func(p *api.NodeCreate) { p.AllocatableMemory = &allocMem2 }},
+		{"unschedulable", func(p *api.NodeCreate) { p.Unschedulable = &unsched2 }},
+		{"ready", func(p *api.NodeCreate) { p.Ready = &ready2 }},
+		{"conditions", func(p *api.NodeCreate) { p.Conditions = &conditions2 }},
+		{"taints", func(p *api.NodeCreate) { p.Taints = &taints2 }},
+		{"labels", func(p *api.NodeCreate) { p.Labels = &labels2 }},
+	}
+	for _, m := range mutations {
+		m := m
+		t.Run(m.name, func(t *testing.T) {
+			pl := base
+			m.mut(&pl)
+			_, outcome, err := pg.UpsertNode(ctx, pl)
+			if err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			if outcome != api.OutcomeBusinessChanged {
+				t.Errorf("touching %s gave outcome=%v, want BusinessChanged", m.name, outcome)
+			}
+			if _, _, err := pg.UpsertNode(ctx, base); err != nil {
+				t.Fatalf("reset: %v", err)
+			}
+		})
+	}
+
+	// terminated_at restore: soft-delete then re-upsert should be BusinessChanged
+	// because terminated_at flips from non-NULL -> NULL.
+	t.Run("terminated_at_restore", func(t *testing.T) {
+		if _, err := pg.DeleteNodesNotIn(ctx, *cluster.Id, nil); err != nil {
+			t.Fatalf("soft-delete: %v", err)
+		}
+		_, outcome, err := pg.UpsertNode(ctx, base)
+		if err != nil {
+			t.Fatalf("restore upsert: %v", err)
+		}
+		if outcome != api.OutcomeBusinessChanged {
+			t.Errorf("restore upsert outcome = %v, want BusinessChanged", outcome)
+		}
+	})
+}
+
 // TestPGPodAndWorkloadContainersRoundTrip verifies the new containers JSONB
 // column survives an upsert + read cycle on both Pod and Workload. Each entity
 // type writes its own subset of fields into the generic map: Pod has
