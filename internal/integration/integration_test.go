@@ -121,7 +121,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	// regardless of prior test runs or existing OrbStack data.
 	truncate := func() {
 		_, _ = rawPool.Exec(context.Background(),
-			"TRUNCATE clusters, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
+			"TRUNCATE clusters, cloud_accounts, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
 	}
 	truncate()
 	t.Cleanup(func() {
@@ -185,9 +185,12 @@ func newTestEnv(t *testing.T) *testEnv {
 	)
 	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
 		BaseRouter: mux,
+		// Order mirrors cmd/longue-vue/main.go: oapi-codegen applies these
+		// in list order so the last entry (Auth) is outermost and runs
+		// first, resolving the Caller before Audit reads it.
 		Middlewares: []api.MiddlewareFunc{
-			api.AuthMiddleware(pg, auth.SecureNever, nil),
 			api.AuditMiddleware(pg, "api", nil),
+			api.AuthMiddleware(pg, auth.SecureNever, nil),
 		},
 	})
 

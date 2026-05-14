@@ -58,8 +58,10 @@ func newTestPG(t *testing.T) *PG {
 		// auth tables stand on their own so TRUNCATE them alongside.
 		// api_tokens RESTRICTs on user deletion, so truncate them in
 		// order (api_tokens → users gets CASCADEd via sessions / identities).
+		// cloud_accounts is independent of clusters; CASCADE wipes
+		// virtual_machines via FK so the VM upsert tests see a clean slate.
 		_, _ = pg.pool.Exec(context.Background(),
-			"TRUNCATE clusters, image_versions, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
+			"TRUNCATE clusters, cloud_accounts, image_versions, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
 		pg.Close()
 	})
 	return pg

@@ -660,6 +660,21 @@ const nodeColumns = `id, cluster_id, name, display_name, role,
 	owner, criticality, notes, runbook_url, annotations, hardware_model,
 	created_at, updated_at`
 
+// nodeColumnsUAliased is nodeColumns with every column qualified by the `u`
+// alias — used by UpsertNode's final SELECT, which joins `upserted u` against
+// the snapshot CTE `old o` and must disambiguate columns present in both.
+const nodeColumnsUAliased = `u.id, u.cluster_id, u.name, u.display_name, u.role,
+	u.kubelet_version, u.kube_proxy_version, u.container_runtime_version,
+	u.os_image, u.operating_system, u.kernel_version, u.architecture,
+	u.internal_ip, u.external_ip, u.pod_cidr,
+	u.provider_id, u.instance_type, u.zone,
+	u.capacity_cpu, u.capacity_memory, u.capacity_pods, u.capacity_ephemeral_storage,
+	u.allocatable_cpu, u.allocatable_memory, u.allocatable_pods, u.allocatable_ephemeral_storage,
+	u.conditions, u.taints, u.unschedulable, u.ready,
+	u.labels,
+	u.owner, u.criticality, u.notes, u.runbook_url, u.annotations, u.hardware_model,
+	u.created_at, u.updated_at`
+
 func nodeInsertValues(in *api.NodeCreate, id uuid.UUID, now time.Time) ([]any, error) {
 	labelsJSON, err := marshalLabels(in.Labels)
 	if err != nil {
@@ -1432,17 +1447,17 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 		            owner, criticality, notes, runbook_url, annotations,
 		            created_at, updated_at, terminated_at, xmax
 		)
-		SELECT id, cluster_id, name, display_name, phase, labels,
-		       owner, criticality, notes, runbook_url, annotations,
-		       created_at, updated_at,
-		       (xmax = 0) AS inserted,
-		       (xmax <> 0 AND (
-		           o.display_name  IS DISTINCT FROM upserted.display_name  OR
-		           o.phase         IS DISTINCT FROM upserted.phase         OR
-		           o.labels        IS DISTINCT FROM upserted.labels        OR
-		           o.terminated_at IS DISTINCT FROM upserted.terminated_at
+		SELECT u.id, u.cluster_id, u.name, u.display_name, u.phase, u.labels,
+		       u.owner, u.criticality, u.notes, u.runbook_url, u.annotations,
+		       u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.display_name  IS DISTINCT FROM u.display_name  OR
+		           o.phase         IS DISTINCT FROM u.phase         OR
+		           o.labels        IS DISTINCT FROM u.labels        OR
+		           o.terminated_at IS DISTINCT FROM u.terminated_at
 		       )) AS business_changed
-		  FROM upserted LEFT JOIN old o ON true
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := tx.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
@@ -3500,40 +3515,40 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.U
 		      updated_at                    = EXCLUDED.updated_at
 		  RETURNING ` + nodeColumns + `, terminated_at, xmax
 		)
-		SELECT ` + nodeColumns + `,
-		       (xmax = 0) AS inserted,
-		       (xmax <> 0 AND (
-		           o.display_name                  IS DISTINCT FROM upserted.display_name                  OR
-		           o.role                          IS DISTINCT FROM upserted.role                          OR
-		           o.kubelet_version               IS DISTINCT FROM upserted.kubelet_version               OR
-		           o.kube_proxy_version            IS DISTINCT FROM upserted.kube_proxy_version            OR
-		           o.container_runtime_version     IS DISTINCT FROM upserted.container_runtime_version     OR
-		           o.os_image                      IS DISTINCT FROM upserted.os_image                      OR
-		           o.operating_system              IS DISTINCT FROM upserted.operating_system              OR
-		           o.kernel_version                IS DISTINCT FROM upserted.kernel_version                OR
-		           o.architecture                  IS DISTINCT FROM upserted.architecture                  OR
-		           o.internal_ip                   IS DISTINCT FROM upserted.internal_ip                   OR
-		           o.external_ip                   IS DISTINCT FROM upserted.external_ip                   OR
-		           o.pod_cidr                      IS DISTINCT FROM upserted.pod_cidr                      OR
-		           o.provider_id                   IS DISTINCT FROM upserted.provider_id                   OR
-		           o.instance_type                 IS DISTINCT FROM upserted.instance_type                 OR
-		           o.zone                          IS DISTINCT FROM upserted.zone                          OR
-		           o.capacity_cpu                  IS DISTINCT FROM upserted.capacity_cpu                  OR
-		           o.capacity_memory               IS DISTINCT FROM upserted.capacity_memory               OR
-		           o.capacity_pods                 IS DISTINCT FROM upserted.capacity_pods                 OR
-		           o.capacity_ephemeral_storage    IS DISTINCT FROM upserted.capacity_ephemeral_storage    OR
-		           o.allocatable_cpu               IS DISTINCT FROM upserted.allocatable_cpu               OR
-		           o.allocatable_memory            IS DISTINCT FROM upserted.allocatable_memory            OR
-		           o.allocatable_pods              IS DISTINCT FROM upserted.allocatable_pods              OR
-		           o.allocatable_ephemeral_storage IS DISTINCT FROM upserted.allocatable_ephemeral_storage OR
-		           o.conditions                    IS DISTINCT FROM upserted.conditions                    OR
-		           o.taints                        IS DISTINCT FROM upserted.taints                        OR
-		           o.unschedulable                 IS DISTINCT FROM upserted.unschedulable                 OR
-		           o.ready                         IS DISTINCT FROM upserted.ready                         OR
-		           o.labels                        IS DISTINCT FROM upserted.labels                        OR
-		           o.terminated_at                 IS DISTINCT FROM upserted.terminated_at
+		SELECT ` + nodeColumnsUAliased + `,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.display_name                  IS DISTINCT FROM u.display_name                  OR
+		           o.role                          IS DISTINCT FROM u.role                          OR
+		           o.kubelet_version               IS DISTINCT FROM u.kubelet_version               OR
+		           o.kube_proxy_version            IS DISTINCT FROM u.kube_proxy_version            OR
+		           o.container_runtime_version     IS DISTINCT FROM u.container_runtime_version     OR
+		           o.os_image                      IS DISTINCT FROM u.os_image                      OR
+		           o.operating_system              IS DISTINCT FROM u.operating_system              OR
+		           o.kernel_version                IS DISTINCT FROM u.kernel_version                OR
+		           o.architecture                  IS DISTINCT FROM u.architecture                  OR
+		           o.internal_ip                   IS DISTINCT FROM u.internal_ip                   OR
+		           o.external_ip                   IS DISTINCT FROM u.external_ip                   OR
+		           o.pod_cidr                      IS DISTINCT FROM u.pod_cidr                      OR
+		           o.provider_id                   IS DISTINCT FROM u.provider_id                   OR
+		           o.instance_type                 IS DISTINCT FROM u.instance_type                 OR
+		           o.zone                          IS DISTINCT FROM u.zone                          OR
+		           o.capacity_cpu                  IS DISTINCT FROM u.capacity_cpu                  OR
+		           o.capacity_memory               IS DISTINCT FROM u.capacity_memory               OR
+		           o.capacity_pods                 IS DISTINCT FROM u.capacity_pods                 OR
+		           o.capacity_ephemeral_storage    IS DISTINCT FROM u.capacity_ephemeral_storage    OR
+		           o.allocatable_cpu               IS DISTINCT FROM u.allocatable_cpu               OR
+		           o.allocatable_memory            IS DISTINCT FROM u.allocatable_memory            OR
+		           o.allocatable_pods              IS DISTINCT FROM u.allocatable_pods              OR
+		           o.allocatable_ephemeral_storage IS DISTINCT FROM u.allocatable_ephemeral_storage OR
+		           o.conditions                    IS DISTINCT FROM u.conditions                    OR
+		           o.taints                        IS DISTINCT FROM u.taints                        OR
+		           o.unschedulable                 IS DISTINCT FROM u.unschedulable                 OR
+		           o.ready                         IS DISTINCT FROM u.ready                         OR
+		           o.labels                        IS DISTINCT FROM u.labels                        OR
+		           o.terminated_at                 IS DISTINCT FROM u.terminated_at
 		       )) AS business_changed
-		  FROM upserted LEFT JOIN old o ON true
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := tx.QueryRow(ctx, q, values...)
 	var inserted, businessChanged bool
@@ -4108,25 +4123,25 @@ func (p *PG) UpsertPersistentVolume(ctx context.Context, in api.PersistentVolume
 		            claim_ref_namespace, claim_ref_name,
 		            labels, created_at, updated_at, xmax
 		)
-		SELECT id, cluster_id, name, capacity, access_modes,
-		       reclaim_policy, phase, storage_class_name,
-		       csi_driver, volume_handle,
-		       claim_ref_namespace, claim_ref_name,
-		       labels, created_at, updated_at,
-		       (xmax = 0) AS inserted,
-		       (xmax <> 0 AND (
-		           o.capacity            IS DISTINCT FROM upserted.capacity            OR
-		           o.access_modes        IS DISTINCT FROM upserted.access_modes        OR
-		           o.reclaim_policy      IS DISTINCT FROM upserted.reclaim_policy      OR
-		           o.phase               IS DISTINCT FROM upserted.phase               OR
-		           o.storage_class_name  IS DISTINCT FROM upserted.storage_class_name  OR
-		           o.csi_driver          IS DISTINCT FROM upserted.csi_driver          OR
-		           o.volume_handle       IS DISTINCT FROM upserted.volume_handle       OR
-		           o.claim_ref_namespace IS DISTINCT FROM upserted.claim_ref_namespace OR
-		           o.claim_ref_name      IS DISTINCT FROM upserted.claim_ref_name      OR
-		           o.labels              IS DISTINCT FROM upserted.labels
+		SELECT u.id, u.cluster_id, u.name, u.capacity, u.access_modes,
+		       u.reclaim_policy, u.phase, u.storage_class_name,
+		       u.csi_driver, u.volume_handle,
+		       u.claim_ref_namespace, u.claim_ref_name,
+		       u.labels, u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.capacity            IS DISTINCT FROM u.capacity            OR
+		           o.access_modes        IS DISTINCT FROM u.access_modes        OR
+		           o.reclaim_policy      IS DISTINCT FROM u.reclaim_policy      OR
+		           o.phase               IS DISTINCT FROM u.phase               OR
+		           o.storage_class_name  IS DISTINCT FROM u.storage_class_name  OR
+		           o.csi_driver          IS DISTINCT FROM u.csi_driver          OR
+		           o.volume_handle       IS DISTINCT FROM u.volume_handle       OR
+		           o.claim_ref_namespace IS DISTINCT FROM u.claim_ref_namespace OR
+		           o.claim_ref_name      IS DISTINCT FROM u.claim_ref_name      OR
+		           o.labels              IS DISTINCT FROM u.labels
 		       )) AS business_changed
-		  FROM upserted LEFT JOIN old o ON true
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name,
@@ -4490,20 +4505,20 @@ func (p *PG) UpsertPersistentVolumeClaim(
 		            volume_name, bound_volume_id, access_modes, requested_storage,
 		            labels, created_at, updated_at, xmax
 		)
-		SELECT id, namespace_id, name, phase, storage_class_name,
-		       volume_name, bound_volume_id, access_modes, requested_storage,
-		       labels, created_at, updated_at,
-		       (xmax = 0) AS inserted,
-		       (xmax <> 0 AND (
-		           o.phase              IS DISTINCT FROM upserted.phase              OR
-		           o.storage_class_name IS DISTINCT FROM upserted.storage_class_name OR
-		           o.volume_name        IS DISTINCT FROM upserted.volume_name        OR
-		           o.bound_volume_id    IS DISTINCT FROM upserted.bound_volume_id    OR
-		           o.access_modes       IS DISTINCT FROM upserted.access_modes       OR
-		           o.requested_storage  IS DISTINCT FROM upserted.requested_storage  OR
-		           o.labels             IS DISTINCT FROM upserted.labels
+		SELECT u.id, u.namespace_id, u.name, u.phase, u.storage_class_name,
+		       u.volume_name, u.bound_volume_id, u.access_modes, u.requested_storage,
+		       u.labels, u.created_at, u.updated_at,
+		       (u.xmax = 0) AS inserted,
+		       (u.xmax <> 0 AND (
+		           o.phase              IS DISTINCT FROM u.phase              OR
+		           o.storage_class_name IS DISTINCT FROM u.storage_class_name OR
+		           o.volume_name        IS DISTINCT FROM u.volume_name        OR
+		           o.bound_volume_id    IS DISTINCT FROM u.bound_volume_id    OR
+		           o.access_modes       IS DISTINCT FROM u.access_modes       OR
+		           o.requested_storage  IS DISTINCT FROM u.requested_storage  OR
+		           o.labels             IS DISTINCT FROM u.labels
 		       )) AS business_changed
-		  FROM upserted LEFT JOIN old o ON true
+		  FROM upserted u LEFT JOIN old o ON true
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name,
