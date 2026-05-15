@@ -181,6 +181,18 @@ var (
 			"by actor kind, resource type, and reason " +
 			"(no_change|reconcile_empty). See ADR-0024.",
 	}, []string{"actor_kind", "resource_type", "reason"})
+
+	extractsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "longue_vue",
+		Name:      "extracts_total",
+		Help:      "Bulk extracts requested via /v1/search/extract* or /v1/eol/extract, per page, format, and outcome.",
+	}, []string{"page", "format", "outcome"})
+
+	extractRowsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "longue_vue",
+		Name:      "extract_rows_total",
+		Help:      "Cumulative count of rows emitted by extract endpoints, per page.",
+	}, []string{"page"})
 )
 
 func init() {
@@ -209,6 +221,8 @@ func init() {
 		ingestListenerClientCertFailures,
 		timeTravelWritesTotal,
 		auditEventsSkipped,
+		extractsTotal,
+		extractRowsTotal,
 	)
 }
 
@@ -350,6 +364,16 @@ func ObserveAuditSkipped(actorKind, resourceType, reason string) {
 // for production code paths — production should call ObserveAuditSkipped.
 func AuditEventsSkippedFor(actorKind, resourceType, reason string) prometheus.Counter {
 	return auditEventsSkipped.WithLabelValues(actorKind, resourceType, reason)
+}
+
+// ObserveExtract records one completed extract: bumps the per-(page, format,
+// outcome) counter and adds `rows` to the per-page row total. `outcome` is
+// one of "ok", "truncated", "error", "denied".
+func ObserveExtract(page, format, outcome string, rows int) {
+	extractsTotal.WithLabelValues(page, format, outcome).Inc()
+	if rows > 0 {
+		extractRowsTotal.WithLabelValues(page).Add(float64(rows))
+	}
 }
 
 // InstrumentHandler wraps an http.Handler with request counting + duration
