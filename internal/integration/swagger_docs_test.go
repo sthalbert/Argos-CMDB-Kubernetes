@@ -16,12 +16,12 @@ import (
 // TestSwaggerDocs_authGating exercises the full auth chain on /docs/ and
 // /openapi.yaml, asserting:
 //
-//   (a) /docs/ (shell) is reachable without credentials.
-//   (b) /openapi.yaml returns 401 without credentials.
-//   (c) /openapi.yaml returns 200 with a valid session cookie.
-//   (d) /openapi.yaml returns 200 with a read-scope PAT Bearer token.
-//   (e) GET /docs (no trailing slash) redirects 301 → /docs/
-//   (f) POST /openapi.yaml returns 405 (Go 1.22+ method enforcement).
+//	(a) /docs/ (shell) is reachable without credentials.
+//	(b) /openapi.yaml returns 401 without credentials.
+//	(c) /openapi.yaml returns 200 with a valid session cookie.
+//	(d) /openapi.yaml returns 200 with a read-scope PAT Bearer token.
+//	(e) GET /docs (no trailing slash) redirects 301 → /docs/
+//	(f) POST /openapi.yaml returns 405 (Go 1.22+ method enforcement).
 func TestSwaggerDocs_authGating(t *testing.T) {
 	// Reuse newTestEnv for DB setup, admin credentials, and the pre-minted
 	// all-scope PAT (env.token). We build a second httptest.Server with the
@@ -49,7 +49,10 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	}
 	swaggerMux.Handle("GET /openapi.yaml", requireRead(specAuth(swagger.OpenAPISpecHandler())))
 
-	// Also wire the /v1/auth/login endpoint so loginAndGetCookie works.
+	// Also wire the /v1/auth/login endpoint so the test can mint a session
+	// cookie against this same server (sharing env.store with the harness
+	// means the cookie would also be valid against env.srv, but staying on
+	// one server keeps the test self-contained).
 	strict := api.NewStrictHandlerWithOptions(
 		api.NewServer("test", env.store, auth.SecureNever, nil, api.NewLoginRateLimiter(), api.NewVerifyRateLimiter()),
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
@@ -143,8 +146,7 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	}
 
 	// (e) GET /docs (no trailing slash) → 301 → Location: /docs/
-	noRedirectClient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	resp, err = noRedirectClient.Get(srv.URL + "/docs")
+	resp, err = noRedirect.Get(srv.URL + "/docs")
 	if err != nil {
 		t.Fatalf("GET /docs: %v", err)
 	}
