@@ -1168,3 +1168,47 @@ export function listEntityHistory(
     `/v1/${kind}/${id}/history` + query({ cursor, limit }),
   );
 }
+
+// --- Extracts (CSV/JSON/ZIP downloads) ----------------------------------
+
+import { downloadExtract, type DownloadResult } from './lib/download';
+
+export type ExtractFormat = 'csv' | 'json';
+export type SearchExtractKind = 'workloads' | 'pods' | 'virtual_machines';
+export type { DownloadResult as ExtractResult } from './lib/download';
+
+export function extractSearch(
+  q: string,
+  kind: SearchExtractKind,
+  format: ExtractFormat,
+): Promise<DownloadResult> {
+  const params = new URLSearchParams({ q, kind, format });
+  return downloadExtract(
+    `/v1/search/extract?${params.toString()}`,
+    `longue-vue-search-${kind}.${format}`,
+  );
+}
+
+export function extractSearchZip(q: string): Promise<DownloadResult> {
+  const params = new URLSearchParams({ q });
+  return downloadExtract(
+    `/v1/search/extract.zip?${params.toString()}`,
+    `longue-vue-search.zip`,
+  );
+}
+
+export interface EolExtractParams {
+  format: ExtractFormat;
+  entity_type?: 'cluster' | 'node' | 'vm';
+  status?: 'eol' | 'approaching_eol' | 'supported' | 'unknown';
+}
+
+export function extractEol(p: EolExtractParams): Promise<DownloadResult> {
+  const params = new URLSearchParams({ format: p.format });
+  if (p.entity_type) params.set('entity_type', p.entity_type);
+  if (p.status) params.set('status', p.status);
+  return downloadExtract(
+    `/v1/eol/extract?${params.toString()}`,
+    `longue-vue-eol.${p.format}`,
+  );
+}
