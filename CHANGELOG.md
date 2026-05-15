@@ -6,6 +6,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.21.0](https://github.com/sthalbert/Longue-Vue/compare/v0.20.0...v0.21.0) (2026-05-15)
+
+
+### Features
+
+* **api:** add relative server URL and /docs pointer to OpenAPI spec ([5509a47](https://github.com/sthalbert/Longue-Vue/commit/5509a4740a4d3dd554d927c3ac4a3010052b6791))
+* **api:** mount /docs and /openapi.yaml on the public listener ([7b912ba](https://github.com/sthalbert/Longue-Vue/commit/7b912ba0a9741e6973457dbc3deeaa69b35c5f98))
+* interactive API docs via embedded Swagger UI (ADR-0025) ([e223ea6](https://github.com/sthalbert/Longue-Vue/commit/e223ea6d455aed3e6a252303b8e060141dccdea8))
+* **swagger:** add embed.go with index/dist/spec //go:embed directives ([601a53b](https://github.com/sthalbert/Longue-Vue/commit/601a53bd681ca4c1329002a29fa427f119bb8c5d))
+* **swagger:** add OpenAPISpecHandler serving embedded /openapi.yaml ([a1c12bf](https://github.com/sthalbert/Longue-Vue/commit/a1c12bfb81f8f8e3674adcf0a5f5e4c7d6216cdd))
+* **swagger:** add SwaggerUIHandler and longue-vue index.html bootstrap ([82ae177](https://github.com/sthalbert/Longue-Vue/commit/82ae1779cf5df075ef59d9cf92620d97ec4f4afd))
+* **ui:** add 'API Docs' link to the top-nav ([260bb47](https://github.com/sthalbert/Longue-Vue/commit/260bb47532101ee3ed4ee38b72bf9a5bde5bc04a))
+
+
+### Bug Fixes
+
+* **auth:** whitelist /openapi.yaml under must_change_password guard ([db58a3d](https://github.com/sthalbert/Longue-Vue/commit/db58a3db8f0ce526027d3e94603c44d7f2d58583))
+* **swagger:** drop broken ?return= link, tighten index tests, cache-control on shell ([64ca2ca](https://github.com/sthalbert/Longue-Vue/commit/64ca2ca968e445dfdbdaea017feace7c80ffe3e6))
+* **swagger:** extract bootstrap to init.js for CSP `script-src 'self'` ([5244ebf](https://github.com/sthalbert/Longue-Vue/commit/5244ebf7166669d0f3c7b91ba97f30c78029fc6c))
+* **swagger:** handle If-None-Match: * per RFC 7232 §3.2 ([fcc7fcc](https://github.com/sthalbert/Longue-Vue/commit/fcc7fccc13867539ce1e23dd332bc5ae4c0b293c))
+* **test:** gofmt swagger_docs_test, reuse noRedirect client, clarify comment ([71f2a67](https://github.com/sthalbert/Longue-Vue/commit/71f2a67a4dab894ff46b9057c50c1ac61cf33312))
+
 ## [0.20.0](https://github.com/sthalbert/Longue-Vue/compare/v0.19.2...v0.20.0) (2026-05-14)
 
 
