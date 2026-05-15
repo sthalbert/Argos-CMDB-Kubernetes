@@ -9,6 +9,9 @@ import "embed"
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed init.js
+var initJS []byte
+
 //go:embed all:dist
 var distFS embed.FS
 

@@ -116,12 +116,11 @@ func TestUIHandler_servesIndexAtRoot(t *testing.T) {
 	if !strings.Contains(body, "swagger-ui") {
 		t.Errorf("body should reference swagger-ui")
 	}
-	if !strings.Contains(body, "/openapi.yaml") {
-		t.Errorf("body should reference /openapi.yaml")
-	}
 	if !strings.Contains(body, "longue-vue") {
 		t.Errorf("body should reference longue-vue")
 	}
+	// The /openapi.yaml URL moved to init.js (CSP compat). The dedicated
+	// TestUIHandler_servesInitJS asserts the spec URL lives there.
 }
 
 func TestUIHandler_servesIndexAtEmptyPath(t *testing.T) {
@@ -164,5 +163,46 @@ func TestUIHandler_returns404OnMissingAsset(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 (no fallback to index — broken vendor copies must surface)", rec.Code)
+	}
+}
+
+// TestUIHandler_servesInitJS guards the CSP-compatibility contract: the
+// bootstrap that calls SwaggerUIBundle({...}) lives in init.js (not inline
+// in index.html) so the strict `script-src 'self'` policy applied to /docs/*
+// responses accepts it without `'unsafe-inline'`.
+func TestUIHandler_servesInitJS(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/init.js", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.Contains(ct, "javascript") {
+		t.Errorf("Content-Type = %q, want a javascript type", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "SwaggerUIBundle") {
+		t.Errorf("init.js body should call SwaggerUIBundle; got: %s", body[:min(200, len(body))])
+	}
+	if !strings.Contains(body, "/openapi.yaml") {
+		t.Errorf("init.js body should reference /openapi.yaml")
+	}
+}
+
+func TestUIHandler_indexReferencesInitJS(t *testing.T) {
+	// index.html must reference ./init.js externally rather than embedding
+	// the bootstrap inline (CSP guard — see TestUIHandler_servesInitJS).
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `src="./init.js"`) {
+		t.Errorf("index.html must reference ./init.js via external script tag (CSP compatibility)")
+	}
+	if strings.Contains(body, "SwaggerUIBundle(") {
+		t.Errorf("index.html still contains inline SwaggerUIBundle bootstrap — must live in init.js to satisfy CSP script-src 'self'")
 	}
 }

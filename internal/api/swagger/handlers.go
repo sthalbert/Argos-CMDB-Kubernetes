@@ -49,11 +49,19 @@ func UIHandler() http.Handler {
 	distSrv := http.FileServer(http.FS(distSub))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
+		switch strings.TrimPrefix(r.URL.Path, "/") {
+		case "":
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-cache")
 			_, _ = w.Write(indexHTML)
+			return
+		case "init.js":
+			// Separate file (rather than inline in index.html) so the strict
+			// `script-src 'self'` CSP applied to /docs/* responses accepts
+			// the bootstrap without needing `'unsafe-inline'`.
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			_, _ = w.Write(initJS)
 			return
 		}
 		distSrv.ServeHTTP(w, r)
