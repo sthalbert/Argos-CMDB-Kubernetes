@@ -101,7 +101,7 @@ func TestOpenAPISpecHandler_etagMismatch(t *testing.T) {
 	}
 }
 
-func TestSwaggerUIHandler_servesIndexAtRoot(t *testing.T) {
+func TestUIHandler_servesIndexAtRoot(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	swagger.UIHandler().ServeHTTP(rec, req)
@@ -124,7 +124,7 @@ func TestSwaggerUIHandler_servesIndexAtRoot(t *testing.T) {
 	}
 }
 
-func TestSwaggerUIHandler_servesIndexAtEmptyPath(t *testing.T) {
+func TestUIHandler_servesIndexAtEmptyPath(t *testing.T) {
 	// Bare empty path arrives at this handler when UIHandler is
 	// mounted via http.StripPrefix("/docs", ...) and the request is the
 	// (already-redirected) /docs/ — StripPrefix strips "/docs" leaving "".
@@ -143,7 +143,7 @@ func TestSwaggerUIHandler_servesIndexAtEmptyPath(t *testing.T) {
 	}
 }
 
-func TestSwaggerUIHandler_servesAssetsFromDist(t *testing.T) {
+func TestUIHandler_servesAssetsFromDist(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/swagger-ui-bundle.js", http.NoBody)
 	swagger.UIHandler().ServeHTTP(rec, req)
@@ -157,7 +157,7 @@ func TestSwaggerUIHandler_servesAssetsFromDist(t *testing.T) {
 	}
 }
 
-func TestSwaggerUIHandler_returns404OnMissingAsset(t *testing.T) {
+func TestUIHandler_returns404OnMissingAsset(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/does-not-exist.css", http.NoBody)
 	swagger.UIHandler().ServeHTTP(rec, req)

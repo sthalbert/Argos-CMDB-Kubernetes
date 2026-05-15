@@ -52,7 +52,7 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - Dual-path middleware: session cookie (humans, login or OIDC) **or** `Authorization: Bearer longue_vue_pat_…`. Both feed `Caller{id, kind, role, scopes}`.
 - Roles: `admin` / `editor` / `auditor` / `viewer` plus the machine-only `vm-collector` token preset bound to a `cloud_account` UUID at issuance.
 - `auth.HasScope`: admin implies everything **except** `vm-collector` (preserves the SK-read boundary).
-- First-run bootstrap creates one admin from `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` or a random one printed once; `must_change_password=true` blocks all but `/v1/auth/change-password`.
+- First-run bootstrap creates one admin from `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` or a random one printed once; `must_change_password=true` blocks all but `/v1/auth/me`, `/v1/auth/change-password`, `/v1/auth/logout`, and `/openapi.yaml` (so the docs page can load).
 - Last-admin guard: `UpdateUserGuarded` / `DeleteUserGuarded` use `SELECT … FOR UPDATE` over active admins; returns `ErrLastAdmin` → 409.
 - Account auto-locks after 6 consecutive failed password verifications (`failed_login_count`, `locked_at`). No last-admin guard — the only admin can be locked. Admin unlocks via `PATCH /v1/admin/users/{id}` with `unlock=true`. If every admin is locked out: set `LONGUE_VUE_ADMIN_RESCUE_PASSWORD` and restart — the boot hook resets the most-recently-active admin's password, clears the lock, and forces `must_change_password=true`.
 - OIDC optional via `LONGUE_VUE_OIDC_ISSUER`; PKCE+nonce+state, one-shot rows in `oidc_auth_states`. Shadow users default to `viewer`; group claims are not trusted.

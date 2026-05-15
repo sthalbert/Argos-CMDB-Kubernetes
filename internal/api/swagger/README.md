@@ -3,7 +3,7 @@
 Embeds the Swagger UI 5.x distribution and the longue-vue OpenAPI spec, and
 exposes two HTTP handlers used by `cmd/longue-vue`:
 
-- `SwaggerUIHandler()` — serves the Swagger UI shell (HTML + JS/CSS assets)
+- `UIHandler()` — serves the Swagger UI shell (HTML + JS/CSS assets)
   from `index.html` (our bootstrap) and `dist/` (vendored upstream).
 - `OpenAPISpecHandler()` — serves the embedded `openapi.yaml`.
 

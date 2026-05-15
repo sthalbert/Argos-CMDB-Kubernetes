@@ -118,7 +118,7 @@ Concretely:
 
 ### Negative
 
-- ~1.5 MB of static JS/CSS now lives in the binary. Negligible against the
+- ~2 MB of static JS/CSS now lives in the binary. Negligible against the
   existing SPA bundle, but non-zero.
 - Swagger UI has a CVE history (typically XSS via crafted specs). Our
   spec is embedded, so spec-injection is not a vector — but the version
