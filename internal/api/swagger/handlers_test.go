@@ -99,3 +99,52 @@ func TestOpenAPISpecHandler_etagMismatch(t *testing.T) {
 		t.Error("mismatched If-None-Match should serve full body, got empty")
 	}
 }
+
+func TestSwaggerUIHandler_servesIndexAtRoot(t *testing.T) {
+	for _, path := range []string{"/", ""} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/"+strings.TrimPrefix(path, "/"), nil)
+		swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("path %q: status = %d, want 200", path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Errorf("path %q: Content-Type = %q, want text/html", path, ct)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "swagger-ui") {
+			t.Errorf("path %q: body should reference swagger-ui", path)
+		}
+		if !strings.Contains(body, "/openapi.yaml") {
+			t.Errorf("path %q: body should reference /openapi.yaml", path)
+		}
+		if !strings.Contains(body, "longue-vue") {
+			t.Errorf("path %q: body should reference longue-vue", path)
+		}
+	}
+}
+
+func TestSwaggerUIHandler_servesAssetsFromDist(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/swagger-ui-bundle.js", nil)
+	swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.Contains(ct, "javascript") {
+		t.Errorf("Content-Type = %q, want a javascript type", ct)
+	}
+}
+
+func TestSwaggerUIHandler_returns404OnMissingAsset(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/does-not-exist.css", nil)
+	swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (no fallback to index — broken vendor copies must surface)", rec.Code)
+	}
+}

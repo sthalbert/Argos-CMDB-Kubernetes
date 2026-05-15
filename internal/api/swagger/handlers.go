@@ -3,7 +3,9 @@ package swagger
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io/fs"
 	"net/http"
+	"strings"
 )
 
 // openapiETag is the strong validator for the embedded spec. Computed once
@@ -27,5 +29,32 @@ func OpenAPISpecHandler() http.Handler {
 			return
 		}
 		_, _ = w.Write(openapiYAML)
+	})
+}
+
+// SwaggerUIHandler serves the Swagger UI shell. Designed to be mounted at
+// /docs/ with http.StripPrefix("/docs", ...) so a request to /docs/ arrives
+// here as "/" and is served the index; a request to /docs/<asset> arrives
+// as /<asset> and is served from the embedded dist/ subtree.
+//
+// Misses return 404 (no fallback to index.html) so broken vendor copies
+// surface loudly instead of silently rendering an empty Swagger UI shell.
+func SwaggerUIHandler() http.Handler {
+	distSub, err := fs.Sub(distFS, "dist")
+	if err != nil {
+		// Compile-time guarantee: dist/ is embedded. A failure here is a
+		// programming error, not a runtime condition.
+		panic("swagger: fs.Sub(distFS, \"dist\"): " + err.Error())
+	}
+	distSrv := http.FileServer(http.FS(distSub))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(indexHTML)
+			return
+		}
+		distSrv.ServeHTTP(w, r)
 	})
 }
