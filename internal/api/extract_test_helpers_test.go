@@ -121,7 +121,7 @@ func newExtractStubStore() *extractStubStore {
 		vms: []api.VirtualMachine{
 			{ID: vm1, CloudAccountID: acc1, Name: "bastion-prod", Region: &region,
 				ImageID: &imageID, ImageName: &imageName, Role: &role, PowerState: "running",
-				Annotations: vmAnnotations,
+				Annotations:  vmAnnotations,
 				Applications: []api.VMApplication{{Product: "vault", Version: "1.13.4"}},
 			},
 		},
