@@ -163,7 +163,8 @@ func AuditMiddleware(recorder AuditRecorder, source string, trustedProxies []*ne
 				}
 			}
 			if err := recorder.InsertAuditEvent(ctx, ev); err != nil {
-				slog.Error("audit: insert failed",
+				slog.Error(
+					"audit: insert failed",
 					slog.Any("error", err),
 					slog.String("method", r.Method),
 					slog.String("path", r.URL.Path),
