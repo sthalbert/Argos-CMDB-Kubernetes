@@ -26,25 +26,3 @@ func TestSwaggerRoutes_unauthShellIsPublic(t *testing.T) {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 }
-
-// TestSwaggerRoutes_specHandlerIsByteIdentical re-asserts the runtime
-// drift guard at the integration boundary.
-func TestSwaggerRoutes_specHandlerIsByteIdentical(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.Handle("GET /openapi.yaml", swagger.OpenAPISpecHandler())
-
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/openapi.yaml")
-	if err != nil {
-		t.Fatalf("GET /openapi.yaml: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != "application/yaml" {
-		t.Errorf("Content-Type = %q, want application/yaml", ct)
-	}
-}
