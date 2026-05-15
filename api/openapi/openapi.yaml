@@ -17,7 +17,12 @@ info:
 
     Errors follow RFC 7807 (`application/problem+json`).
 
+    Interactive API documentation is available at `/docs/` for authenticated
+    operators; sign in via `/ui/login` first to use "Try it out".
+
 servers:
+  - url: /
+    description: Current origin (recommended for browser-based "Try it out" via /docs/)
   - url: http://localhost:8080
     description: Local development
 
