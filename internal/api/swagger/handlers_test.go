@@ -1,0 +1,73 @@
+package swagger_test
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/sthalbert/longue-vue/internal/api/swagger"
+)
+
+func TestOpenAPISpecHandler_servesSpec(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/yaml" {
+		t.Errorf("Content-Type = %q, want application/yaml", ct)
+	}
+	if !strings.HasPrefix(rec.Body.String(), "openapi: 3.1.0") {
+		t.Errorf("body should start with 'openapi: 3.1.0', got: %q", rec.Body.String()[:30])
+	}
+}
+
+func TestOpenAPISpecHandler_matchesSourceFile(t *testing.T) {
+	// Source of truth lives at api/openapi/openapi.yaml. The embedded copy
+	// must be byte-identical (enforced by `make swagger-sync-check` in CI,
+	// double-checked here at test time).
+	srcPath := filepath.Join("..", "..", "..", "api", "openapi", "openapi.yaml")
+	src, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", srcPath, err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
+
+	if rec.Body.String() != string(src) {
+		t.Fatal("embedded spec differs from api/openapi/openapi.yaml — run `make swagger-sync` and commit")
+	}
+}
+
+func TestOpenAPISpecHandler_etagRevalidation(t *testing.T) {
+	rec1 := httptest.NewRecorder()
+	req1 := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec1, req1)
+
+	etag := rec1.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("ETag header missing on initial response")
+	}
+	if cc := rec1.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", cc)
+	}
+
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req2.Header.Set("If-None-Match", etag)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusNotModified {
+		t.Errorf("revalidation with matching ETag: status = %d, want 304", rec2.Code)
+	}
+	if rec2.Body.Len() != 0 {
+		t.Errorf("304 response should have empty body, got %d bytes", rec2.Body.Len())
+	}
+}
