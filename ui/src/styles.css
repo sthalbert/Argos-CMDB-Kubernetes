@@ -2096,3 +2096,12 @@ th.sortable:hover {
   cursor: pointer;
   font-size: 1.2em;
 }
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.search-extract-all {
+  margin: 8px 0 16px 0;
+}
