@@ -440,7 +440,7 @@ func VerifyBearerToken(ctx context.Context, store Store, presented string) (*Cal
 // work.
 func isPasswordChangeAllowed(path string) bool {
 	switch path {
-	case "/v1/auth/me", "/v1/auth/change-password", "/v1/auth/logout":
+	case "/v1/auth/me", "/v1/auth/change-password", "/v1/auth/logout", "/openapi.yaml":
 		return true
 	}
 	return false

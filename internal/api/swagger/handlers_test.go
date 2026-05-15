@@ -1,0 +1,208 @@
+package swagger_test
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/sthalbert/longue-vue/internal/api/swagger"
+)
+
+func TestOpenAPISpecHandler_servesSpec(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/yaml" {
+		t.Errorf("Content-Type = %q, want application/yaml", ct)
+	}
+	if !strings.HasPrefix(rec.Body.String(), "openapi: 3.1.0") {
+		t.Errorf("body should start with 'openapi: 3.1.0', got: %q", rec.Body.String()[:30])
+	}
+}
+
+func TestOpenAPISpecHandler_matchesSourceFile(t *testing.T) {
+	// Source of truth lives at api/openapi/openapi.yaml. The embedded copy
+	// must be byte-identical (enforced by `make swagger-sync-check` in CI,
+	// double-checked here at test time).
+	srcPath := filepath.Join("..", "..", "..", "api", "openapi", "openapi.yaml")
+	src, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", srcPath, err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
+
+	if rec.Body.String() != string(src) {
+		t.Fatal("embedded spec differs from api/openapi/openapi.yaml — run `make swagger-sync` and commit")
+	}
+}
+
+func TestOpenAPISpecHandler_etagRevalidation(t *testing.T) {
+	rec1 := httptest.NewRecorder()
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec1, req1)
+
+	etag := rec1.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("ETag header missing on initial response")
+	}
+	if cc := rec1.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", cc)
+	}
+
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
+	req2.Header.Set("If-None-Match", etag)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusNotModified {
+		t.Errorf("revalidation with matching ETag: status = %d, want 304", rec2.Code)
+	}
+	if rec2.Body.Len() != 0 {
+		t.Errorf("304 response should have empty body, got %d bytes", rec2.Body.Len())
+	}
+}
+
+func TestOpenAPISpecHandler_etagWildcard(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
+	req.Header.Set("If-None-Match", "*")
+	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotModified {
+		t.Errorf("If-None-Match: * — status = %d, want 304 (RFC 7232 §3.2)", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("304 response should have empty body, got %d bytes", rec.Body.Len())
+	}
+}
+
+func TestOpenAPISpecHandler_etagMismatch(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
+	req.Header.Set("If-None-Match", `"stale-etag-value"`)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("mismatched If-None-Match — status = %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() == 0 {
+		t.Error("mismatched If-None-Match should serve full body, got empty")
+	}
+}
+
+func TestUIHandler_servesIndexAtRoot(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "swagger-ui") {
+		t.Errorf("body should reference swagger-ui")
+	}
+	if !strings.Contains(body, "longue-vue") {
+		t.Errorf("body should reference longue-vue")
+	}
+	// The /openapi.yaml URL moved to init.js (CSP compat). The dedicated
+	// TestUIHandler_servesInitJS asserts the spec URL lives there.
+}
+
+func TestUIHandler_servesIndexAtEmptyPath(t *testing.T) {
+	// Bare empty path arrives at this handler when UIHandler is
+	// mounted via http.StripPrefix("/docs", ...) and the request is the
+	// (already-redirected) /docs/ — StripPrefix strips "/docs" leaving "".
+	// Cover that explicit branch even though Task 7's redirect makes it
+	// rare in production.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req.URL.Path = ""
+	swagger.UIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "swagger-ui") {
+		t.Errorf("empty-path body should reference swagger-ui")
+	}
+}
+
+func TestUIHandler_servesAssetsFromDist(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/swagger-ui-bundle.js", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.Contains(ct, "javascript") {
+		t.Errorf("Content-Type = %q, want a javascript type", ct)
+	}
+}
+
+func TestUIHandler_returns404OnMissingAsset(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/does-not-exist.css", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (no fallback to index — broken vendor copies must surface)", rec.Code)
+	}
+}
+
+// TestUIHandler_servesInitJS guards the CSP-compatibility contract: the
+// bootstrap that calls SwaggerUIBundle({...}) lives in init.js (not inline
+// in index.html) so the strict `script-src 'self'` policy applied to /docs/*
+// responses accepts it without `'unsafe-inline'`.
+func TestUIHandler_servesInitJS(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/init.js", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.Contains(ct, "javascript") {
+		t.Errorf("Content-Type = %q, want a javascript type", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "SwaggerUIBundle") {
+		t.Errorf("init.js body should call SwaggerUIBundle; got: %s", body[:min(200, len(body))])
+	}
+	if !strings.Contains(body, "/openapi.yaml") {
+		t.Errorf("init.js body should reference /openapi.yaml")
+	}
+}
+
+func TestUIHandler_indexReferencesInitJS(t *testing.T) {
+	// index.html must reference ./init.js externally rather than embedding
+	// the bootstrap inline (CSP guard — see TestUIHandler_servesInitJS).
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `src="./init.js"`) {
+		t.Errorf("index.html must reference ./init.js via external script tag (CSP compatibility)")
+	}
+	if strings.Contains(body, "SwaggerUIBundle(") {
+		t.Errorf("index.html still contains inline SwaggerUIBundle bootstrap — must live in init.js to satisfy CSP script-src 'self'")
+	}
+}

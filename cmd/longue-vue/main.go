@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/api/swagger"
 	"github.com/sthalbert/longue-vue/internal/auth"
 	"github.com/sthalbert/longue-vue/internal/collector"
 	"github.com/sthalbert/longue-vue/internal/eol"
@@ -394,6 +395,13 @@ func buildHTTPServer(
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
+	// API documentation (ADR-0025).
+	// Swagger UI shell is public — same precedent as /ui/*: the static
+	// assets carry no secrets, and the actual sensitive surface (the spec)
+	// is gated below.
+	swaggerUI := swagger.UIHandler()
+	mux.Handle("GET /docs", http.RedirectHandler("/docs/", http.StatusMovedPermanently))
+	mux.Handle("GET /docs/", http.StripPrefix("/docs", swaggerUI))
 	// Settings endpoints — hand-written, gated on admin role internally.
 	// Inject "admin" scope into context so the auth middleware resolves
 	// the caller (it skips public routes that lack scope declarations).
@@ -419,6 +427,9 @@ func buildHTTPServer(
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+	// /openapi.yaml — same auth posture as any /v1 read.
+	swaggerSpecAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
+	mux.Handle("GET /openapi.yaml", requireReadScope(swaggerSpecAuth(swagger.OpenAPISpecHandler())))
 	impactAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
 	mux.Handle("GET /v1/impact/{entity_type}/{id}", requireReadScope(impactAuth(impact.HandleImpact(pg))))
 

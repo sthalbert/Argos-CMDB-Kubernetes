@@ -157,6 +157,9 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           {link('/search/image', 'Search', SearchIcon)}
           {link('/eol', 'EOL', EolIcon)}
           {link('/images', 'Container images', ContainerImageIcon)}
+          <a href="/docs/" target="_blank" rel="noopener noreferrer" title={collapsed ? 'API Docs' : undefined}>
+            {!collapsed && <span>API Docs</span>}
+          </a>
           {(me.role === 'admin' || me.role === 'auditor') && (
             <>
               <div className="sidebar-divider" />

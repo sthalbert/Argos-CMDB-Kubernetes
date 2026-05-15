@@ -34,6 +34,8 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 | `make check` | fmt + vet + lint + test (CI-equivalent) |
 | `make ui-dev` | Vite on :5173, proxies `/v1` + `/healthz` + `/metrics` to :8080 |
 | `make ui-build` / `ui-check` / `ui-install` | UI build / typecheck / `npm ci` |
+| `make swagger-sync` | Copy `api/openapi/openapi.yaml` → `internal/api/swagger/openapi.yaml` |
+| `make swagger-sync-check` | CI guard: fails if the embedded copy drifted from source |
 
 ## Key conventions
 
@@ -50,7 +52,7 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - Dual-path middleware: session cookie (humans, login or OIDC) **or** `Authorization: Bearer longue_vue_pat_…`. Both feed `Caller{id, kind, role, scopes}`.
 - Roles: `admin` / `editor` / `auditor` / `viewer` plus the machine-only `vm-collector` token preset bound to a `cloud_account` UUID at issuance.
 - `auth.HasScope`: admin implies everything **except** `vm-collector` (preserves the SK-read boundary).
-- First-run bootstrap creates one admin from `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` or a random one printed once; `must_change_password=true` blocks all but `/v1/auth/change-password`.
+- First-run bootstrap creates one admin from `LONGUE_VUE_BOOTSTRAP_ADMIN_PASSWORD` or a random one printed once; `must_change_password=true` blocks all but `/v1/auth/me`, `/v1/auth/change-password`, `/v1/auth/logout`, and `/openapi.yaml` (so the docs page can load).
 - Last-admin guard: `UpdateUserGuarded` / `DeleteUserGuarded` use `SELECT … FOR UPDATE` over active admins; returns `ErrLastAdmin` → 409.
 - Account auto-locks after 6 consecutive failed password verifications (`failed_login_count`, `locked_at`). No last-admin guard — the only admin can be locked. Admin unlocks via `PATCH /v1/admin/users/{id}` with `unlock=true`. If every admin is locked out: set `LONGUE_VUE_ADMIN_RESCUE_PASSWORD` and restart — the boot hook resets the most-recently-active admin's password, clears the lock, and forces `must_change_password=true`.
 - OIDC optional via `LONGUE_VUE_OIDC_ISSUER`; PKCE+nonce+state, one-shot rows in `oidc_auth_states`. Shadow users default to `viewer`; group claims are not trusted.
@@ -67,6 +69,24 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - `LONGUE_VUE_TRUSTED_PROXIES` (CIDRs, empty by default) gates trust in `X-Forwarded-For` / `-Proto`. Used by rate-limiter, audit IP, secure-cookie decision, HSTS — see `internal/httputil/`.
 - `LONGUE_VUE_REQUIRE_HTTPS=true` startup guard: refuse boot unless native TLS is on **or** trusted-proxy + `SecureAlways` cookie posture is set.
 - `/healthz`, `/readyz`, `/metrics` are unauthenticated.
+
+## API docs (ADR-0025)
+
+Interactive Swagger UI 5.x is served at `/docs/` on the public listener.
+The shell is unauthenticated (matches the `/ui/*` precedent); the spec
+itself lives at `/openapi.yaml` and is gated under `requireReadScope` +
+auth middleware. "Try it out" carries the operator's session cookie
+(`withCredentials: true`) or a PAT pasted via the Authorize dialog.
+
+The Swagger UI bundle is vendored under `internal/api/swagger/dist/`
+(pinned in `dist/.version`); `internal/api/swagger/index.html` is our
+hand-written bootstrap and sits **outside** `dist/` so upstream upgrades
+are a straight directory replacement. The OpenAPI spec is copied into
+`internal/api/swagger/openapi.yaml` by `make swagger-sync` and enforced
+by `make swagger-sync-check` in CI.
+
+Docs are unaffected by the `noui` build tag — the swagger package has
+no dependency on the React SPA bundle.
 
 ## Secrets (ADR-0015 §4)
 
