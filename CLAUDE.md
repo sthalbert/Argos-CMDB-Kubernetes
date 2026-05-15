@@ -34,6 +34,8 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 | `make check` | fmt + vet + lint + test (CI-equivalent) |
 | `make ui-dev` | Vite on :5173, proxies `/v1` + `/healthz` + `/metrics` to :8080 |
 | `make ui-build` / `ui-check` / `ui-install` | UI build / typecheck / `npm ci` |
+| `make swagger-sync` | Copy `api/openapi/openapi.yaml` → `internal/api/swagger/openapi.yaml` |
+| `make swagger-sync-check` | CI guard: fails if the embedded copy drifted from source |
 
 ## Key conventions
 
@@ -67,6 +69,24 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - `LONGUE_VUE_TRUSTED_PROXIES` (CIDRs, empty by default) gates trust in `X-Forwarded-For` / `-Proto`. Used by rate-limiter, audit IP, secure-cookie decision, HSTS — see `internal/httputil/`.
 - `LONGUE_VUE_REQUIRE_HTTPS=true` startup guard: refuse boot unless native TLS is on **or** trusted-proxy + `SecureAlways` cookie posture is set.
 - `/healthz`, `/readyz`, `/metrics` are unauthenticated.
+
+## API docs (ADR-0025)
+
+Interactive Swagger UI 5.x is served at `/docs/` on the public listener.
+The shell is unauthenticated (matches the `/ui/*` precedent); the spec
+itself lives at `/openapi.yaml` and is gated under `requireReadScope` +
+auth middleware. "Try it out" carries the operator's session cookie
+(`withCredentials: true`) or a PAT pasted via the Authorize dialog.
+
+The Swagger UI bundle is vendored under `internal/api/swagger/dist/`
+(pinned in `dist/.version`); `internal/api/swagger/index.html` is our
+hand-written bootstrap and sits **outside** `dist/` so upstream upgrades
+are a straight directory replacement. The OpenAPI spec is copied into
+`internal/api/swagger/openapi.yaml` by `make swagger-sync` and enforced
+by `make swagger-sync-check` in CI.
+
+Docs are unaffected by the `noui` build tag — the swagger package has
+no dependency on the React SPA bundle.
 
 ## Secrets (ADR-0015 §4)
 
