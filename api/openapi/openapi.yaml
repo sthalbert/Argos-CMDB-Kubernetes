@@ -2417,7 +2417,7 @@ paths:
                 format: binary
             application/json:
               schema:
-                oneOf:
+                anyOf:
                   - type: array
                     items:
                       $ref: '#/components/schemas/WorkloadExtractRow'

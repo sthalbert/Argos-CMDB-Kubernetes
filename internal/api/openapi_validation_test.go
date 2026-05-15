@@ -236,13 +236,7 @@ func reportValidationErrors(t *testing.T, label string, errs []*liberrors.Valida
 
 // TestOpenAPI_SearchExtract_Workloads_200 validates a GET /v1/search/extract
 // 200 JSON response shaped as an array of WorkloadExtractRow.
-//
-// The application/json body is a oneOf[WorkloadExtractRow[], PodExtractRow[],
-// VirtualMachineExtractRow[]] without additionalProperties:false on the item
-// schemas, so libopenapi-validator reports "oneOf matched multiple subschemas"
-// (subschemas 0 and 1 both accept the payload). This is a schema ambiguity
-// issue — the payload itself is valid. We filter those oneOf-ambiguity errors
-// so the test still asserts the overall response shape.
+// The response uses anyOf because dispatch is by ?kind=, not by body shape.
 func TestOpenAPI_SearchExtract_Workloads_200(t *testing.T) {
 	t.Parallel()
 	v := loadValidator(t)
@@ -266,10 +260,7 @@ func TestOpenAPI_SearchExtract_Workloads_200(t *testing.T) {
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	ok, errs := v.ValidateHttpResponse(req, resp)
 	if !ok {
-		critical := filterOneOfAmbiguityErrors(errs)
-		if len(critical) > 0 {
-			reportValidationErrors(t, "GET /v1/search/extract 200 response (workloads)", critical)
-		}
+		reportValidationErrors(t, "GET /v1/search/extract 200 response (workloads)", errs)
 	}
 }
 
@@ -340,28 +331,6 @@ func filterNullableErrors(errs []*liberrors.ValidationError) []*liberrors.Valida
 			continue
 		}
 		out = append(out, e)
-	}
-	return out
-}
-
-// filterOneOfAmbiguityErrors removes validation errors where the payload
-// matches more than one oneOf branch because the item schemas lack
-// additionalProperties:false. The payload data is still valid; the error is
-// a schema-structural ambiguity, not a data problem. The oneOf failure is
-// surfaced in SchemaValidationErrors[].Reason, not in ValidationError.Reason.
-func filterOneOfAmbiguityErrors(errs []*liberrors.ValidationError) []*liberrors.ValidationError {
-	out := make([]*liberrors.ValidationError, 0, len(errs))
-	for _, e := range errs {
-		isOneOfAmbiguity := false
-		for _, s := range e.SchemaValidationErrors {
-			if strings.Contains(s.Reason, "oneOf") {
-				isOneOfAmbiguity = true
-				break
-			}
-		}
-		if !isOneOfAmbiguity {
-			out = append(out, e)
-		}
 	}
 	return out
 }
