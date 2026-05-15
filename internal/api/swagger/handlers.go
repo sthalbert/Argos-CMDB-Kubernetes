@@ -52,6 +52,7 @@ func SwaggerUIHandler() http.Handler {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
 			_, _ = w.Write(indexHTML)
 			return
 		}

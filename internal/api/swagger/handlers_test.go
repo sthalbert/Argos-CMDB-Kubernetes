@@ -101,27 +101,44 @@ func TestOpenAPISpecHandler_etagMismatch(t *testing.T) {
 }
 
 func TestSwaggerUIHandler_servesIndexAtRoot(t *testing.T) {
-	for _, path := range []string{"/", ""} {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/"+strings.TrimPrefix(path, "/"), nil)
-		swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	swagger.SwaggerUIHandler().ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("path %q: status = %d, want 200", path, rec.Code)
-		}
-		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
-			t.Errorf("path %q: Content-Type = %q, want text/html", path, ct)
-		}
-		body := rec.Body.String()
-		if !strings.Contains(body, "swagger-ui") {
-			t.Errorf("path %q: body should reference swagger-ui", path)
-		}
-		if !strings.Contains(body, "/openapi.yaml") {
-			t.Errorf("path %q: body should reference /openapi.yaml", path)
-		}
-		if !strings.Contains(body, "longue-vue") {
-			t.Errorf("path %q: body should reference longue-vue", path)
-		}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "swagger-ui") {
+		t.Errorf("body should reference swagger-ui")
+	}
+	if !strings.Contains(body, "/openapi.yaml") {
+		t.Errorf("body should reference /openapi.yaml")
+	}
+	if !strings.Contains(body, "longue-vue") {
+		t.Errorf("body should reference longue-vue")
+	}
+}
+
+func TestSwaggerUIHandler_servesIndexAtEmptyPath(t *testing.T) {
+	// Bare empty path arrives at this handler when SwaggerUIHandler is
+	// mounted via http.StripPrefix("/docs", ...) and the request is the
+	// (already-redirected) /docs/ — StripPrefix strips "/docs" leaving "".
+	// Cover that explicit branch even though Task 7's redirect makes it
+	// rare in production.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.URL.Path = ""
+	swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "swagger-ui") {
+		t.Errorf("empty-path body should reference swagger-ui")
 	}
 }
 
