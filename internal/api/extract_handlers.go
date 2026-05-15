@@ -343,7 +343,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "q is required")
 			return
 		}
-		if len(searchQ) > 256 {
+		if len(searchQ) > extractQueryMax {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "q must be ≤ 256 characters")
 			return
 		}
