@@ -60,7 +60,7 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 
 ## Audit log
 
-`AuditMiddleware` (mounted after auth) records all non-GET + every `/v1/admin/*` read and the credentials-fetch path into `audit_events`. Body scrubber redacts password / token / OIDC-secret / `access_key` / `secret_key`. Insert failures log at ERROR but never 5xx. `audit_events.source ∈ {api, ingest_gw, system}`.
+`AuditMiddleware` (mounted after auth) records all non-GET + every `/v1/admin/*` read and the credentials-fetch path into `audit_events`. Body scrubber redacts password / token / OIDC-secret / `access_key` / `secret_key`. Insert failures log at ERROR but never 5xx. `audit_events.source ∈ {api, ingest_gw, system}`. Extract endpoints (`/v1/search/extract`, `/v1/search/extract.zip`, `/v1/eol/extract`) are GET-but-audited via the `shouldAudit` allowlist; each request gets a row with `details.action="extract"`, plus page/format/filters/`row_count`/`truncated`.
 
 ## Listeners (ADR-0016, ADR-0017)
 
@@ -117,6 +117,10 @@ Cluster carries `owner` / `criticality` / `notes` / `runbook_url` / `annotations
 ## EOL enricher (ADR-0012, ADR-0019)
 
 `internal/eol/` — periodic endoflife.date queries; writes `longue-vue.io/eol.<product>` annotations on clusters, nodes, and (per VM `applications` entry) VMs. Stale keys reaped per tick. `latest_available` field shows newest published version. Centralised on the server — push collectors are unaffected.
+
+## Extracts (search & EOL)
+
+**Extracts (search & EOL):** bulk download of Search results (`/v1/search/extract?kind=workloads|pods|virtual_machines&format=csv|json` and `/v1/search/extract.zip?q=...`) and the EOL Dashboard (`/v1/eol/extract?format=csv|json`). Capped at `LONGUE_VUE_EXTRACT_MAX_ROWS` (default 50 000); `X-Longue-Vue-Truncated: true` header signals the cap. Audit-logged. Aggregation lives in `internal/eolagg` (shared fixtures with the UI dashboard).
 
 ## Idempotency
 

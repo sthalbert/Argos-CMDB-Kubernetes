@@ -52,6 +52,7 @@ A Configuration Management Database (CMDB) for Kubernetes environments, aligned 
 - **VM application inventory and EOL enrichment** -- operators declare platform software running on each non-Kubernetes VM (Vault, BIND, Cyberwatch, …); the EOL enricher evaluates declared versions against endoflife.date and writes `longue-vue.io/eol.<product>` annotations; the EOL dashboard surfaces VMs alongside clusters and nodes (ADR-0019).
 - **Helm chart per deployable binary** -- every longue-vue binary (`longue-vue`, `longue-vue-ingest-gw`, `longue-vue-collector`, `longue-vue-vm-collector`) ships with a sibling chart under `charts/`. Independent versioning, shared hardening defaults (ADR-0018).
 - **Audit log** -- every state-changing call is recorded; passwords and tokens are scrubbed; `source` column distinguishes public-listener (`api`) from DMZ-gateway (`ingest_gw`) traffic.
+- **CSV / JSON / ZIP extracts** -- bulk download of Search results and the EOL Dashboard (audit-logged, capped at 50 000 rows).
 - **Embedded web UI** -- React SPA shipped inside the binary at `/ui/`.
 
 ## Quick start
