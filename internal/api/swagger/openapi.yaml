@@ -1,0 +1,4699 @@
+openapi: 3.1.0
+
+info:
+  title: longue-vue CMDB API
+  version: 0.1.0
+  summary: Kubernetes-centric CMDB aligned with the ANSSI SecNumCloud framework.
+  description: |
+    REST API for **longue-vue**, a CMDB for Kubernetes environments aligned with the
+    ANSSI SecNumCloud (SNC) qualification framework.
+
+    This version (0.1.0) is a walking skeleton covering:
+      - Liveness and readiness probes
+      - `Cluster` resource CRUD
+
+    Subsequent versions will add Node, Namespace, Workload, Pod, and other
+    Kubernetes entity kinds mapped onto the ANSSI cartography layers.
+
+    Errors follow RFC 7807 (`application/problem+json`).
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: health
+    description: Liveness and readiness probes (unauthenticated).
+  - name: clusters
+    description: Kubernetes clusters registered in the CMDB.
+  - name: nodes
+    description: Kubernetes nodes (worker / control-plane machines) within a cluster.
+  - name: namespaces
+    description: Kubernetes namespaces within a cluster.
+  - name: pods
+    description: Kubernetes pods — the atomic applicative workload units.
+  - name: workloads
+    description: |
+      Kubernetes workload controllers (Deployment, StatefulSet, DaemonSet).
+      A single collection polymorphic on the `kind` discriminator; see ADR-0003.
+  - name: services
+    description: Kubernetes Services within a namespace.
+  - name: ingresses
+    description: |
+      Kubernetes Ingresses. Classified in the `applicative` layer per ADR-0004;
+      the "what's internet-exposed?" audit question is answered via future
+      ecosystem-layer relationships, not via layer membership.
+  - name: persistentvolumes
+    description: |
+      Cluster-scoped PersistentVolume resources — one row per chunk of backing
+      storage the cluster can hand out. Layer `infrastructure_physical` (same
+      as Node): the PV maps onto physical disk / CSI volume state.
+  - name: persistentvolumeclaims
+    description: |
+      Namespace-scoped PersistentVolumeClaim resources — the workload-side
+      request for storage, bound to a PersistentVolume once the storage class
+      provisioner has satisfied it. Layer `applicative`.
+  - name: auth
+    description: |
+      Human authentication — username / password login, session management,
+      password change. Per ADR-0007.
+  - name: admin
+    description: |
+      Admin-only endpoints: user management, machine-token issuance,
+      active-session review. Gated on the `admin` scope (role=admin).
+
+security:
+  - BearerAuth: []
+  - SessionCookie: []
+
+paths:
+
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      operationId: getHealthz
+      security: []
+      responses:
+        '200':
+          description: Service is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness probe
+      description: Verifies downstream dependencies (database) are reachable.
+      operationId: getReadyz
+      security: []
+      responses:
+        '200':
+          description: Service is ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Service is not ready.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /v1/clusters:
+    get:
+      tags: [clusters]
+      summary: List clusters
+      operationId: listClusters
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeTerminated'
+        - name: name
+          in: query
+          required: false
+          description: Exact cluster name filter. When set, returns at most one item.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paged list of clusters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [clusters]
+      summary: Register or ensure a cluster
+      description: |
+        Idempotent on `name`. If no cluster with the given name exists, a new
+        row is inserted and `201 Created` is returned. If a cluster with the
+        same name already exists, the existing row is returned with `200 OK`
+        and the request body is ignored — callers wanting to update fields
+        on an existing cluster should follow up with `PATCH /v1/clusters/{id}`.
+      operationId: createCluster
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClusterCreate'
+      responses:
+        '200':
+          description: Cluster with this name already exists; the existing row is returned.
+          headers:
+            Location:
+              description: URI of the existing cluster.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '201':
+          description: Cluster created.
+          headers:
+            Location:
+              description: URI of the newly created cluster.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/clusters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClusterId'
+    get:
+      tags: [clusters]
+      summary: Get a cluster
+      operationId: getCluster
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Cluster details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [clusters]
+      summary: Update mutable fields of a cluster
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `name` is immutable after creation.
+      operationId: updateCluster
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ClusterUpdate'
+      responses:
+        '200':
+          description: Updated cluster.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [clusters]
+      summary: Delete a cluster
+      operationId: deleteCluster
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Cluster deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/nodes:
+    get:
+      tags: [nodes]
+      summary: List nodes
+      operationId: listNodes
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeTerminated'
+        - $ref: '#/components/parameters/NodeClusterIdFilter'
+      responses:
+        '200':
+          description: Paged list of nodes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [nodes]
+      summary: Register a node
+      operationId: createNode
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeCreate'
+      responses:
+        '201':
+          description: Node created.
+          headers:
+            Location:
+              description: URI of the newly created node.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/nodes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/NodeId'
+    get:
+      tags: [nodes]
+      summary: Get a node
+      operationId: getNode
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Node details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [nodes]
+      summary: Update mutable fields of a node
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `cluster_id` and `name` are immutable after creation.
+      operationId: updateNode
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/NodeUpdate'
+      responses:
+        '200':
+          description: Updated node.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [nodes]
+      summary: Delete a node
+      operationId: deleteNode
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Node deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/namespaces:
+    get:
+      tags: [namespaces]
+      summary: List namespaces
+      operationId: listNamespaces
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeTerminated'
+        - $ref: '#/components/parameters/NamespaceClusterIdFilter'
+      responses:
+        '200':
+          description: Paged list of namespaces.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamespaceList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [namespaces]
+      summary: Register a namespace
+      operationId: createNamespace
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamespaceCreate'
+      responses:
+        '201':
+          description: Namespace created.
+          headers:
+            Location:
+              description: URI of the newly created namespace.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/namespaces/{id}:
+    parameters:
+      - $ref: '#/components/parameters/NamespaceId'
+    get:
+      tags: [namespaces]
+      summary: Get a namespace
+      operationId: getNamespace
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Namespace details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [namespaces]
+      summary: Update mutable fields of a namespace
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `cluster_id` and `name` are immutable after creation.
+      operationId: updateNamespace
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/NamespaceUpdate'
+      responses:
+        '200':
+          description: Updated namespace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [namespaces]
+      summary: Delete a namespace
+      operationId: deleteNamespace
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Namespace deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/pods:
+    get:
+      tags: [pods]
+      summary: List pods
+      operationId: listPods
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PodNamespaceIdFilter'
+        - $ref: '#/components/parameters/PodImageFilter'
+        - $ref: '#/components/parameters/PodNodeNameFilter'
+        - $ref: '#/components/parameters/PodWorkloadIdFilter'
+      responses:
+        '200':
+          description: Paged list of pods.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [pods]
+      summary: Register a pod
+      operationId: createPod
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PodCreate'
+      responses:
+        '201':
+          description: Pod created.
+          headers:
+            Location:
+              description: URI of the newly created pod.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pod'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/pods/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PodId'
+    get:
+      tags: [pods]
+      summary: Get a pod
+      operationId: getPod
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Pod details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pod'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [pods]
+      summary: Update mutable fields of a pod
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id` and `name` are immutable after creation.
+      operationId: updatePod
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/PodUpdate'
+      responses:
+        '200':
+          description: Updated pod.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pod'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [pods]
+      summary: Delete a pod
+      operationId: deletePod
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Pod deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/workloads:
+    get:
+      tags: [workloads]
+      summary: List workloads
+      operationId: listWorkloads
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeTerminated'
+        - $ref: '#/components/parameters/WorkloadNamespaceIdFilter'
+        - $ref: '#/components/parameters/WorkloadKindFilter'
+        - $ref: '#/components/parameters/WorkloadImageFilter'
+      responses:
+        '200':
+          description: Paged list of workloads.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkloadList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [workloads]
+      summary: Register a workload
+      operationId: createWorkload
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkloadCreate'
+      responses:
+        '201':
+          description: Workload created.
+          headers:
+            Location:
+              description: URI of the newly created workload.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/workloads/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkloadId'
+    get:
+      tags: [workloads]
+      summary: Get a workload
+      operationId: getWorkload
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Workload details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [workloads]
+      summary: Update mutable fields of a workload
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id`, `kind`, and `name` are immutable after creation.
+      operationId: updateWorkload
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/WorkloadUpdate'
+      responses:
+        '200':
+          description: Updated workload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [workloads]
+      summary: Delete a workload
+      operationId: deleteWorkload
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Workload deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/services:
+    get:
+      tags: [services]
+      summary: List services
+      operationId: listServices
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/ServiceNamespaceIdFilter'
+      responses:
+        '200':
+          description: Paged list of services.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [services]
+      summary: Register a service
+      operationId: createService
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceCreate'
+      responses:
+        '201':
+          description: Service created.
+          headers:
+            Location:
+              description: URI of the newly created service.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/services/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [services]
+      summary: Get a service
+      operationId: getService
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Service details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [services]
+      summary: Update mutable fields of a service
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id` and `name` are immutable after creation.
+      operationId: updateService
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ServiceUpdate'
+      responses:
+        '200':
+          description: Updated service.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [services]
+      summary: Delete a service
+      operationId: deleteService
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Service deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/ingresses:
+    get:
+      tags: [ingresses]
+      summary: List ingresses
+      operationId: listIngresses
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IngressNamespaceIdFilter'
+      responses:
+        '200':
+          description: Paged list of ingresses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngressList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [ingresses]
+      summary: Register an ingress
+      operationId: createIngress
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngressCreate'
+      responses:
+        '201':
+          description: Ingress created.
+          headers:
+            Location:
+              description: URI of the newly created ingress.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ingress'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/ingresses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IngressId'
+    get:
+      tags: [ingresses]
+      summary: Get an ingress
+      operationId: getIngress
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: Ingress details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ingress'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [ingresses]
+      summary: Update mutable fields of an ingress
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id` and `name` are immutable after creation.
+      operationId: updateIngress
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/IngressUpdate'
+      responses:
+        '200':
+          description: Updated ingress.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ingress'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [ingresses]
+      summary: Delete an ingress
+      operationId: deleteIngress
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: Ingress deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/persistentvolumes:
+    get:
+      tags: [persistentvolumes]
+      summary: List persistent volumes
+      operationId: listPersistentVolumes
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PersistentVolumeClusterIdFilter'
+      responses:
+        '200':
+          description: Paged list of persistent volumes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [persistentvolumes]
+      summary: Register a persistent volume
+      operationId: createPersistentVolume
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersistentVolumeCreate'
+      responses:
+        '201':
+          description: PersistentVolume created.
+          headers:
+            Location:
+              description: URI of the newly created persistent volume.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolume'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/persistentvolumes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PersistentVolumeId'
+    get:
+      tags: [persistentvolumes]
+      summary: Get a persistent volume
+      operationId: getPersistentVolume
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: PersistentVolume details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolume'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [persistentvolumes]
+      summary: Update mutable fields of a persistent volume
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `cluster_id` and `name` are immutable after creation.
+      operationId: updatePersistentVolume
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/PersistentVolumeUpdate'
+      responses:
+        '200':
+          description: Updated persistent volume.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolume'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [persistentvolumes]
+      summary: Delete a persistent volume
+      operationId: deletePersistentVolume
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: PersistentVolume deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/persistentvolumeclaims:
+    get:
+      tags: [persistentvolumeclaims]
+      summary: List persistent volume claims
+      operationId: listPersistentVolumeClaims
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PersistentVolumeClaimNamespaceIdFilter'
+      responses:
+        '200':
+          description: Paged list of persistent volume claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeClaimList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [persistentvolumeclaims]
+      summary: Register a persistent volume claim
+      operationId: createPersistentVolumeClaim
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersistentVolumeClaimCreate'
+      responses:
+        '201':
+          description: PersistentVolumeClaim created.
+          headers:
+            Location:
+              description: URI of the newly created persistent volume claim.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeClaim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/persistentvolumeclaims/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PersistentVolumeClaimId'
+    get:
+      tags: [persistentvolumeclaims]
+      summary: Get a persistent volume claim
+      operationId: getPersistentVolumeClaim
+      security:
+        - BearerAuth: [read]
+      responses:
+        '200':
+          description: PersistentVolumeClaim details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeClaim'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [persistentvolumeclaims]
+      summary: Update mutable fields of a persistent volume claim
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `namespace_id` and `name` are immutable after creation.
+      operationId: updatePersistentVolumeClaim
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/PersistentVolumeClaimUpdate'
+      responses:
+        '200':
+          description: Updated persistent volume claim.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersistentVolumeClaim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [persistentvolumeclaims]
+      summary: Delete a persistent volume claim
+      operationId: deletePersistentVolumeClaim
+      security:
+        - BearerAuth: [delete]
+      responses:
+        '204':
+          description: PersistentVolumeClaim deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Reconcile endpoints (ADR-0009: push collector) ─────────────────
+
+  /v1/nodes/reconcile:
+    post:
+      tags: [nodes]
+      summary: Reconcile nodes for a cluster
+      description: |
+        Deletes every node of the given cluster whose name is not in
+        `keep_names`. Used by the push collector to garbage-collect
+        resources that disappeared from the live Kubernetes listing.
+      operationId: reconcileNodes
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileClusterScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/namespaces/reconcile:
+    post:
+      tags: [namespaces]
+      summary: Reconcile namespaces for a cluster
+      description: |
+        Deletes every namespace of the given cluster whose name is not in
+        `keep_names`.
+      operationId: reconcileNamespaces
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileClusterScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/persistentvolumes/reconcile:
+    post:
+      tags: [persistentvolumes]
+      summary: Reconcile persistent volumes for a cluster
+      description: |
+        Deletes every PV of the given cluster whose name is not in
+        `keep_names`.
+      operationId: reconcilePersistentVolumes
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileClusterScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/pods/reconcile:
+    post:
+      tags: [pods]
+      summary: Reconcile pods for a namespace
+      description: |
+        Deletes every pod of the given namespace whose name is not in
+        `keep_names`.
+      operationId: reconcilePods
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/workloads/reconcile:
+    post:
+      tags: [workloads]
+      summary: Reconcile workloads for a namespace
+      description: |
+        Deletes every workload of the given namespace whose (kind, name)
+        tuple is not in the parallel `keep_kinds` / `keep_names` arrays.
+      operationId: reconcileWorkloads
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileWorkloads'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/services/reconcile:
+    post:
+      tags: [services]
+      summary: Reconcile services for a namespace
+      description: |
+        Deletes every service of the given namespace whose name is not in
+        `keep_names`.
+      operationId: reconcileServices
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/ingresses/reconcile:
+    post:
+      tags: [ingresses]
+      summary: Reconcile ingresses for a namespace
+      description: |
+        Deletes every ingress of the given namespace whose name is not in
+        `keep_names`.
+      operationId: reconcileIngresses
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/persistentvolumeclaims/reconcile:
+    post:
+      tags: [persistentvolumeclaims]
+      summary: Reconcile PVCs for a namespace
+      description: |
+        Deletes every PVC of the given namespace whose name is not in
+        `keep_names`.
+      operationId: reconcilePersistentVolumeClaims
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Reconciliation complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/auth/config:
+    get:
+      tags: [auth]
+      summary: Public auth configuration the UI needs pre-login
+      description: |
+        Returns knobs the login page needs to render — today just
+        whether OIDC is configured and, if so, the button label.
+        Intentionally public; nothing returned here is sensitive.
+      operationId: getAuthConfig
+      security: []
+      responses:
+        '200':
+          description: Auth configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfig'
+
+  /v1/auth/oidc/authorize:
+    get:
+      tags: [auth]
+      summary: Start the OIDC authorization-code flow
+      description: |
+        Mints a fresh state, PKCE code_verifier/challenge pair, and
+        nonce; persists the verifier + nonce in `oidc_auth_states`;
+        302s to the configured IdP's authorize endpoint. Returns 404
+        when OIDC is not configured.
+      operationId: oidcAuthorize
+      security: []
+      responses:
+        '302':
+          description: Redirect to the IdP.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        '404':
+          description: OIDC is not configured on this longue-vue instance.
+
+  /v1/auth/oidc/callback:
+    get:
+      tags: [auth]
+      summary: Complete the OIDC authorization-code flow
+      description: |
+        Consumes the state / PKCE verifier / nonce stashed at authorize
+        time, exchanges the code with the IdP, verifies the ID token
+        (issuer, audience, signature, nonce), finds or creates the
+        shadow user keyed on `(issuer, sub)`, mints a session, 302s to
+        `/ui/`. Failures land on `/ui/login?oidc_error=<reason>`.
+      operationId: oidcCallback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the UI.
+          headers:
+            Location:
+              schema:
+                type: string
+
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Start a human session
+      description: |
+        Exchanges a username + password for a session cookie. Returns 401
+        with an opaque problem body on any failure (no distinction between
+        unknown user and bad password). Sets `longue_vue_session` as HttpOnly +
+        SameSite=Strict; the browser carries it on subsequent same-origin
+        requests automatically.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '204':
+          description: Session created.
+          headers:
+            Set-Cookie:
+              description: Session cookie.
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          description: Too many login attempts. Try again later.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: End the current human session
+      description: |
+        Deletes the server-side session row and clears the cookie.
+        Succeeds silently for callers authenticating via bearer token
+        (nothing to revoke) so logout is idempotent.
+      operationId: logout
+      security:
+        - BearerAuth: []
+        - SessionCookie: []
+      responses:
+        '204':
+          description: Session cleared.
+
+  /v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Who am I, and what can I do
+      description: |
+        Returns the caller's identity, role, effective scopes, and the
+        `must_change_password` flag. The UI reads this to render
+        role-aware navigation and redirect to the forced-change page.
+      operationId: getMe
+      security:
+        - BearerAuth: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Caller identity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/change-password:
+    post:
+      tags: [auth]
+      summary: Change the current user's password
+      description: |
+        Verifies the current password, hashes the new one (argon2id),
+        clears `must_change_password`, and invalidates every other
+        active session for the same user. Bearer-token callers get 403 —
+        tokens cannot change a user's password.
+      operationId: changePassword
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/auth/verify:
+    post:
+      tags: [auth]
+      summary: Verify a bearer token
+      description: |
+        Internal RPC used by the DMZ ingest gateway (ADR-0016 §5) to
+        short-circuit invalid tokens before they cross the firewall into
+        the trusted zone. Performs the same argon2id check the bearer
+        middleware runs per request and returns the resulting caller
+        identity, scopes, and expiry without modifying any HTTP state on
+        longue-vue's side.
+
+        **This endpoint is served only on longue-vue's mTLS-only ingest
+        listener** (enabled via `LONGUE_VUE_INGEST_LISTEN_ADDR`). longue-vue's
+        public listener does not register it. The mTLS handshake is the
+        sole authentication mechanism for this call — there is no
+        Authorization header on the request itself; the client cert
+        identifies the caller as the gateway. Any non-mTLS caller is
+        rejected at the TLS handshake by the listener's
+        `RequireAndVerifyClientCert` setting.
+
+        The endpoint is rate-limited at longue-vue to a small per-source-IP
+        budget as a backstop in case the gateway's verify cache is
+        bypassed by a buggy build.
+      operationId: verifyToken
+      # Authenticated by the listener's mTLS handshake (the ingest
+      # listener uses RequireAndVerifyClientCert), not by an
+      # Authorization header. The gateway sends the token to verify
+      # in the request body and never presents a bearer credential
+      # of its own. Override the global security block so the codegen
+      # wrapper does not require Bearer/Cookie at the application
+      # layer — without this, every call returns 401 from the auth
+      # middleware before reaching the handler.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyTokenRequest'
+      responses:
+        '200':
+          description: Token is valid; caller identity, scopes, and expiry returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyTokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/admin/users:
+    get:
+      tags: [admin]
+      summary: List human users
+      operationId: listUsers
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paged list of users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [admin]
+      summary: Create a human user
+      operationId: createUser
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/admin/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [admin]
+      summary: Get a user
+      operationId: getUser
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '200':
+          description: User.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [admin]
+      summary: Update a user's role, password, disabled, or lockout state
+      description: |
+        Merge-patch semantics. Setting `password` rehashes and forces
+        `must_change_password=true`. Setting `disabled` to true revokes
+        every active session for that user. Setting `unlock=true` clears
+        the lockout state on an account locked after too many failed
+        login attempts.
+
+        Refuses with 409 when the patch would leave the deployment with
+        zero active admins — i.e. demoting (`role` to non-admin) or
+        disabling (`disabled=true`) the only remaining active admin.
+      operationId: updateUser
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [admin]
+      summary: Delete a user
+      description: |
+        Cascades to the user's sessions and OIDC identities. API tokens
+        the user minted are retained (ON DELETE RESTRICT) — revoke them
+        explicitly first, or leave them active for the next admin.
+
+        Refuses with 409 when the target is the only remaining active
+        admin (the last-admin invariant), or when the caller would be
+        deleting their own account.
+      operationId: deleteUser
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/admin/tokens:
+    get:
+      tags: [admin]
+      summary: List machine tokens (metadata only — plaintext never leaves creation)
+      operationId: listApiTokens
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paged list of tokens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [admin]
+      summary: Mint a new machine token
+      description: |
+        Returns the full plaintext token exactly once in the response.
+        longue-vue persists only its argon2id hash — this value cannot be
+        retrieved later. If lost, revoke and mint a new one.
+      operationId: createApiToken
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiTokenCreate'
+      responses:
+        '201':
+          description: Token minted; plaintext shown once in the body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenMint'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/tokens/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TokenId'
+    delete:
+      tags: [admin]
+      summary: Revoke a machine token
+      description: |
+        Sets `revoked_at`; subsequent requests bearing the token receive
+        401 immediately. Token rows are kept for audit continuity — use
+        the list endpoint to review past revocations.
+      operationId: revokeApiToken
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '204':
+          description: Revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/sessions:
+    get:
+      tags: [admin]
+      summary: List active human sessions
+      operationId: listSessions
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paged list of sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/audit:
+    get:
+      tags: [admin]
+      summary: List audit events
+      description: |
+        Paged, newest-first list of recorded API actions. Requires the
+        `audit` scope, granted to both `admin` and `auditor` roles —
+        auditors get read-only visibility without the ability to manage
+        users or tokens.
+
+        Filters are AND-combined. `since` / `until` bound the
+        `occurred_at` range (half-open: `[since, until)`).
+      operationId: listAuditEvents
+      security:
+        - BearerAuth: [audit]
+        - SessionCookie: [audit]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter to events emitted by this user.
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+          description: Filter to events affecting a specific resource kind (e.g. `cluster`, `user`).
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+          description: Filter to events affecting a specific resource id.
+        - name: action
+          in: query
+          schema:
+            type: string
+          description: Filter to a specific action verb (e.g. `user.create`).
+        - name: source
+          in: query
+          schema:
+            type: string
+            enum: [api, ingest_gw, system]
+          description: |
+            Filter to events served by a specific listener. Useful for
+            answering "what came through the DMZ ingest gateway" (ADR-0016)
+            without cross-referencing source IPs.
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paged list of audit events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/sessions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    delete:
+      tags: [admin]
+      summary: Revoke an active session
+      description: |
+        Deletes the row; the next request bearing that cookie gets 401
+        and the UI redirects to login.
+      operationId: revokeSession
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '204':
+          description: Revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/image-versions:
+    get:
+      summary: List enriched container images with their latest tags
+      tags: [image-versions]
+      operationId: listImageVersions
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: registry, in: query, schema: { type: string } }
+        - { name: image_repo, in: query, schema: { type: string } }
+        - { name: variant, in: query, schema: { type: string } }
+        - { name: has_error, in: query, schema: { type: boolean } }
+        - { name: last_checked_before, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageVersionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/image-versions/refresh:
+    post:
+      summary: Trigger an immediate enrichment cycle (admin only)
+      tags: [image-versions, admin]
+      operationId: refreshImageVersions
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageVersionRefreshResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/image-versions/{image_repo}:
+    get:
+      summary: Get one image's enrichment (all variants)
+      tags: [image-versions]
+      operationId: getImageVersion
+      security:
+        - BearerAuth: [read]
+      parameters:
+        - name: image_repo
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/image-versions/registries:
+    get:
+      summary: List the supported registries allowlist
+      tags: [admin, image-versions]
+      operationId: listImageRegistries
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ImageRegistry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Add a registry to the allowlist
+      tags: [admin, image-versions]
+      operationId: createImageRegistry
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageRegistryUpsert'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageRegistry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/admin/image-versions/registries/{hostname}:
+    patch:
+      summary: Update a registry's rate limit, enabled flag, or notes
+      tags: [admin, image-versions]
+      operationId: patchImageRegistry
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageRegistryPatch'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageRegistry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Remove a registry from the allowlist
+      tags: [admin, image-versions]
+      operationId: deleteImageRegistry
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: No Content
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+      description: |
+        API token issued out-of-band. Send as `Authorization: Bearer <token>`.
+
+        Scopes granted to a token:
+          - `read`   — list and get operations
+          - `write`  — create and update (implies `read` at the caller's discretion)
+          - `delete` — remove resources
+          - `admin`  — all of the above; reserved for future admin-only endpoints
+
+        Tokens carrying the `admin` scope implicitly satisfy any scope required
+        by an operation.
+
+        Per ADR-0007, machine tokens are created by an admin in the UI
+        (see `POST /v1/admin/tokens`) rather than injected through env vars.
+
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: longue_vue_session
+      description: |
+        Human session cookie set by `POST /v1/auth/login`. HttpOnly,
+        SameSite=Strict, 8-hour sliding expiry. Per ADR-0007.
+
+        Every operation accepts either `BearerAuth` or `SessionCookie` —
+        scope enforcement reads from the caller's role (for sessions) or
+        token scopes (for bearer), so the two paths share the same
+        downstream authorisation check.
+
+  parameters:
+
+    ClusterId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned cluster identifier.
+      schema:
+        type: string
+        format: uuid
+
+    NodeId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned node identifier.
+      schema:
+        type: string
+        format: uuid
+
+    NodeClusterIdFilter:
+      name: cluster_id
+      in: query
+      required: false
+      description: Return only nodes belonging to this cluster.
+      schema:
+        type: string
+        format: uuid
+
+    NamespaceId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned namespace identifier.
+      schema:
+        type: string
+        format: uuid
+
+    NamespaceClusterIdFilter:
+      name: cluster_id
+      in: query
+      required: false
+      description: Return only namespaces belonging to this cluster.
+      schema:
+        type: string
+        format: uuid
+
+    PodId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned pod identifier.
+      schema:
+        type: string
+        format: uuid
+
+    PodNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only pods belonging to this namespace.
+      schema:
+        type: string
+        format: uuid
+
+    PodImageFilter:
+      name: image
+      in: query
+      required: false
+      description: |
+        Case-insensitive substring match against any container's `image`
+        field in the pod's containers JSON (init containers included).
+        Handy for answering "which pods run `log4j:2.15.0`?" — a partial
+        like `log4j:2.15` will match `log4j:2.15.0`, `log4j:2.15.1`, etc.
+      schema:
+        type: string
+        maxLength: 253
+
+    PodNodeNameFilter:
+      name: node_name
+      in: query
+      required: false
+      description: |
+        Exact match against the pod's `node_name`. Lets the Node detail
+        view answer "which pods are hosted on this node?" without
+        paginating every pod in the cluster.
+      schema:
+        type: string
+        maxLength: 253
+
+    PodWorkloadIdFilter:
+      name: workload_id
+      in: query
+      required: false
+      description: |
+        Filter pods by their controlling workload. Returns only pods whose
+        `workload_id` FK matches the given UUID.
+      schema:
+        type: string
+        format: uuid
+
+    WorkloadId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned workload identifier.
+      schema:
+        type: string
+        format: uuid
+
+    WorkloadNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only workloads belonging to this namespace.
+      schema:
+        type: string
+        format: uuid
+
+    WorkloadKindFilter:
+      name: kind
+      in: query
+      required: false
+      description: Return only workloads of this kind.
+      schema:
+        $ref: '#/components/schemas/WorkloadKind'
+
+    WorkloadImageFilter:
+      name: image
+      in: query
+      required: false
+      description: |
+        Case-insensitive substring match against any container's `image`
+        field in the workload's containers JSON (init containers included).
+        Mirrors the PodImageFilter so both kinds answer the same
+        "which assets run this component version?" question.
+      schema:
+        type: string
+        maxLength: 253
+
+    ServiceId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned service identifier.
+      schema:
+        type: string
+        format: uuid
+
+    ServiceNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only services belonging to this namespace.
+      schema:
+        type: string
+        format: uuid
+
+    IngressId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned ingress identifier.
+      schema:
+        type: string
+        format: uuid
+
+    IngressNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only ingresses belonging to this namespace.
+      schema:
+        type: string
+        format: uuid
+
+    PersistentVolumeId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned persistent volume identifier.
+      schema:
+        type: string
+        format: uuid
+
+    PersistentVolumeClusterIdFilter:
+      name: cluster_id
+      in: query
+      required: false
+      description: Return only persistent volumes belonging to this cluster.
+      schema:
+        type: string
+        format: uuid
+
+    PersistentVolumeClaimId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned persistent volume claim identifier.
+      schema:
+        type: string
+        format: uuid
+
+    PersistentVolumeClaimNamespaceIdFilter:
+      name: namespace_id
+      in: query
+      required: false
+      description: Return only persistent volume claims belonging to this namespace.
+      schema:
+        type: string
+        format: uuid
+
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned user identifier.
+      schema:
+        type: string
+        format: uuid
+
+    TokenId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned API token identifier.
+      schema:
+        type: string
+        format: uuid
+
+    SessionId:
+      name: id
+      in: path
+      required: true
+      description: Session identifier (the cookie value).
+      schema:
+        type: string
+        maxLength: 64
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return. Server clamps to [1, 200].
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor returned from a previous list response.
+      schema:
+        type: string
+        maxLength: 512
+
+    IncludeTerminated:
+      name: include_terminated
+      in: query
+      required: false
+      description: |
+        When true, include rows whose `terminated_at` is set (soft-deleted by
+        the collector reconcile pass). Defaults to false: only live entities
+        are returned. ADR-0021 §5 / §6.
+      schema:
+        type: boolean
+        default: false
+
+  responses:
+
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    Forbidden:
+      description: Token is valid but lacks the scope required by the operation.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    NotFound:
+      description: Resource not found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    Conflict:
+      description: Conflict with current state (e.g., duplicate name).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+          description: Build version of the running longue-vue.
+
+    Layer:
+      type: string
+      description: |
+        ANSSI cartography layer the asset belongs to. See ADR-0002 for the
+        kind-to-layer mapping and the rationale behind the six-layer model.
+      enum:
+        - ecosystem
+        - business
+        - applicative
+        - administration
+        - infrastructure_logical
+        - infrastructure_physical
+
+    # ── Reconcile schemas (ADR-0009: push collector) ──────────────────
+
+    ReconcileClusterScoped:
+      type: object
+      required: [cluster_id, keep_names]
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+        keep_names:
+          type: array
+          items:
+            type: string
+
+    ReconcileNamespaceScoped:
+      type: object
+      required: [namespace_id, keep_names]
+      properties:
+        namespace_id:
+          type: string
+          format: uuid
+        keep_names:
+          type: array
+          items:
+            type: string
+
+    ReconcileWorkloads:
+      type: object
+      required: [namespace_id, keep_kinds, keep_names]
+      properties:
+        namespace_id:
+          type: string
+          format: uuid
+        keep_kinds:
+          type: array
+          items:
+            type: string
+        keep_names:
+          type: array
+          items:
+            type: string
+
+    ReconcileResult:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: integer
+          format: int64
+
+    Problem:
+      description: RFC 7807 problem details.
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        errors:
+          type: array
+          description: Field-level validation errors, when applicable.
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    ClusterMutable:
+      description: Fields on a Cluster that clients may set and later update.
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 256
+          description: Human-friendly label, free-form.
+        environment:
+          type: string
+          maxLength: 64
+          description: Free-form environment tag (e.g., dev, staging, prod).
+        provider:
+          type: string
+          maxLength: 64
+          description: |
+            Underlying Kubernetes distribution or hosting provider.
+            Open-ended; common values: gke, eks, aks, openshift, rke, kubeadm, onprem, other.
+        region:
+          type: string
+          maxLength: 64
+        kubernetes_version:
+          type: string
+          maxLength: 32
+          description: Cluster API server version reported by Kubernetes (e.g. "1.29.5").
+        api_endpoint:
+          type: string
+          format: uri
+          description: Kubernetes API server URL (informational).
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+        owner:
+          type: string
+          maxLength: 256
+          description: |
+            Free-form handle for the team / on-call that owns this
+            cluster. Surfaced on the detail page so incident responders
+            know who to wake up.
+        criticality:
+          type: string
+          maxLength: 32
+          description: |
+            Free-form tier label. Common values: `critical`, `high`,
+            `medium`, `low`. Not enum-enforced so operators can slot in
+            their own taxonomy (P0/P1/…).
+        notes:
+          type: string
+          maxLength: 8192
+          description: Long-form prose. Any markdown is rendered client-side.
+        runbook_url:
+          type: string
+          format: uri
+          maxLength: 1024
+          description: Link to the owning team's runbook for this cluster.
+        annotations:
+          type: object
+          description: |
+            Free-form k/v for metadata not worth its own column. Values
+            are strings. Collector writes never touch this field.
+          additionalProperties:
+            type: string
+            maxLength: 1024
+          maxProperties: 64
+
+    ClusterCreate:
+      description: Payload to register a new cluster.
+      allOf:
+        - $ref: '#/components/schemas/ClusterMutable'
+        - type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: |
+                Stable slug-like identifier, unique across the CMDB.
+                Immutable after creation.
+              pattern: '^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$'
+              minLength: 2
+              maxLength: 64
+
+    ClusterUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `name` is immutable.
+        Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/ClusterMutable'
+
+    Cluster:
+      description: A Kubernetes cluster registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/ClusterMutable'
+        - type: object
+          required: [id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            name:
+              type: string
+              pattern: '^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$'
+              minLength: 2
+              maxLength: 64
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `infrastructure_logical` for Cluster. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    ClusterList:
+      description: Paged list of clusters.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Cluster'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    NodeMutable:
+      description: |
+        Fields on a Node that clients may set and later update. Modelled on
+        a logical-server entity, with Kubernetes-specific additions (role,
+        taints, conditions, the full OS stack). Curated
+        operator-owned fields (`owner`, `criticality`, `notes`,
+        `runbook_url`, `annotations`, `hardware_model`) are populated by
+        editors / admins through the detail page; the collector never
+        writes them.
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 256
+          description: Human-friendly label, free-form.
+        role:
+          type: string
+          maxLength: 32
+          description: |
+            Node role derived from `node-role.kubernetes.io/*` labels.
+            Common values: `control-plane`, `worker`, `etcd`.
+        kubelet_version:
+          type: string
+          maxLength: 32
+          description: Kubelet git version as reported by Kubernetes (e.g. "v1.29.5").
+        kube_proxy_version:
+          type: string
+          maxLength: 32
+        container_runtime_version:
+          type: string
+          maxLength: 64
+          description: e.g. `containerd://1.7.13`.
+        os_image:
+          type: string
+          maxLength: 256
+          description: Node OS image string (e.g. "Ubuntu 22.04.3 LTS").
+        operating_system:
+          type: string
+          maxLength: 32
+          description: OS family as reported by Kubernetes (`linux`, `windows`).
+        kernel_version:
+          type: string
+          maxLength: 128
+        architecture:
+          type: string
+          maxLength: 32
+          description: |
+            CPU architecture. Open-ended; common values: amd64, arm64, ppc64le, s390x.
+        internal_ip:
+          type: string
+          maxLength: 45
+          description: Primary InternalIP address from status.addresses.
+        external_ip:
+          type: string
+          maxLength: 45
+          description: First ExternalIP from status.addresses, if any.
+        pod_cidr:
+          type: string
+          maxLength: 64
+        provider_id:
+          type: string
+          maxLength: 256
+          description: |
+            Cloud provider identifier from spec.providerID
+            (e.g. `aws:///eu-west-1a/i-0abc1234567890def`).
+        instance_type:
+          type: string
+          maxLength: 128
+          description: |
+            Value of the `node.kubernetes.io/instance-type` label
+            (e.g. `m6i.xlarge`, `Standard_D4s_v5`).
+        zone:
+          type: string
+          maxLength: 64
+          description: |
+            Value of the `topology.kubernetes.io/zone` label
+            (e.g. `eu-west-1a`).
+        capacity_cpu:
+          type: string
+          maxLength: 32
+          description: Total CPU the node reports via status.capacity.cpu (quantity).
+        capacity_memory:
+          type: string
+          maxLength: 32
+        capacity_pods:
+          type: string
+          maxLength: 32
+        capacity_ephemeral_storage:
+          type: string
+          maxLength: 32
+        allocatable_cpu:
+          type: string
+          maxLength: 32
+          description: CPU schedulable by Kubernetes after system reservations.
+        allocatable_memory:
+          type: string
+          maxLength: 32
+        allocatable_pods:
+          type: string
+          maxLength: 32
+        allocatable_ephemeral_storage:
+          type: string
+          maxLength: 32
+        conditions:
+          type: array
+          description: |
+            Status conditions from the Node (Ready, MemoryPressure,
+            DiskPressure, PIDPressure, NetworkUnavailable). Each entry
+            preserves the Kubernetes shape so readers can filter by
+            `type`/`status` without reparse.
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 32
+        taints:
+          type: array
+          description: |
+            Scheduling taints from spec.taints. Each entry has
+            `{key, value, effect}` — a pod lands here only if it
+            tolerates every taint whose effect is NoSchedule/NoExecute.
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 64
+        unschedulable:
+          type: boolean
+          description: spec.unschedulable — the kubectl `cordon` flag.
+        ready:
+          type: boolean
+          description: |
+            Convenience boolean derived from the `Ready` status condition.
+            The full condition (with reason/lastTransitionTime) is in the
+            `conditions` array.
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+        owner:
+          type: string
+          maxLength: 256
+          description: |
+            Free-form handle for the team / on-call that owns this
+            node. Surfaced on the detail page so incident responders
+            know who to wake up.
+        criticality:
+          type: string
+          maxLength: 32
+          description: |
+            Free-form operational tier label (`critical`, `high`,
+            `medium`, `low`).
+        notes:
+          type: string
+          maxLength: 8192
+          description: Long-form prose.
+        runbook_url:
+          type: string
+          format: uri
+          maxLength: 1024
+          description: Link to the owning team's runbook for this node.
+        annotations:
+          type: object
+          description: |
+            Free-form k/v for metadata not worth its own column. The
+            collector never writes this field.
+          additionalProperties:
+            type: string
+            maxLength: 1024
+          maxProperties: 64
+        hardware_model:
+          type: string
+          maxLength: 256
+          description: |
+            Free-form bare-metal server model (e.g. "Dell PowerEdge
+            R640"). Complements the cloud-shaped `instance_type` set
+            by the collector; operator-owned.
+
+    NodeCreate:
+      description: Payload to register a new node under a cluster.
+      allOf:
+        - $ref: '#/components/schemas/NodeMutable'
+        - type: object
+          required: [cluster_id, name]
+          properties:
+            cluster_id:
+              type: string
+              format: uuid
+              description: |
+                Parent cluster id. Immutable after creation; the cluster must
+                already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes node name (DNS-subdomain style). Unique per cluster.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 2
+              maxLength: 253
+
+    NodeUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `cluster_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/NodeMutable'
+
+    Node:
+      description: A Kubernetes node registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/NodeMutable'
+        - type: object
+          required: [id, cluster_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            cluster_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 2
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `infrastructure_physical` for Node. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    NodeList:
+      description: Paged list of nodes.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    NamespaceMutable:
+      description: Fields on a Namespace that clients may set and later update.
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 256
+          description: Human-friendly label, free-form.
+        phase:
+          type: string
+          maxLength: 32
+          description: |
+            Kubernetes namespace phase as last observed (e.g. "Active", "Terminating").
+            Open-ended to accommodate any additional phases Kubernetes introduces.
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+        owner:
+          type: string
+          maxLength: 256
+          description: |
+            Free-form handle for the team / on-call that owns this
+            namespace. Surfaced on the detail page so incident
+            responders know who to wake up.
+        criticality:
+          type: string
+          maxLength: 32
+          description: |
+            Free-form operational tier label (`critical`, `high`,
+            `medium`, `low`). Distinct from DICT data-classification,
+            which lives on its own columns.
+        notes:
+          type: string
+          maxLength: 8192
+          description: Long-form prose.
+        runbook_url:
+          type: string
+          format: uri
+          maxLength: 1024
+          description: Link to the owning team's runbook for this namespace.
+        annotations:
+          type: object
+          description: |
+            Free-form k/v for metadata not worth its own column. The
+            collector never writes this field.
+          additionalProperties:
+            type: string
+            maxLength: 1024
+          maxProperties: 64
+
+    NamespaceCreate:
+      description: Payload to register a new namespace under a cluster.
+      allOf:
+        - $ref: '#/components/schemas/NamespaceMutable'
+        - type: object
+          required: [cluster_id, name]
+          properties:
+            cluster_id:
+              type: string
+              format: uuid
+              description: |
+                Parent cluster id. Immutable after creation; the cluster must
+                already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes namespace name (DNS-label style). Unique per cluster.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 63
+
+    NamespaceUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `cluster_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/NamespaceMutable'
+
+    Namespace:
+      description: A Kubernetes namespace registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/NamespaceMutable'
+        - type: object
+          required: [id, cluster_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            cluster_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 63
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `infrastructure_logical` for Namespace. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    NamespaceList:
+      description: Paged list of namespaces.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Namespace'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    ContainerList:
+      type: array
+      description: |
+        Containers associated with the resource. For Pods this reflects the
+        live runtime (name, image, image_id from containerStatuses, init
+        flag); for Workloads it's the pod template's declared containers
+        (name, image, init). Opaque in v1: each entry's shape is additive,
+        so new collector-extracted fields don't require a spec bump.
+      items:
+        type: object
+        additionalProperties: true
+
+    PodMutable:
+      description: Fields on a Pod that clients may set and later update.
+      type: object
+      properties:
+        phase:
+          type: string
+          maxLength: 32
+          description: |
+            Kubernetes pod phase as last observed: Pending, Running, Succeeded,
+            Failed, or Unknown. Open-ended to accommodate any additional phases.
+        node_name:
+          type: string
+          maxLength: 253
+          description: Name of the node the pod is scheduled on.
+        pod_ip:
+          type: string
+          maxLength: 45
+          description: |
+            Pod IP address (IPv4 or IPv6). Informational; not validated as an
+            IP literal.
+        containers:
+          $ref: '#/components/schemas/ContainerList'
+        workload_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Top-level Workload that controls this pod (Deployment /
+            StatefulSet / DaemonSet). The collector walks the K8s
+            ownerReference chain — for Deployment-owned pods this resolves
+            Pod -> ReplicaSet -> Deployment. Null for pods with no
+            controller or with an owner kind longue-vue doesn't model yet
+            (e.g., Job, CronJob).
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+        containers_versions:
+          type: object
+          description: Map of container name to its latest-version info. Keys are absent when the image is not yet enriched (non-parseable tag, registry not in allowlist, or not yet processed).
+          additionalProperties:
+            $ref: '#/components/schemas/ContainerVersionInfo'
+
+    PodCreate:
+      description: Payload to register a new pod under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/PodMutable'
+        - type: object
+          required: [namespace_id, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes pod name (DNS-subdomain style). Unique per namespace.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+
+    PodUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/PodMutable'
+
+    Pod:
+      description: A Kubernetes pod registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/PodMutable'
+        - type: object
+          required: [id, namespace_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for Pod. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    PodList:
+      description: Paged list of pods.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pod'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    WorkloadKind:
+      type: string
+      description: |
+        Kubernetes workload controller kind. Casing matches the `kind` field
+        Kubernetes itself emits. Additional kinds (Job, CronJob, ReplicaSet,
+        ReplicationController) may be introduced as new enum values without a
+        schema migration (see ADR-0003).
+      enum:
+        - Deployment
+        - StatefulSet
+        - DaemonSet
+
+    WorkloadMutable:
+      description: Fields on a Workload that clients may set and later update.
+      type: object
+      properties:
+        replicas:
+          type: integer
+          minimum: 0
+          description: Desired replica count. Nullable; DaemonSet has no scalar desired count.
+        ready_replicas:
+          type: integer
+          minimum: 0
+          description: Observed ready replica count. Nullable until first status update.
+        containers:
+          $ref: '#/components/schemas/ContainerList'
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+        spec:
+          type: object
+          description: |
+            Kind-specific fields the collector chooses to persist (e.g. strategy
+            for Deployment, service_name for StatefulSet). Open-ended; stored
+            as JSONB.
+          additionalProperties: true
+        containers_versions:
+          type: object
+          description: Map of container name to its latest-version info. Keys are absent when the image is not yet enriched (non-parseable tag, registry not in allowlist, or not yet processed).
+          additionalProperties:
+            $ref: '#/components/schemas/ContainerVersionInfo'
+
+    WorkloadCreate:
+      description: Payload to register a new workload under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/WorkloadMutable'
+        - type: object
+          required: [namespace_id, kind, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            kind:
+              allOf:
+                - $ref: '#/components/schemas/WorkloadKind'
+              description: |
+                Workload kind discriminator. Immutable after creation.
+            name:
+              type: string
+              description: |
+                Kubernetes workload name (DNS-subdomain style). Unique per
+                (namespace, kind). Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+
+    WorkloadUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id`, `kind`, and
+        `name` are immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/WorkloadMutable'
+
+    Workload:
+      description: A Kubernetes workload controller registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/WorkloadMutable'
+        - type: object
+          required: [id, namespace_id, kind, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            kind:
+              $ref: '#/components/schemas/WorkloadKind'
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for Workload. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    WorkloadList:
+      description: Paged list of workloads.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workload'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    ServiceType:
+      type: string
+      description: |
+        Kubernetes Service type. Casing matches the enum Kubernetes itself
+        emits. Open-ended at the schema layer to accommodate future additions;
+        handler validation enforces the v1 subset.
+      enum:
+        - ClusterIP
+        - NodePort
+        - LoadBalancer
+        - ExternalName
+
+    ServiceMutable:
+      description: Fields on a Service that clients may set and later update.
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/ServiceType'
+        cluster_ip:
+          type: string
+          maxLength: 45
+          description: Assigned ClusterIP (empty for Headless / ExternalName services).
+        selector:
+          type: object
+          description: Pod label selector. Pods matching every key/value are selected.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+        ports:
+          type: array
+          description: |
+            Service ports. Opaque in v1: each entry carries whatever the
+            collector chose to persist (name, port, target_port, protocol, node_port).
+          items:
+            type: object
+            additionalProperties: true
+        load_balancer:
+          type: array
+          description: |
+            External load-balancer addresses, mirroring
+            `status.loadBalancer.ingress[]`. Only Services of type
+            `LoadBalancer` typically carry entries; other types leave
+            the array empty. On-prem populated by MetalLB / Kube-VIP /
+            hardware LB; managed clusters by the cloud controller.
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 32
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    ServiceCreate:
+      description: Payload to register a new service under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/ServiceMutable'
+        - type: object
+          required: [namespace_id, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes service name (DNS-label style). Unique per namespace.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 63
+
+    ServiceUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/ServiceMutable'
+
+    Service:
+      description: A Kubernetes Service registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/ServiceMutable'
+        - type: object
+          required: [id, namespace_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 63
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for Service. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    ServiceList:
+      description: Paged list of services.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Service'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    IngressMutable:
+      description: Fields on an Ingress that clients may set and later update.
+      type: object
+      properties:
+        ingress_class_name:
+          type: string
+          maxLength: 253
+          description: IngressClass name the controller binds to (e.g., "nginx", "traefik").
+        rules:
+          type: array
+          description: |
+            Ingress routing rules. Opaque in v1: each entry carries whatever the
+            collector chose to persist (host, path, path_type, backend service
+            name / port).
+          items:
+            type: object
+            additionalProperties: true
+        tls:
+          type: array
+          description: |
+            TLS configuration entries. Opaque in v1: each entry carries hosts
+            and the referenced Secret name.
+          items:
+            type: object
+            additionalProperties: true
+        load_balancer:
+          type: array
+          description: |
+            External load-balancer addresses, mirroring
+            `status.loadBalancer.ingress[]`. Each entry is
+            `{ip?, hostname?, ports?}`. Populated by whatever fulfilled
+            the Ingress — a cloud controller on managed clusters, or
+            MetalLB / Kube-VIP / a hardware load balancer on-prem. A
+            single entry is typical; multi-entry setups appear with
+            dual-stack (v4+v6) or redundant VIPs.
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 32
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    IngressCreate:
+      description: Payload to register a new ingress under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/IngressMutable'
+        - type: object
+          required: [namespace_id, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes ingress name (DNS-label style). Unique per namespace.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 63
+
+    IngressUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/IngressMutable'
+
+    Ingress:
+      description: A Kubernetes Ingress registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/IngressMutable'
+        - type: object
+          required: [id, namespace_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 63
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for Ingress. See ADR-0004.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    IngressList:
+      description: Paged list of ingresses.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ingress'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    PersistentVolumeMutable:
+      description: Fields on a PersistentVolume that clients may set and later update.
+      type: object
+      properties:
+        capacity:
+          type: string
+          maxLength: 32
+          description: |
+            Declared capacity as reported by Kubernetes (e.g. `"10Gi"`).
+            Stored verbatim; conversion to bytes is a reader concern.
+        access_modes:
+          type: array
+          description: |
+            Kubernetes access modes the PV exposes — any of
+            `ReadWriteOnce`, `ReadOnlyMany`, `ReadWriteMany`,
+            `ReadWriteOncePod`.
+          items:
+            type: string
+            maxLength: 32
+          maxItems: 8
+        reclaim_policy:
+          type: string
+          maxLength: 16
+          description: Retain / Delete / Recycle.
+        phase:
+          type: string
+          maxLength: 32
+          description: |
+            Kubernetes PV phase as last observed: Pending, Available, Bound,
+            Released, Failed.
+        storage_class_name:
+          type: string
+          maxLength: 253
+        csi_driver:
+          type: string
+          maxLength: 253
+          description: |
+            CSI driver name when the PV is CSI-backed (spec.csi.driver).
+            Null for in-tree / legacy volume sources.
+        volume_handle:
+          type: string
+          maxLength: 512
+          description: |
+            Concrete backing storage handle (spec.csi.volumeHandle) — the
+            CSI driver's identifier for the underlying disk / share.
+        claim_ref_namespace:
+          type: string
+          maxLength: 253
+          description: Namespace of the bound PVC (spec.claimRef.namespace).
+        claim_ref_name:
+          type: string
+          maxLength: 253
+          description: Name of the bound PVC (spec.claimRef.name).
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    PersistentVolumeCreate:
+      description: Payload to register a new persistent volume under a cluster.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeMutable'
+        - type: object
+          required: [cluster_id, name]
+          properties:
+            cluster_id:
+              type: string
+              format: uuid
+              description: |
+                Parent cluster id. Immutable after creation; the cluster must
+                already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes PV name. Cluster-scoped, so unique per cluster.
+                Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+
+    PersistentVolumeUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `cluster_id` and `name` are
+        immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeMutable'
+
+    PersistentVolume:
+      description: A Kubernetes PersistentVolume registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeMutable'
+        - type: object
+          required: [id, cluster_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            cluster_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `infrastructure_physical` for PersistentVolume. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    PersistentVolumeList:
+      description: Paged list of persistent volumes.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PersistentVolume'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    PersistentVolumeClaimMutable:
+      description: Fields on a PVC that clients may set and later update.
+      type: object
+      properties:
+        phase:
+          type: string
+          maxLength: 32
+          description: |
+            Kubernetes PVC phase as last observed: Pending, Bound, Lost.
+        storage_class_name:
+          type: string
+          maxLength: 253
+        volume_name:
+          type: string
+          maxLength: 253
+          description: |
+            Raw `spec.volumeName` — the PV name this claim is bound to.
+            Carries the string even when the corresponding PV row hasn't
+            been ingested yet.
+        bound_volume_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            FK to the PersistentVolume this PVC is bound to. Null for
+            Pending PVCs or if the PV row has been deleted
+            (ON DELETE SET NULL).
+        access_modes:
+          type: array
+          items:
+            type: string
+            maxLength: 32
+          maxItems: 8
+        requested_storage:
+          type: string
+          maxLength: 32
+          description: |
+            Requested size (spec.resources.requests.storage), verbatim
+            (e.g. `"5Gi"`).
+        labels:
+          type: object
+          description: Arbitrary user-supplied string key/value labels.
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 64
+
+    PersistentVolumeClaimCreate:
+      description: Payload to register a new PVC under a namespace.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeClaimMutable'
+        - type: object
+          required: [namespace_id, name]
+          properties:
+            namespace_id:
+              type: string
+              format: uuid
+              description: |
+                Parent namespace id. Immutable after creation; the namespace
+                must already exist or the create returns 404.
+            name:
+              type: string
+              description: |
+                Kubernetes PVC name (DNS-subdomain style). Unique per
+                namespace. Immutable after creation.
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+
+    PersistentVolumeClaimUpdate:
+      description: |
+        Merge-patch body. Only mutable fields; `namespace_id` and `name`
+        are immutable. Omitted fields are left unchanged.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeClaimMutable'
+
+    PersistentVolumeClaim:
+      description: A Kubernetes PersistentVolumeClaim registered in the CMDB.
+      allOf:
+        - $ref: '#/components/schemas/PersistentVolumeClaimMutable'
+        - type: object
+          required: [id, namespace_id, name, layer, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            namespace_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+              minLength: 1
+              maxLength: 253
+            layer:
+              allOf:
+                - $ref: '#/components/schemas/Layer'
+              readOnly: true
+              description: Always `applicative` for PersistentVolumeClaim. Set by the server.
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            updated_at:
+              type: string
+              format: date-time
+              readOnly: true
+
+    PersistentVolumeClaimList:
+      description: Paged list of persistent volume claims.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PersistentVolumeClaim'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    Role:
+      type: string
+      description: |
+        Fixed role set per ADR-0007. Each role maps to a fixed scope set —
+        the scope check in the OpenAPI `security` blocks is unchanged, the
+        session middleware just attaches the scopes derived from role.
+      enum:
+        - admin
+        - editor
+        - auditor
+        - viewer
+
+    AuthConfig:
+      description: |
+        Pre-login auth configuration needed by the UI. Intentionally
+        readable without auth so the login page can render the OIDC
+        button before the user has a session.
+      type: object
+      required: [oidc]
+      properties:
+        oidc:
+          type: object
+          required: [enabled]
+          properties:
+            enabled:
+              type: boolean
+            label:
+              type: string
+              description: |
+                Button label on the login page, e.g. "Sign in with
+                Okta". Controlled by `LONGUE_VUE_OIDC_LABEL`.
+
+    LoginRequest:
+      description: Username + password, both required.
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          maxLength: 256
+        password:
+          type: string
+          maxLength: 1024
+
+    ChangePasswordRequest:
+      description: Current password + new password.
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          maxLength: 1024
+        new_password:
+          type: string
+          description: |
+            Minimum 12 characters per NIST 800-63B guidance. No other
+            composition rules — a long passphrase is acceptable and
+            preferred over short complex strings.
+          minLength: 12
+          maxLength: 1024
+
+    VerifyTokenRequest:
+      description: |
+        Bearer token to verify. The DMZ ingest gateway (ADR-0016) uses
+        this to short-circuit invalid tokens before they cross the
+        firewall. Sent over mTLS only — longue-vue's public listener does
+        not serve `POST /v1/auth/verify`.
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Opaque PAT (`lv_pat_<prefix>_<suffix>` or legacy `argos_pat_<prefix>_<suffix>`).
+          maxLength: 256
+
+    VerifyTokenResponse:
+      description: |
+        Token verification result. Returned only when the token is valid;
+        invalid / unknown / expired / revoked tokens get a 401 with no
+        identifying detail (a verifier cannot infer which bit was wrong).
+      type: object
+      required: [valid, kind, scopes]
+      properties:
+        valid:
+          type: boolean
+          description: Always `true` in a 200 response. Reserved for future use.
+        kind:
+          type: string
+          enum: [token]
+          description: |
+            The verify endpoint authenticates only bearer tokens. Cookie
+            sessions cannot be verified through this RPC since they do
+            not survive the DMZ hop.
+        caller_id:
+          type: string
+          format: uuid
+          description: Token id (the row's primary key in `api_tokens`).
+        token_name:
+          type: string
+          description: Cosmetic — for log lines and audit entries on the gateway side.
+        scopes:
+          type: array
+          items:
+            type: string
+          description: |
+            Token's declared scopes. The gateway must consult these
+            before forwarding to short-circuit obvious scope mismatches.
+        bound_cloud_account_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Set on tokens issued with the `vm-collector` scope (ADR-0015).
+            The DMZ ingest gateway is intended for K8s collectors only;
+            `vm-collector` tokens are surfaced here so the gateway can
+            reject them at the cache layer rather than forwarding.
+        exp:
+          type: integer
+          format: int64
+          description: |
+            Token expiry as a Unix epoch second. Omitted when the token
+            does not expire. The gateway caches verify results for the
+            lesser of its configured TTL and `(exp - now)`.
+
+    Me:
+      description: Caller identity, role, and effective scopes.
+      type: object
+      required: [kind, scopes]
+      properties:
+        kind:
+          type: string
+          enum: [user, token]
+          description: |
+            `user` when authenticated via session cookie, `token` when
+            via `Authorization: Bearer`. UIs render accordingly.
+        id:
+          type: string
+          format: uuid
+          description: User id when kind=user, token id when kind=token.
+        username:
+          type: string
+          description: Present when kind=user.
+        token_name:
+          type: string
+          description: Present when kind=token.
+        role:
+          allOf:
+            - $ref: '#/components/schemas/Role'
+          description: Present when kind=user.
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Effective scopes after role→scope mapping or token declaration.
+        must_change_password:
+          type: boolean
+          description: |
+            Present when kind=user. True for bootstrap admins and users
+            whose password was reset by an admin — the UI blocks every
+            route except `/change-password` until this is cleared.
+
+    User:
+      description: A human user registered in longue-vue.
+      type: object
+      required: [id, username, role, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        username:
+          type: string
+          maxLength: 256
+        role:
+          $ref: '#/components/schemas/Role'
+        must_change_password:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        disabled_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        failed_login_count:
+          type: integer
+          minimum: 0
+          readOnly: true
+          description: |
+            Consecutive failed password attempts since last successful login. Reset
+            to 0 on successful login or admin unlock. Reaches lockout threshold
+            (6) -> `locked_at` is set.
+        locked_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: |
+            When the account auto-locked after exceeding the failed-login threshold.
+            A locked account cannot authenticate via password. Cleared by an admin
+            via `PATCH /v1/admin/users/{id}` with `unlock=true`. NULL = not locked.
+
+    UserCreate:
+      description: Payload to create a new human user.
+      type: object
+      required: [username, password, role]
+      properties:
+        username:
+          type: string
+          pattern: '^[a-zA-Z0-9._-]+$'
+          minLength: 1
+          maxLength: 256
+        password:
+          type: string
+          minLength: 12
+          maxLength: 1024
+        role:
+          $ref: '#/components/schemas/Role'
+        must_change_password:
+          type: boolean
+          description: |
+            Default true — the standard "admin provisions, user rotates on
+            first login" flow. Set false for seeded users in automation.
+
+    UserUpdate:
+      description: |
+        Merge-patch body. Setting `password` rehashes and forces
+        `must_change_password=true`. Setting `disabled=true` revokes
+        every active session for the user. Setting `unlock=true` clears
+        the lockout state on an account locked after too many failed
+        login attempts.
+      type: object
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+        password:
+          type: string
+          minLength: 12
+          maxLength: 1024
+        must_change_password:
+          type: boolean
+        disabled:
+          type: boolean
+        unlock:
+          type: boolean
+          description: |
+            When true, clears `locked_at` and resets `failed_login_count` to 0.
+            No effect on accounts that are not locked. Can be combined with other
+            patch fields in the same request -- all changes apply atomically in
+            one UPDATE.
+
+    UserList:
+      description: Paged list of users.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        next_cursor:
+          type: string
+          nullable: true
+
+    ApiToken:
+      description: |
+        Metadata for a machine token. The plaintext is never in this
+        response — it's only returned once by `createApiToken`.
+      type: object
+      required: [id, name, prefix, scopes, created_by_user_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Human-chosen label (e.g., `"ci-release-pipeline"`).
+          maxLength: 256
+        prefix:
+          type: string
+          description: |
+            First 8 characters of the plaintext token. Displayed alongside
+            the token name so operators can identify which token is in use
+            without revealing the full value.
+          readOnly: true
+        scopes:
+          type: array
+          items:
+            type: string
+        created_by_user_id:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+
+    ApiTokenCreate:
+      description: Payload to mint a new machine token.
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [read, write, delete]
+          minItems: 1
+          description: |
+            Scopes to grant. Admin scope cannot be granted to tokens —
+            admin-only endpoints are session-only for accountability.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional expiry. If absent, the token is valid until revoked.
+
+    ApiTokenMint:
+      description: |
+        Response returned by `createApiToken`. The `token` field carries
+        the full plaintext — copy it now, it won't appear anywhere else.
+      allOf:
+        - $ref: '#/components/schemas/ApiToken'
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: |
+                Plaintext token, format `lv_pat_<8chars>_<random>`.
+                Presented exactly once. Store in a secrets manager; do
+                not commit to source control.
+
+    ApiTokenList:
+      description: Paged list of tokens.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiToken'
+        next_cursor:
+          type: string
+          nullable: true
+
+    Session:
+      description: An active human session.
+      type: object
+      required: [id, user_id, created_at, last_used_at, expires_at]
+      properties:
+        id:
+          type: string
+          description: |
+            Session identifier. Only the prefix is shown to admins;
+            the full id is never leaked in a list response.
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          description: Denormalised for admin convenience.
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        user_agent:
+          type: string
+          nullable: true
+        source_ip:
+          type: string
+          nullable: true
+
+    SessionList:
+      description: Paged list of active sessions.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+        next_cursor:
+          type: string
+          nullable: true
+
+    AuditEvent:
+      description: |
+        One recorded API action. Written by the audit middleware after
+        the wrapped handler completes; never updated in place.
+      type: object
+      required: [id, occurred_at, actor_kind, action, http_method, http_path, http_status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        actor_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null for unauthenticated requests (e.g. failed logins).
+        actor_kind:
+          type: string
+          enum: [user, token, anonymous, system]
+        actor_username:
+          type: string
+          nullable: true
+        actor_role:
+          type: string
+          nullable: true
+        action:
+          type: string
+          description: |
+            Dot-separated verb such as `user.create`, `cluster.update`,
+            `auth.login.success`, `auth.login.failure`.
+        resource_type:
+          type: string
+          nullable: true
+          description: Kind of the target entity (e.g. `cluster`, `user`, `api_token`).
+        resource_id:
+          type: string
+          nullable: true
+          description: Stringified id of the target — may not be a UUID for all kinds.
+        http_method:
+          type: string
+        http_path:
+          type: string
+        http_status:
+          type: integer
+        source:
+          type: string
+          enum: [api, ingest_gw, system]
+          description: |
+            Which listener served the request. `api` is longue-vue's public
+            listener (humans, admins, trusted-zone collectors). `ingest_gw`
+            is the mTLS-only ingest listener fronted by the DMZ gateway
+            (ADR-0016). `system` is for synthetic events emitted by longue-vue
+            itself, not driven by an HTTP request.
+        source_ip:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Action-specific payload. Always an object when present.
+
+    AuditEventList:
+      description: Paged list of audit events, newest first.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          type: string
+          nullable: true
+
+    ContainerVersionInfo:
+      type: object
+      required: [latest_tag, is_behind, last_checked_at]
+      properties:
+        latest_tag:
+          type: string
+        is_behind:
+          type: boolean
+        last_checked_at:
+          type: string
+          format: date-time
+
+    ImageRegistry:
+      type: object
+      required: [hostname, rate_limit_per_sec, enabled, created_at, updated_at]
+      properties:
+        hostname:
+          type: string
+          description: "Exact hostname or '*<suffix>' wildcard"
+        rate_limit_per_sec:
+          type: number
+          format: float
+          minimum: 0.01
+        enabled:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ImageRegistryUpsert:
+      type: object
+      required: [hostname, rate_limit_per_sec]
+      properties:
+        hostname:
+          type: string
+        rate_limit_per_sec:
+          type: number
+          format: float
+          minimum: 0.01
+        enabled:
+          type: boolean
+        notes:
+          type: string
+
+    ImageRegistryPatch:
+      type: object
+      properties:
+        rate_limit_per_sec:
+          type: number
+          format: float
+          minimum: 0.01
+        enabled:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+
+    ImageVersionVariant:
+      type: object
+      required: [variant, source, last_checked_at]
+      properties:
+        variant:
+          type: string
+          description: "Empty string for pure semver"
+        latest_tag:
+          type: string
+          nullable: true
+        annotation:
+          type: object
+          additionalProperties: true
+        source:
+          type: string
+          enum: [registry]
+        last_checked_at:
+          type: string
+          format: date-time
+        last_error:
+          type: string
+          nullable: true
+        last_error_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ImageVersion:
+      type: object
+      required: [image_repo, registry, variants]
+      properties:
+        image_repo:
+          type: string
+        registry:
+          type: string
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageVersionVariant'
+
+    ImageVersionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageVersion'
+        next_cursor:
+          type: string
+
+    ImageVersionRefreshResponse:
+      type: object
+      required: [queued, already_running]
+      properties:
+        queued:
+          type: boolean
+        already_running:
+          type: boolean

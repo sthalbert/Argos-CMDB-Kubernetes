@@ -9,7 +9,7 @@ VM_COLLECTOR_BINARY := longue-vue-vm-collector
 IMAGE_NAME ?= longue-vue
 IMAGE_TAG  ?= dev
 
-.PHONY: all build build-noui build-collector build-vm-collector generate test test-one vet lint fmt tidy check clean docker-build docker-build-collector docker-build-vm-collector docker-build-ingest-gw ui-install ui-build ui-dev ui-check ui-test
+.PHONY: all build build-noui build-collector build-vm-collector generate swagger-sync swagger-sync-check test test-one vet lint fmt tidy check clean docker-build docker-build-collector docker-build-vm-collector docker-build-ingest-gw ui-install ui-build ui-dev ui-check ui-test
 
 all: build
 
@@ -49,6 +49,13 @@ ui-test:
 
 generate:
 	go generate ./...
+
+swagger-sync:
+	cp api/openapi/openapi.yaml internal/api/swagger/openapi.yaml
+
+swagger-sync-check: swagger-sync
+	@git diff --exit-code internal/api/swagger/openapi.yaml \
+	  || (echo "internal/api/swagger/openapi.yaml drifted from source; run 'make swagger-sync' and commit" && exit 1)
 
 docker-build:
 	docker build \
