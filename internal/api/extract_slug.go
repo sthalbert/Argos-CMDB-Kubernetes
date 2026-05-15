@@ -12,6 +12,8 @@ const slugMaxLen = 40
 // [a-z0-9.-] replaced with a hyphen, runs of hyphens collapsed, leading
 // and trailing hyphens stripped, length capped at slugMaxLen.
 // Empty / all-special-character inputs return "".
+//
+//nolint:gocyclo // character-class switch + run-collapse + trim is the only clean implementation; each case is one line
 func slugForFilename(q string) string {
 	q = strings.ToLower(strings.TrimSpace(q))
 	if q == "" {

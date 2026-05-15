@@ -72,9 +72,9 @@ func (z *extractZIPWriter) renderREADME() string {
 	var b strings.Builder
 	b.WriteString("longue-vue extract\n")
 	b.WriteString("==================\n\n")
-	b.WriteString(fmt.Sprintf("query: %s\n", z.meta.Query))
-	b.WriteString(fmt.Sprintf("generated: %s\n", z.meta.GeneratedAt.UTC().Format(time.RFC3339)))
-	b.WriteString(fmt.Sprintf("server: %s\n\n", z.meta.Version))
+	fmt.Fprintf(&b, "query: %s\n", z.meta.Query)
+	fmt.Fprintf(&b, "generated: %s\n", z.meta.GeneratedAt.UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "server: %s\n\n", z.meta.Version)
 	b.WriteString("Files:\n")
 	names := append([]string(nil), z.files...)
 	sort.Strings(names)
@@ -84,7 +84,7 @@ func (z *extractZIPWriter) renderREADME() string {
 		if n == 1 {
 			unit = "row"
 		}
-		b.WriteString(fmt.Sprintf("  %s: %d %s\n", name, n, unit))
+		fmt.Fprintf(&b, "  %s: %d %s\n", name, n, unit)
 	}
 	b.WriteString("\nThis is a point-in-time snapshot. Re-run the same extract on\n")
 	b.WriteString("the UI to refresh.\n")

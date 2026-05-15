@@ -2,9 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 )
+
+var errJSONWriteAfterClose = errors.New("json: write after close")
 
 // extractJSONWriter emits a top-level JSON array of objects, streaming
 // row-by-row. Zero rows produces "[]\n" so the file is always a valid
@@ -28,7 +31,7 @@ func newExtractJSONWriter(out io.Writer) *extractJSONWriter {
 // each value, which JSON parsers tolerate inside an array.
 func (e *extractJSONWriter) WriteRow(row any) error {
 	if e.closed {
-		return fmt.Errorf("json: write after close")
+		return errJSONWriteAfterClose
 	}
 	if !e.started {
 		if _, err := e.w.Write([]byte("[")); err != nil {

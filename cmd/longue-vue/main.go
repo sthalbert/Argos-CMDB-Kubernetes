@@ -63,6 +63,7 @@ var (
 	errTransportPostureRefused = errors.New("LONGUE_VUE_REQUIRE_HTTPS=true but neither native TLS " +
 		"(LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT + _KEY) nor a trusted-proxy + always-secure-cookie posture " +
 		"(LONGUE_VUE_TRUSTED_PROXIES non-empty AND LONGUE_VUE_SESSION_SECURE_COOKIE=always) is configured — see ADR-0017 §3")
+	errExtractMaxRowsInvalid = errors.New("LONGUE_VUE_EXTRACT_MAX_ROWS is not a positive integer")
 )
 
 func main() {
@@ -161,7 +162,7 @@ func loadRunConfig() (runConfig, error) {
 	if v := os.Getenv("LONGUE_VUE_EXTRACT_MAX_ROWS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			return runConfig{}, fmt.Errorf("LONGUE_VUE_EXTRACT_MAX_ROWS=%q is not a positive integer", v)
+			return runConfig{}, fmt.Errorf("%w: LONGUE_VUE_EXTRACT_MAX_ROWS=%q", errExtractMaxRowsInvalid, v)
 		}
 		extractMaxRows = n
 	}

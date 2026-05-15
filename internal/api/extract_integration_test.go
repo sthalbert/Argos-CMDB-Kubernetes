@@ -8,17 +8,17 @@ import (
 )
 
 func TestEolExtract_CSV_HappyPath(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=csv")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: got %d, body: %s", resp.StatusCode, body)
+	status, header, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=csv")
+	if status != 200 {
+		t.Fatalf("status: got %d, body: %s", status, body)
 	}
-	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
+	if ct := header.Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
 		t.Errorf("Content-Type: %q", ct)
 	}
-	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, `attachment; filename="longue-vue-eol-`) {
+	if cd := header.Get("Content-Disposition"); !strings.Contains(cd, `attachment; filename="longue-vue-eol-`) {
 		t.Errorf("Content-Disposition: %q", cd)
 	}
 	if !strings.HasPrefix(body, "\xEF\xBB\xBF") {
@@ -36,14 +36,14 @@ func TestEolExtract_CSV_HappyPath(t *testing.T) {
 }
 
 func TestEolExtract_JSON_HappyPath(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=json")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+	status, header, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=json")
+	if status != 200 {
+		t.Fatalf("status: %d, body: %s", status, body)
 	}
-	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+	if ct := header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Errorf("Content-Type: %q", ct)
 	}
 	var rows []map[string]any
@@ -59,12 +59,12 @@ func TestEolExtract_JSON_HappyPath(t *testing.T) {
 }
 
 func TestEolExtract_StatusFilter(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=json&status=eol")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+	status, _, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=json&status=eol")
+	if status != 200 {
+		t.Fatalf("status: %d, body: %s", status, body)
 	}
 	var rows []map[string]any
 	if err := json.Unmarshal([]byte(body), &rows); err != nil {
@@ -78,27 +78,27 @@ func TestEolExtract_StatusFilter(t *testing.T) {
 }
 
 func TestEolExtract_BadFormat(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, _ := getWithAuth(t, srv.URL+"/v1/eol/extract?format=xml")
-	if resp.StatusCode != 400 {
-		t.Fatalf("status: want 400, got %d", resp.StatusCode)
+	status, header, _ := getWithAuth(t, srv.URL+"/v1/eol/extract?format=xml")
+	if status != 400 {
+		t.Fatalf("status: want 400, got %d", status)
 	}
-	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/problem+json") {
+	if ct := header.Get("Content-Type"); !strings.HasPrefix(ct, "application/problem+json") {
 		t.Errorf("Content-Type on 400: %q", ct)
 	}
 }
 
 func TestSearchExtract_Workloads_CSV(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=log4j&kind=workloads&format=csv")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+	status, header, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=log4j&kind=workloads&format=csv")
+	if status != 200 {
+		t.Fatalf("status: %d, body: %s", status, body)
 	}
-	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "longue-vue-search-workloads-log4j-") {
+	if cd := header.Get("Content-Disposition"); !strings.Contains(cd, "longue-vue-search-workloads-log4j-") {
 		t.Errorf("Content-Disposition: %q", cd)
 	}
 	bodyAfterBOM := strings.TrimPrefix(body, "\xEF\xBB\xBF")
@@ -116,12 +116,12 @@ func TestSearchExtract_Workloads_CSV(t *testing.T) {
 }
 
 func TestSearchExtract_Pods_CSV(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=log4j&kind=pods&format=csv")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
+	status, _, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=log4j&kind=pods&format=csv")
+	if status != 200 {
+		t.Fatalf("status: %d", status)
 	}
 	bodyAfterBOM := strings.TrimPrefix(body, "\xEF\xBB\xBF")
 	lines := strings.Split(strings.TrimRight(bodyAfterBOM, "\r\n"), "\r\n")
@@ -135,12 +135,12 @@ func TestSearchExtract_Pods_CSV(t *testing.T) {
 }
 
 func TestSearchExtract_VMs_CSV(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=vault&kind=virtual_machines&format=csv")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d body: %s", resp.StatusCode, body)
+	status, _, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=vault&kind=virtual_machines&format=csv")
+	if status != 200 {
+		t.Fatalf("status: %d body: %s", status, body)
 	}
 	bodyAfterBOM := strings.TrimPrefix(body, "\xEF\xBB\xBF")
 	lines := strings.Split(strings.TrimRight(bodyAfterBOM, "\r\n"), "\r\n")
@@ -160,38 +160,38 @@ func TestSearchExtract_VMs_CSV(t *testing.T) {
 }
 
 func TestSearchExtract_BadKind(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, _ := getWithAuth(t, srv.URL+"/v1/search/extract?q=x&kind=nodes&format=csv")
-	if resp.StatusCode != 400 {
-		t.Fatalf("status: want 400, got %d", resp.StatusCode)
+	status, _, _ := getWithAuth(t, srv.URL+"/v1/search/extract?q=x&kind=nodes&format=csv")
+	if status != 400 {
+		t.Fatalf("status: want 400, got %d", status)
 	}
 }
 
 func TestSearchExtract_QueryTooLong(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
 	q := strings.Repeat("x", 257)
-	resp, _ := getWithAuth(t, srv.URL+"/v1/search/extract?q="+q+"&kind=workloads&format=csv")
-	if resp.StatusCode != 400 {
-		t.Fatalf("status: want 400, got %d", resp.StatusCode)
+	status, _, _ := getWithAuth(t, srv.URL+"/v1/search/extract?q="+q+"&kind=workloads&format=csv")
+	if status != 400 {
+		t.Fatalf("status: want 400, got %d", status)
 	}
 }
 
 func TestSearchExtractZip_HasThreeCSVsAndREADME(t *testing.T) {
-	srv, _ := newExtractTestServer(t)
+	srv := newExtractTestServer(t)
 	defer srv.Close()
 
-	resp, body := getWithAuth(t, srv.URL+"/v1/search/extract.zip?q=log4j")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
+	status, header, body := getWithAuth(t, srv.URL+"/v1/search/extract.zip?q=log4j")
+	if status != 200 {
+		t.Fatalf("status: %d", status)
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "application/zip" {
+	if ct := header.Get("Content-Type"); ct != "application/zip" {
 		t.Errorf("Content-Type: %q", ct)
 	}
-	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, ".zip") {
+	if cd := header.Get("Content-Disposition"); !strings.Contains(cd, ".zip") {
 		t.Errorf("Content-Disposition: %q", cd)
 	}
 	zr, err := zip.NewReader(strings.NewReader(body), int64(len(body)))

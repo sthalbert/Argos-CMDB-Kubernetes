@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+//nolint:gocyclo // sequential ZIP construction checks; each if-err block is trivially simple
 func TestZIPExtract_ContainsFourEntries(t *testing.T) {
 	var buf bytes.Buffer
 	zw := newExtractZIPWriter(&buf, extractZIPMeta{
@@ -83,18 +84,19 @@ func TestZIPExtract_ContainsFourEntries(t *testing.T) {
 func findEntry(t *testing.T, zr *zip.Reader, name string) string {
 	t.Helper()
 	for _, f := range zr.File {
-		if f.Name == name {
-			rc, err := f.Open()
-			if err != nil {
-				t.Fatalf("open %s: %v", name, err)
-			}
-			defer rc.Close()
-			var buf bytes.Buffer
-			if _, err := buf.ReadFrom(rc); err != nil {
-				t.Fatalf("read %s: %v", name, err)
-			}
-			return buf.String()
+		if f.Name != name {
+			continue
 		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("open %s: %v", name, err)
+		}
+		t.Cleanup(func() { _ = rc.Close() })
+		var buf bytes.Buffer
+		if _, err := buf.ReadFrom(rc); err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		return buf.String()
 	}
 	t.Fatalf("entry %q not found", name)
 	return ""

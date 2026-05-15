@@ -37,6 +37,17 @@ const extractQueryMax = 256
 // wire build info through.
 var extractServerVersion = "longue-vue"
 
+// string constants reused across validation branches.
+const (
+	extractFormatCSV        = "csv"
+	extractFormatJSON       = "json"
+	extractOutcomeTruncated = "truncated"
+	extractStatusUnknown    = "unknown"
+	extractKindWorkloads    = "workloads"
+	extractKindPods         = "pods"
+	extractKindVMs          = "virtual_machines"
+)
+
 // HandleEolExtract — read scope. GET /v1/eol/extract?format=csv|json
 // [&entity_type=...&status=...]. Iterates clusters / nodes / VMs, flattens
 // EOL annotations via internal/eolagg, applies optional filters, and
@@ -44,7 +55,7 @@ var extractServerVersion = "longue-vue"
 // the X-Longue-Vue-Truncated header can be written before any bytes
 // hit the wire — at the row cap, peak buffer is ~10 MB.
 //
-//nolint:gocyclo // validation branches inflate the score; each branch is short
+//nolint:gocyclo,gocognit // validation + data-collection branches inflate the score; each branch is short and self-contained
 func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := auth.CallerFromContext(r.Context())
@@ -54,7 +65,7 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		}
 		q := r.URL.Query()
 		format := q.Get("format")
-		if format != "csv" && format != "json" {
+		if format != extractFormatCSV && format != extractFormatJSON {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
@@ -72,7 +83,7 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		status := q.Get("status")
-		if status != "" && status != "eol" && status != "approaching_eol" && status != "supported" && status != "unknown" {
+		if status != "" && status != "eol" && status != "approaching_eol" && status != "supported" && status != extractStatusUnknown {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
@@ -115,18 +126,18 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		rows := eolagg.Flatten(toEolaggClusters(clusters), toEolaggNodes(nodes), toEolaggVMs(vms))
 		if entityType != "" {
 			filtered := rows[:0]
-			for _, row := range rows {
-				if row.EntityType == entityType {
-					filtered = append(filtered, row)
+			for i := range rows {
+				if rows[i].EntityType == entityType {
+					filtered = append(filtered, rows[i])
 				}
 			}
 			rows = filtered
 		}
 		if status != "" {
 			filtered := rows[:0]
-			for _, row := range rows {
-				if row.Status == status {
-					filtered = append(filtered, row)
+			for i := range rows {
+				if rows[i].Status == status {
+					filtered = append(filtered, rows[i])
 				}
 			}
 			rows = filtered
@@ -140,10 +151,10 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 
 		var buf bytes.Buffer
 		switch format {
-		case "csv":
+		case extractFormatCSV:
 			cw := newExtractCSVWriter(&buf, eolCSVHeader())
-			for _, row := range rows {
-				if err := cw.WriteRow(eolRowToCSV(row)); err != nil {
+			for i := range rows {
+				if err := cw.WriteRow(eolRowToCSV(rows[i])); err != nil {
 					slog.Error("extract: csv row", slog.Any("error", err))
 					writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 					return
@@ -154,10 +165,10 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 				return
 			}
-		case "json":
+		case extractFormatJSON:
 			jw := newExtractJSONWriter(&buf)
-			for _, row := range rows {
-				if err := jw.WriteRow(row); err != nil {
+			for i := range rows {
+				if err := jw.WriteRow(rows[i]); err != nil {
 					slog.Error("extract: json row", slog.Any("error", err))
 					writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 					return
@@ -172,7 +183,7 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 
 		outcome := "ok"
 		if truncated {
-			outcome = "truncated"
+			outcome = extractOutcomeTruncated
 			w.Header().Set("X-Longue-Vue-Truncated", "true")
 		}
 		filename := fmt.Sprintf("longue-vue-eol-%s.%s", extractTimestamp(time.Now()), format)
@@ -198,9 +209,9 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 
 func extractContentType(format string) string {
 	switch format {
-	case "csv":
+	case extractFormatCSV:
 		return "text/csv; charset=utf-8"
-	case "json":
+	case extractFormatJSON:
 		return "application/json; charset=utf-8"
 	case "zip":
 		return "application/zip"
@@ -216,7 +227,9 @@ func eolCSVHeader() []string {
 	}
 }
 
-func eolRowToCSV(r eolagg.Row) []string {
+func eolRowToCSV(
+	r eolagg.Row, //nolint:gocritic // hugeParam: Row (192 bytes) passed by value; called from a range-by-index loop, value semantics are intentional
+) []string {
 	return []string{
 		r.EntityType, r.EntityID, r.EntityName, r.Cluster,
 		r.Product, r.Cycle, r.Status, r.EOLDate,
@@ -256,7 +269,11 @@ func collectAllNodes(ctx context.Context, store ExtractStore) ([]Node, error) {
 	}
 }
 
-func collectAllVMs(ctx context.Context, store ExtractStore, filter VirtualMachineListFilter) ([]VirtualMachine, error) {
+func collectAllVMs(
+	ctx context.Context,
+	store ExtractStore,
+	filter VirtualMachineListFilter, //nolint:gocritic // hugeParam: 80 bytes passed by value; callers always construct inline literals
+) ([]VirtualMachine, error) {
 	var out []VirtualMachine
 	cursor := ""
 	for {
@@ -274,21 +291,21 @@ func collectAllVMs(ctx context.Context, store ExtractStore, filter VirtualMachin
 
 func toEolaggClusters(in []Cluster) []eolagg.ClusterInput {
 	out := make([]eolagg.ClusterInput, len(in))
-	for i, c := range in {
+	for i := range in {
 		id := ""
-		if c.Id != nil {
-			id = c.Id.String()
+		if in[i].Id != nil {
+			id = in[i].Id.String()
 		}
 		display := ""
-		if c.DisplayName != nil {
-			display = *c.DisplayName
+		if in[i].DisplayName != nil {
+			display = *in[i].DisplayName
 		}
 		ann := map[string]string{}
-		if c.Annotations != nil {
-			ann = *c.Annotations
+		if in[i].Annotations != nil {
+			ann = *in[i].Annotations
 		}
 		out[i] = eolagg.ClusterInput{
-			ID: id, Name: c.Name, DisplayName: display, Annotations: ann,
+			ID: id, Name: in[i].Name, DisplayName: display, Annotations: ann,
 		}
 	}
 	return out
@@ -296,17 +313,17 @@ func toEolaggClusters(in []Cluster) []eolagg.ClusterInput {
 
 func toEolaggNodes(in []Node) []eolagg.NodeInput {
 	out := make([]eolagg.NodeInput, len(in))
-	for i, n := range in {
+	for i := range in {
 		id := ""
-		if n.Id != nil {
-			id = n.Id.String()
+		if in[i].Id != nil {
+			id = in[i].Id.String()
 		}
 		ann := map[string]string{}
-		if n.Annotations != nil {
-			ann = *n.Annotations
+		if in[i].Annotations != nil {
+			ann = *in[i].Annotations
 		}
 		out[i] = eolagg.NodeInput{
-			ID: id, Name: n.Name, ClusterID: n.ClusterId.String(), Annotations: ann,
+			ID: id, Name: in[i].Name, ClusterID: in[i].ClusterId.String(), Annotations: ann,
 		}
 	}
 	return out
@@ -314,13 +331,13 @@ func toEolaggNodes(in []Node) []eolagg.NodeInput {
 
 func toEolaggVMs(in []VirtualMachine) []eolagg.VMInput {
 	out := make([]eolagg.VMInput, len(in))
-	for i, v := range in {
+	for i := range in {
 		display := ""
-		if v.DisplayName != nil {
-			display = *v.DisplayName
+		if in[i].DisplayName != nil {
+			display = *in[i].DisplayName
 		}
 		out[i] = eolagg.VMInput{
-			ID: v.ID.String(), Name: v.Name, DisplayName: display, Annotations: v.Annotations,
+			ID: in[i].ID.String(), Name: in[i].Name, DisplayName: display, Annotations: in[i].Annotations,
 		}
 	}
 	return out
@@ -329,7 +346,7 @@ func toEolaggVMs(in []VirtualMachine) []eolagg.VMInput {
 // HandleSearchExtract — read scope. GET /v1/search/extract?q=...&kind=workloads|pods|virtual_machines&format=csv|json
 // Searches container images (workloads/pods) or VM image/application (virtual_machines).
 //
-//nolint:gocyclo // dispatch + validation branches; each is short
+//nolint:gocyclo,gocognit // dispatch + validation branches inflate the score; each branch is short and self-contained
 func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := auth.CallerFromContext(r.Context())
@@ -348,7 +365,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		kind := q.Get("kind")
-		if kind != "workloads" && kind != "pods" && kind != "virtual_machines" {
+		if kind != extractKindWorkloads && kind != extractKindPods && kind != extractKindVMs {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "search", "kind": kind, "outcome": "denied",
 			})
@@ -357,7 +374,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		format := q.Get("format")
-		if format != "csv" && format != "json" {
+		if format != extractFormatCSV && format != extractFormatJSON {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "search", "kind": kind, "format": format, "outcome": "denied",
 			})
@@ -372,11 +389,11 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			err  error
 		)
 		switch kind {
-		case "workloads":
+		case extractKindWorkloads:
 			rows, objs, err = collectWorkloadExtract(r.Context(), store, searchQ)
-		case "pods":
+		case extractKindPods:
 			rows, objs, err = collectPodExtract(r.Context(), store, searchQ)
-		case "virtual_machines":
+		case extractKindVMs:
 			rows, objs, err = collectVMExtract(r.Context(), store, searchQ)
 		}
 		if err != nil {
@@ -398,7 +415,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 
 		var buf bytes.Buffer
 		switch format {
-		case "csv":
+		case extractFormatCSV:
 			header := searchCSVHeader(kind)
 			cw := newExtractCSVWriter(&buf, header)
 			for _, row := range rows {
@@ -413,7 +430,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 				return
 			}
-		case "json":
+		case extractFormatJSON:
 			jw := newExtractJSONWriter(&buf)
 			for _, obj := range objs {
 				if err := jw.WriteRow(obj); err != nil {
@@ -431,7 +448,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 
 		outcome := "ok"
 		if truncated {
-			outcome = "truncated"
+			outcome = extractOutcomeTruncated
 			w.Header().Set("X-Longue-Vue-Truncated", "true")
 		}
 		kindSeg := kindFilenameSegment(kind)
@@ -459,18 +476,21 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 
 func searchCSVHeader(kind string) []string {
 	switch kind {
-	case "workloads":
+	case extractKindWorkloads:
 		return []string{"cluster", "namespace", "kind", "name", "image_matches", "replicas", "ready_replicas", "updated_at"}
-	case "pods":
+	case extractKindPods:
 		return []string{"cluster", "namespace", "name", "workload_kind", "workload_name", "image_matches", "phase", "node", "updated_at"}
-	case "virtual_machines":
-		return []string{"cloud_account", "region", "name", "display_name", "role", "power_state", "image_id", "image_name", "applications_matched", "updated_at"}
+	case extractKindVMs:
+		return []string{
+			"cloud_account", "region", "name", "display_name", "role",
+			"power_state", "image_id", "image_name", "applications_matched", "updated_at",
+		}
 	}
 	return nil
 }
 
 func kindFilenameSegment(kind string) string {
-	if kind == "virtual_machines" {
+	if kind == extractKindVMs {
 		return "virtual-machines"
 	}
 	return kind
@@ -478,24 +498,28 @@ func kindFilenameSegment(kind string) string {
 
 // loadClusterNamespaceIndex fetches all clusters and namespaces and returns
 // lookup maps keyed by UUID.
-func loadClusterNamespaceIndex(ctx context.Context, store ExtractStore) (map[uuid.UUID]string, map[uuid.UUID]Namespace, error) {
+//
+//nolint:gocyclo // two sequential paginated fetches; complexity from nil-guard + map build, not from branching logic
+func loadClusterNamespaceIndex(
+	ctx context.Context,
+	store ExtractStore,
+) (clusterByID map[uuid.UUID]string, nsByID map[uuid.UUID]Namespace, _ error) {
 	clusters, err := collectAllClusters(ctx, store)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loadClusterNamespaceIndex clusters: %w", err)
 	}
-	clusterByID := make(map[uuid.UUID]string, len(clusters))
-	for _, c := range clusters {
-		if c.Id == nil {
+	clusterByID = make(map[uuid.UUID]string, len(clusters))
+	for i := range clusters {
+		if clusters[i].Id == nil {
 			continue
 		}
-		name := c.Name
-		if c.DisplayName != nil && *c.DisplayName != "" {
-			name = *c.DisplayName
+		name := clusters[i].Name
+		if clusters[i].DisplayName != nil && *clusters[i].DisplayName != "" {
+			name = *clusters[i].DisplayName
 		}
-		clusterByID[uuid.UUID(*c.Id)] = name
+		clusterByID[*clusters[i].Id] = name
 	}
 
-	var nsByID map[uuid.UUID]Namespace
 	nsByID = make(map[uuid.UUID]Namespace)
 	cursor := ""
 	for {
@@ -503,9 +527,9 @@ func loadClusterNamespaceIndex(ctx context.Context, store ExtractStore) (map[uui
 		if err != nil {
 			return nil, nil, fmt.Errorf("loadClusterNamespaceIndex namespaces: %w", err)
 		}
-		for _, ns := range items {
-			if ns.Id != nil {
-				nsByID[uuid.UUID(*ns.Id)] = ns
+		for i := range items {
+			if items[i].Id != nil {
+				nsByID[*items[i].Id] = items[i]
 			}
 		}
 		if next == "" {
@@ -521,7 +545,7 @@ func lookupClusterNamespace(nsID uuid.UUID, nsByID map[uuid.UUID]Namespace, clus
 	if !ok {
 		return "", nsID.String()
 	}
-	return clusterByID[uuid.UUID(ns.ClusterId)], ns.Name
+	return clusterByID[ns.ClusterId], ns.Name
 }
 
 func joinMatchedImages(list *ContainerList, q string) string {
@@ -605,22 +629,25 @@ func collectAllCloudAccounts(ctx context.Context, store ExtractStore) ([]CloudAc
 	}
 }
 
-func collectWorkloadExtract(ctx context.Context, store ExtractStore, q string) ([][]string, []any, error) {
+func collectWorkloadExtract(
+	ctx context.Context,
+	store ExtractStore,
+	q string,
+) (rows [][]string, objs []any, _ error) {
 	clusterByID, nsByID, err := loadClusterNamespaceIndex(ctx, store)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var rows [][]string
-	var objs []any
 	cursor := ""
 	for {
 		items, next, err := store.ListWorkloads(ctx, WorkloadListFilter{ImageSubstring: &q}, extractPageSize, cursor)
 		if err != nil {
 			return nil, nil, fmt.Errorf("collectWorkloadExtract: %w", err)
 		}
-		for _, w := range items {
-			cluster, namespace := lookupClusterNamespace(uuid.UUID(w.NamespaceId), nsByID, clusterByID)
+		for i := range items {
+			w := &items[i]
+			cluster, namespace := lookupClusterNamespace(w.NamespaceId, nsByID, clusterByID)
 			imageMatches := joinMatchedImages(w.Containers, q)
 			replicas := derefIntStr(w.Replicas)
 			readyReplicas := derefIntStr(w.ReadyReplicas)
@@ -631,7 +658,7 @@ func collectWorkloadExtract(ctx context.Context, store ExtractStore, q string) (
 			})
 			id := ""
 			if w.Id != nil {
-				id = uuid.UUID(*w.Id).String()
+				id = w.Id.String()
 			}
 			var replicasInt *int
 			if w.Replicas != nil {
@@ -668,7 +695,13 @@ func collectWorkloadExtract(ctx context.Context, store ExtractStore, q string) (
 	return rows, objs, nil
 }
 
-func collectPodExtract(ctx context.Context, store ExtractStore, q string) ([][]string, []any, error) {
+//
+//nolint:gocyclo // two lookups (cluster/ns + workload) plus pod iteration; complexity is inherent not accidental
+func collectPodExtract(
+	ctx context.Context,
+	store ExtractStore,
+	q string,
+) (rows [][]string, objs []any, _ error) {
 	clusterByID, nsByID, err := loadClusterNamespaceIndex(ctx, store)
 	if err != nil {
 		return nil, nil, err
@@ -679,25 +712,24 @@ func collectPodExtract(ctx context.Context, store ExtractStore, q string) ([][]s
 		return nil, nil, err
 	}
 	workloadByID := make(map[uuid.UUID]Workload, len(allWorkloads))
-	for _, w := range allWorkloads {
-		if w.Id != nil {
-			workloadByID[uuid.UUID(*w.Id)] = w
+	for i := range allWorkloads {
+		if allWorkloads[i].Id != nil {
+			workloadByID[*allWorkloads[i].Id] = allWorkloads[i]
 		}
 	}
 
-	var rows [][]string
-	var objs []any
 	cursor := ""
 	for {
 		items, next, err := store.ListPods(ctx, PodListFilter{ImageSubstring: &q}, extractPageSize, cursor)
 		if err != nil {
 			return nil, nil, fmt.Errorf("collectPodExtract: %w", err)
 		}
-		for _, p := range items {
-			cluster, namespace := lookupClusterNamespace(uuid.UUID(p.NamespaceId), nsByID, clusterByID)
+		for i := range items {
+			p := &items[i]
+			cluster, namespace := lookupClusterNamespace(p.NamespaceId, nsByID, clusterByID)
 			var workloadKind, workloadName string
 			if p.WorkloadId != nil {
-				if wl, ok := workloadByID[uuid.UUID(*p.WorkloadId)]; ok {
+				if wl, ok := workloadByID[*p.WorkloadId]; ok {
 					workloadKind = string(wl.Kind)
 					workloadName = wl.Name
 				}
@@ -712,7 +744,7 @@ func collectPodExtract(ctx context.Context, store ExtractStore, q string) ([][]s
 			})
 			id := ""
 			if p.Id != nil {
-				id = uuid.UUID(*p.Id).String()
+				id = p.Id.String()
 			}
 			objs = append(objs, map[string]any{
 				"id":            id,
@@ -735,14 +767,18 @@ func collectPodExtract(ctx context.Context, store ExtractStore, q string) ([][]s
 	return rows, objs, nil
 }
 
-func collectVMExtract(ctx context.Context, store ExtractStore, q string) ([][]string, []any, error) {
+func collectVMExtract(
+	ctx context.Context,
+	store ExtractStore,
+	q string,
+) (rows [][]string, objs []any, _ error) {
 	accounts, err := collectAllCloudAccounts(ctx, store)
 	if err != nil {
 		return nil, nil, err
 	}
 	accountNameByID := make(map[uuid.UUID]string, len(accounts))
-	for _, a := range accounts {
-		accountNameByID[a.ID] = a.Name
+	for i := range accounts {
+		accountNameByID[accounts[i].ID] = accounts[i].Name
 	}
 
 	// Union by-image and by-application results.
@@ -751,21 +787,19 @@ func collectVMExtract(ctx context.Context, store ExtractStore, q string) ([][]st
 	if err != nil {
 		return nil, nil, fmt.Errorf("collectVMExtract image: %w", err)
 	}
-	for _, v := range byImage {
-		union[v.ID] = v
+	for i := range byImage {
+		union[byImage[i].ID] = byImage[i]
 	}
 	byApp, err := collectAllVMs(ctx, store, VirtualMachineListFilter{Application: &q})
 	if err != nil {
 		return nil, nil, fmt.Errorf("collectVMExtract application: %w", err)
 	}
-	for _, v := range byApp {
-		union[v.ID] = v
+	for i := range byApp {
+		union[byApp[i].ID] = byApp[i]
 	}
 
 	qLower := strings.ToLower(q)
-	var rows [][]string
-	var objs []any
-	for _, v := range union {
+	for _, v := range union { //nolint:gocritic // rangeValCopy: VirtualMachine (512 bytes) — map range copy is unavoidable without a pointer map
 		account := accountNameByID[v.CloudAccountID]
 		if account == "" {
 			account = v.CloudAccountID.String()
@@ -806,6 +840,8 @@ func collectVMExtract(ctx context.Context, store ExtractStore, q string) ([][]st
 // Truncation is a per-CSV decision; if any of the three exceeds maxRows
 // it is truncated independently and X-Longue-Vue-Truncated is set on
 // the response. Row counts in the README reflect the truncated counts.
+//
+//nolint:gocyclo,gocognit // three sequential collect+emit calls with shared error-coalescing; complexity is inherent
 func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := auth.CallerFromContext(r.Context())
@@ -864,13 +900,13 @@ func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 
 		wlRows, _, err := collectWorkloadExtract(r.Context(), store, q)
 		if err == nil {
-			err = emit("workloads.csv", searchCSVHeader("workloads"), wlRows)
+			err = emit("workloads.csv", searchCSVHeader(extractKindWorkloads), wlRows)
 		}
 		if err == nil {
 			var podRows [][]string
 			podRows, _, err = collectPodExtract(r.Context(), store, q)
 			if err == nil {
-				err = emit("pods.csv", searchCSVHeader("pods"), podRows)
+				err = emit("pods.csv", searchCSVHeader(extractKindPods), podRows)
 			}
 		}
 		if err == nil {
@@ -895,7 +931,7 @@ func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 
 		outcome := "ok"
 		if truncated {
-			outcome = "truncated"
+			outcome = extractOutcomeTruncated
 			w.Header().Set("X-Longue-Vue-Truncated", "true")
 		}
 		filename := fmt.Sprintf("longue-vue-search-%s-%s.zip", slugForFilename(q), extractTimestamp(generated))

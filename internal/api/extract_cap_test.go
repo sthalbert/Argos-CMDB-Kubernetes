@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
-
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/longue-vue/internal/api"
@@ -36,9 +34,8 @@ func newLowCapServer(t *testing.T, store *extractStubStore, maxRows int) *httpte
 }
 
 func makeBigCluster(id uuid.UUID, displayName string, anns map[string]string) api.Cluster {
-	uid := openapi_types.UUID(id)
 	return api.Cluster{
-		Id:          &uid,
+		Id:          &id,
 		Name:        "big-cluster",
 		DisplayName: &displayName,
 		Annotations: &anns,
@@ -50,7 +47,7 @@ func TestEolExtract_CapTruncates(t *testing.T) {
 	clusterID := uuid.MustParse("88888888-8888-8888-8888-888888888888")
 	displayName := "big"
 	manyAnnotations := make(map[string]string, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		k := fmt.Sprintf("longue-vue.io/eol.fake%02d", i)
 		manyAnnotations[k] = `{"product":"fake","cycle":"1","eol_status":"unknown","checked_at":"2026-05-15T00:00:00Z"}`
 	}
@@ -59,11 +56,11 @@ func TestEolExtract_CapTruncates(t *testing.T) {
 	srv := newLowCapServer(t, store, 10)
 	defer srv.Close()
 
-	resp, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=csv")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
+	status, header, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=csv")
+	if status != 200 {
+		t.Fatalf("status: %d", status)
 	}
-	if got := resp.Header.Get("X-Longue-Vue-Truncated"); got != "true" {
+	if got := header.Get("X-Longue-Vue-Truncated"); got != "true" {
 		t.Errorf("X-Longue-Vue-Truncated: got %q want %q", got, "true")
 	}
 	bodyAfterBOM := strings.TrimPrefix(body, "\xEF\xBB\xBF")

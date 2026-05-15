@@ -1,3 +1,4 @@
+//nolint:gocritic // test fixture; rangeValCopy on stub store methods is noise in tests
 package api_test
 
 import (
@@ -15,8 +16,8 @@ import (
 )
 
 // newExtractTestServer wires the three extract routes onto a stub store
-// and an injected viewer caller. Returns the server and the underlying stub.
-func newExtractTestServer(t *testing.T) (*httptest.Server, *extractStubStore) {
+// and an injected viewer caller.
+func newExtractTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	store := newExtractStubStore()
 	const maxRows = 50000
@@ -36,12 +37,14 @@ func newExtractTestServer(t *testing.T) (*httptest.Server, *extractStubStore) {
 	mux.Handle("GET /v1/search/extract", wrap(api.HandleSearchExtract(store, maxRows)))
 	mux.Handle("GET /v1/search/extract.zip", wrap(api.HandleSearchExtractZip(store, maxRows)))
 	mux.Handle("GET /v1/eol/extract", wrap(api.HandleEolExtract(store, maxRows)))
-	return httptest.NewServer(mux), store
+	return httptest.NewServer(mux)
 }
 
-func getWithAuth(t *testing.T, url string) (*http.Response, string) {
+// getWithAuth issues a GET and returns (statusCode, headers, body).
+// The response body is fully read and closed before returning.
+func getWithAuth(t *testing.T, url string) (int, http.Header, string) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, http.NoBody)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -54,7 +57,7 @@ func getWithAuth(t *testing.T, url string) (*http.Response, string) {
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
-	return resp, string(b)
+	return resp.StatusCode, resp.Header, string(b)
 }
 
 // extractStubStore implements api.ExtractStore in-memory.
@@ -109,17 +112,20 @@ func newExtractStubStore() *extractStubStore {
 			{Id: &n1, ClusterId: c1, Name: "worker-01", Annotations: &nodeAnnotations},
 		},
 		workloads: []api.Workload{
-			{Id: &wl1, NamespaceId: ns1, Kind: api.Deployment, Name: "log4j-app",
+			{
+				Id: &wl1, NamespaceId: ns1, Kind: api.Deployment, Name: "log4j-app",
 				Containers: &clContainers,
 			},
 		},
 		pods: []api.Pod{
-			{Id: &pod1, NamespaceId: ns1, Name: "log4j-app-abc", WorkloadId: &wl1,
+			{
+				Id: &pod1, NamespaceId: ns1, Name: "log4j-app-abc", WorkloadId: &wl1,
 				Containers: &clContainers,
 			},
 		},
 		vms: []api.VirtualMachine{
-			{ID: vm1, CloudAccountID: acc1, Name: "bastion-prod", Region: &region,
+			{
+				ID: vm1, CloudAccountID: acc1, Name: "bastion-prod", Region: &region,
 				ImageID: &imageID, ImageName: &imageName, Role: &role, PowerState: "running",
 				Annotations:  vmAnnotations,
 				Applications: []api.VMApplication{{Product: "vault", Version: "1.13.4"}},
@@ -132,12 +138,15 @@ func newExtractStubStore() *extractStubStore {
 func (s *extractStubStore) ListClusters(_ context.Context, _ int, _ string, _ bool) ([]api.Cluster, string, error) {
 	return s.clusters, "", nil
 }
+
 func (s *extractStubStore) ListNodes(_ context.Context, _ *uuid.UUID, _ int, _ string, _ bool) ([]api.Node, string, error) {
 	return s.nodes, "", nil
 }
+
 func (s *extractStubStore) ListNamespaces(_ context.Context, _ *uuid.UUID, _ int, _ string, _ bool) ([]api.Namespace, string, error) {
 	return s.namespaces, "", nil
 }
+
 func (s *extractStubStore) ListWorkloads(_ context.Context, f api.WorkloadListFilter, _ int, _ string) ([]api.Workload, string, error) {
 	if f.ImageSubstring != nil {
 		out := make([]api.Workload, 0)
@@ -157,6 +166,7 @@ func (s *extractStubStore) ListWorkloads(_ context.Context, f api.WorkloadListFi
 	}
 	return s.workloads, "", nil
 }
+
 func (s *extractStubStore) ListPods(_ context.Context, f api.PodListFilter, _ int, _ string) ([]api.Pod, string, error) {
 	if f.ImageSubstring != nil {
 		out := make([]api.Pod, 0)
@@ -176,7 +186,14 @@ func (s *extractStubStore) ListPods(_ context.Context, f api.PodListFilter, _ in
 	}
 	return s.pods, "", nil
 }
-func (s *extractStubStore) ListVirtualMachines(_ context.Context, f api.VirtualMachineListFilter, _ int, _ string) ([]api.VirtualMachine, string, error) {
+
+//nolint:gocyclo // stub filter covers image / application / all three paths; complexity is inherent for a multi-filter fake
+func (s *extractStubStore) ListVirtualMachines(
+	_ context.Context,
+	f api.VirtualMachineListFilter,
+	_ int,
+	_ string,
+) ([]api.VirtualMachine, string, error) {
 	if f.Image != nil {
 		out := make([]api.VirtualMachine, 0)
 		for _, v := range s.vms {
@@ -204,6 +221,7 @@ func (s *extractStubStore) ListVirtualMachines(_ context.Context, f api.VirtualM
 	}
 	return s.vms, "", nil
 }
+
 func (s *extractStubStore) ListCloudAccounts(_ context.Context, _ int, _ string) ([]api.CloudAccount, string, error) {
 	return s.accounts, "", nil
 }

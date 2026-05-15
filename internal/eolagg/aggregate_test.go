@@ -65,23 +65,33 @@ func TestFlatten_Fixtures(t *testing.T) {
 	rows := Flatten(clusters, nodes, vms)
 
 	want := []Row{
-		{EntityType: "cluster", EntityID: "c1", EntityName: "Production EU", Cluster: "Production EU",
+		{
+			EntityType: "cluster", EntityID: "c1", EntityName: "Production EU", Cluster: "Production EU",
 			Product: "kubernetes", Cycle: "1.28", Status: "eol",
 			EOLDate: "2024-10-28", Latest: "1.28.15", LatestAvailable: "1.32.3",
-			CheckedAt: "2026-05-15T00:00:00Z"},
-		{EntityType: "node", EntityID: "n1", EntityName: "worker-01", Cluster: "Production EU",
+			CheckedAt: "2026-05-15T00:00:00Z",
+		},
+		{
+			EntityType: "node", EntityID: "n1", EntityName: "worker-01", Cluster: "Production EU",
 			Product: "containerd", Cycle: "1.7", Status: "approaching_eol",
-			EOLDate: "2026-08-15", CheckedAt: "2026-05-15T00:00:00Z"},
-		{EntityType: "node", EntityID: "n1", EntityName: "worker-01", Cluster: "Production EU",
+			EOLDate: "2026-08-15", CheckedAt: "2026-05-15T00:00:00Z",
+		},
+		{
+			EntityType: "node", EntityID: "n1", EntityName: "worker-01", Cluster: "Production EU",
 			Product: "ubuntu", Cycle: "22.04", Status: "supported",
-			Latest: "22.04.4", CheckedAt: "2026-05-15T00:00:00Z"},
-		{EntityType: "vm", EntityID: "v1", EntityName: "Bastion (prod-eu)", Cluster: "",
+			Latest: "22.04.4", CheckedAt: "2026-05-15T00:00:00Z",
+		},
+		{
+			EntityType: "vm", EntityID: "v1", EntityName: "Bastion (prod-eu)", Cluster: "",
 			Product: "cyberwatch", Cycle: "12.4", Status: "unknown",
-			CheckedAt: "2026-05-15T00:00:00Z"},
-		{EntityType: "vm", EntityID: "v1", EntityName: "Bastion (prod-eu)", Cluster: "",
+			CheckedAt: "2026-05-15T00:00:00Z",
+		},
+		{
+			EntityType: "vm", EntityID: "v1", EntityName: "Bastion (prod-eu)", Cluster: "",
 			Product: "vault", Cycle: "1.13", Status: "eol",
 			EOLDate: "2024-12-09", Latest: "1.13.13", LatestAvailable: "1.18.2",
-			CheckedAt: "2026-05-15T00:00:00Z"},
+			CheckedAt: "2026-05-15T00:00:00Z",
+		},
 	}
 
 	if !reflect.DeepEqual(rows, want) {

@@ -106,7 +106,11 @@ func Flatten(clusters []ClusterInput, nodes []NodeInput, vms []VMInput) []Row {
 	return out
 }
 
-func appendRows(out *[]Row, annotations map[string]string, base Row) {
+func appendRows(
+	out *[]Row,
+	annotations map[string]string,
+	base Row, //nolint:gocritic // hugeParam: Row (192 bytes) passed by value; callers build inline literals and mutation is intentional within the function
+) {
 	products := make([]string, 0, len(annotations))
 	parsed := make(map[string]annotation, len(annotations))
 	for k, v := range annotations {

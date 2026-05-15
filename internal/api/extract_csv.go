@@ -2,9 +2,12 @@ package api
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 )
+
+var errCSVColumnMismatch = errors.New("csv: column count mismatch")
 
 // extractCSVWriter wraps encoding/csv with the conventions our extracts
 // commit to: UTF-8 BOM so Excel auto-detects encoding, CRLF line endings
@@ -29,7 +32,7 @@ func newExtractCSVWriter(out io.Writer, header []string) *extractCSVWriter {
 // does not match the header's.
 func (e *extractCSVWriter) WriteRow(row []string) error {
 	if len(row) != e.columns {
-		return fmt.Errorf("csv: column count mismatch (got %d, want %d)", len(row), e.columns)
+		return fmt.Errorf("%w (got %d, want %d)", errCSVColumnMismatch, len(row), e.columns)
 	}
 	if err := e.w.Write(row); err != nil {
 		return fmt.Errorf("csv: write row: %w", err)
