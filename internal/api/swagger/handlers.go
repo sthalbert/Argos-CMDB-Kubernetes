@@ -21,7 +21,8 @@ func OpenAPISpecHandler() http.Handler {
 		w.Header().Set("Content-Type", "application/yaml")
 		w.Header().Set("ETag", openapiETag)
 		w.Header().Set("Cache-Control", "no-cache")
-		if r.Header.Get("If-None-Match") == openapiETag {
+		inm := r.Header.Get("If-None-Match")
+		if inm == "*" || inm == openapiETag {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

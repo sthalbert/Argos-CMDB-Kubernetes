@@ -71,3 +71,31 @@ func TestOpenAPISpecHandler_etagRevalidation(t *testing.T) {
 		t.Errorf("304 response should have empty body, got %d bytes", rec2.Body.Len())
 	}
 }
+
+func TestOpenAPISpecHandler_etagWildcard(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req.Header.Set("If-None-Match", "*")
+	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotModified {
+		t.Errorf("If-None-Match: * — status = %d, want 304 (RFC 7232 §3.2)", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("304 response should have empty body, got %d bytes", rec.Body.Len())
+	}
+}
+
+func TestOpenAPISpecHandler_etagMismatch(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req.Header.Set("If-None-Match", `"stale-etag-value"`)
+	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("mismatched If-None-Match — status = %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() == 0 {
+		t.Error("mismatched If-None-Match should serve full body, got empty")
+	}
+}
