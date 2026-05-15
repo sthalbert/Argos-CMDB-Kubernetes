@@ -178,9 +178,10 @@ func AuditMiddleware(recorder AuditRecorder, source string, trustedProxies []*ne
 // are audited only when they hit /v1/admin/* OR a credentials-fetch
 // endpoint under /v1/cloud-accounts/.../credentials (ADR-0015 §5: every
 // plaintext SK read must produce an audit row, even though the endpoint
-// is reached by collector PATs not admins). /healthz, /readyz,
-// /metrics, /ui/*, and /v1/auth/config are chatty reads not worth
-// logging.
+// is reached by collector PATs not admins) OR the bulk extract routes
+// (data-exfiltration evidence for SecNumCloud chapter 8). /healthz,
+// /readyz, /metrics, /ui/*, and /v1/auth/config are chatty reads not
+// worth logging.
 func shouldAudit(r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return true
@@ -189,8 +190,16 @@ func shouldAudit(r *http.Request) bool {
 		return true
 	}
 	// /v1/cloud-accounts/<id-or-by-name/...>/credentials
-	return strings.HasPrefix(r.URL.Path, "/v1/cloud-accounts/") &&
-		strings.HasSuffix(r.URL.Path, "/credentials")
+	if strings.HasPrefix(r.URL.Path, "/v1/cloud-accounts/") &&
+		strings.HasSuffix(r.URL.Path, "/credentials") {
+		return true
+	}
+	// Bulk extracts — recorded for SNC chapter-8 evidence-of-exfiltration.
+	switch r.URL.Path {
+	case "/v1/search/extract", "/v1/search/extract.zip", "/v1/eol/extract":
+		return true
+	}
+	return false
 }
 
 func buildAuditEvent(r *http.Request, status int, bodySnap []byte, trustedProxies []*net.IPNet) AuditEventInsert {
