@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -176,5 +177,33 @@ func TestSearchExtract_QueryTooLong(t *testing.T) {
 	resp, _ := getWithAuth(t, srv.URL+"/v1/search/extract?q="+q+"&kind=workloads&format=csv")
 	if resp.StatusCode != 400 {
 		t.Fatalf("status: want 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSearchExtractZip_HasThreeCSVsAndREADME(t *testing.T) {
+	srv, _ := newExtractTestServer(t)
+	defer srv.Close()
+
+	resp, body := getWithAuth(t, srv.URL+"/v1/search/extract.zip?q=log4j")
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/zip" {
+		t.Errorf("Content-Type: %q", ct)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, ".zip") {
+		t.Errorf("Content-Disposition: %q", cd)
+	}
+	zr, err := zip.NewReader(strings.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatalf("not a zip: %v", err)
+	}
+	names := make([]string, 0, len(zr.File))
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	want := []string{"workloads.csv", "pods.csv", "virtual_machines.csv", "README.txt"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("entries: got %v want %v", names, want)
 	}
 }

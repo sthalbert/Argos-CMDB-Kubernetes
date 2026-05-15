@@ -29,6 +29,14 @@ type ExtractStore interface {
 
 const extractPageSize = 200
 
+// extractQueryMax is the maximum byte-length accepted for the ?q= parameter.
+const extractQueryMax = 256
+
+// extractServerVersion is the placeholder version label written into the
+// extract ZIP README. main.go can later override it via a setter if we
+// wire build info through.
+var extractServerVersion = "longue-vue"
+
 // HandleEolExtract — read scope. GET /v1/eol/extract?format=csv|json
 // [&entity_type=...&status=...]. Iterates clusters / nodes / VMs, flattens
 // EOL annotations via internal/eolagg, applies optional filters, and
@@ -793,9 +801,114 @@ func collectVMExtract(ctx context.Context, store ExtractStore, q string) ([][]st
 	return rows, objs, nil
 }
 
-// HandleSearchExtractZip is a stub; implementation is Task 10.
-func HandleSearchExtractZip(_ ExtractStore, _ int) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeProblem(w, http.StatusNotImplemented, "Not Implemented", "zip extract is implemented in Task 10")
+// HandleSearchExtractZip — read scope. GET /v1/search/extract.zip?q=...
+// Returns a ZIP bundle of workloads.csv + pods.csv + virtual_machines.csv + README.txt.
+// Truncation is a per-CSV decision; if any of the three exceeds maxRows
+// it is truncated independently and X-Longue-Vue-Truncated is set on
+// the response. Row counts in the README reflect the truncated counts.
+func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		caller := auth.CallerFromContext(r.Context())
+		if caller == nil || !caller.HasScope(auth.ScopeRead) {
+			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+			return
+		}
+		q := r.URL.Query().Get("q")
+		if q == "" {
+			SetAuditDetails(r.Context(), map[string]any{
+				"action": "extract", "page": "search", "format": "zip", "outcome": "denied",
+			})
+			metrics.ObserveExtract("search", "zip", "denied", 0)
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "q is required")
+			return
+		}
+		if len(q) > extractQueryMax {
+			SetAuditDetails(r.Context(), map[string]any{
+				"action": "extract", "page": "search", "format": "zip", "outcome": "denied",
+			})
+			metrics.ObserveExtract("search", "zip", "denied", 0)
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "q is longer than 256 characters")
+			return
+		}
+
+		generated := time.Now()
+		var buf bytes.Buffer
+		zw := newExtractZIPWriter(&buf, extractZIPMeta{
+			Query: q, GeneratedAt: generated, Version: extractServerVersion,
+		})
+
+		totalRows := 0
+		truncated := false
+
+		emit := func(name string, header []string, rows [][]string) error {
+			if len(rows) > maxRows {
+				rows = rows[:maxRows]
+				truncated = true
+			}
+			cw, err := zw.AddCSV(name, header)
+			if err != nil {
+				return err
+			}
+			for _, row := range rows {
+				if err := cw.WriteRow(row); err != nil {
+					return err
+				}
+			}
+			if err := cw.Close(); err != nil {
+				return err
+			}
+			zw.SetRowCount(name, len(rows))
+			totalRows += len(rows)
+			return nil
+		}
+
+		wlRows, _, err := collectWorkloadExtract(r.Context(), store, q)
+		if err == nil {
+			err = emit("workloads.csv", searchCSVHeader("workloads"), wlRows)
+		}
+		if err == nil {
+			var podRows [][]string
+			podRows, _, err = collectPodExtract(r.Context(), store, q)
+			if err == nil {
+				err = emit("pods.csv", searchCSVHeader("pods"), podRows)
+			}
+		}
+		if err == nil {
+			var vmRows [][]string
+			vmRows, _, err = collectVMExtract(r.Context(), store, q)
+			if err == nil {
+				err = emit("virtual_machines.csv", searchCSVHeader("virtual_machines"), vmRows)
+			}
+		}
+		if err == nil {
+			err = zw.Close()
+		}
+		if err != nil {
+			slog.Error("extract: zip", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			SetAuditDetails(r.Context(), map[string]any{
+				"action": "extract", "page": "search", "format": "zip", "outcome": "error",
+			})
+			metrics.ObserveExtract("search", "zip", "error", 0)
+			return
+		}
+
+		outcome := "ok"
+		if truncated {
+			outcome = "truncated"
+			w.Header().Set("X-Longue-Vue-Truncated", "true")
+		}
+		filename := fmt.Sprintf("longue-vue-search-%s-%s.zip", slugForFilename(q), extractTimestamp(generated))
+		w.Header().Set("Content-Type", extractContentType("zip"))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+
+		SetAuditDetails(r.Context(), map[string]any{
+			"action": "extract", "page": "search", "format": "zip", "q": q,
+			"row_count": totalRows, "truncated": truncated, "outcome": outcome,
+		})
+		metrics.ObserveExtract("search", "zip", outcome, totalRows)
 	}
 }
