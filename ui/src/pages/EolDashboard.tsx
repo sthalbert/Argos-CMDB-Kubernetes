@@ -5,6 +5,8 @@ import { useResources } from '../hooks';
 import { AsyncView, Dash } from '../components';
 import { useEntityTable } from '../components/column_filters';
 import { EolIcon } from '../icons';
+import { ExtractButton } from '../components/ExtractButton';
+import { TruncationBanner } from '../components/TruncationBanner';
 
 // --- EOL annotation parsing -----------------------------------------------
 
@@ -228,6 +230,7 @@ export default function EolDashboard() {
   const [statusFilter, setStatusFilter] = useState<EolStatus | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('status');
   const [sortAsc, setSortAsc] = useState(true);
+  const [truncated, setTruncated] = useState(false);
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -250,18 +253,39 @@ export default function EolDashboard() {
       <p className="muted" style={{ marginBottom: '1rem' }}>
         Lifecycle status of inventoried software, enriched from endoflife.date.
       </p>
+      <TruncationBanner visible={truncated} />
       <AsyncView state={state}>
         {([clustersResp, nodesResp, vmsResp]) => (
-          <EolTable
-            clusters={clustersResp.items}
-            nodes={nodesResp.items}
-            vms={vmsResp.items}
-            statusFilter={statusFilter}
-            sortKey={sortKey}
-            sortAsc={sortAsc}
-            onCardClick={handleCardClick}
-            onSort={handleSort}
-          />
+          <>
+            {(() => {
+              const rows = buildRows(clustersResp.items, nodesResp.items, vmsResp.items);
+              if (rows.length === 0) return null;
+              return (
+                <div className="eol-extract">
+                  <ExtractButton
+                    label="Extract"
+                    onExtract={(format) =>
+                      api.extractEol({
+                        format,
+                        status: statusFilter ?? undefined,
+                      })
+                    }
+                    onTruncation={setTruncated}
+                  />
+                </div>
+              );
+            })()}
+            <EolTable
+              clusters={clustersResp.items}
+              nodes={nodesResp.items}
+              vms={vmsResp.items}
+              statusFilter={statusFilter}
+              sortKey={sortKey}
+              sortAsc={sortAsc}
+              onCardClick={handleCardClick}
+              onSort={handleSort}
+            />
+          </>
         )}
       </AsyncView>
     </>
