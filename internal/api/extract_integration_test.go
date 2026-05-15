@@ -88,3 +88,93 @@ func TestEolExtract_BadFormat(t *testing.T) {
 		t.Errorf("Content-Type on 400: %q", ct)
 	}
 }
+
+func TestSearchExtract_Workloads_CSV(t *testing.T) {
+	srv, _ := newExtractTestServer(t)
+	defer srv.Close()
+
+	resp, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=log4j&kind=workloads&format=csv")
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "longue-vue-search-workloads-log4j-") {
+		t.Errorf("Content-Disposition: %q", cd)
+	}
+	bodyAfterBOM := strings.TrimPrefix(body, "\xEF\xBB\xBF")
+	lines := strings.Split(strings.TrimRight(bodyAfterBOM, "\r\n"), "\r\n")
+	wantHeader := "cluster,namespace,kind,name,image_matches,replicas,ready_replicas,updated_at"
+	if lines[0] != wantHeader {
+		t.Fatalf("header:\n got %q\nwant %q", lines[0], wantHeader)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("want 1 header + 1 data row, got %d lines: %v", len(lines), lines)
+	}
+	if !strings.Contains(lines[1], "log4j-app") || !strings.Contains(lines[1], "log4j:2.15") {
+		t.Errorf("data row missing fields: %q", lines[1])
+	}
+}
+
+func TestSearchExtract_Pods_CSV(t *testing.T) {
+	srv, _ := newExtractTestServer(t)
+	defer srv.Close()
+
+	resp, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=log4j&kind=pods&format=csv")
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	bodyAfterBOM := strings.TrimPrefix(body, "\xEF\xBB\xBF")
+	lines := strings.Split(strings.TrimRight(bodyAfterBOM, "\r\n"), "\r\n")
+	wantHeader := "cluster,namespace,name,workload_kind,workload_name,image_matches,phase,node,updated_at"
+	if lines[0] != wantHeader {
+		t.Fatalf("header:\n got %q\nwant %q", lines[0], wantHeader)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("want 1+1 lines, got %d", len(lines))
+	}
+}
+
+func TestSearchExtract_VMs_CSV(t *testing.T) {
+	srv, _ := newExtractTestServer(t)
+	defer srv.Close()
+
+	resp, body := getWithAuth(t, srv.URL+"/v1/search/extract?q=vault&kind=virtual_machines&format=csv")
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d body: %s", resp.StatusCode, body)
+	}
+	bodyAfterBOM := strings.TrimPrefix(body, "\xEF\xBB\xBF")
+	lines := strings.Split(strings.TrimRight(bodyAfterBOM, "\r\n"), "\r\n")
+	wantHeader := "cloud_account,region,name,display_name,role,power_state,image_id,image_name,applications_matched,updated_at"
+	if lines[0] != wantHeader {
+		t.Fatalf("header:\n got %q\nwant %q", lines[0], wantHeader)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("want 1+1 lines, got %d: %v", len(lines), lines)
+	}
+	if !strings.Contains(lines[1], "acme-prod") {
+		t.Errorf("expected cloud account name 'acme-prod' in row: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "vault") {
+		t.Errorf("expected 'vault' in applications_matched: %q", lines[1])
+	}
+}
+
+func TestSearchExtract_BadKind(t *testing.T) {
+	srv, _ := newExtractTestServer(t)
+	defer srv.Close()
+
+	resp, _ := getWithAuth(t, srv.URL+"/v1/search/extract?q=x&kind=nodes&format=csv")
+	if resp.StatusCode != 400 {
+		t.Fatalf("status: want 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSearchExtract_QueryTooLong(t *testing.T) {
+	srv, _ := newExtractTestServer(t)
+	defer srv.Close()
+
+	q := strings.Repeat("x", 257)
+	resp, _ := getWithAuth(t, srv.URL+"/v1/search/extract?q="+q+"&kind=workloads&format=csv")
+	if resp.StatusCode != 400 {
+		t.Fatalf("status: want 400, got %d", resp.StatusCode)
+	}
+}
