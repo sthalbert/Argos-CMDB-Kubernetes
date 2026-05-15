@@ -399,7 +399,7 @@ func buildHTTPServer(
 	// Swagger UI shell is public — same precedent as /ui/*: the static
 	// assets carry no secrets, and the actual sensitive surface (the spec)
 	// is gated below.
-	swaggerUI := swagger.SwaggerUIHandler()
+	swaggerUI := swagger.UIHandler()
 	mux.Handle("GET /docs", http.RedirectHandler("/docs/", http.StatusMovedPermanently))
 	mux.Handle("GET /docs/", http.StripPrefix("/docs", swaggerUI))
 	// Settings endpoints — hand-written, gated on admin role internally.

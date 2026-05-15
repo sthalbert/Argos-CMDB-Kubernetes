@@ -32,14 +32,14 @@ func OpenAPISpecHandler() http.Handler {
 	})
 }
 
-// SwaggerUIHandler serves the Swagger UI shell. Designed to be mounted at
+// UIHandler serves the Swagger UI shell. Designed to be mounted at
 // /docs/ with http.StripPrefix("/docs", ...) so a request to /docs/ arrives
 // here as "/" and is served the index; a request to /docs/<asset> arrives
 // as /<asset> and is served from the embedded dist/ subtree.
 //
 // Misses return 404 (no fallback to index.html) so broken vendor copies
 // surface loudly instead of silently rendering an empty Swagger UI shell.
-func SwaggerUIHandler() http.Handler {
+func UIHandler() http.Handler {
 	distSub, err := fs.Sub(distFS, "dist")
 	if err != nil {
 		// Compile-time guarantee: dist/ is embedded. A failure here is a

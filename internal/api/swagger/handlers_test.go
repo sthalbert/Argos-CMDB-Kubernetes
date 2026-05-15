@@ -1,6 +1,7 @@
 package swagger_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,7 +14,7 @@ import (
 
 func TestOpenAPISpecHandler_servesSpec(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
 	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -38,7 +39,7 @@ func TestOpenAPISpecHandler_matchesSourceFile(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
 	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
 
 	if rec.Body.String() != string(src) {
@@ -48,7 +49,7 @@ func TestOpenAPISpecHandler_matchesSourceFile(t *testing.T) {
 
 func TestOpenAPISpecHandler_etagRevalidation(t *testing.T) {
 	rec1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
 	swagger.OpenAPISpecHandler().ServeHTTP(rec1, req1)
 
 	etag := rec1.Header().Get("ETag")
@@ -60,7 +61,7 @@ func TestOpenAPISpecHandler_etagRevalidation(t *testing.T) {
 	}
 
 	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
 	req2.Header.Set("If-None-Match", etag)
 	swagger.OpenAPISpecHandler().ServeHTTP(rec2, req2)
 
@@ -74,7 +75,7 @@ func TestOpenAPISpecHandler_etagRevalidation(t *testing.T) {
 
 func TestOpenAPISpecHandler_etagWildcard(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
 	req.Header.Set("If-None-Match", "*")
 	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
 
@@ -88,7 +89,7 @@ func TestOpenAPISpecHandler_etagWildcard(t *testing.T) {
 
 func TestOpenAPISpecHandler_etagMismatch(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/openapi.yaml", http.NoBody)
 	req.Header.Set("If-None-Match", `"stale-etag-value"`)
 	swagger.OpenAPISpecHandler().ServeHTTP(rec, req)
 
@@ -102,8 +103,8 @@ func TestOpenAPISpecHandler_etagMismatch(t *testing.T) {
 
 func TestSwaggerUIHandler_servesIndexAtRoot(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -124,15 +125,15 @@ func TestSwaggerUIHandler_servesIndexAtRoot(t *testing.T) {
 }
 
 func TestSwaggerUIHandler_servesIndexAtEmptyPath(t *testing.T) {
-	// Bare empty path arrives at this handler when SwaggerUIHandler is
+	// Bare empty path arrives at this handler when UIHandler is
 	// mounted via http.StripPrefix("/docs", ...) and the request is the
 	// (already-redirected) /docs/ — StripPrefix strips "/docs" leaving "".
 	// Cover that explicit branch even though Task 7's redirect makes it
 	// rare in production.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.URL.Path = ""
-	swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+	swagger.UIHandler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -144,8 +145,8 @@ func TestSwaggerUIHandler_servesIndexAtEmptyPath(t *testing.T) {
 
 func TestSwaggerUIHandler_servesAssetsFromDist(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/swagger-ui-bundle.js", nil)
-	swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/swagger-ui-bundle.js", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -158,8 +159,8 @@ func TestSwaggerUIHandler_servesAssetsFromDist(t *testing.T) {
 
 func TestSwaggerUIHandler_returns404OnMissingAsset(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/does-not-exist.css", nil)
-	swagger.SwaggerUIHandler().ServeHTTP(rec, req)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/does-not-exist.css", http.NoBody)
+	swagger.UIHandler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 (no fallback to index — broken vendor copies must surface)", rec.Code)

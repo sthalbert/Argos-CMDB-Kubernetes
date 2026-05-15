@@ -13,32 +13,23 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
-// TestSwaggerDocs_authGating exercises the full auth chain on /docs/ and
-// /openapi.yaml, asserting:
-//
-//	(a) /docs/ (shell) is reachable without credentials.
-//	(b) /openapi.yaml returns 401 without credentials.
-//	(c) /openapi.yaml returns 200 with a valid session cookie.
-//	(d) /openapi.yaml returns 200 with a read-scope PAT Bearer token.
-//	(e) GET /docs (no trailing slash) redirects 301 → /docs/
-//	(f) POST /openapi.yaml returns 405 (Go 1.22+ method enforcement).
-func TestSwaggerDocs_authGating(t *testing.T) {
-	// Reuse newTestEnv for DB setup, admin credentials, and the pre-minted
-	// all-scope PAT (env.token). We build a second httptest.Server with the
-	// same store so we can mount the swagger routes that main.go adds but
-	// newTestEnv's mux does not.
+// swaggerTestRig holds the shared server and helpers for the auth-gating subtests.
+type swaggerTestRig struct {
+	srv        *httptest.Server
+	noRedirect *http.Client
+	env        *testEnv
+}
+
+func newSwaggerTestRig(t *testing.T) *swaggerTestRig {
+	t.Helper()
 	env := newTestEnv(t)
 
-	// Build a mux that mirrors the swagger-relevant portion of main.go,
-	// using the same store as the base env so login sessions are shared.
 	swaggerMux := http.NewServeMux()
 
-	// /docs/ shell — public, no auth.
-	swaggerUI := swagger.SwaggerUIHandler()
+	swaggerUI := swagger.UIHandler()
 	swaggerMux.Handle("GET /docs", http.RedirectHandler("/docs/", http.StatusMovedPermanently))
 	swaggerMux.Handle("GET /docs/", http.StripPrefix("/docs", swaggerUI))
 
-	// /openapi.yaml — requires read scope (mirrors requireReadScope in main.go).
 	specAuth := auth.Middleware(env.store, auth.SecureNever, nil)
 	requireRead := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,10 +40,6 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	}
 	swaggerMux.Handle("GET /openapi.yaml", requireRead(specAuth(swagger.OpenAPISpecHandler())))
 
-	// Also wire the /v1/auth/login endpoint so the test can mint a session
-	// cookie against this same server (sharing env.store with the harness
-	// means the cookie would also be valid against env.srv, but staying on
-	// one server keeps the test self-contained).
 	strict := api.NewStrictHandlerWithOptions(
 		api.NewServer("test", env.store, auth.SecureNever, nil, api.NewLoginRateLimiter(), api.NewVerifyRateLimiter()),
 		[]api.StrictMiddlewareFunc{api.InjectRequestMiddleware},
@@ -74,10 +61,38 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	})
 
 	srv := httptest.NewServer(swaggerMux)
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
-	// (a) The shell is public.
-	resp, err := http.Get(srv.URL + "/docs/")
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &swaggerTestRig{srv: srv, noRedirect: noRedirect, env: env}
+}
+
+// TestSwaggerDocs_authGating exercises the full auth chain on /docs/ and
+// /openapi.yaml, asserting:
+//
+//	(a) /docs/ (shell) is reachable without credentials.
+//	(b) /openapi.yaml returns 401 without credentials.
+//	(c) /openapi.yaml returns 200 with a valid session cookie.
+//	(d) /openapi.yaml returns 200 with a read-scope PAT Bearer token.
+//	(e) GET /docs (no trailing slash) redirects 301 → /docs/
+//	(f) POST /openapi.yaml returns 405 (Go 1.22+ method enforcement).
+func TestSwaggerDocs_authGating(t *testing.T) {
+	rig := newSwaggerTestRig(t)
+	t.Run("docs shell is public", func(t *testing.T) { testSwaggerDocsShellIsPublic(t, rig) })
+	t.Run("spec unauth returns 401", func(t *testing.T) { testSwaggerSpecUnauthReturns401(t, rig) })
+	t.Run("spec with session cookie returns 200", func(t *testing.T) { testSwaggerSpecWithCookieReturns200(t, rig) })
+	t.Run("spec with PAT returns 200", func(t *testing.T) { testSwaggerSpecWithPATReturns200(t, rig) })
+	t.Run("docs without slash redirects 301", func(t *testing.T) { testSwaggerDocsRedirects(t, rig) })
+	t.Run("POST openapi.yaml returns 405", func(t *testing.T) { testSwaggerSpecPostReturns405(t, rig) })
+}
+
+func testSwaggerDocsShellIsPublic(t *testing.T, rig *swaggerTestRig) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rig.srv.URL+"/docs/", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /docs/: %v", err)
 	}
@@ -85,9 +100,15 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("/docs/ unauth: status = %d, want 200", resp.StatusCode)
 	}
+}
 
-	// (b) The spec without auth returns 401.
-	resp, err = http.Get(srv.URL + "/openapi.yaml")
+func testSwaggerSpecUnauthReturns401(t *testing.T, rig *swaggerTestRig) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rig.srv.URL+"/openapi.yaml", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /openapi.yaml unauth: %v", err)
 	}
@@ -95,14 +116,17 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("/openapi.yaml unauth: status = %d, want 401", resp.StatusCode)
 	}
+}
 
-	// (c) The spec with a valid session cookie returns 200.
-	// Log in against the swagger server so the cookie is valid for its sessions.
-	loginBody := fmt.Sprintf(`{"username":%q,"password":%q}`, env.adminUser, env.adminPass)
-	loginReq, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/v1/auth/login", strings.NewReader(loginBody))
+func testSwaggerSpecWithCookieReturns200(t *testing.T, rig *swaggerTestRig) {
+	t.Helper()
+	loginBody := fmt.Sprintf(`{"username":%q,"password":%q}`, rig.env.adminUser, rig.env.adminPass)
+	loginReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, rig.srv.URL+"/v1/auth/login", strings.NewReader(loginBody))
+	if err != nil {
+		t.Fatalf("build login request: %v", err)
+	}
 	loginReq.Header.Set("Content-Type", "application/json")
-	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	loginResp, err := noRedirect.Do(loginReq)
+	loginResp, err := rig.noRedirect.Do(loginReq)
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
@@ -120,10 +144,12 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	if sessionCookie == nil {
 		t.Fatal("no session cookie in login response")
 	}
-
-	cookieReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/openapi.yaml", http.NoBody)
+	cookieReq, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rig.srv.URL+"/openapi.yaml", http.NoBody)
+	if err != nil {
+		t.Fatalf("build cookie request: %v", err)
+	}
 	cookieReq.AddCookie(sessionCookie)
-	resp, err = noRedirect.Do(cookieReq)
+	resp, err := rig.noRedirect.Do(cookieReq)
 	if err != nil {
 		t.Fatalf("GET /openapi.yaml with cookie: %v", err)
 	}
@@ -131,12 +157,16 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("/openapi.yaml with cookie: status = %d, want 200", resp.StatusCode)
 	}
+}
 
-	// (d) The spec with a Bearer PAT (read scope via env.token, which carries
-	// all scopes including read) returns 200.
-	patReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/openapi.yaml", http.NoBody)
-	patReq.Header.Set("Authorization", "Bearer "+env.token)
-	resp, err = http.DefaultClient.Do(patReq)
+func testSwaggerSpecWithPATReturns200(t *testing.T, rig *swaggerTestRig) {
+	t.Helper()
+	patReq, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rig.srv.URL+"/openapi.yaml", http.NoBody)
+	if err != nil {
+		t.Fatalf("build PAT request: %v", err)
+	}
+	patReq.Header.Set("Authorization", "Bearer "+rig.env.token)
+	resp, err := http.DefaultClient.Do(patReq)
 	if err != nil {
 		t.Fatalf("GET /openapi.yaml with PAT: %v", err)
 	}
@@ -144,9 +174,15 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("/openapi.yaml with PAT: status = %d, want 200", resp.StatusCode)
 	}
+}
 
-	// (e) GET /docs (no trailing slash) → 301 → Location: /docs/
-	resp, err = noRedirect.Get(srv.URL + "/docs")
+func testSwaggerDocsRedirects(t *testing.T, rig *swaggerTestRig) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rig.srv.URL+"/docs", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := rig.noRedirect.Do(req)
 	if err != nil {
 		t.Fatalf("GET /docs: %v", err)
 	}
@@ -157,10 +193,15 @@ func TestSwaggerDocs_authGating(t *testing.T) {
 	if loc := resp.Header.Get("Location"); loc != "/docs/" {
 		t.Errorf("/docs redirect: Location = %q, want /docs/", loc)
 	}
+}
 
-	// (f) POST /openapi.yaml → 405 (Go 1.22+ method-not-allowed enforcement).
-	postReq, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/openapi.yaml", http.NoBody)
-	resp, err = http.DefaultClient.Do(postReq)
+func testSwaggerSpecPostReturns405(t *testing.T, rig *swaggerTestRig) {
+	t.Helper()
+	postReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, rig.srv.URL+"/openapi.yaml", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(postReq)
 	if err != nil {
 		t.Fatalf("POST /openapi.yaml: %v", err)
 	}
