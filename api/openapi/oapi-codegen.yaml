@@ -2,6 +2,14 @@ package: api
 output: api.gen.go
 output-options:
   skip-prune: true
+  exclude-operation-ids:
+    # The extract endpoints are hand-written handlers mounted directly on
+    # the mux in cmd/longue-vue/main.go. Documented in openapi.yaml so
+    # they appear in Swagger UI, but excluded from the strict-server
+    # interface to avoid double registration on the same mux pattern.
+    - eolExtract
+    - searchExtract
+    - searchExtractZip
 generate:
   models: true
   std-http-server: true
