@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import fixtures from '../../../internal/eolagg/testdata/fixtures.json';
+// Mirror of internal/eolagg/testdata/fixtures.json — copied into the UI
+// tree so the Dockerfile's ui-build stage (which only mounts ui/) can
+// resolve the import. The Go test reads the canonical file; both must
+// stay byte-identical (verified by the parity check below + a CI guard
+// in internal/eolagg/testdata/README.md).
+import fixtures from '../__testdata__/eolagg-fixtures.json';
 
 describe('EOL aggregator parity', () => {
   it('emits the same (entity_type, product) pairs as the Go aggregator', () => {
