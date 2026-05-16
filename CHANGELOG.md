@@ -6,6 +6,41 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.22.0](https://github.com/sthalbert/Longue-Vue/compare/v0.21.0...v0.22.0) (2026-05-16)
+
+
+### Features
+
+* **api:** add HandleEolExtract for /v1/eol/extract ([602f34a](https://github.com/sthalbert/Longue-Vue/commit/602f34a8e9c4f70fb4bc17cb3c33930acfb2bc1c))
+* **api:** add HandleSearchExtract for workloads/pods/virtual_machines ([c336e97](https://github.com/sthalbert/Longue-Vue/commit/c336e971373cc93b36f997799dbd93dfc8f73c81))
+* **api:** add HandleSearchExtractZip for combined ZIP bundle ([eadd47f](https://github.com/sthalbert/Longue-Vue/commit/eadd47f702372e1f8888e040ed06f1d581dadd57))
+* **api:** add slug + timestamp helpers for extract filenames ([aed61fb](https://github.com/sthalbert/Longue-Vue/commit/aed61fb9340111dfb42c112927bcb362b9a9f3d3))
+* **api:** add streaming JSON-array writer for extracts ([0acf11a](https://github.com/sthalbert/Longue-Vue/commit/0acf11aa442702d6c3f3818176789fe83c2b86f1))
+* **api:** add UTF-8-BOM CSV writer for extracts ([9f20bd7](https://github.com/sthalbert/Longue-Vue/commit/9f20bd77c824d442e96c977c34a9e7a57e5e87f8))
+* **api:** add ZIP wrapper for Search 'extract all' bundle ([2eb8196](https://github.com/sthalbert/Longue-Vue/commit/2eb8196f0794345aea4dea07e0dd619af24bbbb3))
+* **api:** allowlist /v1/search/extract* and /v1/eol/extract in audit middleware ([2446880](https://github.com/sthalbert/Longue-Vue/commit/2446880c719f55ad68b7f4ae04ef9c103ba14a10))
+* bulk extract for Search and EOL Dashboard ([298ae6f](https://github.com/sthalbert/Longue-Vue/commit/298ae6f8ecea5e5e1b907dc2074e6bb084c6476f))
+* **eolagg:** flatten EOL annotations across clusters, nodes, VMs ([7f0aa9b](https://github.com/sthalbert/Longue-Vue/commit/7f0aa9bd0350a4517cfd30c7ec5ba8644eb9db81))
+* **eolagg:** scaffold Row struct and Flatten stub ([9bc902f](https://github.com/sthalbert/Longue-Vue/commit/9bc902f073638e3f3db848bc2949fac8925f0082))
+* **metrics:** add longue_vue_extracts_total and extract_rows_total counters ([b0f0237](https://github.com/sthalbert/Longue-Vue/commit/b0f02376d15e77c2499e3f61e95608ed225ca333))
+* **openapi:** document extract endpoints ([35b069f](https://github.com/sthalbert/Longue-Vue/commit/35b069f3dc718ae1a578606552e03782a3441d92))
+* **server:** mount /v1/search/extract* and /v1/eol/extract routes ([28282ad](https://github.com/sthalbert/Longue-Vue/commit/28282ad3dd768f354ddef290e3c51508e4671f18))
+* **ui:** add dismissible TruncationBanner component ([e5ae4df](https://github.com/sthalbert/Longue-Vue/commit/e5ae4dfe3e63d87a7e69231384f56b05868ee2fa))
+* **ui:** add downloadExtract helper with truncation-header parsing ([de282ff](https://github.com/sthalbert/Longue-Vue/commit/de282ff4a6b6ace98e0e970c09a6e9cd0372286a))
+* **ui:** add extract client functions in api.ts ([cff3176](https://github.com/sthalbert/Longue-Vue/commit/cff31763318ef4e5bc5e6d3a0a97ef55133f26bc))
+* **ui:** add ExtractButton dropdown component ([377d2f5](https://github.com/sthalbert/Longue-Vue/commit/377d2f53ec243f7192ca3c23a25fd82557b116d8))
+* **ui:** wire ExtractButton + zip extract into Search page ([d8df6ce](https://github.com/sthalbert/Longue-Vue/commit/d8df6ce0997e6718e4b64b733352d9789a114fcd))
+* **ui:** wire ExtractButton into EOL Dashboard ([30673f7](https://github.com/sthalbert/Longue-Vue/commit/30673f74626750ad189fe6fb0f3f5186211dd907))
+
+
+### Bug Fixes
+
+* **ingestgw:** bump TestCertReloader_HotReload timeout and re-fire to reduce inotify flake ([7684b2f](https://github.com/sthalbert/Longue-Vue/commit/7684b2f682cf48b8eb1bcdd5a4d7fbcfbca09e9f))
+* **lint:** apply gofumpt to audit.go, auth_handlers.go, server.go ([e30c3f5](https://github.com/sthalbert/Longue-Vue/commit/e30c3f5329e792fec0be944fde02f97a2a28da5d))
+* **lint:** satisfy all golangci-lint checks on extract + eolagg code ([58fae2d](https://github.com/sthalbert/Longue-Vue/commit/58fae2d141c5bde4ac641cb5eabbbdccdbee6159))
+* **openapi:** use anyOf for searchExtract body to avoid oneOf ambiguity ([a78cdbc](https://github.com/sthalbert/Longue-Vue/commit/a78cdbcb7104b46b306c6caeff4c49297146de9a))
+* **ui:** copy EOL fixtures into ui/ tree so Dockerfile ui-build can resolve them ([1febed9](https://github.com/sthalbert/Longue-Vue/commit/1febed91a7f37025eaab8815533d93f045208991))
+
 ## [Unreleased]
 
 ### Added
