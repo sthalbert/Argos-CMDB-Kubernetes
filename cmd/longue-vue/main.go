@@ -63,6 +63,7 @@ var (
 	errTransportPostureRefused = errors.New("LONGUE_VUE_REQUIRE_HTTPS=true but neither native TLS " +
 		"(LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT + _KEY) nor a trusted-proxy + always-secure-cookie posture " +
 		"(LONGUE_VUE_TRUSTED_PROXIES non-empty AND LONGUE_VUE_SESSION_SECURE_COOKIE=always) is configured — see ADR-0017 §3")
+	errExtractMaxRowsInvalid = errors.New("LONGUE_VUE_EXTRACT_MAX_ROWS is not a positive integer")
 )
 
 func main() {
@@ -103,6 +104,9 @@ type runConfig struct {
 	// refuses to come up unless either native TLS is configured or a
 	// trusted-proxy + always-secure-cookie posture is set.
 	requireHTTPS bool
+	// extractMaxRows caps the number of rows returned by the /v1/*/extract
+	// endpoints. Defaults to 50 000; overridden via LONGUE_VUE_EXTRACT_MAX_ROWS.
+	extractMaxRows int
 }
 
 // ingestListenerConfig captures the env-var surface for the ADR-0016
@@ -154,6 +158,15 @@ func loadRunConfig() (runConfig, error) {
 		return runConfig{}, err
 	}
 
+	extractMaxRows := 50000
+	if v := os.Getenv("LONGUE_VUE_EXTRACT_MAX_ROWS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return runConfig{}, fmt.Errorf("%w: LONGUE_VUE_EXTRACT_MAX_ROWS=%q", errExtractMaxRowsInvalid, v)
+		}
+		extractMaxRows = n
+	}
+
 	cfg := runConfig{
 		addr:            envOr("LONGUE_VUE_ADDR", ":8080"),
 		dsn:             dsn,
@@ -166,6 +179,7 @@ func loadRunConfig() (runConfig, error) {
 		publicTLSKey:    os.Getenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY"),
 		trustedProxies:  trustedProxies,
 		requireHTTPS:    requireHTTPS,
+		extractMaxRows:  extractMaxRows,
 	}
 	if err := checkTransportPosture(&cfg); err != nil {
 		return runConfig{}, err
@@ -312,6 +326,9 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 		return fmt.Errorf("build ingest listener: %w", err)
 	}
 
+	slog.Info("longue-vue config",
+		slog.Int("extract_max_rows", cfg.extractMaxRows),
+	)
 	return serveAndShutdown(rootCtx, srv, ingestSrv, cfg.shutdownTimeout)
 }
 
@@ -511,6 +528,15 @@ func buildHTTPServer(
 	mux.Handle("GET /v1/virtual-machines/{id}", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetVirtualMachine(pg)))))
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", requireScope(auth.ScopeDelete)(cloudAuth(auditWrap(api.HandleDeleteVirtualMachine(pg)))))
+
+	// Extract endpoints — audited via the shouldAudit allowlist (ADR-0024 / SNC ch.8).
+	extractAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
+	mux.Handle("GET /v1/search/extract",
+		requireScope(auth.ScopeRead)(extractAuth(auditWrap(api.HandleSearchExtract(pg, cfg.extractMaxRows)))))
+	mux.Handle("GET /v1/search/extract.zip",
+		requireScope(auth.ScopeRead)(extractAuth(auditWrap(api.HandleSearchExtractZip(pg, cfg.extractMaxRows)))))
+	mux.Handle("GET /v1/eol/extract",
+		requireScope(auth.ScopeRead)(extractAuth(auditWrap(api.HandleEolExtract(pg, cfg.extractMaxRows)))))
 
 	loginLimiter := api.NewLoginRateLimiter()
 	verifyLimiter := api.NewVerifyRateLimiter()

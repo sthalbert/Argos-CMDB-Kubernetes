@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import * as api from '../api';
 import ImageSearch from './Search';
 import { renderWithRouter } from '../test/render';
 import { server } from '../test/server';
@@ -37,5 +38,39 @@ describe('ImageSearch', () => {
     await waitFor(() => {
       expect(screen.getByText(/error|failed/i)).toBeInTheDocument();
     });
+  });
+});
+
+describe('Search page extract buttons', () => {
+  beforeEach(() => {
+    // Mock the api extract functions so downloadExtract (which needs DOM APIs
+    // not available in jsdom) is never reached.
+    vi.spyOn(api, 'extractSearch').mockResolvedValue({ truncated: false, filename: null });
+    vi.spyOn(api, 'extractSearchZip').mockResolvedValue({ truncated: false, filename: null });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shows per-table extract buttons and the all-zip button', async () => {
+    renderWithRouter(<ImageSearch />, { initialPath: '/search/image?q=nginx' });
+    await waitFor(() => expect(screen.getByText(/matches for/i)).toBeInTheDocument());
+    // Three per-table Extract ▾ dropdowns + one "Extract all (.zip)" button.
+    const buttons = screen.getAllByRole('button', { name: /extract/i });
+    expect(buttons.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('clicking CSV on workloads invokes api.extractSearch with kind=workloads', async () => {
+    const spy = vi.spyOn(api, 'extractSearch').mockResolvedValue({ truncated: false, filename: null });
+    renderWithRouter(<ImageSearch />, { initialPath: '/search/image?q=nginx' });
+    await waitFor(() => expect(screen.getByText(/matches for/i)).toBeInTheDocument());
+    // The Extract dropdown buttons (aria-haspopup="menu") are after the zip button.
+    // Index 0 is "Extract all (.zip)", index 1 is the Workloads Extract dropdown.
+    const extractButtons = screen.getAllByRole('button', { name: /extract/i });
+    fireEvent.click(extractButtons[1]);
+    fireEvent.click(screen.getByRole('menuitem', { name: /csv/i }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('nginx', 'workloads', 'csv'));
+    spy.mockRestore();
   });
 });

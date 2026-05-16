@@ -1,0 +1,41 @@
+{
+  "clusters": [
+    {
+      "id": "c1",
+      "name": "prod-eu",
+      "display_name": "Production EU",
+      "annotations": {
+        "longue-vue.io/eol.kubernetes": "{\"product\":\"kubernetes\",\"cycle\":\"1.28\",\"eol_status\":\"eol\",\"eol\":\"2024-10-28\",\"latest\":\"1.28.15\",\"latest_available\":\"1.32.3\",\"checked_at\":\"2026-05-15T00:00:00Z\"}"
+      }
+    },
+    {
+      "id": "c2",
+      "name": "staging-eu",
+      "display_name": "",
+      "annotations": {}
+    }
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "worker-01",
+      "cluster_id": "c1",
+      "annotations": {
+        "longue-vue.io/eol.ubuntu": "{\"product\":\"ubuntu\",\"cycle\":\"22.04\",\"eol_status\":\"supported\",\"latest\":\"22.04.4\",\"checked_at\":\"2026-05-15T00:00:00Z\"}",
+        "longue-vue.io/eol.containerd": "{\"product\":\"containerd\",\"cycle\":\"1.7\",\"eol_status\":\"approaching_eol\",\"eol\":\"2026-08-15\",\"checked_at\":\"2026-05-15T00:00:00Z\"}"
+      }
+    }
+  ],
+  "vms": [
+    {
+      "id": "v1",
+      "name": "bastion-prod",
+      "display_name": "Bastion (prod-eu)",
+      "annotations": {
+        "longue-vue.io/eol.vault": "{\"product\":\"vault\",\"cycle\":\"1.13\",\"eol_status\":\"eol\",\"eol\":\"2024-12-09\",\"latest\":\"1.13.13\",\"latest_available\":\"1.18.2\",\"checked_at\":\"2026-05-15T00:00:00Z\"}",
+        "longue-vue.io/eol.cyberwatch": "{\"product\":\"cyberwatch\",\"cycle\":\"12.4\",\"eol_status\":\"unknown\",\"checked_at\":\"2026-05-15T00:00:00Z\"}",
+        "unrelated-annotation": "ignored"
+      }
+    }
+  ]
+}

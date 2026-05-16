@@ -5,6 +5,8 @@ import { useResource } from '../hooks';
 import { AsyncView, Dash, IdLink, SectionTitle, Empty } from '../components';
 import { useEntityTable } from '../components/column_filters';
 import { isAdmin, useMe } from '../me';
+import { ExtractButton } from '../components/ExtractButton';
+import { TruncationBanner } from '../components/TruncationBanner';
 
 // Image search — answers "which applications run component X in version Y?"
 // The query is kept in the URL (?q=) so auditors can bookmark / share.
@@ -62,6 +64,14 @@ export default function ImageSearch() {
         </button>
       </form>
 
+      {q && (
+        <div className="search-extract-all">
+          <button type="button" onClick={() => api.extractSearchZip(q)}>
+            ↓ Extract all (.zip)
+          </button>
+        </div>
+      )}
+
       {q ? <Results q={q} /> : <Empty message="Enter an image to search." />}
     </>
   );
@@ -70,6 +80,7 @@ export default function ImageSearch() {
 function Results({ q }: { q: string }) {
   const me = useMe();
   const canListAccounts = isAdmin(me);
+  const [truncated, setTruncated] = useState(false);
   const workloadsTableRef = useEntityTable('search.workloads');
   const podsTableRef = useEntityTable('search.pods');
   const vmsTableRef = useEntityTable('search.vms');
@@ -123,7 +134,16 @@ function Results({ q }: { q: string }) {
               {affectedApps === 1 ? '' : 's'}.
             </p>
 
-            <SectionTitle count={workloads.length}>Matching workloads</SectionTitle>
+            <TruncationBanner visible={truncated} />
+
+            <div className="section-header">
+              <SectionTitle count={workloads.length}>Matching workloads</SectionTitle>
+              <ExtractButton
+                label="Extract"
+                onExtract={(format) => api.extractSearch(q, 'workloads', format)}
+                onTruncation={setTruncated}
+              />
+            </div>
             {workloads.length === 0 ? (
               <Empty message="No workloads match." />
             ) : (
@@ -161,7 +181,14 @@ function Results({ q }: { q: string }) {
               </table>
             )}
 
-            <SectionTitle count={pods.length}>Matching pods</SectionTitle>
+            <div className="section-header">
+              <SectionTitle count={pods.length}>Matching pods</SectionTitle>
+              <ExtractButton
+                label="Extract"
+                onExtract={(format) => api.extractSearch(q, 'pods', format)}
+                onTruncation={setTruncated}
+              />
+            </div>
             {pods.length === 0 ? (
               <Empty message="No pods match." />
             ) : (
@@ -205,7 +232,14 @@ function Results({ q }: { q: string }) {
               </table>
             )}
 
-            <SectionTitle count={vms.length}>Matching virtual machines</SectionTitle>
+            <div className="section-header">
+              <SectionTitle count={vms.length}>Matching virtual machines</SectionTitle>
+              <ExtractButton
+                label="Extract"
+                onExtract={(format) => api.extractSearch(q, 'virtual_machines', format)}
+                onTruncation={setTruncated}
+              />
+            </div>
             {vms.length === 0 ? (
               <Empty message="No virtual machines match." />
             ) : (

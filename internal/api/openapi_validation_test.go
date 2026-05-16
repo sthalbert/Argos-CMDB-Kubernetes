@@ -234,6 +234,93 @@ func reportValidationErrors(t *testing.T, label string, errs []*liberrors.Valida
 	t.Errorf("%s:\n%s", label, strings.Join(msgs, "\n"))
 }
 
+// TestOpenAPI_SearchExtract_Workloads_200 validates a GET /v1/search/extract
+// 200 JSON response shaped as an array of WorkloadExtractRow.
+// The response uses anyOf because dispatch is by ?kind=, not by body shape.
+func TestOpenAPI_SearchExtract_Workloads_200(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/search/extract?q=log4j&kind=workloads&format=json", http.NoBody)
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	respBody := `[{
+		"id": "44444444-4444-4444-4444-444444444444",
+		"cluster": "prod-eu",
+		"namespace": "default",
+		"kind": "Deployment",
+		"name": "log4j-app",
+		"image_matches": "log4j:2.15",
+		"replicas": 1,
+		"ready_replicas": 1,
+		"updated_at": "2026-05-15T14:32:00Z"
+	}]`
+	resp := buildResponse(t, http.StatusOK, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs := v.ValidateHttpResponse(req, resp)
+	if !ok {
+		reportValidationErrors(t, "GET /v1/search/extract 200 response (workloads)", errs)
+	}
+}
+
+// TestOpenAPI_SearchExtract_400 validates a 400 Problem response for
+// GET /v1/search/extract with a bad format parameter.
+func TestOpenAPI_SearchExtract_400(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/search/extract?q=log4j&kind=workloads&format=xml", http.NoBody)
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	respBody := `{
+		"type": "about:blank",
+		"title": "Bad Request",
+		"status": 400,
+		"detail": "format must be 'csv' or 'json'"
+	}`
+	resp := buildResponse(t, http.StatusBadRequest, respBody)
+	resp.Header.Set("Content-Type", "application/problem+json")
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs := v.ValidateHttpResponse(req, resp)
+	if !ok {
+		reportValidationErrors(t, "GET /v1/search/extract 400 response", errs)
+	}
+}
+
+// TestOpenAPI_EolExtract_200 validates a GET /v1/eol/extract 200 JSON
+// response shaped as an array of EolExtractRow.
+func TestOpenAPI_EolExtract_200(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/eol/extract?format=json", http.NoBody)
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	respBody := `[{
+		"entity_type": "cluster",
+		"entity_id": "c1",
+		"entity_name": "Production EU",
+		"cluster": "Production EU",
+		"product": "kubernetes",
+		"cycle": "1.28",
+		"status": "eol",
+		"eol_date": "2024-10-28",
+		"latest": "1.28.15",
+		"latest_available": "1.32.3",
+		"support": "",
+		"checked_at": "2026-05-15T00:00:00Z"
+	}]`
+	resp := buildResponse(t, http.StatusOK, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs := v.ValidateHttpResponse(req, resp)
+	if !ok {
+		reportValidationErrors(t, "GET /v1/eol/extract 200 response", errs)
+	}
+}
+
 // filterNullableErrors removes validation errors caused by the `nullable`
 // keyword which is deprecated in OpenAPI 3.1 (use type: [T, null] instead).
 // These are spec migration cosmetic issues — not real data shape problems.

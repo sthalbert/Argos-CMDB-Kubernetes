@@ -2310,6 +2310,166 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/eol/extract:
+    get:
+      tags: [eol]
+      summary: Download EOL Dashboard rows as CSV or JSON
+      description: |
+        Flattens longue-vue.io/eol.* annotations from clusters, nodes
+        and virtual machines into one row per (entity, product). Optional
+        `entity_type` and `status` filters mirror the dashboard's chips.
+      operationId: eolExtract
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - in: query
+          name: format
+          required: true
+          schema:
+            type: string
+            enum: [csv, json]
+        - in: query
+          name: entity_type
+          schema:
+            type: string
+            enum: [cluster, node, vm]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [eol, approaching_eol, supported, unknown]
+      responses:
+        '200':
+          description: Extract body.
+          headers:
+            X-Longue-Vue-Truncated:
+              schema:
+                type: string
+                enum: ['true']
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EolExtractRow'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/search/extract:
+    get:
+      tags: [search]
+      summary: Download Search results as CSV or JSON
+      description: |
+        Returns every Workload / Pod / Virtual Machine matching the
+        cross-entity search query `q`, restricted to the entity kind
+        named in `kind`. The full filtered result set is streamed, capped
+        at `LONGUE_VUE_EXTRACT_MAX_ROWS` (default 50 000). When the cap
+        is hit the response carries `X-Longue-Vue-Truncated: true` and
+        the file is still well-formed CSV / JSON.
+      operationId: searchExtract
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+            maxLength: 256
+        - in: query
+          name: kind
+          required: true
+          schema:
+            type: string
+            enum: [workloads, pods, virtual_machines]
+        - in: query
+          name: format
+          required: true
+          schema:
+            type: string
+            enum: [csv, json]
+      responses:
+        '200':
+          description: Extract body. CSV is UTF-8 with a BOM and CRLF endings; JSON is a flat array.
+          headers:
+            X-Longue-Vue-Truncated:
+              schema:
+                type: string
+                enum: ['true']
+              description: Present and "true" when the row cap was hit.
+            Content-Disposition:
+              schema: { type: string }
+              description: 'attachment; filename="longue-vue-search-<kind>-<q-slug>-<ts>.<csv|json>"'
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                anyOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/WorkloadExtractRow'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/PodExtractRow'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/VirtualMachineExtractRow'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/search/extract.zip:
+    get:
+      tags: [search]
+      summary: Download Search results as a ZIP bundle
+      description: |
+        Bundles the three Search result tables (workloads.csv, pods.csv,
+        virtual_machines.csv) and a README.txt into a single ZIP.
+      operationId: searchExtractZip
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+            maxLength: 256
+      responses:
+        '200':
+          description: ZIP bundle.
+          headers:
+            X-Longue-Vue-Truncated:
+              schema:
+                type: string
+                enum: ['true']
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
 
   securitySchemes:
@@ -4702,3 +4862,65 @@ components:
           type: boolean
         already_running:
           type: boolean
+
+    EolExtractRow:
+      type: object
+      required: [entity_type, entity_id, entity_name, product, cycle, status]
+      properties:
+        entity_type: { type: string, enum: [cluster, node, vm] }
+        entity_id: { type: string }
+        entity_name: { type: string }
+        cluster: { type: string }
+        product: { type: string }
+        cycle: { type: string }
+        status: { type: string, enum: [eol, approaching_eol, supported, unknown] }
+        eol_date: { type: string }
+        latest: { type: string }
+        latest_available: { type: string }
+        support: { type: string }
+        checked_at: { type: string }
+
+    PodExtractRow:
+      type: object
+      required: [cluster, namespace, name]
+      properties:
+        id: { type: string, format: uuid }
+        cluster: { type: string }
+        namespace: { type: string }
+        name: { type: string }
+        workload_kind: { type: string }
+        workload_name: { type: string }
+        image_matches: { type: string }
+        phase: { type: string }
+        node: { type: string }
+        updated_at: { type: string, format: date-time }
+
+    VirtualMachineExtractRow:
+      type: object
+      required: [name]
+      properties:
+        id: { type: string, format: uuid }
+        cloud_account: { type: string }
+        region: { type: string }
+        name: { type: string }
+        display_name: { type: string }
+        role: { type: string }
+        power_state: { type: string }
+        image_id: { type: string }
+        image_name: { type: string }
+        applications_matched: { type: string }
+        updated_at: { type: string, format: date-time }
+
+    WorkloadExtractRow:
+      type: object
+      required: [cluster, namespace, kind, name]
+      properties:
+        id: { type: string, format: uuid }
+        cluster: { type: string }
+        namespace: { type: string }
+        kind: { type: string }
+        name: { type: string }
+        image_matches: { type: string }
+        replicas: { type: integer }
+        ready_replicas: { type: integer }
+        updated_at: { type: string, format: date-time }

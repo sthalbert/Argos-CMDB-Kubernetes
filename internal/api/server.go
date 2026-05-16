@@ -292,7 +292,8 @@ func (s *Server) DeleteCluster(ctx context.Context, req DeleteClusterRequestObje
 
 	counts, err := s.store.CountClusterChildren(ctx, req.Id)
 	if err != nil && !errors.Is(err, ErrNotFound) {
-		slog.Error("deleteCluster: count children failed, proceeding without cascade counts",
+		slog.Error(
+			"deleteCluster: count children failed, proceeding without cascade counts",
 			slog.Any("error", err),
 			slog.String("cluster_id", req.Id.String()),
 		)

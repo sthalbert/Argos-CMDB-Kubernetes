@@ -262,7 +262,8 @@ func (s *Server) findOrCreateOidcUser(ctx context.Context, claims *auth.OIDCClai
 		// fails if someone tries the local-login flow with this name.
 		// argon2id verify against a junk PHC string returns
 		// ErrInvalidHashFormat, which the login handler surfaces as 401.
-		out, err := s.store.CreateUserWithIdentity(ctx,
+		out, err := s.store.CreateUserWithIdentity(
+			ctx,
 			UserInsert{
 				Username:           username,
 				PasswordHash:       "$argon2id$shadow$oidc", // never verifies

@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [Unreleased]
+
+### Added
+
+- Bulk extract endpoints `/v1/search/extract`, `/v1/search/extract.zip`, `/v1/eol/extract` with CSV / JSON output and `LONGUE_VUE_EXTRACT_MAX_ROWS` (default 50 000) cap; every extract recorded in `audit_events`.
+- "Extract" buttons on the Search page (per table + ZIP bundle) and EOL Dashboard.
+
 ## [0.21.0](https://github.com/sthalbert/Longue-Vue/compare/v0.20.0...v0.21.0) (2026-05-15)
 
 
