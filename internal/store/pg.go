@@ -663,10 +663,12 @@ func scanUUIDs(rows pgx.Rows) ([]uuid.UUID, error) {
 	return ids, nil
 }
 
-// CountClusterChildren counts every child resource that ON DELETE CASCADE
-// will remove when the cluster is deleted. A single round-trip multi-CTE
-// query keeps the cost bounded regardless of how many resource types
-// exist (ADR-0010).
+// CountClusterChildren counts every child resource attached to the cluster
+// at the time of the call. Used by the audit log to snapshot the pre-delete
+// inventory before SoftDeleteCluster removes pods / services / ingresses /
+// PVCs / PVs (Fix 1, see SoftDeleteCluster) and soft-deletes the cluster /
+// namespaces / nodes / workloads. A single round-trip multi-CTE query keeps
+// the cost bounded regardless of how many resource types exist (ADR-0010).
 func (p *PG) CountClusterChildren(ctx context.Context, clusterID uuid.UUID) (api.CascadeCounts, error) {
 	const q = `
 		WITH ns_ids AS (
