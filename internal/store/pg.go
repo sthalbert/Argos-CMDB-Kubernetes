@@ -1359,8 +1359,9 @@ func (p *PG) DeleteNamespace(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// SoftDeleteNamespace soft-deletes the namespace and its workloads.
-// Pods/services/ingresses/PVCs are not touched (Phase 2 follow-up).
+// SoftDeleteNamespace soft-deletes the namespace and its workloads, and
+// hard-deletes its unhistoried children (pods, services, ingresses, PVCs).
+// PVs are cluster-scoped, not namespace-scoped, so they are unaffected.
 //
 //nolint:gocyclo // history capture adds branches; acceptable here
 func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
@@ -1375,6 +1376,25 @@ func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
 	wlIDs, err := liveWorkloadIDsForNamespace(ctx, tx, id)
 	if err != nil {
 		return fmt.Errorf("list workloads for soft-delete namespace: %w", err)
+	}
+
+	// Hard-delete the unhistoried namespace-scoped children. FK ON DELETE
+	// CASCADE does not fire under soft-delete; do it manually.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM pods WHERE namespace_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete pods: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM services WHERE namespace_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete services: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM ingresses WHERE namespace_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete ingresses: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM persistent_volume_claims WHERE namespace_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete persistent_volume_claims: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx,

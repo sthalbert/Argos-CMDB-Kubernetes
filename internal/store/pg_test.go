@@ -3638,7 +3638,11 @@ func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
 }
 
 // TestPGSoftDeleteNamespace_CascadesToWorkloads verifies the namespace
-// soft-delete cascade soft-deletes its live workloads.
+// soft-delete cascade soft-deletes its live workloads and hard-deletes
+// pods, services, ingresses, and PVCs that are out-of-scope for
+// time-travel history (ADR-0021 §IMP-007).
+//
+//nolint:gocyclo // test-fixture sequence
 func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -3655,11 +3659,28 @@ func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workload: %v", err)
 	}
+	pod, err := pg.CreatePod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-0"})
+	if err != nil {
+		t.Fatalf("pod: %v", err)
+	}
+	svc, err := pg.CreateService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "web"})
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	ing, err := pg.CreateIngress(ctx, api.IngressCreate{NamespaceId: *ns.Id, Name: "web"})
+	if err != nil {
+		t.Fatalf("ingress: %v", err)
+	}
+	pvc, err := pg.CreatePersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{NamespaceId: *ns.Id, Name: "pvc-a"})
+	if err != nil {
+		t.Fatalf("pvc: %v", err)
+	}
 
 	if err := pg.SoftDeleteNamespace(ctx, *ns.Id); err != nil {
 		t.Fatalf("SoftDeleteNamespace: %v", err)
 	}
 
+	// Namespace + its workloads are soft-deleted.
 	var nsTerm, wlTerm bool
 	if err := pg.pool.QueryRow(ctx,
 		`SELECT terminated_at IS NOT NULL FROM namespaces WHERE id=$1`, *ns.Id).Scan(&nsTerm); err != nil {
@@ -3672,6 +3693,23 @@ func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 	if !nsTerm || !wlTerm {
 		t.Fatalf("cascade missed: ns=%v wl=%v", nsTerm, wlTerm)
 	}
+
+	// Pods / services / ingresses / PVCs are hard-deleted.
+	assertGone := func(table string, id uuid.UUID) {
+		t.Helper()
+		var exists bool
+		q := fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE id=$1)`, table)
+		if err := pg.pool.QueryRow(ctx, q, id).Scan(&exists); err != nil {
+			t.Fatalf("scan %s: %v", table, err)
+		}
+		if exists {
+			t.Errorf("%s row %s should have been hard-deleted by namespace cascade", table, id)
+		}
+	}
+	assertGone("pods", *pod.Id)
+	assertGone("services", *svc.Id)
+	assertGone("ingresses", *ing.Id)
+	assertGone("persistent_volume_claims", *pvc.Id)
 
 	if err := pg.SoftDeleteNamespace(ctx, uuid.New()); !errors.Is(err, api.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
