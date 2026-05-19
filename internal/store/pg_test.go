@@ -558,6 +558,8 @@ func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
 // (Fix 2): when a still-pushing collector calls EnsureCluster on a
 // soft-deleted cluster, the row is restored (terminated_at cleared)
 // and the existing id is preserved. A `restore` history row is captured.
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestPGEnsureCluster_ResurrectsTerminated(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
