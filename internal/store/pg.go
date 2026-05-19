@@ -123,15 +123,22 @@ func (r scanRowWith) Scan(dest ...any) error {
 	return nil
 }
 
-// EnsureCluster inserts a cluster row when no row with the same name exists,
-// or returns the existing row unchanged when one does. The returned bool is
-// true when a new row was inserted, false when an existing row was returned.
+// EnsureCluster is idempotent on the cluster name. It has three branches:
 //
-// Concurrent inserts of the same name are resolved by INSERT ... ON CONFLICT
-// (name) DO NOTHING: the winner inserts and gets RETURNING rows, the losing
-// writer falls back to a SELECT for the existing row.
+//   - RESTORE — a terminated row already exists. Clear terminated_at,
+//     write a `restore` history row, return the existing row. Mirrors
+//     the auto-restore behaviour of UpsertNamespace/Node/Workload so a
+//     collector that keeps pushing after a soft-delete resurrects the
+//     cluster instead of being silently ignored (Fix 2 in the spec at
+//     docs/superpowers/specs/2026-05-18-cluster-cascade-delete-design.md).
+//   - NO-OP — a live row already exists. Return it unchanged. No history.
+//   - CREATE — no row exists. INSERT and capture create history.
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
+// The returned bool is true only on CREATE. Concurrent inserts of the
+// same name are resolved by INSERT … ON CONFLICT (name) DO NOTHING:
+// the loser falls through to a re-fetch (still false).
+//
+//nolint:gocyclo,gocritic // branch-heavy idempotent insert; hugeParam: Store interface
 func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Cluster, bool, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -142,11 +149,59 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 	}
 	annotationsJSON, err := marshalLabels(in.Annotations)
 	if err != nil {
-		// marshalLabels' own message says "marshal labels"; rewrap so
-		// the operator-facing error points at annotations instead.
 		return api.Cluster{}, false, fmt.Errorf("marshal cluster annotations: %w", err)
 	}
 
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return api.Cluster{}, false, fmt.Errorf("begin ensure cluster: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	actor := timetravel.ActorFromContext(ctx)
+
+	// Snapshot any existing row by name so we can pick a branch.
+	var prevID *uuid.UUID
+	var prevTerminatedAt *time.Time
+	_ = tx.QueryRow(ctx,
+		`SELECT id, terminated_at FROM clusters WHERE name=$1`,
+		in.Name,
+	).Scan(&prevID, &prevTerminatedAt)
+
+	// Branch RESTORE: terminated row exists → clear terminated_at + history.
+	if prevID != nil && prevTerminatedAt != nil {
+		if _, err := tx.Exec(ctx,
+			`UPDATE clusters SET terminated_at = NULL, updated_at = $1 WHERE id = $2`,
+			now, *prevID); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("restore cluster: %w", err)
+		}
+		if snap, err := clusterRowMapNoLock(ctx, tx, *prevID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, *prevID, nil, snap, changeTypeRestore, actor)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (restore): %w", err)
+		}
+		restored, getErr := p.GetClusterByName(ctx, in.Name)
+		if getErr != nil {
+			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch restored: %w", in.Name, getErr)
+		}
+		return restored, false, nil
+	}
+
+	// Branch NO-OP: live row exists → return as-is.
+	if prevID != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (existing): %w", err)
+		}
+		existing, getErr := p.GetClusterByName(ctx, in.Name)
+		if getErr != nil {
+			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch existing: %w", in.Name, getErr)
+		}
+		return existing, false, nil
+	}
+
+	// Branch CREATE: insert. Use ON CONFLICT DO NOTHING to absorb a race
+	// where two transactions reach this point with the same name.
 	const q = `
 		INSERT INTO clusters (
 			id, name, display_name, environment, provider, region,
@@ -157,13 +212,6 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 		ON CONFLICT (name) DO NOTHING
 		RETURNING id
 	`
-
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.Cluster{}, false, fmt.Errorf("begin ensure cluster: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	var insertedID uuid.UUID
 	scanErr := tx.QueryRow(ctx, q,
 		id, in.Name, in.DisplayName, in.Environment, in.Provider, in.Region,
@@ -173,10 +221,7 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 	).Scan(&insertedID)
 	switch {
 	case scanErr == nil:
-		// New row was inserted. Capture create history.
-		snap, snapErr := clusterRowMapNoLock(ctx, tx, insertedID)
-		if snapErr == nil {
-			actor := timetravel.ActorFromContext(ctx)
+		if snap, err := clusterRowMapNoLock(ctx, tx, insertedID); err == nil {
 			_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, insertedID, nil, snap, changeTypeCreate, actor)
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -201,13 +246,14 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 			UpdatedAt:         &now,
 		}, true, nil
 	case errors.Is(scanErr, pgx.ErrNoRows):
-		// ON CONFLICT DO NOTHING — row already exists. Commit (no-op tx) and read it back.
+		// Race: a concurrent tx inserted between our pre-snapshot and INSERT.
+		// Commit (the tx has no effect) and re-fetch.
 		if err := tx.Commit(ctx); err != nil {
-			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (existing): %w", err)
+			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (race): %w", err)
 		}
 		existing, getErr := p.GetClusterByName(ctx, in.Name)
 		if getErr != nil {
-			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch existing: %w", in.Name, getErr)
+			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch existing after race: %w", in.Name, getErr)
 		}
 		return existing, false, nil
 	default:
@@ -446,11 +492,12 @@ func (p *PG) DeleteCluster(ctx context.Context, id uuid.UUID) error {
 // SoftDeleteCluster marks the cluster and all its live children
 // (namespaces, nodes, workloads) as terminated in a single transaction.
 // Mirrors ADR-0021 §IMP-007. Children that are already terminated are
-// skipped via the AND terminated_at IS NULL guard. Pods, services,
-// ingresses, PVs, and PVCs are unaffected here — they continue to be
-// reaped by the FK ON DELETE CASCADE chain only when the cluster is
-// hard-deleted; under soft-delete they remain attached to the (now
-// soft-deleted) parent. Phase 2 reconsiders pod-level reconciliation.
+// skipped via the AND terminated_at IS NULL guard.
+//
+// Pods, services, ingresses, PVCs (per namespace) and PVs (per cluster)
+// are out-of-scope for time-travel history (ADR-0021 §IMP-007) and are
+// HARD-DELETED here. Without this step they would remain in the DB
+// attached to a terminated parent and still be queryable.
 //
 //nolint:gocyclo // cascade + history capture per entity-kind add branches; acceptable here
 func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
@@ -474,6 +521,34 @@ func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
 	nodeIDs, err := liveNodeIDsForCluster(ctx, tx, id)
 	if err != nil {
 		return fmt.Errorf("list nodes for soft-delete cluster: %w", err)
+	}
+
+	// Hard-delete the unhistoried children first. These tables have ON
+	// DELETE CASCADE from cluster/namespace, but FK CASCADE only fires
+	// on hard-delete; since we soft-delete the parent it never fires.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM pods
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+		return fmt.Errorf("cascade-delete pods: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM services
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+		return fmt.Errorf("cascade-delete services: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM ingresses
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+		return fmt.Errorf("cascade-delete ingresses: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM persistent_volume_claims
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+		return fmt.Errorf("cascade-delete persistent_volume_claims: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM persistent_volumes WHERE cluster_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete persistent_volumes: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -588,10 +663,12 @@ func scanUUIDs(rows pgx.Rows) ([]uuid.UUID, error) {
 	return ids, nil
 }
 
-// CountClusterChildren counts every child resource that ON DELETE CASCADE
-// will remove when the cluster is deleted. A single round-trip multi-CTE
-// query keeps the cost bounded regardless of how many resource types
-// exist (ADR-0010).
+// CountClusterChildren counts every child resource attached to the cluster
+// at the time of the call. Used by the audit log to snapshot the pre-delete
+// inventory before SoftDeleteCluster removes pods / services / ingresses /
+// PVCs / PVs (Fix 1, see SoftDeleteCluster) and soft-deletes the cluster /
+// namespaces / nodes / workloads. A single round-trip multi-CTE query keeps
+// the cost bounded regardless of how many resource types exist (ADR-0010).
 func (p *PG) CountClusterChildren(ctx context.Context, clusterID uuid.UUID) (api.CascadeCounts, error) {
 	const q = `
 		WITH ns_ids AS (
@@ -1330,8 +1407,9 @@ func (p *PG) DeleteNamespace(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// SoftDeleteNamespace soft-deletes the namespace and its workloads.
-// Pods/services/ingresses/PVCs are not touched (Phase 2 follow-up).
+// SoftDeleteNamespace soft-deletes the namespace and its workloads, and
+// hard-deletes its unhistoried children (pods, services, ingresses, PVCs).
+// PVs are cluster-scoped, not namespace-scoped, so they are unaffected.
 //
 //nolint:gocyclo // history capture adds branches; acceptable here
 func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
@@ -1346,6 +1424,25 @@ func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
 	wlIDs, err := liveWorkloadIDsForNamespace(ctx, tx, id)
 	if err != nil {
 		return fmt.Errorf("list workloads for soft-delete namespace: %w", err)
+	}
+
+	// Hard-delete the unhistoried namespace-scoped children. FK ON DELETE
+	// CASCADE does not fire under soft-delete; do it manually.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM pods WHERE namespace_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete pods: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM services WHERE namespace_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete services: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM ingresses WHERE namespace_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete ingresses: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM persistent_volume_claims WHERE namespace_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete persistent_volume_claims: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx,

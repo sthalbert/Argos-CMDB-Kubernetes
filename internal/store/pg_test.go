@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"testing"
@@ -549,6 +550,84 @@ func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
 	}
 	if terminated != nil {
 		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
+	}
+}
+
+// TestPGEnsureCluster_ResurrectsTerminated verifies the design in
+// docs/superpowers/specs/2026-05-18-cluster-cascade-delete-design.md
+// (Fix 2): when a still-pushing collector calls EnsureCluster on a
+// soft-deleted cluster, the row is restored (terminated_at cleared)
+// and the existing id is preserved. A `restore` history row is captured.
+//
+//nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
+func TestPGEnsureCluster_ResurrectsTerminated(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	first, created, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-cluster"})
+	if err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	if !created {
+		t.Fatalf("first ensure should report created=true")
+	}
+
+	if err := pg.SoftDeleteCluster(ctx, *first.Id); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	var terminated *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM clusters WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at: %v", err)
+	}
+	if terminated == nil {
+		t.Fatalf("terminated_at should be non-NULL after soft-delete")
+	}
+
+	resurrected, created, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-cluster"})
+	if err != nil {
+		t.Fatalf("resurrect ensure: %v", err)
+	}
+	if created {
+		t.Errorf("resurrect ensure must report created=false (id %s preserved)", *first.Id)
+	}
+	if *resurrected.Id != *first.Id {
+		t.Errorf("id changed across resurrect: first=%s now=%s", *first.Id, *resurrected.Id)
+	}
+
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM clusters WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at post-ensure: %v", err)
+	}
+	if terminated != nil {
+		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
+	}
+
+	// A restore history row must have been captured (ADR-0021 §5).
+	var restoreCount int
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM clusters_history WHERE entity_id=$1 AND change_type='restore'`,
+		*first.Id).Scan(&restoreCount); err != nil {
+		t.Fatalf("scan clusters_history: %v", err)
+	}
+	if restoreCount != 1 {
+		t.Errorf("expected exactly 1 restore history row, got %d", restoreCount)
+	}
+
+	// And a third ensure on a live row is a true no-op (no extra history).
+	if _, created, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-cluster"}); err != nil {
+		t.Fatalf("third ensure: %v", err)
+	} else if created {
+		t.Errorf("third ensure on live row should report created=false")
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM clusters_history WHERE entity_id=$1 AND change_type='restore'`,
+		*first.Id).Scan(&restoreCount); err != nil {
+		t.Fatalf("re-scan clusters_history: %v", err)
+	}
+	if restoreCount != 1 {
+		t.Errorf("no-op ensure must not write another restore row, got %d", restoreCount)
 	}
 }
 
@@ -3539,10 +3618,6 @@ func TestPGNodeCuratedMetadata(t *testing.T) {
 	}
 }
 
-// TestPGSoftDeleteCluster_CascadesToChildren verifies ADR-0021 §IMP-007:
-// SoftDeleteCluster soft-deletes the cluster plus its live namespaces,
-// nodes, and workloads in a single transaction.
-//
 //nolint:gocyclo // test-fixture sequence; complexity from straight-line setup-then-assertions
 func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
 	pg := newTestPG(t)
@@ -3564,11 +3639,32 @@ func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workload: %v", err)
 	}
+	pod, err := pg.CreatePod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-0"})
+	if err != nil {
+		t.Fatalf("pod: %v", err)
+	}
+	svc, err := pg.CreateService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "web"})
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	ing, err := pg.CreateIngress(ctx, api.IngressCreate{NamespaceId: *ns.Id, Name: "web"})
+	if err != nil {
+		t.Fatalf("ingress: %v", err)
+	}
+	pv, err := pg.CreatePersistentVolume(ctx, api.PersistentVolumeCreate{ClusterId: *cluster.Id, Name: "pv-a"})
+	if err != nil {
+		t.Fatalf("pv: %v", err)
+	}
+	pvc, err := pg.CreatePersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{NamespaceId: *ns.Id, Name: "pvc-a"})
+	if err != nil {
+		t.Fatalf("pvc: %v", err)
+	}
 
 	if err := pg.SoftDeleteCluster(ctx, *cluster.Id); err != nil {
 		t.Fatalf("SoftDeleteCluster: %v", err)
 	}
 
+	// 1. Parent + soft-deletable children stay alive with terminated_at set.
 	var clusterTerm, nsTerm, nodeTerm, wlTerm bool
 	if err := pg.pool.QueryRow(ctx,
 		`SELECT terminated_at IS NOT NULL FROM clusters WHERE id=$1`, *cluster.Id).Scan(&clusterTerm); err != nil {
@@ -3590,19 +3686,41 @@ func TestPGSoftDeleteCluster_CascadesToChildren(t *testing.T) {
 		t.Fatalf("cascade missed: cluster=%v ns=%v node=%v wl=%v", clusterTerm, nsTerm, nodeTerm, wlTerm)
 	}
 
-	// Idempotent: a second call on an already-terminated cluster returns nil.
+	// 2. Hard-delete children must be gone.
+	assertGone := func(table, col string, id uuid.UUID) {
+		t.Helper()
+		var exists bool
+		q := fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE %s=$1)`, table, col)
+		if err := pg.pool.QueryRow(ctx, q, id).Scan(&exists); err != nil {
+			t.Fatalf("scan %s: %v", table, err)
+		}
+		if exists {
+			t.Errorf("%s row %s should have been hard-deleted by cascade", table, id)
+		}
+	}
+	assertGone("pods", "id", *pod.Id)
+	assertGone("services", "id", *svc.Id)
+	assertGone("ingresses", "id", *ing.Id)
+	assertGone("persistent_volume_claims", "id", *pvc.Id)
+	assertGone("persistent_volumes", "id", *pv.Id)
+
+	// 3. Idempotent: a second call on an already-terminated cluster returns nil.
 	if err := pg.SoftDeleteCluster(ctx, *cluster.Id); err != nil {
 		t.Fatalf("second SoftDeleteCluster should be idempotent: %v", err)
 	}
 
-	// Unknown id returns ErrNotFound.
+	// 4. Unknown id returns ErrNotFound.
 	if err := pg.SoftDeleteCluster(ctx, uuid.New()); !errors.Is(err, api.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
 	}
 }
 
 // TestPGSoftDeleteNamespace_CascadesToWorkloads verifies the namespace
-// soft-delete cascade soft-deletes its live workloads.
+// soft-delete cascade soft-deletes its live workloads and hard-deletes
+// pods, services, ingresses, and PVCs that are out-of-scope for
+// time-travel history (ADR-0021 §IMP-007).
+//
+//nolint:gocyclo // test-fixture sequence
 func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -3619,11 +3737,28 @@ func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workload: %v", err)
 	}
+	pod, err := pg.CreatePod(ctx, api.PodCreate{NamespaceId: *ns.Id, Name: "web-0"})
+	if err != nil {
+		t.Fatalf("pod: %v", err)
+	}
+	svc, err := pg.CreateService(ctx, api.ServiceCreate{NamespaceId: *ns.Id, Name: "web"})
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	ing, err := pg.CreateIngress(ctx, api.IngressCreate{NamespaceId: *ns.Id, Name: "web"})
+	if err != nil {
+		t.Fatalf("ingress: %v", err)
+	}
+	pvc, err := pg.CreatePersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{NamespaceId: *ns.Id, Name: "pvc-a"})
+	if err != nil {
+		t.Fatalf("pvc: %v", err)
+	}
 
 	if err := pg.SoftDeleteNamespace(ctx, *ns.Id); err != nil {
 		t.Fatalf("SoftDeleteNamespace: %v", err)
 	}
 
+	// Namespace + its workloads are soft-deleted.
 	var nsTerm, wlTerm bool
 	if err := pg.pool.QueryRow(ctx,
 		`SELECT terminated_at IS NOT NULL FROM namespaces WHERE id=$1`, *ns.Id).Scan(&nsTerm); err != nil {
@@ -3636,6 +3771,23 @@ func TestPGSoftDeleteNamespace_CascadesToWorkloads(t *testing.T) {
 	if !nsTerm || !wlTerm {
 		t.Fatalf("cascade missed: ns=%v wl=%v", nsTerm, wlTerm)
 	}
+
+	// Pods / services / ingresses / PVCs are hard-deleted.
+	assertGone := func(table string, id uuid.UUID) {
+		t.Helper()
+		var exists bool
+		q := fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE id=$1)`, table)
+		if err := pg.pool.QueryRow(ctx, q, id).Scan(&exists); err != nil {
+			t.Fatalf("scan %s: %v", table, err)
+		}
+		if exists {
+			t.Errorf("%s row %s should have been hard-deleted by namespace cascade", table, id)
+		}
+	}
+	assertGone("pods", *pod.Id)
+	assertGone("services", *svc.Id)
+	assertGone("ingresses", *ing.Id)
+	assertGone("persistent_volume_claims", *pvc.Id)
 
 	if err := pg.SoftDeleteNamespace(ctx, uuid.New()); !errors.Is(err, api.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for unknown id, got %v", err)
