@@ -6,6 +6,21 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.23.0](https://github.com/sthalbert/Longue-Vue/compare/v0.22.0...v0.23.0) (2026-05-19)
+
+
+### Features
+
+* **store:** backfill cluster/namespace soft-delete orphans (00042) ([5b4dfa5](https://github.com/sthalbert/Longue-Vue/commit/5b4dfa57eeff9446ece86758272209992217823b))
+
+
+### Bug Fixes
+
+* **store:** auto-restore soft-deleted clusters on ensure ([2fc86f3](https://github.com/sthalbert/Longue-Vue/commit/2fc86f33229ac13443ef61f6be90e22421686975))
+* **store:** cascade-delete cluster children + auto-restore in EnsureCluster ([b87dad9](https://github.com/sthalbert/Longue-Vue/commit/b87dad90ba7d7e21a5e489e50f2cedaf74c53351))
+* **store:** hard-delete pod/svc/ing/pv/pvc orphans on cluster soft-delete ([4746584](https://github.com/sthalbert/Longue-Vue/commit/47465845b29f91f6c01b28796160899dfe8c0f4c))
+* **store:** hard-delete pod/svc/ing/pvc orphans on namespace soft-delete ([baab4fd](https://github.com/sthalbert/Longue-Vue/commit/baab4fdbdca8b92e5ba3cede6dc00b7b9a457207))
+
 ## [0.22.0](https://github.com/sthalbert/Longue-Vue/compare/v0.21.0...v0.22.0) (2026-05-16)
 
 
