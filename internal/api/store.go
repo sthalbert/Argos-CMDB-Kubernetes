@@ -68,15 +68,22 @@ type Store interface {
 	// Ping verifies that the underlying database is reachable.
 	Ping(ctx context.Context) error
 
-	// EnsureCluster inserts a cluster if no row with the same name exists, or
-	// returns the existing row unchanged when one does. The created flag is
-	// true when a new row was inserted, false when an existing row was
-	// returned. The request body is ignored on hit — callers wanting to
-	// update fields on an existing cluster must follow up with UpdateCluster.
+	// EnsureCluster reconciles a cluster row keyed by name with one of three
+	// outcomes:
+	//   - CREATE: no row exists, a new one is inserted and created=true.
+	//   - NO-OP: a live row exists, it is returned unchanged with created=false.
+	//   - RESTORE: a soft-deleted row exists (terminated_at IS NOT NULL); its
+	//     terminated_at is cleared, a change_type='restore' history row is
+	//     written, and created=false is returned.
+	//
+	// The request body is otherwise ignored on hit — callers wanting to update
+	// fields on an existing cluster must follow up with UpdateCluster.
 	//
 	// EnsureCluster never returns ErrConflict; concurrent inserts of the same
 	// name are serialised at the database via INSERT ... ON CONFLICT DO
-	// NOTHING, falling back to a SELECT for the losing writer.
+	// NOTHING, falling back to a SELECT for the losing writer. Lightweight
+	// in-memory implementations that do not track terminated_at may safely
+	// skip the RESTORE branch and treat any existing row as NO-OP.
 	EnsureCluster(ctx context.Context, in ClusterCreate) (cluster Cluster, created bool, err error)
 
 	// GetCluster fetches a cluster by id. Returns ErrNotFound if absent.
