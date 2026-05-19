@@ -446,11 +446,12 @@ func (p *PG) DeleteCluster(ctx context.Context, id uuid.UUID) error {
 // SoftDeleteCluster marks the cluster and all its live children
 // (namespaces, nodes, workloads) as terminated in a single transaction.
 // Mirrors ADR-0021 §IMP-007. Children that are already terminated are
-// skipped via the AND terminated_at IS NULL guard. Pods, services,
-// ingresses, PVs, and PVCs are unaffected here — they continue to be
-// reaped by the FK ON DELETE CASCADE chain only when the cluster is
-// hard-deleted; under soft-delete they remain attached to the (now
-// soft-deleted) parent. Phase 2 reconsiders pod-level reconciliation.
+// skipped via the AND terminated_at IS NULL guard.
+//
+// Pods, services, ingresses, PVCs (per namespace) and PVs (per cluster)
+// are out-of-scope for time-travel history (ADR-0021 §IMP-007) and are
+// HARD-DELETED here. Without this step they would remain in the DB
+// attached to a terminated parent and still be queryable.
 //
 //nolint:gocyclo // cascade + history capture per entity-kind add branches; acceptable here
 func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
@@ -474,6 +475,34 @@ func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
 	nodeIDs, err := liveNodeIDsForCluster(ctx, tx, id)
 	if err != nil {
 		return fmt.Errorf("list nodes for soft-delete cluster: %w", err)
+	}
+
+	// Hard-delete the unhistoried children first. These tables have ON
+	// DELETE CASCADE from cluster/namespace, but FK CASCADE only fires
+	// on hard-delete; since we soft-delete the parent it never fires.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM pods
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+		return fmt.Errorf("cascade-delete pods: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM services
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+		return fmt.Errorf("cascade-delete services: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM ingresses
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+		return fmt.Errorf("cascade-delete ingresses: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM persistent_volume_claims
+		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+		return fmt.Errorf("cascade-delete persistent_volume_claims: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM persistent_volumes WHERE cluster_id = $1`, id); err != nil {
+		return fmt.Errorf("cascade-delete persistent_volumes: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx,
