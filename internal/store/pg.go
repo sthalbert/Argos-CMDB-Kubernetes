@@ -123,15 +123,22 @@ func (r scanRowWith) Scan(dest ...any) error {
 	return nil
 }
 
-// EnsureCluster inserts a cluster row when no row with the same name exists,
-// or returns the existing row unchanged when one does. The returned bool is
-// true when a new row was inserted, false when an existing row was returned.
+// EnsureCluster is idempotent on the cluster name. It has three branches:
 //
-// Concurrent inserts of the same name are resolved by INSERT ... ON CONFLICT
-// (name) DO NOTHING: the winner inserts and gets RETURNING rows, the losing
-// writer falls back to a SELECT for the existing row.
+//   - RESTORE — a terminated row already exists. Clear terminated_at,
+//     write a `restore` history row, return the existing row. Mirrors
+//     the auto-restore behaviour of UpsertNamespace/Node/Workload so a
+//     collector that keeps pushing after a soft-delete resurrects the
+//     cluster instead of being silently ignored (Fix 2 in the spec at
+//     docs/superpowers/specs/2026-05-18-cluster-cascade-delete-design.md).
+//   - NO-OP — a live row already exists. Return it unchanged. No history.
+//   - CREATE — no row exists. INSERT and capture create history.
 //
-//nolint:gocritic // hugeParam: Store interface requires value param
+// The returned bool is true only on CREATE. Concurrent inserts of the
+// same name are resolved by INSERT … ON CONFLICT (name) DO NOTHING:
+// the loser falls through to a re-fetch (still false).
+//
+//nolint:gocyclo,gocritic // branch-heavy idempotent insert; hugeParam: Store interface
 func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Cluster, bool, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -142,11 +149,59 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 	}
 	annotationsJSON, err := marshalLabels(in.Annotations)
 	if err != nil {
-		// marshalLabels' own message says "marshal labels"; rewrap so
-		// the operator-facing error points at annotations instead.
 		return api.Cluster{}, false, fmt.Errorf("marshal cluster annotations: %w", err)
 	}
 
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return api.Cluster{}, false, fmt.Errorf("begin ensure cluster: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	actor := timetravel.ActorFromContext(ctx)
+
+	// Snapshot any existing row by name so we can pick a branch.
+	var prevID *uuid.UUID
+	var prevTerminatedAt *time.Time
+	_ = tx.QueryRow(ctx,
+		`SELECT id, terminated_at FROM clusters WHERE name=$1`,
+		in.Name,
+	).Scan(&prevID, &prevTerminatedAt)
+
+	// Branch RESTORE: terminated row exists → clear terminated_at + history.
+	if prevID != nil && prevTerminatedAt != nil {
+		if _, err := tx.Exec(ctx,
+			`UPDATE clusters SET terminated_at = NULL, updated_at = $1 WHERE id = $2`,
+			now, *prevID); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("restore cluster: %w", err)
+		}
+		if snap, err := clusterRowMapNoLock(ctx, tx, *prevID); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, *prevID, nil, snap, changeTypeRestore, actor)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (restore): %w", err)
+		}
+		restored, getErr := p.GetClusterByName(ctx, in.Name)
+		if getErr != nil {
+			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch restored: %w", in.Name, getErr)
+		}
+		return restored, false, nil
+	}
+
+	// Branch NO-OP: live row exists → return as-is.
+	if prevID != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (existing): %w", err)
+		}
+		existing, getErr := p.GetClusterByName(ctx, in.Name)
+		if getErr != nil {
+			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch existing: %w", in.Name, getErr)
+		}
+		return existing, false, nil
+	}
+
+	// Branch CREATE: insert. Use ON CONFLICT DO NOTHING to absorb a race
+	// where two transactions reach this point with the same name.
 	const q = `
 		INSERT INTO clusters (
 			id, name, display_name, environment, provider, region,
@@ -157,13 +212,6 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 		ON CONFLICT (name) DO NOTHING
 		RETURNING id
 	`
-
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.Cluster{}, false, fmt.Errorf("begin ensure cluster: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	var insertedID uuid.UUID
 	scanErr := tx.QueryRow(ctx, q,
 		id, in.Name, in.DisplayName, in.Environment, in.Provider, in.Region,
@@ -173,10 +221,7 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 	).Scan(&insertedID)
 	switch {
 	case scanErr == nil:
-		// New row was inserted. Capture create history.
-		snap, snapErr := clusterRowMapNoLock(ctx, tx, insertedID)
-		if snapErr == nil {
-			actor := timetravel.ActorFromContext(ctx)
+		if snap, err := clusterRowMapNoLock(ctx, tx, insertedID); err == nil {
 			_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, insertedID, nil, snap, changeTypeCreate, actor)
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -201,13 +246,14 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 			UpdatedAt:         &now,
 		}, true, nil
 	case errors.Is(scanErr, pgx.ErrNoRows):
-		// ON CONFLICT DO NOTHING — row already exists. Commit (no-op tx) and read it back.
+		// Race: a concurrent tx inserted between our pre-snapshot and INSERT.
+		// Commit (the tx has no effect) and re-fetch.
 		if err := tx.Commit(ctx); err != nil {
-			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (existing): %w", err)
+			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (race): %w", err)
 		}
 		existing, getErr := p.GetClusterByName(ctx, in.Name)
 		if getErr != nil {
-			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch existing: %w", in.Name, getErr)
+			return api.Cluster{}, false, fmt.Errorf("ensure cluster %q: fetch existing after race: %w", in.Name, getErr)
 		}
 		return existing, false, nil
 	default:

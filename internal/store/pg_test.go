@@ -553,6 +553,82 @@ func TestPGUpsertNode_ResurrectsTerminated(t *testing.T) {
 	}
 }
 
+// TestPGEnsureCluster_ResurrectsTerminated verifies the design in
+// docs/superpowers/specs/2026-05-18-cluster-cascade-delete-design.md
+// (Fix 2): when a still-pushing collector calls EnsureCluster on a
+// soft-deleted cluster, the row is restored (terminated_at cleared)
+// and the existing id is preserved. A `restore` history row is captured.
+func TestPGEnsureCluster_ResurrectsTerminated(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	first, created, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-cluster"})
+	if err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	if !created {
+		t.Fatalf("first ensure should report created=true")
+	}
+
+	if err := pg.SoftDeleteCluster(ctx, *first.Id); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	var terminated *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM clusters WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at: %v", err)
+	}
+	if terminated == nil {
+		t.Fatalf("terminated_at should be non-NULL after soft-delete")
+	}
+
+	resurrected, created, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-cluster"})
+	if err != nil {
+		t.Fatalf("resurrect ensure: %v", err)
+	}
+	if created {
+		t.Errorf("resurrect ensure must report created=false (id %s preserved)", *first.Id)
+	}
+	if *resurrected.Id != *first.Id {
+		t.Errorf("id changed across resurrect: first=%s now=%s", *first.Id, *resurrected.Id)
+	}
+
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM clusters WHERE id=$1", *first.Id).Scan(&terminated); err != nil {
+		t.Fatalf("scan terminated_at post-ensure: %v", err)
+	}
+	if terminated != nil {
+		t.Fatalf("terminated_at=%v want NULL after resurrection", terminated)
+	}
+
+	// A restore history row must have been captured (ADR-0021 §5).
+	var restoreCount int
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM clusters_history WHERE entity_id=$1 AND change_type='restore'`,
+		*first.Id).Scan(&restoreCount); err != nil {
+		t.Fatalf("scan clusters_history: %v", err)
+	}
+	if restoreCount != 1 {
+		t.Errorf("expected exactly 1 restore history row, got %d", restoreCount)
+	}
+
+	// And a third ensure on a live row is a true no-op (no extra history).
+	if _, created, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "resurrect-cluster"}); err != nil {
+		t.Fatalf("third ensure: %v", err)
+	} else if created {
+		t.Errorf("third ensure on live row should report created=false")
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM clusters_history WHERE entity_id=$1 AND change_type='restore'`,
+		*first.Id).Scan(&restoreCount); err != nil {
+		t.Fatalf("re-scan clusters_history: %v", err)
+	}
+	if restoreCount != 1 {
+		t.Errorf("no-op ensure must not write another restore row, got %d", restoreCount)
+	}
+}
+
 // TestPGUpsertNamespace_ResurrectsTerminated mirrors the node test for
 // namespaces.
 func TestPGUpsertNamespace_ResurrectsTerminated(t *testing.T) {
