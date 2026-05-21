@@ -503,6 +503,12 @@ func buildHTTPServer(
 		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleCreateCloudAccountToken(pg)))),
 	)
 
+	// Image-registry mirror credentials reveal (admin, audit-logged).
+	mux.Handle(
+		"GET /v1/admin/image-versions/registries/{hostname}/{path_prefix}/credentials",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleGetImageRegistryCredentials(pg)))),
+	)
+
 	// Collector-side cloud-accounts (vm-collector scope).
 	mux.Handle("POST /v1/cloud-accounts", requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleCollectorRegisterCloudAccount(pg)))))
 	mux.Handle(
