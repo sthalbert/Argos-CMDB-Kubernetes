@@ -20,6 +20,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/secrets"
 	"github.com/sthalbert/longue-vue/internal/timetravel"
 	"github.com/sthalbert/longue-vue/migrations"
 )
@@ -39,7 +40,21 @@ const (
 type PG struct {
 	pool          *pgxpool.Pool
 	revokedTokens chan string
+	encrypter     *secrets.Encrypter
 }
+
+// SetEncrypter wires the AES-GCM encrypter used by encrypted-secret tables
+// (currently image_versions_registries auth tokens). Optional — methods
+// that require it return an explicit error when it is unset.
+func (p *PG) SetEncrypter(enc *secrets.Encrypter) {
+	p.encrypter = enc
+}
+
+// Encrypter returns the wired encrypter, or nil. Test-only helper.
+func (p *PG) Encrypter() *secrets.Encrypter { return p.encrypter }
+
+// Pool returns the underlying pool. Test-only helper.
+func (p *PG) Pool() *pgxpool.Pool { return p.pool }
 
 // Open connects to PostgreSQL via the given DSN and verifies the connection.
 func Open(ctx context.Context, dsn string) (*PG, error) {

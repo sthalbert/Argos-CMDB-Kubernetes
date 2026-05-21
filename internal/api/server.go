@@ -1681,7 +1681,7 @@ func (s *Server) CreateImageRegistry(ctx context.Context, req CreateImageRegistr
 
 // PatchImageRegistry applies a merge-patch to an existing registry row.
 func (s *Server) PatchImageRegistry(ctx context.Context, req PatchImageRegistryRequestObject) (PatchImageRegistryResponseObject, error) {
-	out, err := s.store.UpdateImageRegistry(ctx, req.Hostname, *req.Body)
+	out, err := s.store.UpdateImageRegistry(ctx, req.Hostname, "", *req.Body)
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return PatchImageRegistry404ApplicationProblemPlusJSONResponse{
@@ -1695,7 +1695,7 @@ func (s *Server) PatchImageRegistry(ctx context.Context, req PatchImageRegistryR
 
 // DeleteImageRegistry removes a registry from the allowlist.
 func (s *Server) DeleteImageRegistry(ctx context.Context, req DeleteImageRegistryRequestObject) (DeleteImageRegistryResponseObject, error) {
-	err := s.store.DeleteImageRegistry(ctx, req.Hostname)
+	err := s.store.DeleteImageRegistry(ctx, req.Hostname, "")
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return DeleteImageRegistry404ApplicationProblemPlusJSONResponse{

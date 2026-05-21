@@ -624,7 +624,7 @@ func (m *memStore) ListImageRegistries(_ context.Context) ([]ImageRegistry, erro
 	return out, nil
 }
 
-func (m *memStore) GetImageRegistry(_ context.Context, hostname string) (ImageRegistry, error) {
+func (m *memStore) GetImageRegistry(_ context.Context, hostname, _ string) (ImageRegistry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.registries[hostname]
@@ -632,6 +632,14 @@ func (m *memStore) GetImageRegistry(_ context.Context, hostname string) (ImageRe
 		return ImageRegistry{}, ErrNotFound
 	}
 	return r, nil
+}
+
+func (m *memStore) FindMirrorForRef(_ context.Context, _, _ string) (ImageRegistry, error) {
+	return ImageRegistry{}, ErrNotFound
+}
+
+func (m *memStore) GetMirrorAuthToken(_ context.Context, _, _ string) (string, error) {
+	return "", nil
 }
 
 func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert) (ImageRegistry, error) {
@@ -657,7 +665,7 @@ func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert
 	return r, nil
 }
 
-func (m *memStore) UpdateImageRegistry(_ context.Context, hostname string, p ImageRegistryPatch) (ImageRegistry, error) {
+func (m *memStore) UpdateImageRegistry(_ context.Context, hostname, _ string, p ImageRegistryPatch) (ImageRegistry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.registries[hostname]
@@ -678,7 +686,7 @@ func (m *memStore) UpdateImageRegistry(_ context.Context, hostname string, p Ima
 	return r, nil
 }
 
-func (m *memStore) DeleteImageRegistry(_ context.Context, hostname string) error {
+func (m *memStore) DeleteImageRegistry(_ context.Context, hostname, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.registries[hostname]; !ok {
