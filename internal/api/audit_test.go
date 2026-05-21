@@ -103,7 +103,7 @@ const redactedValue = "[redacted]"
 
 func TestScrubSecrets(t *testing.T) {
 	t.Parallel()
-	body := []byte(`{"username":"alice","password":"hunter2","new_password":"xyz","keep":"ok"}`)
+	body := []byte(`{"username":"alice","password":"hunter2","new_password":"xyz","auth_token":"robot$pat","keep":"ok"}`)
 	out := scrubSecrets(body)
 	m, ok := out.(map[string]any)
 	if !ok {
@@ -114,6 +114,10 @@ func TestScrubSecrets(t *testing.T) {
 	}
 	if m["new_password"] != redactedValue {
 		t.Errorf("new_password not redacted: %v", m["new_password"])
+	}
+	// ADR-0026: mirror robot-account token posted on image-registry CRUD.
+	if m["auth_token"] != redactedValue {
+		t.Errorf("auth_token not redacted: %v", m["auth_token"])
 	}
 	if m["username"] != "alice" {
 		t.Errorf("username mangled: %v", m["username"])
