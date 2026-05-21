@@ -6,6 +6,29 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.24.0](https://github.com/sthalbert/Longue-Vue/compare/v0.23.0...v0.24.0) (2026-05-21)
+
+
+### Features
+
+* **api:** composite key + credentials endpoint for image registries ([6054224](https://github.com/sthalbert/Longue-Vue/commit/6054224bbcb6543c6e92884d434afc80f2fdf399))
+* **api:** mirror fields on image registry types ([e0c1469](https://github.com/sthalbert/Longue-Vue/commit/e0c14696403274d63b6b1eb9419ced76c32c5d80))
+* **imageversions:** integrate mirror resolver into enricher ([ce9cbf4](https://github.com/sthalbert/Longue-Vue/commit/ce9cbf4b27c2f21f2bfd0d7974a3fb98cbeb4365))
+* **imageversions:** mirrorresolve package skeleton ([8dae4c3](https://github.com/sthalbert/Longue-Vue/commit/8dae4c3526b42757c69d0f4fb24826725ae8d003))
+* **imageversions:** wire mirror resolver in main ([1d7fbb2](https://github.com/sthalbert/Longue-Vue/commit/1d7fbb2c89de9b389011def423012892bde71fe0))
+* mirror image source resolution ([2a31511](https://github.com/sthalbert/Longue-Vue/commit/2a315115eb43dbb221e394bc2eb51837fae8b75b))
+* **mirrorresolve:** oci manifest-based origin resolver ([6ef51f7](https://github.com/sthalbert/Longue-Vue/commit/6ef51f73d0b27e7c526f9e356499b7af6d2c3923))
+* **store:** composite key + mirror lookup for image registries ([97498ba](https://github.com/sthalbert/Longue-Vue/commit/97498bafd6efc7fe697d55bae34a7237f785e679))
+* **store:** migration 00043 — mirror image registries ([cb89c7b](https://github.com/sthalbert/Longue-Vue/commit/cb89c7bb0ac27b3093573ac5609296a975deb7fa))
+* **ui:** mirror registry support on admin page ([d916f16](https://github.com/sthalbert/Longue-Vue/commit/d916f16bc6fadf79558f65b4534ced67be79fa8a))
+
+
+### Bug Fixes
+
+* **api,imageversions:** close review gaps on mirror resolver ([f97cc96](https://github.com/sthalbert/Longue-Vue/commit/f97cc965976a888f2b9fde3be29e7f0971a08bb3))
+* **api:** wire mirror credentials route, tighten upsert spec, regen ([2705c86](https://github.com/sthalbert/Longue-Vue/commit/2705c86138f569bac8737d3c6a18f592f0dab46a))
+* **main:** remove duplicate mirror credentials route mount ([35be135](https://github.com/sthalbert/Longue-Vue/commit/35be135d078f33d2846d2a816dc4966fea066643))
+
 ## [0.23.0](https://github.com/sthalbert/Longue-Vue/compare/v0.22.0...v0.23.0) (2026-05-19)
 
 
