@@ -1,6 +1,12 @@
 package imageversions
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/sthalbert/longue-vue/internal/imageversions/mirrorresolve"
+)
 
 // Metrics bundles the Prometheus collectors for the image versions enricher.
 // Constructed once at startup and passed into the enricher and the registry client.
@@ -13,6 +19,8 @@ type Metrics struct {
 	WithErrorTotal         prometheus.Gauge
 	LastTickTimestamp      prometheus.Gauge
 	RegistriesEnabledTotal prometheus.Gauge
+	MirrorResolveTotal     *prometheus.CounterVec
+	MirrorResolveDuration  prometheus.Histogram
 }
 
 // NewMetrics constructs and registers the metric collectors.
@@ -53,13 +61,41 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		RegistriesEnabledTotal: prometheus.NewGauge(
 			prometheus.GaugeOpts{Name: "imageversions_registries_enabled", Help: "Count of enabled rows in image_versions_registries."},
 		),
+		MirrorResolveTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{Name: "imageversions_mirror_resolve_total", Help: "Mirror-resolve attempts by result."},
+			[]string{"result"},
+		),
+		MirrorResolveDuration: prometheus.NewHistogram(
+			prometheus.HistogramOpts{
+				Name:    "imageversions_mirror_resolve_duration_seconds",
+				Help:    "Mirror-resolve wall time in seconds.",
+				Buckets: prometheus.DefBuckets,
+			},
+		),
 	}
 	reg.MustRegister(
 		m.TickTotal, m.TickDuration, m.QueryTotal, m.QueryDuration,
 		m.KnownTotal, m.WithErrorTotal, m.LastTickTimestamp, m.RegistriesEnabledTotal,
+		m.MirrorResolveTotal, m.MirrorResolveDuration,
 	)
 	return m
 }
+
+// observerAdapter bridges mirrorresolve.Observer to *Metrics.
+type observerAdapter struct{ m *Metrics }
+
+// ObserveResolve implements mirrorresolve.Observer.
+func (o observerAdapter) ObserveResolve(result string, d time.Duration) {
+	if o.m == nil {
+		return
+	}
+	o.m.MirrorResolveTotal.WithLabelValues(result).Inc()
+	o.m.MirrorResolveDuration.Observe(d.Seconds())
+}
+
+// NewObserver returns a mirrorresolve.Observer that records into m. Safe
+// with a nil *Metrics (the resulting Observer is a no-op).
+func NewObserver(m *Metrics) mirrorresolve.Observer { return observerAdapter{m: m} }
 
 // ObserveQuery is the implementation of the registry.QueryObserver interface.
 func (m *Metrics) ObserveQuery(registryHost, status string, durationSeconds float64) {

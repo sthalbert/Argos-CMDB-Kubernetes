@@ -13,6 +13,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/imageversions/mirrorresolve"
 	"github.com/sthalbert/longue-vue/internal/imageversions/registry"
 )
 
@@ -23,6 +24,7 @@ const sourceRegistry = "registry"
 type Enricher struct {
 	store    Store
 	lister   TagsLister
+	resolver mirrorresolve.Resolver
 	interval time.Duration
 	metrics  *Metrics
 
@@ -49,6 +51,19 @@ func NewEnricherWithMetrics(s Store, lister TagsLister, interval time.Duration, 
 	return &Enricher{
 		store:     s,
 		lister:    lister,
+		interval:  interval,
+		metrics:   m,
+		triggerCh: make(chan struct{}, 1),
+	}
+}
+
+// NewEnricherWithResolver constructs an Enricher with a mirror resolver and
+// optional metrics. The resolver may be nil (passthrough).
+func NewEnricherWithResolver(s Store, lister TagsLister, resolver mirrorresolve.Resolver, interval time.Duration, m *Metrics) *Enricher {
+	return &Enricher{
+		store:     s,
+		lister:    lister,
+		resolver:  resolver,
 		interval:  interval,
 		metrics:   m,
 		triggerCh: make(chan struct{}, 1),
@@ -123,7 +138,7 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		slog.Warn("imageversions: distinct refs failed", slog.String("err", err.Error()))
 		return
 	}
-	discovered, repoRegistry := discoverWork(refs, enabledRegs)
+	discovered, repoRegistry := e.discoverWork(ctx, refs, enabledRegs)
 
 	processed := e.dispatchWorkers(ctx, discovered, repoRegistry, enabledRegs)
 
@@ -185,14 +200,31 @@ func (e *Enricher) loadEnabledRegistries(ctx context.Context) ([]api.ImageRegist
 // discoverWork parses raw image refs, matches each against the allowlist,
 // and groups them by (image_repo, variant). Returns the per-repo variant set
 // and the per-repo matched registry hostname.
-func discoverWork(refs []string, enabledRegs []api.ImageRegistry) (
+func (e *Enricher) discoverWork(ctx context.Context, refs []string, enabledRegs []api.ImageRegistry) (
 	discovered map[string]map[string]struct{},
 	repoRegistry map[string]string,
 ) {
 	discovered = map[string]map[string]struct{}{}
 	repoRegistry = map[string]string{}
 	for _, raw := range refs {
-		ref, err := ParseImageRef(raw)
+		resolved := raw
+		if e.resolver != nil {
+			r, err := e.resolver.Resolve(ctx, raw)
+			switch {
+			case errors.Is(err, mirrorresolve.ErrNoOriginAnnotation),
+				errors.Is(err, mirrorresolve.ErrAmbiguousAnnotation):
+				slog.Debug("imageversions: skip mirror ref",
+					slog.String("ref", raw), slog.String("reason", err.Error()))
+				continue
+			case err != nil:
+				slog.Warn("imageversions: mirror resolve error",
+					slog.String("ref", raw), slog.String("err", err.Error()))
+				continue
+			default:
+				resolved = r
+			}
+		}
+		ref, err := ParseImageRef(resolved)
 		if err != nil {
 			slog.Debug("imageversions: skip ref", slog.String("ref", raw), slog.String("reason", err.Error()))
 			continue

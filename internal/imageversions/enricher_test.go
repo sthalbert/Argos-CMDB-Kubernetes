@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/imageversions/mirrorresolve"
 )
+
+func mirrorresolveErrNoOriginAnnotation() error { return mirrorresolve.ErrNoOriginAnnotation }
 
 type fakeStore struct {
 	mu         sync.Mutex
@@ -53,6 +56,14 @@ func (s *fakeStore) DeleteImageVersionsNotIn(_ context.Context, keep [][2]string
 	defer s.mu.Unlock()
 	s.reaped = append(s.reaped, keep)
 	return 0, nil
+}
+
+func (s *fakeStore) FindMirrorForRef(_ context.Context, _, _ string) (api.ImageRegistry, error) {
+	return api.ImageRegistry{}, api.ErrNotFound
+}
+
+func (s *fakeStore) GetMirrorAuthToken(_ context.Context, _, _ string) (string, error) {
+	return "", nil
 }
 
 type fakeLister struct {
@@ -184,5 +195,65 @@ func TestEnricher_AnnotationShape(t *testing.T) {
 	}
 	if m["latest_available"] != testLatest {
 		t.Errorf("expected latest_available, got %v", m)
+	}
+}
+
+// fakeResolver covers the mirror-resolver injection path.
+type fakeResolver struct {
+	rewrite map[string]string
+	skip    map[string]error
+}
+
+func (f fakeResolver) Resolve(_ context.Context, ref string) (string, error) {
+	if err, ok := f.skip[ref]; ok {
+		return "", err
+	}
+	if v, ok := f.rewrite[ref]; ok {
+		return v, nil
+	}
+	return ref, nil
+}
+
+func TestEnricher_MirrorResolver_RewritesRef(t *testing.T) {
+	s := &fakeStore{
+		settings: api.Settings{ImageVersionsEnabled: true},
+		registries: []api.ImageRegistry{
+			{Hostname: "docker.io", Enabled: true, RateLimitPerSec: 5},
+		},
+		refs: []string{"ma-registry.io/container/library/nginx:1.25"},
+	}
+	lister := &fakeLister{byRepo: map[string][]string{
+		"library/nginx": {"1.25", "1.26"},
+	}}
+	resolver := fakeResolver{rewrite: map[string]string{
+		"ma-registry.io/container/library/nginx:1.25": "docker.io/library/nginx:1.25",
+	}}
+	e := NewEnricherWithResolver(s, lister, resolver, time.Hour, nil)
+	e.RunTick(context.Background())
+
+	if len(s.upserted) != 1 {
+		t.Fatalf("expected 1 upsert, got %d", len(s.upserted))
+	}
+	if s.upserted[0].Registry != "docker.io" {
+		t.Fatalf("expected resolved registry docker.io, got %q", s.upserted[0].Registry)
+	}
+}
+
+func TestEnricher_MirrorResolver_SkipsUnresolved(t *testing.T) {
+	s := &fakeStore{
+		settings: api.Settings{ImageVersionsEnabled: true},
+		registries: []api.ImageRegistry{
+			{Hostname: "docker.io", Enabled: true, RateLimitPerSec: 5},
+		},
+		refs: []string{"ma-registry.io/container/library/nginx:1.25"},
+	}
+	resolver := fakeResolver{skip: map[string]error{
+		"ma-registry.io/container/library/nginx:1.25": mirrorresolveErrNoOriginAnnotation(),
+	}}
+	e := NewEnricherWithResolver(s, &fakeLister{}, resolver, time.Hour, nil)
+	e.RunTick(context.Background())
+
+	if len(s.upserted) != 0 {
+		t.Fatalf("expected zero upserts when resolver skips, got %d", len(s.upserted))
 	}
 }
