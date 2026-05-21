@@ -31,9 +31,11 @@ type mirrorIntegrationStore struct {
 func (s *mirrorIntegrationStore) GetSettings(_ context.Context) (api.Settings, error) {
 	return s.settings, nil
 }
+
 func (s *mirrorIntegrationStore) ListImageRegistries(_ context.Context) ([]api.ImageRegistry, error) {
 	return s.regs, nil
 }
+
 func (s *mirrorIntegrationStore) DistinctImageRefs(_ context.Context) ([]string, error) {
 	return s.refs, nil
 }
@@ -45,15 +47,18 @@ func (s *mirrorIntegrationStore) UpsertImageVersion(_ context.Context, in api.Im
 	s.upserted = append(s.upserted, in)
 	return api.ImageVersionRow{ImageRepo: in.ImageRepo, Variant: in.Variant}, nil
 }
+
 func (s *mirrorIntegrationStore) DeleteImageVersionsNotIn(_ context.Context, _ [][2]string) (int64, error) {
 	return 0, nil
 }
+
 func (s *mirrorIntegrationStore) FindMirrorForRef(_ context.Context, hostname, _ string) (api.ImageRegistry, error) {
 	if hostname == s.mirror.Hostname {
 		return s.mirror, nil
 	}
 	return api.ImageRegistry{}, api.ErrNotFound
 }
+
 func (s *mirrorIntegrationStore) GetMirrorAuthToken(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }

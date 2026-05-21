@@ -36,27 +36,33 @@ func TestHTTPResolver_Resolve(t *testing.T) {
 	}{
 		{
 			name: "base.name preferred",
-			manifest: manifestFixture{SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
+			manifest: manifestFixture{
+				SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
 				Annotations: map[string]string{
 					"org.opencontainers.image.base.name": "docker.io/library/debian:bookworm",
 					"org.opencontainers.image.source":    "https://github.com/x/y",
-				}},
+				},
+			},
 			wantOrigin: "docker.io/library/debian:1.25",
 		},
 		{
 			name: "source as registry ref",
-			manifest: manifestFixture{SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
+			manifest: manifestFixture{
+				SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
 				Annotations: map[string]string{
 					"org.opencontainers.image.source": "docker.io/library/nginx",
-				}},
+				},
+			},
 			wantOrigin: "docker.io/library/nginx:1.25",
 		},
 		{
 			name: "source as github URL -> ambiguous",
-			manifest: manifestFixture{SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
+			manifest: manifestFixture{
+				SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
 				Annotations: map[string]string{
 					"org.opencontainers.image.source": "https://github.com/x/y",
-				}},
+				},
+			},
 			wantErr: ErrAmbiguousAnnotation,
 		},
 		{
@@ -125,7 +131,7 @@ func TestHTTPResolver_AuthError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var auth *httpAuthErr
+	var auth *httpAuthError
 	if !errors.As(err, &auth) {
 		t.Fatalf("not auth error: %v", err)
 	}

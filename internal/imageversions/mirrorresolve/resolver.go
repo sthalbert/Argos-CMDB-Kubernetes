@@ -19,6 +19,12 @@ var (
 	// ErrAmbiguousAnnotation indicates the annotation exists but is not a
 	// parseable registry reference (e.g. a GitHub source URL).
 	ErrAmbiguousAnnotation = errors.New("mirrorresolve: annotation not a registry ref")
+	// ErrInvalidRef indicates an unparseable image reference.
+	ErrInvalidRef = errors.New("mirrorresolve: invalid ref")
+	// ErrFetchManifest indicates a non-2xx response fetching a manifest.
+	ErrFetchManifest = errors.New("mirrorresolve: fetch manifest")
+	// ErrFetchConfig indicates a non-2xx response fetching a config blob.
+	ErrFetchConfig = errors.New("mirrorresolve: fetch config")
 )
 
 const (
@@ -86,12 +92,12 @@ type imageConfig struct {
 	} `json:"config"`
 }
 
-type httpAuthErr struct{ status int }
+type httpAuthError struct{ status int }
 
-func (e *httpAuthErr) Error() string { return fmt.Sprintf("auth error: HTTP %d", e.status) }
+func (e *httpAuthError) Error() string { return fmt.Sprintf("auth error: HTTP %d", e.status) }
 
 func isAuthErr(err error) bool {
-	var a *httpAuthErr
+	var a *httpAuthError
 	return errors.As(err, &a)
 }
 
@@ -135,7 +141,7 @@ func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) 
 	row, ok, err := h.Lookup.FindMirror(ctx, hostname, imagePath)
 	if err != nil {
 		h.observe("lookup_error", started)
-		return "", err
+		return "", fmt.Errorf("mirror lookup: %w", err)
 	}
 	if !ok {
 		h.observe("passthrough", started)
@@ -232,7 +238,7 @@ func looksLikeRegistryRef(v string) bool {
 func splitRef(ref string) (hostname, imagePath, tag string, err error) {
 	slash := strings.Index(ref, "/")
 	if slash < 0 {
-		return "", "", "", fmt.Errorf("mirrorresolve: invalid ref %q", ref)
+		return "", "", "", fmt.Errorf("%w: %q", ErrInvalidRef, ref)
 	}
 	hostname = ref[:slash]
 	rest := ref[slash+1:]
@@ -257,9 +263,9 @@ func (h *HTTPResolver) fetchManifest(ctx context.Context, row MirrorRow, imagePa
 		tag = "latest"
 	}
 	url := h.scheme() + "://" + row.Hostname + "/v2/" + imagePath + "/manifests/" + tag
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build manifest request: %w", err)
 	}
 	req.Header.Set("Accept", manifestAccept)
 	if err := h.applyAuth(ctx, req, row); err != nil {
@@ -271,11 +277,11 @@ func (h *HTTPResolver) fetchManifest(ctx context.Context, row MirrorRow, imagePa
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, &httpAuthErr{status: resp.StatusCode}
+		return nil, &httpAuthError{status: resp.StatusCode}
 	}
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, fmt.Errorf("fetch manifest: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w: HTTP %d", ErrFetchManifest, resp.StatusCode)
 	}
 	var m ociManifest
 	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
@@ -286,9 +292,9 @@ func (h *HTTPResolver) fetchManifest(ctx context.Context, row MirrorRow, imagePa
 
 func (h *HTTPResolver) fetchConfig(ctx context.Context, row MirrorRow, imagePath, digest string) (*imageConfig, error) {
 	url := h.scheme() + "://" + row.Hostname + "/v2/" + imagePath + "/blobs/" + digest
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build config request: %w", err)
 	}
 	if err := h.applyAuth(ctx, req, row); err != nil {
 		return nil, err
@@ -300,7 +306,7 @@ func (h *HTTPResolver) fetchConfig(ctx context.Context, row MirrorRow, imagePath
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, fmt.Errorf("fetch config: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w: HTTP %d", ErrFetchConfig, resp.StatusCode)
 	}
 	var c imageConfig
 	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {

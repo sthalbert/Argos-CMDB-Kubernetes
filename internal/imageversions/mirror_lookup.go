@@ -3,6 +3,7 @@ package imageversions
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/sthalbert/longue-vue/internal/api"
 	"github.com/sthalbert/longue-vue/internal/imageversions/mirrorresolve"
@@ -22,7 +23,7 @@ func (l storeLookup) FindMirror(ctx context.Context, hostname, imagePath string)
 		return mirrorresolve.MirrorRow{}, false, nil
 	}
 	if err != nil {
-		return mirrorresolve.MirrorRow{}, false, err
+		return mirrorresolve.MirrorRow{}, false, fmt.Errorf("find mirror: %w", err)
 	}
 	user := ""
 	if row.AuthUsername != nil {
