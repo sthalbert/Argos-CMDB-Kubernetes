@@ -180,11 +180,12 @@ func (e *Enricher) loadEnabledRegistries(ctx context.Context) ([]api.ImageRegist
 		return nil, false
 	}
 	enabled := make([]api.ImageRegistry, 0, len(regs))
-	for _, r := range regs {
+	for i := range regs {
+		r := &regs[i]
 		// Mirror rows participate only in the resolver path (ADR-0026);
 		// they must not appear in the public-registry allowlist iteration.
 		if r.Enabled && !r.IsMirror {
-			enabled = append(enabled, r)
+			enabled = append(enabled, *r)
 		}
 	}
 	if e.metrics != nil {
@@ -281,7 +282,8 @@ func (e *Enricher) dispatchWorkers(
 	enabledRegs []api.ImageRegistry,
 ) [][2]string {
 	limiters := map[string]*rate.Limiter{}
-	for _, r := range enabledRegs {
+	for i := range enabledRegs {
+		r := &enabledRegs[i]
 		limiters[r.Hostname] = rate.NewLimiter(rate.Limit(r.RateLimitPerSec), 1)
 	}
 	pickLimiter := func(reg string) *rate.Limiter {

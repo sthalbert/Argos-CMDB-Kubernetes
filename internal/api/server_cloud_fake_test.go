@@ -618,6 +618,7 @@ func (m *memStore) ListImageRegistries(_ context.Context) ([]ImageRegistry, erro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]ImageRegistry, 0, len(m.registries))
+	//nolint:gocritic // memStore stub; copies are required because the map value is the canonical row
 	for _, r := range m.registries {
 		out = append(out, r)
 	}
@@ -639,6 +640,7 @@ func (m *memStore) FindMirrorForRef(_ context.Context, hostname, imagePath strin
 	defer m.mu.Unlock()
 	var best ImageRegistry
 	bestLen := -1
+	//nolint:gocritic // memStore stub; per-row copy is unavoidable for the map iteration
 	for k, r := range m.registries {
 		if k[0] != hostname || !r.IsMirror || !r.Enabled {
 			continue
@@ -672,6 +674,7 @@ func (m *memStore) GetMirrorAuthToken(_ context.Context, hostname, pathPrefix st
 	return "memstore-token", nil
 }
 
+//nolint:gocritic // memStore stub; in matches the api.Store interface signature (hugeParam expected)
 func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert) (ImageRegistry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

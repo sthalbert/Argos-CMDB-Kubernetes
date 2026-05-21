@@ -103,6 +103,8 @@ FROM image_versions_registries WHERE hostname = $1 AND path_prefix = $2`
 }
 
 // CreateImageRegistry inserts a new registry row.
+//
+//nolint:gocritic // in matches the api.Store interface signature shared by every CRUD method (hugeParam expected)
 func (p *PG) CreateImageRegistry(ctx context.Context, in api.ImageRegistryUpsert) (api.ImageRegistry, error) {
 	enabled := true
 	if in.Enabled != nil {

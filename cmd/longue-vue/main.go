@@ -548,6 +548,13 @@ func buildHTTPServer(
 	mux.Handle("GET /v1/eol/extract",
 		requireScope(auth.ScopeRead)(extractAuth(auditWrap(api.HandleEolExtract(pg, cfg.extractMaxRows)))))
 
+	// Mirror-registry credentials endpoint (ADR-0026) — composite-key
+	// path, hand-mounted because the strict-server interface can't
+	// express the (hostname, path_prefix) tuple alongside the single-key
+	// CRUD routes. Admin-only and audit-logged (auditWrap).
+	mux.Handle("GET /v1/admin/image-versions/registries/{hostname}/{path_prefix}/credentials",
+		requireScope(auth.ScopeAdmin)(extractAuth(auditWrap(api.HandleGetImageRegistryCredentials(pg)))))
+
 	loginLimiter := api.NewLoginRateLimiter()
 	verifyLimiter := api.NewVerifyRateLimiter()
 	apiServer := api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter, verifyLimiter)

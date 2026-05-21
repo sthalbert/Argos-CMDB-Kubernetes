@@ -4828,7 +4828,7 @@ components:
 
     ImageRegistryUpsert:
       type: object
-      required: [hostname, rate_limit_per_sec]
+      required: [hostname, path_prefix, rate_limit_per_sec, is_mirror]
       properties:
         hostname:
           type: string
