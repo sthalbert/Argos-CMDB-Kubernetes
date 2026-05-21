@@ -3,9 +3,8 @@ import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { AsyncView, SectionTitle } from '../../components';
 
-// ImageRegistriesPage — admin tab for managing image registry poll targets.
-// Shape mirrors other admin list pages: list with inline create form,
-// per-row enable/disable toggle and delete.
+// ImageRegistriesPage — admin tab for managing image registry poll targets
+// and Harbor-style mirror rows (ADR-0026).
 
 type Reload = () => void;
 
@@ -27,6 +26,8 @@ export default function ImageRegistriesPage() {
               <thead>
                 <tr>
                   <th>Hostname</th>
+                  <th>Path prefix</th>
+                  <th>Type</th>
                   <th>Rate limit (req/s)</th>
                   <th>Status</th>
                   <th>Notes</th>
@@ -34,9 +35,19 @@ export default function ImageRegistriesPage() {
                 </tr>
               </thead>
               <tbody>
-                {resp.items.map((r) => (
-                  <RegistryRow key={r.hostname} registry={r} reload={reload} />
-                ))}
+                {[...resp.items]
+                  .sort((a, b) =>
+                    a.hostname === b.hostname
+                      ? a.path_prefix.localeCompare(b.path_prefix)
+                      : a.hostname.localeCompare(b.hostname),
+                  )
+                  .map((r) => (
+                    <RegistryRow
+                      key={`${r.hostname}|${r.path_prefix}`}
+                      registry={r}
+                      reload={reload}
+                    />
+                  ))}
               </tbody>
             </table>
           )}
@@ -49,15 +60,23 @@ export default function ImageRegistriesPage() {
 function CreateForm({ reload }: { reload: Reload }) {
   const [open, setOpen] = useState(false);
   const [hostname, setHostname] = useState('');
+  const [pathPrefix, setPathPrefix] = useState('');
+  const [isMirror, setIsMirror] = useState(false);
   const [rate, setRate] = useState('5');
   const [notes, setNotes] = useState('');
+  const [authUser, setAuthUser] = useState('');
+  const [authToken, setAuthToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
     setHostname('');
+    setPathPrefix('');
+    setIsMirror(false);
     setRate('5');
     setNotes('');
+    setAuthUser('');
+    setAuthToken('');
     setError(null);
   };
 
@@ -77,8 +96,12 @@ function CreateForm({ reload }: { reload: Reload }) {
     try {
       await api.createImageRegistry({
         hostname: hostname.trim(),
+        path_prefix: isMirror ? pathPrefix.trim() : '',
         rate_limit_per_sec: rateNum,
         notes: notes.trim() || undefined,
+        is_mirror: isMirror,
+        auth_username: isMirror && authUser.trim() ? authUser.trim() : undefined,
+        auth_token: isMirror && authToken !== '' ? authToken : undefined,
       });
       reset();
       setOpen(false);
@@ -105,7 +128,8 @@ function CreateForm({ reload }: { reload: Reload }) {
       <h3>Add registry</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: 'var(--fs-base)' }}>
         Wildcards like <code>*.example.com</code> match any subdomain. Use{' '}
-        <code>docker.io</code> for Docker Hub.
+        <code>docker.io</code> for Docker Hub. Mark as a mirror when this row points
+        at a Harbor-style replication target.
       </p>
       <div className="admin-form-row">
         <div>
@@ -128,6 +152,47 @@ function CreateForm({ reload }: { reload: Reload }) {
           />
         </div>
         <div>
+          <label>
+            <input
+              type="checkbox"
+              checked={isMirror}
+              onChange={(e) => setIsMirror(e.target.checked)}
+            />{' '}
+            Mirror registry
+          </label>
+        </div>
+      </div>
+      {isMirror && (
+        <div className="admin-form-row">
+          <div>
+            <label>Path prefix</label>
+            <input
+              value={pathPrefix}
+              onChange={(e) => setPathPrefix(e.target.value)}
+              placeholder="container/"
+            />
+          </div>
+          <div>
+            <label>Auth username</label>
+            <input
+              value={authUser}
+              onChange={(e) => setAuthUser(e.target.value)}
+              placeholder="robot$lv"
+            />
+          </div>
+          <div>
+            <label>Auth token</label>
+            <input
+              type="password"
+              value={authToken}
+              onChange={(e) => setAuthToken(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+        </div>
+      )}
+      <div className="admin-form-row">
+        <div style={{ flex: 1 }}>
           <label>Notes (optional)</label>
           <input
             value={notes}
@@ -158,11 +223,14 @@ function CreateForm({ reload }: { reload: Reload }) {
 
 function RegistryRow({ registry, reload }: { registry: api.ImageRegistry; reload: Reload }) {
   const [busy, setBusy] = useState(false);
+  const [revealed, setRevealed] = useState<api.ImageRegistryCredentials | null>(null);
 
   const onToggleEnabled = async () => {
     setBusy(true);
     try {
-      await api.updateImageRegistry(registry.hostname, { enabled: !registry.enabled });
+      await api.updateImageRegistry(registry.hostname, registry.path_prefix, {
+        enabled: !registry.enabled,
+      });
       reload();
     } catch (err) {
       alert(err instanceof api.ApiError ? err.message : String(err));
@@ -172,11 +240,29 @@ function RegistryRow({ registry, reload }: { registry: api.ImageRegistry; reload
   };
 
   const onDelete = async () => {
-    if (!confirm(`Delete registry "${registry.hostname}"?`)) return;
+    const label = registry.path_prefix
+      ? `${registry.hostname}/${registry.path_prefix}`
+      : registry.hostname;
+    if (!confirm(`Delete registry "${label}"?`)) return;
     setBusy(true);
     try {
-      await api.deleteImageRegistry(registry.hostname);
+      await api.deleteImageRegistry(registry.hostname, registry.path_prefix);
       reload();
+    } catch (err) {
+      alert(err instanceof api.ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onReveal = async () => {
+    setBusy(true);
+    try {
+      const creds = await api.getImageRegistryCredentials(
+        registry.hostname,
+        registry.path_prefix,
+      );
+      setRevealed(creds);
     } catch (err) {
       alert(err instanceof api.ApiError ? err.message : String(err));
     } finally {
@@ -189,6 +275,17 @@ function RegistryRow({ registry, reload }: { registry: api.ImageRegistry; reload
       <td>
         <code>{registry.hostname}</code>
       </td>
+      <td>
+        <code>{registry.path_prefix || '—'}</code>
+      </td>
+      <td>
+        <span className={`pill ${registry.is_mirror ? 'status-warn' : 'status-ok'}`}>
+          {registry.is_mirror ? 'Mirror' : 'Source'}
+        </span>
+        {registry.is_mirror && registry.auth_configured && (
+          <span className="pill" style={{ marginLeft: '0.25rem' }}>auth</span>
+        )}
+      </td>
       <td>{registry.rate_limit_per_sec}</td>
       <td>
         <span className={`pill ${registry.enabled ? 'status-ok' : ''}`}>
@@ -199,6 +296,13 @@ function RegistryRow({ registry, reload }: { registry: api.ImageRegistry; reload
         {registry.notes ?? ''}
       </td>
       <td style={{ textAlign: 'right' }}>
+        {registry.is_mirror && registry.auth_configured && (
+          <>
+            <button onClick={onReveal} disabled={busy}>
+              {revealed ? 'Hide' : 'Reveal'}
+            </button>{' '}
+          </>
+        )}
         {registry.enabled ? (
           <button onClick={onToggleEnabled} disabled={busy}>
             Disable
@@ -211,6 +315,16 @@ function RegistryRow({ registry, reload }: { registry: api.ImageRegistry; reload
         <button onClick={onDelete} disabled={busy} className="danger">
           Delete
         </button>
+        {revealed && (
+          <div className="muted" style={{ marginTop: '0.5rem', fontSize: 'var(--fs-sm)' }}>
+            <div>
+              <strong>user:</strong> <code>{revealed.auth_username}</code>
+            </div>
+            <div>
+              <strong>token:</strong> <code>{revealed.auth_token}</code>
+            </div>
+          </div>
+        )}
       </td>
     </tr>
   );

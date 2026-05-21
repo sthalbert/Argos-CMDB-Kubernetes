@@ -1083,24 +1083,45 @@ export function refreshImageVersions() {
 
 export interface ImageRegistry {
   hostname: string;
+  path_prefix: string;
   rate_limit_per_sec: number;
   enabled: boolean;
   notes: string | null;
+  is_mirror: boolean;
+  auth_username: string | null;
+  auth_configured: boolean;
   created_at: string;
   updated_at: string;
 }
 
 export interface ImageRegistryCreate {
   hostname: string;
+  path_prefix?: string;
   rate_limit_per_sec: number;
   enabled?: boolean;
   notes?: string;
+  is_mirror?: boolean;
+  auth_username?: string;
+  auth_token?: string;
 }
 
 export interface ImageRegistryPatch {
   rate_limit_per_sec?: number;
   enabled?: boolean;
   notes?: string | null;
+  is_mirror?: boolean;
+  auth_username?: string | null;
+  auth_token?: string;
+}
+
+export interface ImageRegistryCredentials {
+  auth_username: string;
+  auth_token: string;
+}
+
+// pathPrefixSegment maps the empty prefix to the "_root" sentinel used in URLs.
+function pathPrefixSegment(prefix: string): string {
+  return prefix === '' ? '_root' : encodeURIComponent(prefix);
 }
 
 export function listImageRegistries() {
@@ -1114,9 +1135,13 @@ export function createImageRegistry(in_: ImageRegistryCreate) {
   });
 }
 
-export function updateImageRegistry(hostname: string, patch: ImageRegistryPatch) {
+export function updateImageRegistry(
+  hostname: string,
+  pathPrefix: string,
+  patch: ImageRegistryPatch,
+) {
   return request<ImageRegistry>(
-    `/v1/admin/image-versions/registries/${encodeURIComponent(hostname)}`,
+    `/v1/admin/image-versions/registries/${encodeURIComponent(hostname)}/${pathPrefixSegment(pathPrefix)}`,
     {
       method: 'PATCH',
       body: JSON.stringify(patch),
@@ -1124,10 +1149,16 @@ export function updateImageRegistry(hostname: string, patch: ImageRegistryPatch)
   );
 }
 
-export function deleteImageRegistry(hostname: string) {
+export function deleteImageRegistry(hostname: string, pathPrefix: string) {
   return request<void>(
-    `/v1/admin/image-versions/registries/${encodeURIComponent(hostname)}`,
+    `/v1/admin/image-versions/registries/${encodeURIComponent(hostname)}/${pathPrefixSegment(pathPrefix)}`,
     { method: 'DELETE' },
+  );
+}
+
+export function getImageRegistryCredentials(hostname: string, pathPrefix: string) {
+  return request<ImageRegistryCredentials>(
+    `/v1/admin/image-versions/registries/${encodeURIComponent(hostname)}/${pathPrefixSegment(pathPrefix)}/credentials`,
   );
 }
 
