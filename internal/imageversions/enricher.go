@@ -181,7 +181,9 @@ func (e *Enricher) loadEnabledRegistries(ctx context.Context) ([]api.ImageRegist
 	}
 	enabled := make([]api.ImageRegistry, 0, len(regs))
 	for _, r := range regs {
-		if r.Enabled {
+		// Mirror rows participate only in the resolver path (ADR-0026);
+		// they must not appear in the public-registry allowlist iteration.
+		if r.Enabled && !r.IsMirror {
 			enabled = append(enabled, r)
 		}
 	}

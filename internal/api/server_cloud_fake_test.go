@@ -624,28 +624,59 @@ func (m *memStore) ListImageRegistries(_ context.Context) ([]ImageRegistry, erro
 	return out, nil
 }
 
-func (m *memStore) GetImageRegistry(_ context.Context, hostname, _ string) (ImageRegistry, error) {
+func (m *memStore) GetImageRegistry(_ context.Context, hostname, pathPrefix string) (ImageRegistry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	r, ok := m.registries[hostname]
+	r, ok := m.registries[[2]string{hostname, pathPrefix}]
 	if !ok {
 		return ImageRegistry{}, ErrNotFound
 	}
 	return r, nil
 }
 
-func (m *memStore) FindMirrorForRef(_ context.Context, _, _ string) (ImageRegistry, error) {
-	return ImageRegistry{}, ErrNotFound
+func (m *memStore) FindMirrorForRef(_ context.Context, hostname, imagePath string) (ImageRegistry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var best ImageRegistry
+	bestLen := -1
+	for k, r := range m.registries {
+		if k[0] != hostname || !r.IsMirror || !r.Enabled {
+			continue
+		}
+		if !strings.HasPrefix(imagePath, r.PathPrefix) {
+			continue
+		}
+		if len(r.PathPrefix) > bestLen {
+			best = r
+			bestLen = len(r.PathPrefix)
+		}
+	}
+	if bestLen < 0 {
+		return ImageRegistry{}, ErrNotFound
+	}
+	return best, nil
 }
 
-func (m *memStore) GetMirrorAuthToken(_ context.Context, _, _ string) (string, error) {
-	return "", nil
+func (m *memStore) GetMirrorAuthToken(_ context.Context, hostname, pathPrefix string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.registries[[2]string{hostname, pathPrefix}]
+	if !ok {
+		return "", ErrNotFound
+	}
+	// The memStore does not encrypt; emulate the real store by returning
+	// the username-derived stand-in only when AuthConfigured is set.
+	if !r.AuthConfigured {
+		return "", nil
+	}
+	return "memstore-token", nil
 }
 
 func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert) (ImageRegistry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.registries[in.Hostname]; exists {
+	key := [2]string{in.Hostname, in.PathPrefix}
+	if _, exists := m.registries[key]; exists {
 		return ImageRegistry{}, ErrConflict
 	}
 	enabled := true
@@ -655,20 +686,25 @@ func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert
 	now := time.Now().UTC()
 	r := ImageRegistry{
 		Hostname:        in.Hostname,
+		PathPrefix:      in.PathPrefix,
 		RateLimitPerSec: in.RateLimitPerSec,
 		Enabled:         enabled,
 		Notes:           in.Notes,
+		IsMirror:        in.IsMirror,
+		AuthUsername:    in.AuthUsername,
+		AuthConfigured:  in.AuthToken != nil && *in.AuthToken != "",
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	m.registries[in.Hostname] = r
+	m.registries[key] = r
 	return r, nil
 }
 
-func (m *memStore) UpdateImageRegistry(_ context.Context, hostname, _ string, p ImageRegistryPatch) (ImageRegistry, error) {
+func (m *memStore) UpdateImageRegistry(_ context.Context, hostname, pathPrefix string, p ImageRegistryPatch) (ImageRegistry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	r, ok := m.registries[hostname]
+	key := [2]string{hostname, pathPrefix}
+	r, ok := m.registries[key]
 	if !ok {
 		return ImageRegistry{}, ErrNotFound
 	}
@@ -681,18 +717,28 @@ func (m *memStore) UpdateImageRegistry(_ context.Context, hostname, _ string, p 
 	if p.Notes != nil {
 		r.Notes = p.Notes
 	}
+	if p.IsMirror != nil {
+		r.IsMirror = *p.IsMirror
+	}
+	if p.AuthUsername != nil {
+		r.AuthUsername = p.AuthUsername
+	}
+	if p.AuthToken != nil {
+		r.AuthConfigured = *p.AuthToken != ""
+	}
 	r.UpdatedAt = time.Now().UTC()
-	m.registries[hostname] = r
+	m.registries[key] = r
 	return r, nil
 }
 
-func (m *memStore) DeleteImageRegistry(_ context.Context, hostname, _ string) error {
+func (m *memStore) DeleteImageRegistry(_ context.Context, hostname, pathPrefix string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.registries[hostname]; !ok {
+	key := [2]string{hostname, pathPrefix}
+	if _, ok := m.registries[key]; !ok {
 		return ErrNotFound
 	}
-	delete(m.registries, hostname)
+	delete(m.registries, key)
 	return nil
 }
 

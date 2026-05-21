@@ -377,6 +377,9 @@ func scrubSecrets(raw []byte) any {
 		// bodies, but we redact request-side `secret_key` / `access_key`
 		// defensively too because admins POST them on /credentials.
 		"secret_key", "access_key",
+		// ADR-0026: image-registry mirror robot-account token, posted by
+		// admins on POST/PATCH /v1/admin/image-versions/registries/*.
+		"auth_token",
 	} {
 		if _, ok := obj[k]; ok {
 			obj[k] = "[redacted]"

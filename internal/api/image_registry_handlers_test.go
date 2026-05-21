@@ -135,6 +135,82 @@ func TestHandleDeleteImageRegistry(t *testing.T) {
 	}
 }
 
+func TestHandleGetImageRegistryCredentials_NotMirror(t *testing.T) {
+	s := newMemStore()
+	username := "robot$lv"
+	token := "ignored"
+	if _, err := s.CreateImageRegistry(context.Background(), ImageRegistryUpsert{
+		Hostname:        "registry.example.com",
+		PathPrefix:      "",
+		RateLimitPerSec: 1.0,
+		IsMirror:        false,
+		AuthUsername:    &username,
+		AuthToken:       &token,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	h := HandleGetImageRegistryCredentials(s)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/admin/image-versions/registries/registry.example.com/_root/credentials", http.NoBody)
+	req.SetPathValue("hostname", "registry.example.com")
+	req.SetPathValue("path_prefix", "_root")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: want 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetImageRegistryCredentials_Mirror(t *testing.T) {
+	s := newMemStore()
+	username := "robot$lv"
+	token := "s3cret"
+	if _, err := s.CreateImageRegistry(context.Background(), ImageRegistryUpsert{
+		Hostname:        "ma-registry.io",
+		PathPrefix:      "container/",
+		RateLimitPerSec: 2.0,
+		IsMirror:        true,
+		AuthUsername:    &username,
+		AuthToken:       &token,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	h := HandleGetImageRegistryCredentials(s)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/admin/image-versions/registries/ma-registry.io/container%2F/credentials", http.NoBody)
+	req.SetPathValue("hostname", "ma-registry.io")
+	req.SetPathValue("path_prefix", "container/")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["auth_username"] != username {
+		t.Errorf("auth_username=%q want %q", body["auth_username"], username)
+	}
+	if body["auth_token"] == "" {
+		t.Errorf("auth_token unexpectedly empty")
+	}
+}
+
+func TestHandleGetImageRegistryCredentials_NotFound(t *testing.T) {
+	s := newMemStore()
+	h := HandleGetImageRegistryCredentials(s)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/admin/image-versions/registries/missing/_root/credentials", http.NoBody)
+	req.SetPathValue("hostname", "missing")
+	req.SetPathValue("path_prefix", "_root")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: want 404, got %d", w.Code)
+	}
+}
+
 // seedImageRegistriesForTest inserts the 7 default registries into the
 // memStore for tests that need them.
 func seedImageRegistriesForTest(t *testing.T, s Store) {
