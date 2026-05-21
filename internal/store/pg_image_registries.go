@@ -15,6 +15,13 @@ import (
 const imageRegistryColumns = `hostname, path_prefix, rate_limit_per_sec, enabled, notes,
 	is_mirror, auth_username, auth_token_ciphertext, created_at, updated_at`
 
+// Static errors for the image-registry store. err113 forbids ad-hoc
+// fmt.Errorf without %w wrapping.
+var (
+	errCiphertextTooShort     = errors.New("image registry: ciphertext too short")
+	errEncrypterNotConfigured = errors.New("image registry: encrypter not configured")
+)
+
 func scanImageRegistry(row pgx.Row) (api.ImageRegistry, error) {
 	var r api.ImageRegistry
 	var authUser *string
@@ -48,7 +55,7 @@ func packCiphertext(ct secrets.Ciphertext) []byte {
 // must match the encrypter's AEAD nonce size (12 for AES-GCM).
 func unpackCiphertext(raw []byte, nonceSize int) (secrets.Ciphertext, error) {
 	if len(raw) < nonceSize {
-		return secrets.Ciphertext{}, fmt.Errorf("ciphertext too short: %d", len(raw))
+		return secrets.Ciphertext{}, fmt.Errorf("%w: %d bytes", errCiphertextTooShort, len(raw))
 	}
 	return secrets.Ciphertext{
 		Nonce: raw[:nonceSize],
@@ -104,7 +111,7 @@ func (p *PG) CreateImageRegistry(ctx context.Context, in api.ImageRegistryUpsert
 	var tokenCT []byte
 	if in.AuthToken != nil && *in.AuthToken != "" {
 		if p.encrypter == nil {
-			return api.ImageRegistry{}, fmt.Errorf("create image registry: encrypter not configured")
+			return api.ImageRegistry{}, fmt.Errorf("create image registry: %w", errEncrypterNotConfigured)
 		}
 		ct, err := p.encrypter.Encrypt([]byte(*in.AuthToken), aadForImageRegistry(in.Hostname, in.PathPrefix))
 		if err != nil {
@@ -147,7 +154,7 @@ func (p *PG) UpdateImageRegistry(ctx context.Context, hostname, pathPrefix strin
 			clearToken = true
 		} else {
 			if p.encrypter == nil {
-				return api.ImageRegistry{}, fmt.Errorf("update image registry: encrypter not configured")
+				return api.ImageRegistry{}, fmt.Errorf("update image registry: %w", errEncrypterNotConfigured)
 			}
 			ct, err := p.encrypter.Encrypt([]byte(*patch.AuthToken), aadForImageRegistry(hostname, pathPrefix))
 			if err != nil {
@@ -246,7 +253,7 @@ func (p *PG) GetMirrorAuthToken(ctx context.Context, hostname, pathPrefix string
 		return "", nil
 	}
 	if p.encrypter == nil {
-		return "", fmt.Errorf("get mirror token: encrypter not configured")
+		return "", fmt.Errorf("get mirror token: %w", errEncrypterNotConfigured)
 	}
 	packed, err := unpackCiphertext(ct, p.encrypter.NonceSize())
 	if err != nil {

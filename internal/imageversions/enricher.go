@@ -207,36 +207,16 @@ func (e *Enricher) discoverWork(ctx context.Context, refs []string, enabledRegs 
 	discovered = map[string]map[string]struct{}{}
 	repoRegistry = map[string]string{}
 	for _, raw := range refs {
-		resolved := raw
-		if e.resolver != nil {
-			r, err := e.resolver.Resolve(ctx, raw)
-			switch {
-			case errors.Is(err, mirrorresolve.ErrNoOriginAnnotation),
-				errors.Is(err, mirrorresolve.ErrAmbiguousAnnotation):
-				slog.Debug("imageversions: skip mirror ref",
-					slog.String("ref", raw), slog.String("reason", err.Error()))
-				continue
-			case err != nil:
-				slog.Warn("imageversions: mirror resolve error",
-					slog.String("ref", raw), slog.String("err", err.Error()))
-				continue
-			default:
-				resolved = r
-			}
+		resolved, skip := e.resolveMirrorRef(ctx, raw)
+		if skip {
+			continue
 		}
 		ref, err := ParseImageRef(resolved)
 		if err != nil {
 			slog.Debug("imageversions: skip ref", slog.String("ref", raw), slog.String("reason", err.Error()))
 			continue
 		}
-		matched := false
-		for i := range enabledRegs {
-			if registry.Match(enabledRegs[i].Hostname, ref.Registry) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if !matchAnyRegistry(enabledRegs, ref.Registry) {
 			slog.Debug("imageversions: registry not allowlisted",
 				slog.String("registry", ref.Registry), slog.String("ref", raw))
 			continue
@@ -253,6 +233,40 @@ func (e *Enricher) discoverWork(ctx context.Context, refs []string, enabledRegs 
 		repoRegistry[ref.ImageRepo] = ref.Registry
 	}
 	return discovered, repoRegistry
+}
+
+// resolveMirrorRef runs the mirror resolver if configured. Returns the
+// resolved ref and skip=true when the caller must drop this ref (no mirror
+// configured returns raw, skip=false).
+func (e *Enricher) resolveMirrorRef(ctx context.Context, raw string) (string, bool) {
+	if e.resolver == nil {
+		return raw, false
+	}
+	r, err := e.resolver.Resolve(ctx, raw)
+	switch {
+	case errors.Is(err, mirrorresolve.ErrNoOriginAnnotation),
+		errors.Is(err, mirrorresolve.ErrAmbiguousAnnotation):
+		slog.Debug("imageversions: skip mirror ref",
+			slog.String("ref", raw), slog.String("reason", err.Error()))
+		return "", true
+	case err != nil:
+		slog.Warn("imageversions: mirror resolve error",
+			slog.String("ref", raw), slog.String("err", err.Error()))
+		return "", true
+	default:
+		return r, false
+	}
+}
+
+// matchAnyRegistry reports whether the candidate registry matches any
+// enabled allowlist entry.
+func matchAnyRegistry(enabledRegs []api.ImageRegistry, candidate string) bool {
+	for i := range enabledRegs {
+		if registry.Match(enabledRegs[i].Hostname, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // dispatchWorkers fans out one goroutine per image_repo (bounded to 5

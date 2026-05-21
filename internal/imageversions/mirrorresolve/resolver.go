@@ -101,6 +101,68 @@ func isAuthErr(err error) bool {
 	return errors.As(err, &a)
 }
 
+// Resolve implements Resolver.
+func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) {
+	started := h.now()
+
+	hostname, imagePath, tag, err := splitRef(ref)
+	if err != nil {
+		h.observe("parse_error", started)
+		return "", err
+	}
+
+	row, ok, err := h.Lookup.FindMirror(ctx, hostname, imagePath)
+	if err != nil {
+		h.observe("lookup_error", started)
+		return "", fmt.Errorf("mirror lookup: %w", err)
+	}
+	if !ok {
+		h.observe("passthrough", started)
+		return ref, nil
+	}
+
+	origin, result, err := h.resolveFromMirror(ctx, row, imagePath, tag)
+	h.observe(result, started)
+	return origin, err
+}
+
+// resolveFromMirror fetches the manifest from the mirror, applies the
+// annotation-extraction priority (base.name → source → config Labels), and
+// returns the resolved public origin together with the metric label to
+// record. Splitting this out keeps Resolve's cyclomatic complexity in check
+// and makes the fetch/extract pipeline easier to test independently.
+func (h *HTTPResolver) resolveFromMirror(ctx context.Context, row MirrorRow, imagePath, tag string) (origin, result string, err error) {
+	manifest, err := h.fetchManifest(ctx, row, imagePath, tag)
+	if err != nil {
+		if isAuthErr(err) {
+			return "", "auth_error", err
+		}
+		return "", "fetch_error", err
+	}
+
+	annotations := manifest.Annotations
+	if len(annotations) == 0 && len(manifest.Manifests) > 0 {
+		annotations = manifest.Manifests[0].Annotations
+	}
+
+	if origin, ok := extractOrigin(annotations, tag); ok {
+		return origin, "ok", nil
+	}
+
+	if manifest.Config.Digest != "" {
+		if cfg, cfgErr := h.fetchConfig(ctx, row, imagePath, manifest.Config.Digest); cfgErr == nil {
+			if origin, ok := extractOrigin(cfg.Config.Labels, tag); ok {
+				return origin, "ok", nil
+			}
+		}
+	}
+
+	if _, present := annotations[annSource]; present {
+		return "", "ambiguous_annotation", ErrAmbiguousAnnotation
+	}
+	return "", "missing_annotation", ErrNoOriginAnnotation
+}
+
 func (h *HTTPResolver) httpClient() *http.Client {
 	if h.Client != nil {
 		return h.Client
@@ -126,65 +188,6 @@ func (h *HTTPResolver) observe(result string, started time.Time) {
 	if h.Metrics != nil {
 		h.Metrics.ObserveResolve(result, h.now().Sub(started))
 	}
-}
-
-// Resolve implements Resolver.
-func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) {
-	started := h.now()
-
-	hostname, imagePath, tag, err := splitRef(ref)
-	if err != nil {
-		h.observe("parse_error", started)
-		return "", err
-	}
-
-	row, ok, err := h.Lookup.FindMirror(ctx, hostname, imagePath)
-	if err != nil {
-		h.observe("lookup_error", started)
-		return "", fmt.Errorf("mirror lookup: %w", err)
-	}
-	if !ok {
-		h.observe("passthrough", started)
-		return ref, nil
-	}
-
-	manifest, err := h.fetchManifest(ctx, row, imagePath, tag)
-	if err != nil {
-		if isAuthErr(err) {
-			h.observe("auth_error", started)
-		} else {
-			h.observe("fetch_error", started)
-		}
-		return "", err
-	}
-
-	annotations := manifest.Annotations
-	if len(annotations) == 0 && len(manifest.Manifests) > 0 {
-		annotations = manifest.Manifests[0].Annotations
-	}
-
-	if origin, ok := extractOrigin(annotations, tag); ok {
-		h.observe("ok", started)
-		return origin, nil
-	}
-
-	// Fallback: config blob Labels.
-	if manifest.Config.Digest != "" {
-		cfg, err := h.fetchConfig(ctx, row, imagePath, manifest.Config.Digest)
-		if err == nil {
-			if origin, ok := extractOrigin(cfg.Config.Labels, tag); ok {
-				h.observe("ok", started)
-				return origin, nil
-			}
-		}
-	}
-
-	if _, present := annotations[annSource]; present {
-		h.observe("ambiguous_annotation", started)
-		return "", ErrAmbiguousAnnotation
-	}
-	h.observe("missing_annotation", started)
-	return "", ErrNoOriginAnnotation
 }
 
 func extractOrigin(m map[string]string, originalTag string) (string, bool) {

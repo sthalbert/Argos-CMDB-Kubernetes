@@ -40,7 +40,7 @@ func TestHTTPResolver_Resolve(t *testing.T) {
 				SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
 				Annotations: map[string]string{
 					"org.opencontainers.image.base.name": "docker.io/library/debian:bookworm",
-					"org.opencontainers.image.source":    "https://github.com/x/y",
+					annSource:                            "https://github.com/x/y",
 				},
 			},
 			wantOrigin: "docker.io/library/debian:1.25",
@@ -50,7 +50,7 @@ func TestHTTPResolver_Resolve(t *testing.T) {
 			manifest: manifestFixture{
 				SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
 				Annotations: map[string]string{
-					"org.opencontainers.image.source": "docker.io/library/nginx",
+					annSource: "docker.io/library/nginx",
 				},
 			},
 			wantOrigin: "docker.io/library/nginx:1.25",
@@ -60,7 +60,7 @@ func TestHTTPResolver_Resolve(t *testing.T) {
 			manifest: manifestFixture{
 				SchemaVersion: 2, MediaType: "application/vnd.oci.image.manifest.v1+json",
 				Annotations: map[string]string{
-					"org.opencontainers.image.source": "https://github.com/x/y",
+					annSource: "https://github.com/x/y",
 				},
 			},
 			wantErr: ErrAmbiguousAnnotation,

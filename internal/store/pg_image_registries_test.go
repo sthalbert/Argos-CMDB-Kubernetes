@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/sthalbert/longue-vue/internal/api"
@@ -10,7 +11,11 @@ import (
 )
 
 func secretsNewEncrypter(key []byte) (*secrets.Encrypter, error) {
-	return secrets.NewEncrypter(key)
+	enc, err := secrets.NewEncrypter(key)
+	if err != nil {
+		return nil, fmt.Errorf("test secrets encrypter: %w", err)
+	}
+	return enc, nil
 }
 
 func TestImageRegistries_SeedDefaults(t *testing.T) {
