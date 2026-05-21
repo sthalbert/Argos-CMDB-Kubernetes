@@ -2310,6 +2310,45 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/admin/image-versions/registries/{hostname}/{path_prefix}/credentials:
+    get:
+      summary: Reveal plaintext robot-account credentials for a mirror registry
+      description: |
+        Returns the decrypted auth_username and auth_token for the mirror row
+        identified by (hostname, path_prefix). Mark `path_prefix` as `_root`
+        when the row has no prefix. Admin-only and audit-logged.
+      tags: [admin, image-versions]
+      operationId: getImageRegistryCredentials
+      x-audit: extract
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema: { type: string }
+        - name: path_prefix
+          in: path
+          required: true
+          schema: { type: string }
+          description: "URL-encoded path_prefix; use the literal '_root' for empty"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageRegistryCredentials'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /v1/eol/extract:
     get:
       tags: [eol]
@@ -4754,11 +4793,14 @@ components:
 
     ImageRegistry:
       type: object
-      required: [hostname, rate_limit_per_sec, enabled, created_at, updated_at]
+      required: [hostname, path_prefix, rate_limit_per_sec, enabled, is_mirror, auth_configured, created_at, updated_at]
       properties:
         hostname:
           type: string
           description: "Exact hostname or '*<suffix>' wildcard"
+        path_prefix:
+          type: string
+          description: "Repo-path prefix (empty for non-mirror rows)"
         rate_limit_per_sec:
           type: number
           format: float
@@ -4768,6 +4810,15 @@ components:
         notes:
           type: string
           nullable: true
+        is_mirror:
+          type: boolean
+          description: "True if this row is a Harbor-style mirror needing resolution"
+        auth_username:
+          type: string
+          nullable: true
+        auth_configured:
+          type: boolean
+          description: "True iff an encrypted auth token is stored (token itself is never returned)"
         created_at:
           type: string
           format: date-time
@@ -4777,9 +4828,11 @@ components:
 
     ImageRegistryUpsert:
       type: object
-      required: [hostname, rate_limit_per_sec]
+      required: [hostname, path_prefix, rate_limit_per_sec, is_mirror]
       properties:
         hostname:
+          type: string
+        path_prefix:
           type: string
         rate_limit_per_sec:
           type: number
@@ -4789,6 +4842,14 @@ components:
           type: boolean
         notes:
           type: string
+        is_mirror:
+          type: boolean
+        auth_username:
+          type: string
+        auth_token:
+          type: string
+          writeOnly: true
+          description: "Robot-account token; never echoed in responses"
 
     ImageRegistryPatch:
       type: object
@@ -4802,6 +4863,24 @@ components:
         notes:
           type: string
           nullable: true
+        is_mirror:
+          type: boolean
+        auth_username:
+          type: string
+          nullable: true
+        auth_token:
+          type: string
+          writeOnly: true
+          description: "Empty string clears the stored token; omit to leave unchanged"
+
+    ImageRegistryCredentials:
+      type: object
+      required: [auth_username, auth_token]
+      properties:
+        auth_username:
+          type: string
+        auth_token:
+          type: string
 
     ImageVersionVariant:
       type: object

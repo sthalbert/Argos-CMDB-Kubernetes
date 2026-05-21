@@ -28,6 +28,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/eol"
 	"github.com/sthalbert/longue-vue/internal/httputil"
 	"github.com/sthalbert/longue-vue/internal/imageversions"
+	"github.com/sthalbert/longue-vue/internal/imageversions/mirrorresolve"
 	"github.com/sthalbert/longue-vue/internal/imageversions/registry"
 	"github.com/sthalbert/longue-vue/internal/impact"
 	argmcp "github.com/sthalbert/longue-vue/internal/mcp"
@@ -281,6 +282,9 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 	if err != nil {
 		return err
 	}
+	if encrypter != nil {
+		pg.SetEncrypter(encrypter)
+	}
 
 	oidcProvider, err := maybeInitOIDC(rootCtx, &cfg.oidcCfg)
 	if err != nil {
@@ -497,6 +501,12 @@ func buildHTTPServer(
 	mux.Handle(
 		"POST /v1/admin/cloud-accounts/{id}/tokens",
 		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleCreateCloudAccountToken(pg)))),
+	)
+
+	// Image-registry mirror credentials reveal (admin, audit-logged).
+	mux.Handle(
+		"GET /v1/admin/image-versions/registries/{hostname}/{path_prefix}/credentials",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleGetImageRegistryCredentials(pg)))),
 	)
 
 	// Collector-side cloud-accounts (vm-collector scope).
@@ -1254,7 +1264,11 @@ func maybeStartImageVersionsEnricher(ctx context.Context, s api.Store) (*imageve
 
 	ivMetrics := imageversions.NewMetrics(metrics.Registry)
 	client := registry.NewClientWithObserver(ivMetrics)
-	enricher := imageversions.NewEnricherWithMetrics(s, client, interval, ivMetrics)
+	resolver := &mirrorresolve.HTTPResolver{
+		Lookup:  imageversions.NewStoreMirrorLookup(s),
+		Metrics: imageversions.NewObserver(ivMetrics),
+	}
+	enricher := imageversions.NewEnricherWithResolver(s, client, resolver, interval, ivMetrics)
 
 	var wg sync.WaitGroup
 	wg.Add(1)

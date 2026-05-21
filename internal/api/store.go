@@ -655,10 +655,12 @@ type Store interface {
 
 	// Image registries
 	ListImageRegistries(ctx context.Context) ([]ImageRegistry, error)
-	GetImageRegistry(ctx context.Context, hostname string) (ImageRegistry, error)
+	GetImageRegistry(ctx context.Context, hostname, pathPrefix string) (ImageRegistry, error)
 	CreateImageRegistry(ctx context.Context, in ImageRegistryUpsert) (ImageRegistry, error)
-	UpdateImageRegistry(ctx context.Context, hostname string, p ImageRegistryPatch) (ImageRegistry, error)
-	DeleteImageRegistry(ctx context.Context, hostname string) error
+	UpdateImageRegistry(ctx context.Context, hostname, pathPrefix string, p ImageRegistryPatch) (ImageRegistry, error)
+	DeleteImageRegistry(ctx context.Context, hostname, pathPrefix string) error
+	FindMirrorForRef(ctx context.Context, hostname, imagePath string) (ImageRegistry, error)
+	GetMirrorAuthToken(ctx context.Context, hostname, pathPrefix string) (string, error)
 
 	// Image versions
 	UpsertImageVersion(ctx context.Context, in ImageVersionUpsert) (ImageVersionRow, error)

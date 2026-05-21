@@ -10,6 +10,10 @@ output-options:
     - eolExtract
     - searchExtract
     - searchExtractZip
+    # ADR-0026: getImageRegistryCredentials is hand-written too — it
+    # uses the composite (hostname, path_prefix) key that the strict
+    # server can't easily express alongside the single-key CRUD routes.
+    - getImageRegistryCredentials
 generate:
   models: true
   std-http-server: true

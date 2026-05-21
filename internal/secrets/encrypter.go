@@ -118,6 +118,10 @@ type Ciphertext struct {
 	KID   string
 }
 
+// NonceSize returns the AEAD nonce length in bytes. Callers that pack
+// (nonce ‖ ciphertext) into a single column need this for unpacking.
+func (e *Encrypter) NonceSize() int { return e.aead.NonceSize() }
+
 // Encrypt seals plaintext under the master key with the given AAD. The
 // AAD typically contains the row's primary key (e.g. the cloud_account
 // UUID's bytes) so a backup-restore cannot move the ciphertext between

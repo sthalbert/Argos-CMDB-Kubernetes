@@ -13,6 +13,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/imageversions/mirrorresolve"
 	"github.com/sthalbert/longue-vue/internal/imageversions/registry"
 )
 
@@ -23,6 +24,7 @@ const sourceRegistry = "registry"
 type Enricher struct {
 	store    Store
 	lister   TagsLister
+	resolver mirrorresolve.Resolver
 	interval time.Duration
 	metrics  *Metrics
 
@@ -49,6 +51,19 @@ func NewEnricherWithMetrics(s Store, lister TagsLister, interval time.Duration, 
 	return &Enricher{
 		store:     s,
 		lister:    lister,
+		interval:  interval,
+		metrics:   m,
+		triggerCh: make(chan struct{}, 1),
+	}
+}
+
+// NewEnricherWithResolver constructs an Enricher with a mirror resolver and
+// optional metrics. The resolver may be nil (passthrough).
+func NewEnricherWithResolver(s Store, lister TagsLister, resolver mirrorresolve.Resolver, interval time.Duration, m *Metrics) *Enricher {
+	return &Enricher{
+		store:     s,
+		lister:    lister,
+		resolver:  resolver,
 		interval:  interval,
 		metrics:   m,
 		triggerCh: make(chan struct{}, 1),
@@ -123,7 +138,7 @@ func (e *Enricher) RunTick(ctx context.Context) {
 		slog.Warn("imageversions: distinct refs failed", slog.String("err", err.Error()))
 		return
 	}
-	discovered, repoRegistry := discoverWork(refs, enabledRegs)
+	discovered, repoRegistry := e.discoverWork(ctx, refs, enabledRegs)
 
 	processed := e.dispatchWorkers(ctx, discovered, repoRegistry, enabledRegs)
 
@@ -165,9 +180,12 @@ func (e *Enricher) loadEnabledRegistries(ctx context.Context) ([]api.ImageRegist
 		return nil, false
 	}
 	enabled := make([]api.ImageRegistry, 0, len(regs))
-	for _, r := range regs {
-		if r.Enabled {
-			enabled = append(enabled, r)
+	for i := range regs {
+		r := &regs[i]
+		// Mirror rows participate only in the resolver path (ADR-0026);
+		// they must not appear in the public-registry allowlist iteration.
+		if r.Enabled && !r.IsMirror {
+			enabled = append(enabled, *r)
 		}
 	}
 	if e.metrics != nil {
@@ -185,26 +203,23 @@ func (e *Enricher) loadEnabledRegistries(ctx context.Context) ([]api.ImageRegist
 // discoverWork parses raw image refs, matches each against the allowlist,
 // and groups them by (image_repo, variant). Returns the per-repo variant set
 // and the per-repo matched registry hostname.
-func discoverWork(refs []string, enabledRegs []api.ImageRegistry) (
+func (e *Enricher) discoverWork(ctx context.Context, refs []string, enabledRegs []api.ImageRegistry) (
 	discovered map[string]map[string]struct{},
 	repoRegistry map[string]string,
 ) {
 	discovered = map[string]map[string]struct{}{}
 	repoRegistry = map[string]string{}
 	for _, raw := range refs {
-		ref, err := ParseImageRef(raw)
+		resolved, skip := e.resolveMirrorRef(ctx, raw)
+		if skip {
+			continue
+		}
+		ref, err := ParseImageRef(resolved)
 		if err != nil {
 			slog.Debug("imageversions: skip ref", slog.String("ref", raw), slog.String("reason", err.Error()))
 			continue
 		}
-		matched := false
-		for i := range enabledRegs {
-			if registry.Match(enabledRegs[i].Hostname, ref.Registry) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if !matchAnyRegistry(enabledRegs, ref.Registry) {
 			slog.Debug("imageversions: registry not allowlisted",
 				slog.String("registry", ref.Registry), slog.String("ref", raw))
 			continue
@@ -223,6 +238,40 @@ func discoverWork(refs []string, enabledRegs []api.ImageRegistry) (
 	return discovered, repoRegistry
 }
 
+// resolveMirrorRef runs the mirror resolver if configured. Returns the
+// resolved ref and skip=true when the caller must drop this ref (no mirror
+// configured returns raw, skip=false).
+func (e *Enricher) resolveMirrorRef(ctx context.Context, raw string) (string, bool) {
+	if e.resolver == nil {
+		return raw, false
+	}
+	r, err := e.resolver.Resolve(ctx, raw)
+	switch {
+	case errors.Is(err, mirrorresolve.ErrNoOriginAnnotation),
+		errors.Is(err, mirrorresolve.ErrAmbiguousAnnotation):
+		slog.Debug("imageversions: skip mirror ref",
+			slog.String("ref", raw), slog.String("reason", err.Error()))
+		return "", true
+	case err != nil:
+		slog.Warn("imageversions: mirror resolve error",
+			slog.String("ref", raw), slog.String("err", err.Error()))
+		return "", true
+	default:
+		return r, false
+	}
+}
+
+// matchAnyRegistry reports whether the candidate registry matches any
+// enabled allowlist entry.
+func matchAnyRegistry(enabledRegs []api.ImageRegistry, candidate string) bool {
+	for i := range enabledRegs {
+		if registry.Match(enabledRegs[i].Hostname, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 // dispatchWorkers fans out one goroutine per image_repo (bounded to 5
 // concurrent), upserts every result, and returns the processed key set
 // for the reap step.
@@ -233,7 +282,8 @@ func (e *Enricher) dispatchWorkers(
 	enabledRegs []api.ImageRegistry,
 ) [][2]string {
 	limiters := map[string]*rate.Limiter{}
-	for _, r := range enabledRegs {
+	for i := range enabledRegs {
+		r := &enabledRegs[i]
 		limiters[r.Hostname] = rate.NewLimiter(rate.Limit(r.RateLimitPerSec), 1)
 	}
 	pickLimiter := func(reg string) *rate.Limiter {
