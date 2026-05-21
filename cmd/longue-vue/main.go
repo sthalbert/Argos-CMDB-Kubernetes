@@ -28,6 +28,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/eol"
 	"github.com/sthalbert/longue-vue/internal/httputil"
 	"github.com/sthalbert/longue-vue/internal/imageversions"
+	"github.com/sthalbert/longue-vue/internal/imageversions/mirrorresolve"
 	"github.com/sthalbert/longue-vue/internal/imageversions/registry"
 	"github.com/sthalbert/longue-vue/internal/impact"
 	argmcp "github.com/sthalbert/longue-vue/internal/mcp"
@@ -280,6 +281,9 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 	encrypter, err := initSecretsEncrypter(rootCtx, pg)
 	if err != nil {
 		return err
+	}
+	if encrypter != nil {
+		pg.SetEncrypter(encrypter)
 	}
 
 	oidcProvider, err := maybeInitOIDC(rootCtx, &cfg.oidcCfg)
@@ -1254,7 +1258,11 @@ func maybeStartImageVersionsEnricher(ctx context.Context, s api.Store) (*imageve
 
 	ivMetrics := imageversions.NewMetrics(metrics.Registry)
 	client := registry.NewClientWithObserver(ivMetrics)
-	enricher := imageversions.NewEnricherWithMetrics(s, client, interval, ivMetrics)
+	resolver := &mirrorresolve.HTTPResolver{
+		Lookup:  imageversions.NewStoreMirrorLookup(s),
+		Metrics: imageversions.NewObserver(ivMetrics),
+	}
+	enricher := imageversions.NewEnricherWithResolver(s, client, resolver, interval, ivMetrics)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
