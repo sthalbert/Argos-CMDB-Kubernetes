@@ -669,8 +669,12 @@ type ImageRegistry struct {
 
 	// Hostname Exact hostname or '*<suffix>' wildcard
 	Hostname        string    `json:"hostname"`
+	PathPrefix      string    `json:"path_prefix"`
 	Notes           *string   `json:"notes,omitempty"`
 	RateLimitPerSec float32   `json:"rate_limit_per_sec"`
+	IsMirror        bool      `json:"is_mirror"`
+	AuthUsername    *string   `json:"auth_username,omitempty"`
+	AuthConfigured  bool      `json:"auth_configured"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
@@ -679,14 +683,21 @@ type ImageRegistryPatch struct {
 	Enabled         *bool    `json:"enabled,omitempty"`
 	Notes           *string  `json:"notes,omitempty"`
 	RateLimitPerSec *float32 `json:"rate_limit_per_sec,omitempty"`
+	IsMirror        *bool    `json:"is_mirror,omitempty"`
+	AuthUsername    *string  `json:"auth_username,omitempty"`
+	AuthToken       *string  `json:"auth_token,omitempty"`
 }
 
 // ImageRegistryUpsert defines model for ImageRegistryUpsert.
 type ImageRegistryUpsert struct {
 	Enabled         *bool   `json:"enabled,omitempty"`
 	Hostname        string  `json:"hostname"`
+	PathPrefix      string  `json:"path_prefix"`
 	Notes           *string `json:"notes,omitempty"`
 	RateLimitPerSec float32 `json:"rate_limit_per_sec"`
+	IsMirror        bool    `json:"is_mirror,omitempty"`
+	AuthUsername    *string `json:"auth_username,omitempty"`
+	AuthToken       *string `json:"auth_token,omitempty"`
 }
 
 // ImageVersion defines model for ImageVersion.
