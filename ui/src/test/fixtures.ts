@@ -28,6 +28,7 @@ export const fixtureCluster: Cluster = {
 export const fixtureNamespace: Namespace = {
   id: '22222222-2222-2222-2222-222222222222',
   cluster_id: fixtureCluster.id,
+  cluster_name: fixtureCluster.name,
   name: 'payments',
   display_name: null,
   phase: 'Active',
@@ -91,6 +92,7 @@ export const fixtureNode: Node = {
   annotations: null,
   hardware_model: null,
   layer: 'infrastructure_physical',
+  cluster_name: fixtureCluster.name,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
 };
@@ -105,6 +107,9 @@ const fixtureContainer: Container = {
 export const fixtureWorkload: Workload = {
   id: '44444444-4444-4444-4444-444444444444',
   namespace_id: fixtureNamespace.id,
+  namespace_name: fixtureNamespace.name,
+  cluster_id: fixtureCluster.id,
+  cluster_name: fixtureCluster.name,
   kind: 'Deployment',
   name: 'web',
   replicas: 3,
@@ -119,6 +124,10 @@ export const fixtureWorkload: Workload = {
 export const fixturePod: Pod = {
   id: '55555555-5555-5555-5555-555555555555',
   namespace_id: fixtureNamespace.id,
+  namespace_name: fixtureNamespace.name,
+  cluster_id: fixtureCluster.id,
+  cluster_name: fixtureCluster.name,
+  workload_name: fixtureWorkload.name,
   name: 'web-abcd-efgh',
   phase: 'Running',
   node_name: fixtureNode.name,
@@ -134,6 +143,9 @@ export const fixturePod: Pod = {
 export const fixtureService: Service = {
   id: '66666666-6666-6666-6666-666666666666',
   namespace_id: fixtureNamespace.id,
+  namespace_name: fixtureNamespace.name,
+  cluster_id: fixtureCluster.id,
+  cluster_name: fixtureCluster.name,
   name: 'web',
   type: 'ClusterIP',
   cluster_ip: '10.96.0.10',
@@ -149,6 +161,9 @@ export const fixtureService: Service = {
 export const fixtureIngress: Ingress = {
   id: '77777777-7777-7777-7777-777777777777',
   namespace_id: fixtureNamespace.id,
+  namespace_name: fixtureNamespace.name,
+  cluster_id: fixtureCluster.id,
+  cluster_name: fixtureCluster.name,
   name: 'web-ingress',
   ingress_class_name: 'nginx',
   rules: [{
@@ -185,6 +200,9 @@ export const fixturePV: PersistentVolume = {
 export const fixturePVC: PersistentVolumeClaim = {
   id: '99999999-9999-9999-9999-999999999999',
   namespace_id: fixtureNamespace.id,
+  namespace_name: fixtureNamespace.name,
+  cluster_id: fixtureCluster.id,
+  cluster_name: fixtureCluster.name,
   name: 'data',
   phase: 'Bound',
   storage_class_name: 'standard',

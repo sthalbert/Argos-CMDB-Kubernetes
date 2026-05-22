@@ -753,8 +753,10 @@ const nodeColumns = `id, cluster_id, name, display_name, role,
 	created_at, updated_at`
 
 // nodeColumnsUAliased is nodeColumns with every column qualified by the `u`
-// alias — used by UpsertNode's final SELECT, which joins `upserted u` against
-// the snapshot CTE `old o` and must disambiguate columns present in both.
+// alias plus the denormalized cluster_name from the LEFT JOIN — used by
+// UpsertNode's final SELECT, which joins `upserted u` against the snapshot
+// CTE `old o` and clusters `c`, and must disambiguate columns present in
+// more than one source.
 const nodeColumnsUAliased = `u.id, u.cluster_id, u.name, u.display_name, u.role,
 	u.kubelet_version, u.kube_proxy_version, u.container_runtime_version,
 	u.os_image, u.operating_system, u.kernel_version, u.architecture,
@@ -765,7 +767,28 @@ const nodeColumnsUAliased = `u.id, u.cluster_id, u.name, u.display_name, u.role,
 	u.conditions, u.taints, u.unschedulable, u.ready,
 	u.labels,
 	u.owner, u.criticality, u.notes, u.runbook_url, u.annotations, u.hardware_model,
-	u.created_at, u.updated_at`
+	u.created_at, u.updated_at,
+	c.name AS cluster_name`
+
+// nodeSelectColumns is the read-side projection: every column from the
+// nodes row (aliased to `n.`) plus the denormalized cluster name joined
+// in via LEFT JOIN (ADR-0027). LEFT JOIN keeps orphan rows visible with
+// a NULL cluster_name — the UI renders that as an explicit badge.
+const nodeSelectColumns = `n.id, n.cluster_id, n.name, n.display_name, n.role,
+	n.kubelet_version, n.kube_proxy_version, n.container_runtime_version,
+	n.os_image, n.operating_system, n.kernel_version, n.architecture,
+	n.internal_ip, n.external_ip, n.pod_cidr,
+	n.provider_id, n.instance_type, n.zone,
+	n.capacity_cpu, n.capacity_memory, n.capacity_pods, n.capacity_ephemeral_storage,
+	n.allocatable_cpu, n.allocatable_memory, n.allocatable_pods, n.allocatable_ephemeral_storage,
+	n.conditions, n.taints, n.unschedulable, n.ready,
+	n.labels,
+	n.owner, n.criticality, n.notes, n.runbook_url, n.annotations, n.hardware_model,
+	n.created_at, n.updated_at,
+	c.name AS cluster_name`
+
+const nodeFromJoined = `FROM nodes n
+	LEFT JOIN clusters c ON c.id = n.cluster_id`
 
 func nodeInsertValues(in *api.NodeCreate, id uuid.UUID, now time.Time) ([]any, error) {
 	labelsJSON, err := marshalLabels(in.Labels)
@@ -839,9 +862,10 @@ func (p *PG) CreateNode(ctx context.Context, in api.NodeCreate) (api.Node, error
 	return p.GetNode(ctx, id)
 }
 
-// GetNode fetches a node by id.
+// GetNode fetches a node by id, including the denormalized cluster_name
+// from the node's cluster (ADR-0027).
 func (p *PG) GetNode(ctx context.Context, id uuid.UUID) (api.Node, error) {
-	q := `SELECT ` + nodeColumns + ` FROM nodes WHERE id = $1`
+	q := `SELECT ` + nodeSelectColumns + ` ` + nodeFromJoined + ` WHERE n.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	n, err := scanNode(row)
 	if err != nil {
@@ -867,17 +891,18 @@ func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cur
 
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
-	sb.WriteString(nodeColumns)
-	sb.WriteString(` FROM nodes`)
+	sb.WriteString(nodeSelectColumns)
+	sb.WriteString(` `)
+	sb.WriteString(nodeFromJoined)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 3)
 
 	if !includeTerminated {
-		conds = append(conds, "terminated_at IS NULL")
+		conds = append(conds, "n.terminated_at IS NULL")
 	}
 	if clusterID != nil {
 		args = append(args, *clusterID)
-		conds = append(conds, fmt.Sprintf("cluster_id = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("n.cluster_id = $%d", len(args)))
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
@@ -888,14 +913,14 @@ func (p *PG) ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cur
 		tsIdx := len(args)
 		args = append(args, cid)
 		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		conds = append(conds, fmt.Sprintf("(n.created_at, n.id) < ($%d, $%d)", tsIdx, idIdx))
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " ORDER BY n.created_at DESC, n.id DESC LIMIT $%d", len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -3752,7 +3777,9 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.U
 		           o.labels                        IS DISTINCT FROM u.labels                        OR
 		           o.terminated_at                 IS DISTINCT FROM u.terminated_at
 		       )) AS business_changed
-		  FROM upserted u LEFT JOIN old o ON true
+		  FROM upserted u
+		  LEFT JOIN old o      ON true
+		  LEFT JOIN clusters c ON c.id = u.cluster_id
 	`
 	row := tx.QueryRow(ctx, q, values...)
 	var inserted, businessChanged bool
@@ -3818,6 +3845,7 @@ func scanNode(row pgx.Row) (api.Node, error) {
 		runbookURL              sql.NullString
 		annotationsJSON         []byte
 		hardwareModel           sql.NullString
+		clusterName             sql.NullString
 	)
 	if err := row.Scan(
 		&id, &clusterID, &n.Name, &displayName, &role,
@@ -3831,6 +3859,7 @@ func scanNode(row pgx.Row) (api.Node, error) {
 		&labelsJSON,
 		&owner, &criticality, &notes, &runbookURL, &annotationsJSON, &hardwareModel,
 		&createdAt, &updatedAt,
+		&clusterName,
 	); err != nil {
 		return api.Node{}, fmt.Errorf("scan node: %w", err)
 	}
@@ -3839,6 +3868,7 @@ func scanNode(row pgx.Row) (api.Node, error) {
 	n.ClusterId = clusterID
 	n.CreatedAt = &createdAt
 	n.UpdatedAt = &updatedAt
+	n.ClusterName = nullableString(clusterName)
 	n.DisplayName = nullableString(displayName)
 	n.Role = nullableString(role)
 	n.KubeletVersion = nullableString(kubeletVersion)

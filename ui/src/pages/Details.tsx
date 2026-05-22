@@ -29,6 +29,7 @@ import {
 } from '../icons';
 import {
   AsyncView,
+  ClusterLink,
   Dash,
   IdLink,
   KV,
@@ -36,6 +37,7 @@ import {
   LayerPill,
   SectionTitle,
   Empty,
+  WorkloadLink,
 } from '../components';
 
 // Inline status badge used in detail-page h2s. Same colour scheme as the
@@ -298,18 +300,16 @@ export function NamespaceDetail() {
     [id, nonce],
   );
 
-  const clusterResult = useResource(async () => {
-    if (state.status !== 'ready') return null;
-    return api.getCluster(state.data[0].cluster_id);
-  }, [state.status === 'ready' ? state.data[0].cluster_id : '']);
-
   return (
     <>
       <div className="breadcrumb">
         <Link to="/namespaces">Namespaces</Link> /{' '}
-        {clusterResult.status === 'ready' && clusterResult.data && (
+        {state.status === 'ready' && state.data[0].cluster_id && (
           <>
-            <Link to={`/clusters/${clusterResult.data.id}`}>{clusterResult.data.name}</Link>
+            <ClusterLink
+              clusterId={state.data[0].cluster_id}
+              clusterName={state.data[0].cluster_name}
+            />
             {' / '}
           </>
         )}
@@ -324,15 +324,7 @@ export function NamespaceDetail() {
             <dl className="kv-list">
               <KV
                 k="Cluster"
-                v={
-                  clusterResult.status === 'ready' && clusterResult.data ? (
-                    <Link to={`/clusters/${clusterResult.data.id}`}>
-                      <strong>{clusterResult.data.name}</strong>
-                    </Link>
-                  ) : (
-                    <IdLink to={`/clusters/${ns.cluster_id}`} id={ns.cluster_id} />
-                  )
-                }
+                v={<ClusterLink clusterId={ns.cluster_id} clusterName={ns.cluster_name} />}
               />
               <KV k="Phase" v={ns.phase} />
               <KV k="Labels" v={<Labels labels={ns.labels} />} />
@@ -563,32 +555,27 @@ export function WorkloadDetail() {
     () => api.listPods({ workload_id: id }),
     [id],
   );
-  const workloadData = workloadState.status === 'ready' ? workloadState.data : null;
-  const namespaceResult = useResource(
-    async () => (workloadData ? api.getNamespace(workloadData.namespace_id) : null),
-    [workloadData?.namespace_id ?? ''],
-  );
-  const clusterResult = useResource(
-    async () =>
-      namespaceResult.status === 'ready' && namespaceResult.data
-        ? api.getCluster(namespaceResult.data.cluster_id)
-        : null,
-    [namespaceResult.status === 'ready' && namespaceResult.data ? namespaceResult.data.cluster_id : ''],
-  );
 
   return (
     <>
       <div className="breadcrumb">
         <Link to="/workloads">Workloads</Link> /{' '}
-        {clusterResult.status === 'ready' && clusterResult.data && (
+        {workloadState.status === 'ready' && workloadState.data.cluster_id && (
           <>
-            <Link to={`/clusters/${clusterResult.data.id}`}>{clusterResult.data.name}</Link>
+            <ClusterLink
+              clusterId={workloadState.data.cluster_id}
+              clusterName={workloadState.data.cluster_name}
+            />
             {' / '}
           </>
         )}
-        {namespaceResult.status === 'ready' && namespaceResult.data && (
+        {workloadState.status === 'ready' && (
           <>
-            <Link to={`/namespaces/${namespaceResult.data.id}`}>{namespaceResult.data.name}</Link>
+            <Link to={`/namespaces/${workloadState.data.namespace_id}`}>
+              {workloadState.data.namespace_name ?? (
+                <span title="namespace row missing">(orphan)</span>
+              )}
+            </Link>
             {' / '}
           </>
         )}
@@ -619,24 +606,16 @@ export function WorkloadDetail() {
                 <KV
                   k="Namespace"
                   v={
-                    namespaceResult.status === 'ready' && namespaceResult.data ? (
-                      <Link to={`/namespaces/${namespaceResult.data.id}`}>
-                        <strong>{namespaceResult.data.name}</strong>
-                      </Link>
-                    ) : (
-                      <IdLink to={`/namespaces/${workload.namespace_id}`} id={workload.namespace_id} />
-                    )
+                    <Link to={`/namespaces/${workload.namespace_id}`}>
+                      {workload.namespace_name ?? (
+                        <span title="namespace row missing">(orphan)</span>
+                      )}
+                    </Link>
                   }
                 />
                 <KV
                   k="Cluster"
-                  v={
-                    clusterResult.status === 'ready' && clusterResult.data ? (
-                      <Link to={`/clusters/${clusterResult.data.id}`}>
-                        <strong>{clusterResult.data.name}</strong>
-                      </Link>
-                    ) : undefined
-                  }
+                  v={<ClusterLink clusterId={workload.cluster_id} clusterName={workload.cluster_name} />}
                 />
                 <KV k="Labels" v={<Labels labels={workload.labels} />} />
               </dl>
@@ -742,24 +721,33 @@ export function WorkloadDetail() {
 export function PodDetail() {
   const { id = '' } = useParams();
   const state = useResource(() => api.getPod(id), [id]);
-  const podData = state.status === 'ready' ? state.data : null;
-  const nsResult = useResource(
-    async () => (podData ? api.getNamespace(podData.namespace_id) : null),
-    [podData?.namespace_id ?? ''],
-  );
-  const wlResult = useResource(
-    async () => (podData?.workload_id ? api.getWorkload(podData.workload_id) : null),
-    [podData?.workload_id ?? ''],
-  );
   return (
     <>
       <div className="breadcrumb">
-        <Link to="/pods">Pods</Link> / <span>this pod</span>
+        <Link to="/pods">Pods</Link> /{' '}
+        {state.status === 'ready' && state.data.cluster_id && (
+          <>
+            <ClusterLink
+              clusterId={state.data.cluster_id}
+              clusterName={state.data.cluster_name}
+            />
+            {' / '}
+          </>
+        )}
+        {state.status === 'ready' && (
+          <>
+            <Link to={`/namespaces/${state.data.namespace_id}`}>
+              {state.data.namespace_name ?? (
+                <span title="namespace row missing">(orphan)</span>
+              )}
+            </Link>
+            {' / '}
+          </>
+        )}
+        <span>this pod</span>
       </div>
       <AsyncView state={state}>
         {(pod) => {
-          const ns = nsResult.status === 'ready' ? nsResult.data : null;
-          const wl = wlResult.status === 'ready' ? wlResult.data : null;
           return (
           <>
             <h2>
@@ -772,26 +760,16 @@ export function PodDetail() {
               <KV
                 k="Namespace"
                 v={
-                  ns ? (
-                    <Link to={`/namespaces/${ns.id}`}>{ns.display_name || ns.name}</Link>
-                  ) : (
-                    <IdLink to={`/namespaces/${pod.namespace_id}`} id={pod.namespace_id} />
-                  )
+                  <Link to={`/namespaces/${pod.namespace_id}`}>
+                    {pod.namespace_name ?? (
+                      <span title="namespace row missing">(orphan)</span>
+                    )}
+                  </Link>
                 }
               />
               <KV
                 k="Workload"
-                v={
-                  wl ? (
-                    <Link to={`/workloads/${wl.id}`}>
-                      {wl.name} <span className="muted" style={{ fontSize: '0.8rem' }}>{wl.kind}</span>
-                    </Link>
-                  ) : pod.workload_id ? (
-                    <IdLink to={`/workloads/${pod.workload_id}`} id={pod.workload_id} />
-                  ) : (
-                    <span className="muted">(unmanaged / unknown owner kind)</span>
-                  )
-                }
+                v={<WorkloadLink workloadId={pod.workload_id} workloadName={pod.workload_name} />}
               />
               <KV k="Labels" v={<Labels labels={pod.labels} />} />
             </dl>
@@ -883,16 +861,18 @@ export function NodeDetail() {
   // Also pull all workloads so we can attach name/kind to each pod's
   // workload_id for the impact grouping.
   const workloads = useResource(() => api.listWorkloads(), []);
-  // Resolve parent cluster so the Identity row shows its name, not its UUID.
-  const clusterResult = useResource(
-    async () => (node.status === 'ready' ? api.getCluster(node.data.cluster_id) : null),
-    [node.status === 'ready' ? node.data.cluster_id : ''],
-  );
 
   return (
     <>
       <div className="breadcrumb">
-        <Link to="/nodes">Nodes</Link> / <span>this node</span>
+        <Link to="/nodes">Nodes</Link> /{' '}
+        {node.status === 'ready' && (
+          <>
+            <ClusterLink clusterId={node.data.cluster_id} clusterName={node.data.cluster_name} />
+            {' / '}
+          </>
+        )}
+        <span>this node</span>
       </div>
       <AsyncView state={node}>
         {(n) => (
@@ -907,15 +887,7 @@ export function NodeDetail() {
               <KV k="Name" v={<code>{n.name}</code>} />
               <KV
                 k="Cluster"
-                v={
-                  clusterResult.status === 'ready' && clusterResult.data ? (
-                    <Link to={`/clusters/${clusterResult.data.id}`}>
-                      <strong>{clusterResult.data.name}</strong>
-                    </Link>
-                  ) : (
-                    <IdLink to={`/clusters/${n.cluster_id}`} id={n.cluster_id} />
-                  )
-                }
+                v={<ClusterLink clusterId={n.cluster_id} clusterName={n.cluster_name} />}
               />
               <KV k="Role" v={n.role && <span className="pill">{n.role}</span>} />
               <KV k="Provider ID" v={n.provider_id && <code>{n.provider_id}</code>} />
@@ -1206,28 +1178,27 @@ export function NodeDetail() {
 export function IngressDetail() {
   const { id = '' } = useParams();
   const ingress = useResource(() => api.getIngress(id), [id]);
-  const ns = useResource(
-    async () => (ingress.status === 'ready' ? api.getNamespace(ingress.data.namespace_id) : null),
-    [ingress.status === 'ready' ? ingress.data.namespace_id : ''],
-  );
-  const cluster = useResource(
-    async () => (ns.status === 'ready' && ns.data ? api.getCluster(ns.data.cluster_id) : null),
-    [ns.status === 'ready' && ns.data ? ns.data.cluster_id : ''],
-  );
 
   return (
     <>
       <div className="breadcrumb">
         <Link to="/ingresses">Ingresses</Link> /{' '}
-        {cluster.status === 'ready' && cluster.data && (
+        {ingress.status === 'ready' && ingress.data.cluster_id && (
           <>
-            <Link to={`/clusters/${cluster.data.id}`}>{cluster.data.name}</Link>
+            <ClusterLink
+              clusterId={ingress.data.cluster_id}
+              clusterName={ingress.data.cluster_name}
+            />
             {' / '}
           </>
         )}
-        {ns.status === 'ready' && ns.data && (
+        {ingress.status === 'ready' && (
           <>
-            <Link to={`/namespaces/${ns.data.id}`}>{ns.data.name}</Link>
+            <Link to={`/namespaces/${ingress.data.namespace_id}`}>
+              {ingress.data.namespace_name ?? (
+                <span title="namespace row missing">(orphan)</span>
+              )}
+            </Link>
             {' / '}
           </>
         )}
@@ -1241,7 +1212,20 @@ export function IngressDetail() {
             </h2>
             <dl className="kv-list">
               <KV k="Ingress class" v={i.ingress_class_name} />
-              <KV k="Namespace" v={<IdLink to={`/namespaces/${i.namespace_id}`} id={i.namespace_id} />} />
+              <KV
+                k="Namespace"
+                v={
+                  <Link to={`/namespaces/${i.namespace_id}`}>
+                    {i.namespace_name ?? (
+                      <span title="namespace row missing">(orphan)</span>
+                    )}
+                  </Link>
+                }
+              />
+              <KV
+                k="Cluster"
+                v={<ClusterLink clusterId={i.cluster_id} clusterName={i.cluster_name} />}
+              />
               <KV k="Labels" v={<Labels labels={i.labels} />} />
             </dl>
 
@@ -1374,28 +1358,27 @@ export function IngressDetail() {
 export function ServiceDetail() {
   const { id = '' } = useParams();
   const service = useResource(() => api.getService(id), [id]);
-  const ns = useResource(
-    async () => (service.status === 'ready' ? api.getNamespace(service.data.namespace_id) : null),
-    [service.status === 'ready' ? service.data.namespace_id : ''],
-  );
-  const cluster = useResource(
-    async () => (ns.status === 'ready' && ns.data ? api.getCluster(ns.data.cluster_id) : null),
-    [ns.status === 'ready' && ns.data ? ns.data.cluster_id : ''],
-  );
 
   return (
     <>
       <div className="breadcrumb">
         <Link to="/services">Services</Link> /{' '}
-        {cluster.status === 'ready' && cluster.data && (
+        {service.status === 'ready' && service.data.cluster_id && (
           <>
-            <Link to={`/clusters/${cluster.data.id}`}>{cluster.data.name}</Link>
+            <ClusterLink
+              clusterId={service.data.cluster_id}
+              clusterName={service.data.cluster_name}
+            />
             {' / '}
           </>
         )}
-        {ns.status === 'ready' && ns.data && (
+        {service.status === 'ready' && (
           <>
-            <Link to={`/namespaces/${ns.data.id}`}>{ns.data.name}</Link>
+            <Link to={`/namespaces/${service.data.namespace_id}`}>
+              {service.data.namespace_name ?? (
+                <span title="namespace row missing">(orphan)</span>
+              )}
+            </Link>
             {' / '}
           </>
         )}
@@ -1410,7 +1393,20 @@ export function ServiceDetail() {
             <dl className="kv-list">
               <KV k="Type" v={<span className="pill">{s.type || 'ClusterIP'}</span>} />
               <KV k="ClusterIP" v={s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash />} />
-              <KV k="Namespace" v={<IdLink to={`/namespaces/${s.namespace_id}`} id={s.namespace_id} />} />
+              <KV
+                k="Namespace"
+                v={
+                  <Link to={`/namespaces/${s.namespace_id}`}>
+                    {s.namespace_name ?? (
+                      <span title="namespace row missing">(orphan)</span>
+                    )}
+                  </Link>
+                }
+              />
+              <KV
+                k="Cluster"
+                v={<ClusterLink clusterId={s.cluster_id} clusterName={s.cluster_name} />}
+              />
               <KV k="Labels" v={<Labels labels={s.labels} />} />
             </dl>
 
@@ -1560,14 +1556,6 @@ export function PersistentVolumeDetail() {
 export function PersistentVolumeClaimDetail() {
   const { id = '' } = useParams();
   const pvc = useResource(() => api.getPersistentVolumeClaim(id), [id]);
-  const ns = useResource(
-    async () => (pvc.status === 'ready' ? api.getNamespace(pvc.data.namespace_id) : null),
-    [pvc.status === 'ready' ? pvc.data.namespace_id : ''],
-  );
-  const cluster = useResource(
-    async () => (ns.status === 'ready' && ns.data ? api.getCluster(ns.data.cluster_id) : null),
-    [ns.status === 'ready' && ns.data ? ns.data.cluster_id : ''],
-  );
   const boundPv = useResource(
     async () =>
       pvc.status === 'ready' && pvc.data.bound_volume_id
@@ -1580,15 +1568,22 @@ export function PersistentVolumeClaimDetail() {
     <>
       <div className="breadcrumb">
         <Link to="/persistentvolumeclaims">Persistent Volume Claims</Link> /{' '}
-        {cluster.status === 'ready' && cluster.data && (
+        {pvc.status === 'ready' && pvc.data.cluster_id && (
           <>
-            <Link to={`/clusters/${cluster.data.id}`}>{cluster.data.name}</Link>
+            <ClusterLink
+              clusterId={pvc.data.cluster_id}
+              clusterName={pvc.data.cluster_name}
+            />
             {' / '}
           </>
         )}
-        {ns.status === 'ready' && ns.data && (
+        {pvc.status === 'ready' && (
           <>
-            <Link to={`/namespaces/${ns.data.id}`}>{ns.data.name}</Link>
+            <Link to={`/namespaces/${pvc.data.namespace_id}`}>
+              {pvc.data.namespace_name ?? (
+                <span title="namespace row missing">(orphan)</span>
+              )}
+            </Link>
             {' / '}
           </>
         )}
@@ -1627,7 +1622,17 @@ export function PersistentVolumeClaimDetail() {
               />
               <KV
                 k="Namespace"
-                v={<IdLink to={`/namespaces/${c.namespace_id}`} id={c.namespace_id} />}
+                v={
+                  <Link to={`/namespaces/${c.namespace_id}`}>
+                    {c.namespace_name ?? (
+                      <span title="namespace row missing">(orphan)</span>
+                    )}
+                  </Link>
+                }
+              />
+              <KV
+                k="Cluster"
+                v={<ClusterLink clusterId={c.cluster_id} clusterName={c.cluster_name} />}
               />
               <KV k="Labels" v={<Labels labels={c.labels} />} />
             </dl>
