@@ -323,6 +323,7 @@ func (s *fakeStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, ke
 	}
 	kept := s.existingPods[:0]
 	var deleted int64
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, p := range s.existingPods {
 		if p.NamespaceId != namespaceID {
 			kept = append(kept, p)
@@ -384,6 +385,7 @@ func (s *fakeStore) DeleteIngressesNotIn(_ context.Context, namespaceID uuid.UUI
 	}
 	kept := s.existingIngresses[:0]
 	var deleted int64
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, ing := range s.existingIngresses {
 		if ing.NamespaceId != namespaceID {
 			kept = append(kept, ing)
@@ -409,6 +411,7 @@ func (s *fakeStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID
 	}
 	kept := s.existingServices[:0]
 	var deleted int64
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, svc := range s.existingServices {
 		if svc.NamespaceId != namespaceID {
 			kept = append(kept, svc)
@@ -552,6 +555,7 @@ func (s *fakeStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespa
 	}
 	kept := s.existingPVCs[:0]
 	var deleted int64
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, pvc := range s.existingPVCs {
 		if pvc.NamespaceId != namespaceID {
 			kept = append(kept, pvc)

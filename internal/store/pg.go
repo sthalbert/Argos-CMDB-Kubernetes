@@ -1232,14 +1232,19 @@ func (p *PG) CreateNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 }
 
 // GetNamespace fetches a namespace by id.
+// Namespace read-side projection with cluster_name JOINed in (ADR-0027).
+const namespaceSelectColumns = `n.id, n.cluster_id, n.name, n.display_name, n.phase, n.labels,
+	n.owner, n.criticality, n.notes, n.runbook_url, n.annotations,
+	n.created_at, n.updated_at,
+	c.name AS cluster_name`
+
+const namespaceFromJoined = `FROM namespaces n
+	LEFT JOIN clusters c ON c.id = n.cluster_id`
+
+// GetNamespace fetches a namespace by id, including the denormalized
+// cluster_name from the namespace's cluster (ADR-0027).
 func (p *PG) GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, error) {
-	const q = `
-		SELECT id, cluster_id, name, display_name, phase, labels,
-		       owner, criticality, notes, runbook_url, annotations,
-		       created_at, updated_at
-		FROM namespaces
-		WHERE id = $1
-	`
+	q := `SELECT ` + namespaceSelectColumns + ` ` + namespaceFromJoined + ` WHERE n.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	n, err := scanNamespace(row)
 	if err != nil {
@@ -1269,19 +1274,19 @@ func (p *PG) ListNamespaces(
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT id, cluster_id, name, display_name, phase, labels,
-	                       owner, criticality, notes, runbook_url, annotations,
-	                       created_at, updated_at
-	                FROM namespaces`)
+	sb.WriteString(`SELECT `)
+	sb.WriteString(namespaceSelectColumns)
+	sb.WriteString(` `)
+	sb.WriteString(namespaceFromJoined)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 3)
 
 	if !includeTerminated {
-		conds = append(conds, "terminated_at IS NULL")
+		conds = append(conds, "n.terminated_at IS NULL")
 	}
 	if clusterID != nil {
 		args = append(args, *clusterID)
-		conds = append(conds, fmt.Sprintf("cluster_id = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("n.cluster_id = $%d", len(args)))
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
@@ -1292,14 +1297,14 @@ func (p *PG) ListNamespaces(
 		tsIdx := len(args)
 		args = append(args, cid)
 		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		conds = append(conds, fmt.Sprintf("(n.created_at, n.id) < ($%d, $%d)", tsIdx, idIdx))
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " ORDER BY n.created_at DESC, n.id DESC LIMIT $%d", len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -1562,6 +1567,7 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 		SELECT u.id, u.cluster_id, u.name, u.display_name, u.phase, u.labels,
 		       u.owner, u.criticality, u.notes, u.runbook_url, u.annotations,
 		       u.created_at, u.updated_at,
+		       c.name AS cluster_name,
 		       (u.xmax = 0) AS inserted,
 		       (u.xmax <> 0 AND (
 		           o.display_name  IS DISTINCT FROM u.display_name  OR
@@ -1569,7 +1575,9 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 		           o.labels        IS DISTINCT FROM u.labels        OR
 		           o.terminated_at IS DISTINCT FROM u.terminated_at
 		       )) AS business_changed
-		  FROM upserted u LEFT JOIN old o ON true
+		  FROM upserted u
+		  LEFT JOIN old o      ON true
+		  LEFT JOIN clusters c ON c.id = u.cluster_id
 	`
 	row := tx.QueryRow(ctx, q,
 		id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
@@ -1675,13 +1683,22 @@ func classifyPodFKError(err error, namespaceID uuid.UUID, workloadID *uuid.UUID)
 }
 
 // GetPod fetches a pod by id.
+// Pod read-side projection with parent-name JOINs (ADR-0027). Pods also
+// LEFT JOIN workloads to expose `workload_name`.
+const podSelectColumns = `p.id, p.namespace_id, p.name, p.phase, p.node_name, p.pod_ip,
+	p.workload_id, p.containers, p.labels, p.created_at, p.updated_at,
+	n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name,
+	w.name AS workload_name`
+
+const podFromJoined = `FROM pods p
+	LEFT JOIN namespaces n ON n.id = p.namespace_id
+	LEFT JOIN clusters   c ON c.id = n.cluster_id
+	LEFT JOIN workloads  w ON w.id = p.workload_id`
+
+// GetPod fetches a pod by id, including the denormalized namespace_name,
+// cluster_id, cluster_name, and workload_name (ADR-0027).
 func (p *PG) GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error) {
-	const q = `
-		SELECT id, namespace_id, name, phase, node_name, pod_ip,
-		       workload_id, containers, labels, created_at, updated_at
-		FROM pods
-		WHERE id = $1
-	`
+	q := `SELECT ` + podSelectColumns + ` ` + podFromJoined + ` WHERE p.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	pod, err := scanPod(row)
 	if err != nil {
@@ -1705,23 +1722,24 @@ func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, 
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT id, namespace_id, name, phase, node_name, pod_ip,
-	                       workload_id, containers, labels, created_at, updated_at
-	                FROM pods`)
+	sb.WriteString(`SELECT `)
+	sb.WriteString(podSelectColumns)
+	sb.WriteString(` `)
+	sb.WriteString(podFromJoined)
 	args := make([]any, 0, 6)
 	conds := make([]string, 0, 4)
 
 	if filter.NamespaceID != nil {
 		args = append(args, *filter.NamespaceID)
-		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("p.namespace_id = $%d", len(args)))
 	}
 	if filter.NodeName != nil {
 		args = append(args, *filter.NodeName)
-		conds = append(conds, fmt.Sprintf("node_name = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("p.node_name = $%d", len(args)))
 	}
 	if filter.WorkloadID != nil {
 		args = append(args, *filter.WorkloadID)
-		conds = append(conds, fmt.Sprintf("workload_id = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("p.workload_id = $%d", len(args)))
 	}
 	if filter.ImageSubstring != nil && *filter.ImageSubstring != "" {
 		// Case-insensitive substring match against any container's `image`
@@ -1730,7 +1748,7 @@ func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, 
 		// The ILIKE pattern is built with %…% wrapping.
 		args = append(args, "%"+*filter.ImageSubstring+"%")
 		conds = append(conds, fmt.Sprintf(
-			"EXISTS (SELECT 1 FROM jsonb_array_elements(containers) elem WHERE elem->>'image' ILIKE $%d)",
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(p.containers) elem WHERE elem->>'image' ILIKE $%d)",
 			len(args),
 		))
 	}
@@ -1743,14 +1761,14 @@ func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, 
 		tsIdx := len(args)
 		args = append(args, cid)
 		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		conds = append(conds, fmt.Sprintf("(p.created_at, p.id) < ($%d, $%d)", tsIdx, idIdx))
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " ORDER BY p.created_at DESC, p.id DESC LIMIT $%d", len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -2038,14 +2056,18 @@ func (p *PG) CreateWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	}, nil
 }
 
+// Workload read-side projection with parent-name JOINs (ADR-0027).
+const workloadSelectColumns = `w.id, w.namespace_id, w.kind, w.name, w.replicas, w.ready_replicas,
+	w.containers, w.labels, w.spec, w.created_at, w.updated_at,
+	n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name`
+
+const workloadFromJoined = `FROM workloads w
+	LEFT JOIN namespaces n ON n.id = w.namespace_id
+	LEFT JOIN clusters   c ON c.id = n.cluster_id`
+
 // GetWorkload fetches a workload by id.
 func (p *PG) GetWorkload(ctx context.Context, id uuid.UUID) (api.Workload, error) {
-	const q = `
-		SELECT id, namespace_id, kind, name, replicas, ready_replicas,
-		       containers, labels, spec, created_at, updated_at
-		FROM workloads
-		WHERE id = $1
-	`
+	q := `SELECT ` + workloadSelectColumns + ` ` + workloadFromJoined + ` WHERE w.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	w, err := scanWorkload(row)
 	if err != nil {
@@ -2070,27 +2092,28 @@ func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, l
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT id, namespace_id, kind, name, replicas, ready_replicas,
-	                       containers, labels, spec, created_at, updated_at
-	                FROM workloads`)
+	sb.WriteString(`SELECT `)
+	sb.WriteString(workloadSelectColumns)
+	sb.WriteString(` `)
+	sb.WriteString(workloadFromJoined)
 	args := make([]any, 0, 6)
 	conds := make([]string, 0, 5)
 
 	if !filter.IncludeTerminated {
-		conds = append(conds, "terminated_at IS NULL")
+		conds = append(conds, "w.terminated_at IS NULL")
 	}
 	if filter.NamespaceID != nil {
 		args = append(args, *filter.NamespaceID)
-		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("w.namespace_id = $%d", len(args)))
 	}
 	if filter.Kind != nil {
 		args = append(args, string(*filter.Kind))
-		conds = append(conds, fmt.Sprintf("kind = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("w.kind = $%d", len(args)))
 	}
 	if filter.ImageSubstring != nil && *filter.ImageSubstring != "" {
 		args = append(args, "%"+*filter.ImageSubstring+"%")
 		conds = append(conds, fmt.Sprintf(
-			"EXISTS (SELECT 1 FROM jsonb_array_elements(containers) elem WHERE elem->>'image' ILIKE $%d)",
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(w.containers) elem WHERE elem->>'image' ILIKE $%d)",
 			len(args),
 		))
 	}
@@ -2103,7 +2126,7 @@ func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, l
 		tsIdx := len(args)
 		args = append(args, cid)
 		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		conds = append(conds, fmt.Sprintf("(w.created_at, w.id) < ($%d, $%d)", tsIdx, idIdx))
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
@@ -2460,23 +2483,27 @@ func marshalSpec(spec *map[string]interface{}) ([]byte, error) { //nolint:gocrit
 //nolint:gocyclo // JSONB unmarshal branches add inherent cyclomatic complexity
 func scanWorkload(row pgx.Row) (api.Workload, error) {
 	var (
-		w              api.Workload
-		id             uuid.UUID
-		namespaceID    uuid.UUID
-		kind           string
-		replicas       sql.NullInt32
-		readyReplicas  sql.NullInt32
-		createdAt      time.Time
-		updatedAt      time.Time
-		containersJSON []byte
-		labelsJSON     []byte
-		specJSON       []byte
+		w                  api.Workload
+		id                 uuid.UUID
+		namespaceID        uuid.UUID
+		kind               string
+		replicas           sql.NullInt32
+		readyReplicas      sql.NullInt32
+		createdAt          time.Time
+		updatedAt          time.Time
+		containersJSON     []byte
+		labelsJSON         []byte
+		specJSON           []byte
+		namespaceName      sql.NullString
+		namespaceClusterID uuid.NullUUID
+		clusterName        sql.NullString
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &kind, &w.Name,
 		&replicas, &readyReplicas,
 		&containersJSON, &labelsJSON, &specJSON,
 		&createdAt, &updatedAt,
+		&namespaceName, &namespaceClusterID, &clusterName,
 	); err != nil {
 		return api.Workload{}, fmt.Errorf("scan workload: %w", err)
 	}
@@ -2485,6 +2512,12 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 	w.Kind = api.WorkloadKind(kind)
 	w.CreatedAt = &createdAt
 	w.UpdatedAt = &updatedAt
+	w.NamespaceName = nullableString(namespaceName)
+	if namespaceClusterID.Valid {
+		v := namespaceClusterID.UUID
+		w.ClusterId = &v
+	}
+	w.ClusterName = nullableString(clusterName)
 	if replicas.Valid {
 		v := int(replicas.Int32)
 		w.Replicas = &v
@@ -2523,6 +2556,15 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 // serviceColumns — same pattern as nodeColumns / ingressColumns.
 const serviceColumns = `id, namespace_id, name, type, cluster_ip,
 	selector, ports, load_balancer, labels, created_at, updated_at`
+
+// Read-side projection with parent-name JOINs (ADR-0027).
+const serviceSelectColumns = `s.id, s.namespace_id, s.name, s.type, s.cluster_ip,
+	s.selector, s.ports, s.load_balancer, s.labels, s.created_at, s.updated_at,
+	n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name`
+
+const serviceFromJoined = `FROM services s
+	LEFT JOIN namespaces n ON n.id = s.namespace_id
+	LEFT JOIN clusters   c ON c.id = n.cluster_id`
 
 // CreateService inserts a new service into the given namespace.
 //
@@ -2589,7 +2631,7 @@ func (p *PG) CreateService(ctx context.Context, in api.ServiceCreate) (api.Servi
 
 // GetService fetches a service by id.
 func (p *PG) GetService(ctx context.Context, id uuid.UUID) (api.Service, error) {
-	q := `SELECT ` + serviceColumns + ` FROM services WHERE id = $1`
+	q := `SELECT ` + serviceSelectColumns + ` ` + serviceFromJoined + ` WHERE s.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	s, err := scanService(row)
 	if err != nil {
@@ -2614,14 +2656,15 @@ func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int
 
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
-	sb.WriteString(serviceColumns)
-	sb.WriteString(` FROM services`)
+	sb.WriteString(serviceSelectColumns)
+	sb.WriteString(` `)
+	sb.WriteString(serviceFromJoined)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 2)
 
 	if namespaceID != nil {
 		args = append(args, *namespaceID)
-		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("s.namespace_id = $%d", len(args)))
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
@@ -2632,14 +2675,14 @@ func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int
 		tsIdx := len(args)
 		args = append(args, cid)
 		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		conds = append(conds, fmt.Sprintf("(s.created_at, s.id) < ($%d, $%d)", tsIdx, idIdx))
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " ORDER BY s.created_at DESC, s.id DESC LIMIT $%d", len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -2921,6 +2964,18 @@ func marshalPorts(ports *[]map[string]interface{}) ([]byte, error) {
 const ingressColumns = `id, namespace_id, name, ingress_class_name,
 	rules, tls, load_balancer, labels, created_at, updated_at`
 
+// ingressSelectColumns is the read-side projection: every column from the
+// ingresses row (aliased to `i.`) plus the denormalized parent names
+// joined in via LEFT JOIN (ADR-0027). LEFT JOIN keeps orphan rows
+// visible with NULL names — the UI renders that as an explicit badge.
+const ingressSelectColumns = `i.id, i.namespace_id, i.name, i.ingress_class_name,
+	i.rules, i.tls, i.load_balancer, i.labels, i.created_at, i.updated_at,
+	n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name`
+
+const ingressFromJoined = `FROM ingresses i
+	LEFT JOIN namespaces n ON n.id = i.namespace_id
+	LEFT JOIN clusters   c ON c.id = n.cluster_id`
+
 // CreateIngress inserts a new ingress into the given namespace.
 func (p *PG) CreateIngress(ctx context.Context, in api.IngressCreate) (api.Ingress, error) {
 	id := uuid.New()
@@ -2977,7 +3032,7 @@ func (p *PG) CreateIngress(ctx context.Context, in api.IngressCreate) (api.Ingre
 
 // GetIngress fetches an ingress by id.
 func (p *PG) GetIngress(ctx context.Context, id uuid.UUID) (api.Ingress, error) {
-	q := `SELECT ` + ingressColumns + ` FROM ingresses WHERE id = $1`
+	q := `SELECT ` + ingressSelectColumns + ` ` + ingressFromJoined + ` WHERE i.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	ing, err := scanIngress(row)
 	if err != nil {
@@ -3002,14 +3057,15 @@ func (p *PG) ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit in
 
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
-	sb.WriteString(ingressColumns)
-	sb.WriteString(` FROM ingresses`)
+	sb.WriteString(ingressSelectColumns)
+	sb.WriteString(` `)
+	sb.WriteString(ingressFromJoined)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 2)
 
 	if namespaceID != nil {
 		args = append(args, *namespaceID)
-		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("i.namespace_id = $%d", len(args)))
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
@@ -3020,14 +3076,14 @@ func (p *PG) ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit in
 		tsIdx := len(args)
 		args = append(args, cid)
 		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		conds = append(conds, fmt.Sprintf("(i.created_at, i.id) < ($%d, $%d)", tsIdx, idIdx))
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " ORDER BY i.created_at DESC, i.id DESC LIMIT $%d", len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -3279,22 +3335,26 @@ func (p *PG) DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, ke
 //nolint:gocyclo // JSONB unmarshal branches add inherent cyclomatic complexity
 func scanIngress(row pgx.Row) (api.Ingress, error) {
 	var (
-		i                api.Ingress
-		id               uuid.UUID
-		namespaceID      uuid.UUID
-		createdAt        time.Time
-		updatedAt        time.Time
-		ingressClassName sql.NullString
-		rulesJSON        []byte
-		tlsJSON          []byte
-		lbJSON           []byte
-		labelsJSON       []byte
+		i                  api.Ingress
+		id                 uuid.UUID
+		namespaceID        uuid.UUID
+		createdAt          time.Time
+		updatedAt          time.Time
+		ingressClassName   sql.NullString
+		rulesJSON          []byte
+		tlsJSON            []byte
+		lbJSON             []byte
+		labelsJSON         []byte
+		namespaceName      sql.NullString
+		namespaceClusterID uuid.NullUUID
+		clusterName        sql.NullString
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &i.Name,
 		&ingressClassName,
 		&rulesJSON, &tlsJSON, &lbJSON, &labelsJSON,
 		&createdAt, &updatedAt,
+		&namespaceName, &namespaceClusterID, &clusterName,
 	); err != nil {
 		return api.Ingress{}, fmt.Errorf("scan ingress: %w", err)
 	}
@@ -3303,6 +3363,12 @@ func scanIngress(row pgx.Row) (api.Ingress, error) {
 	i.CreatedAt = &createdAt
 	i.UpdatedAt = &updatedAt
 	i.IngressClassName = nullableString(ingressClassName)
+	i.NamespaceName = nullableString(namespaceName)
+	if namespaceClusterID.Valid {
+		v := namespaceClusterID.UUID
+		i.ClusterId = &v
+	}
+	i.ClusterName = nullableString(clusterName)
 	if len(rulesJSON) > 0 {
 		var rules []map[string]interface{}
 		if err := json.Unmarshal(rulesJSON, &rules); err != nil {
@@ -3341,23 +3407,27 @@ func scanIngress(row pgx.Row) (api.Ingress, error) {
 //nolint:gocyclo // JSONB unmarshal branches add inherent cyclomatic complexity
 func scanService(row pgx.Row) (api.Service, error) {
 	var (
-		s            api.Service
-		id           uuid.UUID
-		namespaceID  uuid.UUID
-		createdAt    time.Time
-		updatedAt    time.Time
-		svcType      sql.NullString
-		clusterIP    sql.NullString
-		selectorJSON []byte
-		portsJSON    []byte
-		lbJSON       []byte
-		labelsJSON   []byte
+		s                  api.Service
+		id                 uuid.UUID
+		namespaceID        uuid.UUID
+		createdAt          time.Time
+		updatedAt          time.Time
+		svcType            sql.NullString
+		clusterIP          sql.NullString
+		selectorJSON       []byte
+		portsJSON          []byte
+		lbJSON             []byte
+		labelsJSON         []byte
+		namespaceName      sql.NullString
+		namespaceClusterID uuid.NullUUID
+		clusterName        sql.NullString
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &s.Name,
 		&svcType, &clusterIP,
 		&selectorJSON, &portsJSON, &lbJSON, &labelsJSON,
 		&createdAt, &updatedAt,
+		&namespaceName, &namespaceClusterID, &clusterName,
 	); err != nil {
 		return api.Service{}, fmt.Errorf("scan service: %w", err)
 	}
@@ -3366,6 +3436,12 @@ func scanService(row pgx.Row) (api.Service, error) {
 	s.CreatedAt = &createdAt
 	s.UpdatedAt = &updatedAt
 	s.ClusterIp = nullableString(clusterIP)
+	s.NamespaceName = nullableString(namespaceName)
+	if namespaceClusterID.Valid {
+		v := namespaceClusterID.UUID
+		s.ClusterId = &v
+	}
+	s.ClusterName = nullableString(clusterName)
 	if svcType.Valid {
 		t := api.ServiceType(svcType.String)
 		s.Type = &t
@@ -3407,23 +3483,29 @@ func scanService(row pgx.Row) (api.Service, error) {
 
 func scanPod(row pgx.Row) (api.Pod, error) {
 	var (
-		p              api.Pod
-		id             uuid.UUID
-		namespaceID    uuid.UUID
-		createdAt      time.Time
-		updatedAt      time.Time
-		phase          sql.NullString
-		nodeName       sql.NullString
-		podIP          sql.NullString
-		workloadID     *uuid.UUID
-		containersJSON []byte
-		labelsJSON     []byte
+		p                  api.Pod
+		id                 uuid.UUID
+		namespaceID        uuid.UUID
+		createdAt          time.Time
+		updatedAt          time.Time
+		phase              sql.NullString
+		nodeName           sql.NullString
+		podIP              sql.NullString
+		workloadID         *uuid.UUID
+		containersJSON     []byte
+		labelsJSON         []byte
+		namespaceName      sql.NullString
+		namespaceClusterID uuid.NullUUID
+		clusterName        sql.NullString
+		workloadName       sql.NullString
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &p.Name,
 		&phase, &nodeName, &podIP,
 		&workloadID, &containersJSON, &labelsJSON,
 		&createdAt, &updatedAt,
+		&namespaceName, &namespaceClusterID, &clusterName,
+		&workloadName,
 	); err != nil {
 		return api.Pod{}, fmt.Errorf("scan pod: %w", err)
 	}
@@ -3437,6 +3519,13 @@ func scanPod(row pgx.Row) (api.Pod, error) {
 	if workloadID != nil {
 		p.WorkloadId = workloadID
 	}
+	p.NamespaceName = nullableString(namespaceName)
+	if namespaceClusterID.Valid {
+		v := namespaceClusterID.UUID
+		p.ClusterId = &v
+	}
+	p.ClusterName = nullableString(clusterName)
+	p.WorkloadName = nullableString(workloadName)
 	if cs, err := unmarshalContainers(containersJSON); err != nil {
 		return api.Pod{}, fmt.Errorf("unmarshal pod containers: %w", err)
 	} else if cs != nil {
@@ -3487,12 +3576,14 @@ func scanNamespace(row pgx.Row) (api.Namespace, error) {
 		notes           sql.NullString
 		runbookURL      sql.NullString
 		annotationsJSON []byte
+		clusterName     sql.NullString
 	)
 	if err := row.Scan(
 		&id, &clusterID, &n.Name,
 		&displayName, &phase, &labelsJSON,
 		&owner, &criticality, &notes, &runbookURL, &annotationsJSON,
 		&createdAt, &updatedAt,
+		&clusterName,
 	); err != nil {
 		return api.Namespace{}, fmt.Errorf("scan namespace: %w", err)
 	}
@@ -3506,6 +3597,7 @@ func scanNamespace(row pgx.Row) (api.Namespace, error) {
 	n.Criticality = nullableString(criticality)
 	n.Notes = nullableString(notes)
 	n.RunbookUrl = nullableString(runbookURL)
+	n.ClusterName = nullableString(clusterName)
 	if len(labelsJSON) > 0 {
 		var labels map[string]string
 		if err := json.Unmarshal(labelsJSON, &labels); err != nil {
@@ -4415,15 +4507,19 @@ func (p *PG) CreatePersistentVolumeClaim(ctx context.Context, in api.PersistentV
 	}, nil
 }
 
+// PVC read-side projection with parent-name JOINs (ADR-0027).
+const pvcSelectColumns = `pvc.id, pvc.namespace_id, pvc.name, pvc.phase, pvc.storage_class_name,
+	pvc.volume_name, pvc.bound_volume_id, pvc.access_modes, pvc.requested_storage,
+	pvc.labels, pvc.created_at, pvc.updated_at,
+	n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name`
+
+const pvcFromJoined = `FROM persistent_volume_claims pvc
+	LEFT JOIN namespaces n ON n.id = pvc.namespace_id
+	LEFT JOIN clusters   c ON c.id = n.cluster_id`
+
 // GetPersistentVolumeClaim fetches a PVC by id.
 func (p *PG) GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (api.PersistentVolumeClaim, error) {
-	const q = `
-		SELECT id, namespace_id, name, phase, storage_class_name,
-		       volume_name, bound_volume_id, access_modes, requested_storage,
-		       labels, created_at, updated_at
-		FROM persistent_volume_claims
-		WHERE id = $1
-	`
+	q := `SELECT ` + pvcSelectColumns + ` ` + pvcFromJoined + ` WHERE pvc.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
 	pvc, err := scanPersistentVolumeClaim(row)
 	if err != nil {
@@ -4449,16 +4545,16 @@ func (p *PG) ListPersistentVolumeClaims(
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(`SELECT id, namespace_id, name, phase, storage_class_name,
-	                       volume_name, bound_volume_id, access_modes, requested_storage,
-	                       labels, created_at, updated_at
-	                FROM persistent_volume_claims`)
+	sb.WriteString(`SELECT `)
+	sb.WriteString(pvcSelectColumns)
+	sb.WriteString(` `)
+	sb.WriteString(pvcFromJoined)
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 2)
 
 	if namespaceID != nil {
 		args = append(args, *namespaceID)
-		conds = append(conds, fmt.Sprintf("namespace_id = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("pvc.namespace_id = $%d", len(args)))
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
@@ -4469,14 +4565,14 @@ func (p *PG) ListPersistentVolumeClaims(
 		tsIdx := len(args)
 		args = append(args, cid)
 		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		conds = append(conds, fmt.Sprintf("(pvc.created_at, pvc.id) < ($%d, $%d)", tsIdx, idIdx))
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " ORDER BY pvc.created_at DESC, pvc.id DESC LIMIT $%d", len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -4620,6 +4716,7 @@ func (p *PG) UpsertPersistentVolumeClaim(
 		SELECT u.id, u.namespace_id, u.name, u.phase, u.storage_class_name,
 		       u.volume_name, u.bound_volume_id, u.access_modes, u.requested_storage,
 		       u.labels, u.created_at, u.updated_at,
+		       n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name,
 		       (u.xmax = 0) AS inserted,
 		       (u.xmax <> 0 AND (
 		           o.phase              IS DISTINCT FROM u.phase              OR
@@ -4630,7 +4727,10 @@ func (p *PG) UpsertPersistentVolumeClaim(
 		           o.requested_storage  IS DISTINCT FROM u.requested_storage  OR
 		           o.labels             IS DISTINCT FROM u.labels
 		       )) AS business_changed
-		  FROM upserted u LEFT JOIN old o ON true
+		  FROM upserted u
+		  LEFT JOIN old o        ON true
+		  LEFT JOIN namespaces n ON n.id = u.namespace_id
+		  LEFT JOIN clusters   c ON c.id = n.cluster_id
 	`
 	row := p.pool.QueryRow(ctx, q,
 		id, in.NamespaceId, in.Name,
@@ -4667,18 +4767,21 @@ func (p *PG) DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID 
 
 func scanPersistentVolumeClaim(row pgx.Row) (api.PersistentVolumeClaim, error) {
 	var (
-		pvc              api.PersistentVolumeClaim
-		id               uuid.UUID
-		namespaceID      uuid.UUID
-		createdAt        time.Time
-		updatedAt        time.Time
-		phase            sql.NullString
-		storageClassName sql.NullString
-		volumeName       sql.NullString
-		boundVolumeID    *uuid.UUID
-		accessModes      []string
-		requestedStorage sql.NullString
-		labelsJSON       []byte
+		pvc                api.PersistentVolumeClaim
+		id                 uuid.UUID
+		namespaceID        uuid.UUID
+		createdAt          time.Time
+		updatedAt          time.Time
+		phase              sql.NullString
+		storageClassName   sql.NullString
+		volumeName         sql.NullString
+		boundVolumeID      *uuid.UUID
+		accessModes        []string
+		requestedStorage   sql.NullString
+		labelsJSON         []byte
+		namespaceName      sql.NullString
+		namespaceClusterID uuid.NullUUID
+		clusterName        sql.NullString
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &pvc.Name,
@@ -4687,6 +4790,7 @@ func scanPersistentVolumeClaim(row pgx.Row) (api.PersistentVolumeClaim, error) {
 		&accessModes, &requestedStorage,
 		&labelsJSON,
 		&createdAt, &updatedAt,
+		&namespaceName, &namespaceClusterID, &clusterName,
 	); err != nil {
 		return api.PersistentVolumeClaim{}, fmt.Errorf("scan pvc: %w", err)
 	}
@@ -4700,6 +4804,12 @@ func scanPersistentVolumeClaim(row pgx.Row) (api.PersistentVolumeClaim, error) {
 	pvc.BoundVolumeId = boundVolumeID
 	pvc.AccessModes = accessModesPointer(accessModes)
 	pvc.RequestedStorage = nullableString(requestedStorage)
+	pvc.NamespaceName = nullableString(namespaceName)
+	if namespaceClusterID.Valid {
+		v := namespaceClusterID.UUID
+		pvc.ClusterId = &v
+	}
+	pvc.ClusterName = nullableString(clusterName)
 	if len(labelsJSON) > 0 {
 		var labels map[string]string
 		if err := json.Unmarshal(labelsJSON, &labels); err != nil {
