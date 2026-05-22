@@ -62,6 +62,78 @@ export const KV = ({ k, v }: { k: string; v: React.ReactNode }) => (
   </div>
 );
 
+// ClusterLink renders a clickable cluster reference using the denormalized
+// `cluster_name` carried on the entity payload (ADR-0027). A null name on a
+// non-null id means the cluster row was hard-deleted; surface that as an
+// explicit (orphan) badge so operators never see a raw UUID.
+export function ClusterLink({
+  clusterId,
+  clusterName,
+}: {
+  clusterId?: string | null;
+  clusterName?: string | null;
+}) {
+  if (!clusterId) return <Dash />;
+  return (
+    <Link to={`/clusters/${clusterId}`}>
+      {clusterName ?? <span title="cluster row missing">(orphan)</span>}
+    </Link>
+  );
+}
+
+// NamespaceLink renders the cluster / namespace breadcrumb for entities
+// that carry a namespace_id. Reads the denormalized parent names from the
+// API response (ADR-0027) — no client-side index needed. A null name on a
+// non-null id means the parent row was hard-deleted; we surface that as
+// an explicit (orphan) badge so operators don't see a bare UUID.
+export function NamespaceLink({
+  namespaceId,
+  namespaceName,
+  clusterId,
+  clusterName,
+}: {
+  namespaceId: string;
+  namespaceName?: string | null;
+  clusterId?: string | null;
+  clusterName?: string | null;
+}) {
+  return (
+    <>
+      {clusterId ? (
+        <Link to={`/clusters/${clusterId}`} className="muted">
+          {clusterName ?? <span title="cluster row missing">(orphan)</span>}
+        </Link>
+      ) : null}
+      {clusterId ? <span className="muted"> / </span> : null}
+      <Link to={`/namespaces/${namespaceId}`}>
+        {namespaceName ?? <span title="namespace row missing">(orphan)</span>}
+      </Link>
+    </>
+  );
+}
+
+// WorkloadLink renders a clickable workload reference using the denormalized
+// `workload_name` carried on pods (ADR-0027). Three states:
+//   - workload_id is null → pod has no owner (DaemonSet "manual" or naked Pod)
+//   - workload_id present, workload_name null → workload row was hard-deleted
+//   - both present → name link
+export function WorkloadLink({
+  workloadId,
+  workloadName,
+}: {
+  workloadId?: string | null;
+  workloadName?: string | null;
+}) {
+  if (!workloadId) {
+    return <span className="muted">(unmanaged / unknown owner kind)</span>;
+  }
+  return (
+    <Link to={`/workloads/${workloadId}`}>
+      {workloadName ?? <span title="workload row missing">(orphan)</span>}
+    </Link>
+  );
+}
+
 export const Code = ({ children }: { children: React.ReactNode }) => (
   <code className="inline-code">{children}</code>
 );

@@ -6,7 +6,7 @@
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
-import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses, Empty } from '../components';
+import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses, Empty, NamespaceLink } from '../components';
 import { useEntityTable } from '../components/column_filters';
 import {
   ClusterIcon, NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
@@ -218,37 +218,6 @@ async function fetchAllPaged<T>(
 }
 
 const fetchAllClusters = () => fetchAllPaged((cursor) => api.listClusters({ cursor, limit: 500 }));
-
-// NamespaceLink renders the cluster / namespace breadcrumb for entities
-// that carry a namespace_id. Reads the denormalized parent names from the
-// API response (ADR-0027) — no client-side index needed. A null name on a
-// non-null id means the parent row was hard-deleted; we surface that as
-// an explicit (orphan) badge so operators don't see a bare UUID.
-function NamespaceLink({
-  namespaceId,
-  namespaceName,
-  clusterId,
-  clusterName,
-}: {
-  namespaceId: string;
-  namespaceName?: string | null;
-  clusterId?: string | null;
-  clusterName?: string | null;
-}) {
-  return (
-    <>
-      {clusterId ? (
-        <Link to={`/clusters/${clusterId}`} className="muted">
-          {clusterName ?? <span title="cluster row missing">(orphan)</span>}
-        </Link>
-      ) : null}
-      {clusterId ? <span className="muted"> / </span> : null}
-      <Link to={`/namespaces/${namespaceId}`}>
-        {namespaceName ?? <span title="namespace row missing">(orphan)</span>}
-      </Link>
-    </>
-  );
-}
 
 export function Workloads() {
   const workloads = useResource(() => api.listWorkloads(), []);

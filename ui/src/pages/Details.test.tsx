@@ -3,13 +3,13 @@ import { http, HttpResponse } from 'msw';
 import { screen, waitFor } from '@testing-library/react';
 import {
   ClusterDetail, IngressDetail, NamespaceDetail, NodeDetail,
-  PodDetail, WorkloadDetail,
+  PersistentVolumeClaimDetail, PodDetail, ServiceDetail, WorkloadDetail,
 } from './Details';
 import { renderWithRouter } from '../test/render';
 import { server } from '../test/server';
 import {
   fixtureCluster, fixtureIngress, fixtureNamespace, fixtureNode,
-  fixturePod, fixtureWorkload,
+  fixturePod, fixturePVC, fixtureService, fixtureWorkload,
 } from '../test/fixtures';
 
 describe('ClusterDetail', () => {
@@ -164,6 +164,28 @@ describe('IngressDetail', () => {
     );
   });
 
+  // Regression for ADR-0027: IngressDetail rendered the namespace as a raw
+  // UUID instead of consuming the denormalized `namespace_name` field on
+  // the response payload. The bug surfaced as "I look at an ingress on
+  // prod and the namespace shows as a UUID" — the list view was fixed by
+  // the original ADR PR, but the detail view was missed.
+  it('renders the namespace name (not a UUID) from denormalized field', async () => {
+    renderWithRouter(<IngressDetail />, {
+      initialPath: `/ingresses/${fixtureIngress.id}`,
+      routePath: '/ingresses/:id',
+    });
+    await waitFor(() =>
+      expect(screen.getByText(fixtureIngress.name)).toBeInTheDocument(),
+    );
+    // The denormalized namespace_name should appear as a link.
+    const nsLinks = screen.getAllByRole('link', { name: fixtureNamespace.name });
+    expect(nsLinks.length).toBeGreaterThan(0);
+    // The raw UUID (or its first 8 chars) must NOT leak through anywhere.
+    expect(
+      screen.queryByText(new RegExp(fixtureNamespace.id.slice(0, 8))),
+    ).toBeNull();
+  });
+
   it('renders the error state on 500', async () => {
     server.use(
       http.get('/v1/ingresses/:id', () => new HttpResponse(null, { status: 500 })),
@@ -175,5 +197,67 @@ describe('IngressDetail', () => {
     await waitFor(() =>
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
+  });
+});
+
+// Parallel regression coverage for the other detail pages that suffered
+// the same "UUID on parent" symptom. Each asserts that the denormalized
+// parent name (namespace_name and/or cluster_name from ADR-0027) is
+// rendered and that the parent's UUID does not leak through.
+describe('ServiceDetail', () => {
+  it('renders the namespace name (not a UUID) from denormalized field', async () => {
+    renderWithRouter(<ServiceDetail />, {
+      initialPath: `/services/${fixtureService.id}`,
+      routePath: '/services/:id',
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { level: 2, name: new RegExp(fixtureService.name) }),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getAllByRole('link', { name: fixtureNamespace.name }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(new RegExp(fixtureNamespace.id.slice(0, 8))),
+    ).toBeNull();
+  });
+});
+
+describe('PersistentVolumeClaimDetail', () => {
+  it('renders the namespace name (not a UUID) from denormalized field', async () => {
+    renderWithRouter(<PersistentVolumeClaimDetail />, {
+      initialPath: `/persistentvolumeclaims/${fixturePVC.id}`,
+      routePath: '/persistentvolumeclaims/:id',
+    });
+    await waitFor(() =>
+      expect(screen.getByText(fixturePVC.name)).toBeInTheDocument(),
+    );
+    expect(
+      screen.getAllByRole('link', { name: fixtureNamespace.name }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(new RegExp(fixtureNamespace.id.slice(0, 8))),
+    ).toBeNull();
+  });
+});
+
+describe('NodeDetail (ADR-0027 extension)', () => {
+  it('renders the cluster name (not a UUID) from denormalized field', async () => {
+    renderWithRouter(<NodeDetail />, {
+      initialPath: `/nodes/${fixtureNode.id}`,
+      routePath: '/nodes/:id',
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { level: 2, name: new RegExp(fixtureNode.name) }),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getAllByRole('link', { name: fixtureCluster.name }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(new RegExp(fixtureCluster.id.slice(0, 8))),
+    ).toBeNull();
   });
 });
