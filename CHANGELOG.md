@@ -6,6 +6,19 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.26.0](https://github.com/sthalbert/Longue-Vue/compare/v0.25.0...v0.26.0) (2026-05-22)
+
+
+### Features
+
+* **api,store,ui:** denormalize cluster_name on Node responses (ADR-0027) ([0957629](https://github.com/sthalbert/Longue-Vue/commit/0957629bdd7dca281e4df3fd36d2513bf2ba5f2f))
+
+
+### Bug Fixes
+
+* apply ADR-0027 denormalized parent names to detail pages ([f58733f](https://github.com/sthalbert/Longue-Vue/commit/f58733f021f2442dafb3ff6c3b6533631880430a))
+* **ui:** consume denormalized parent names on detail pages (ADR-0027) ([dcb6fab](https://github.com/sthalbert/Longue-Vue/commit/dcb6faba805100085bc2f7de9c6e798ecf9e9317))
+
 ## [0.25.0](https://github.com/sthalbert/Longue-Vue/compare/v0.24.1...v0.25.0) (2026-05-22)
 
 
