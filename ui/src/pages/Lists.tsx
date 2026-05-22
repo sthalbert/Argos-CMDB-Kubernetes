@@ -156,21 +156,14 @@ function NodeStatusBadge({
 }
 
 export function Namespaces() {
-  const state = useResource(
-    () =>
-      Promise.all([api.listNamespaces(), fetchAllClusters()]).then(([ns, clItems]) => ({
-        namespaces: ns.items,
-        clustersById: new Map(clItems.map((c) => [c.id, c])),
-      })),
-    [],
-  );
+  const namespaces = useResource(() => api.listNamespaces(), []);
   const tableRef = useEntityTable('lists.namespaces');
   return (
     <>
       <h2><NamespaceIcon size={20} /> Namespaces</h2>
-      <AsyncView state={state}>
-        {({ namespaces, clustersById }) =>
-          namespaces.length === 0 ? (
+      <AsyncView state={namespaces}>
+        {(resp) =>
+          resp.items.length === 0 ? (
             <Empty message="No namespaces found. They are collected automatically from your clusters." />
           ) : (
             <div className="table-wrap">
@@ -183,26 +176,21 @@ export function Namespaces() {
                   </tr>
                 </thead>
                 <tbody>
-                  {namespaces.map((n) => {
-                    const cluster = clustersById.get(n.cluster_id);
-                    return (
-                      <tr key={n.id}>
-                        <td>
-                          <Link to={`/namespaces/${n.id}`}>
-                            <strong>{n.name}</strong>
-                          </Link>
-                        </td>
-                        <td>
-                          {cluster ? (
-                            <Link to={`/clusters/${cluster.id}`}>{cluster.name}</Link>
-                          ) : (
-                            <IdLink to={`/clusters/${n.cluster_id}`} id={n.cluster_id} />
-                          )}
-                        </td>
-                        <td>{n.phase || <Dash />}</td>
-                      </tr>
-                    );
-                  })}
+                  {resp.items.map((n) => (
+                    <tr key={n.id}>
+                      <td>
+                        <Link to={`/namespaces/${n.id}`}>
+                          <strong>{n.name}</strong>
+                        </Link>
+                      </td>
+                      <td>
+                        <Link to={`/clusters/${n.cluster_id}`}>
+                          {n.cluster_name ?? <span title="cluster row missing">(orphan)</span>}
+                        </Link>
+                      </td>
+                      <td>{n.phase || <Dash />}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -229,233 +217,204 @@ async function fetchAllPaged<T>(
   return out;
 }
 
-const fetchAllNamespaces = () => fetchAllPaged((cursor) => api.listNamespaces({ cursor, limit: 500 }));
 const fetchAllClusters = () => fetchAllPaged((cursor) => api.listClusters({ cursor, limit: 500 }));
-const fetchAllWorkloads = () => fetchAllPaged((cursor) => api.listWorkloads({ cursor, limit: 500 }));
 
-function useNamespaceIndex() {
-  return useResource(
-    () =>
-      Promise.all([fetchAllNamespaces(), fetchAllClusters()]).then(([nsItems, clItems]) => ({
-        namespacesById: new Map(nsItems.map((n) => [n.id, n])),
-        clustersById: new Map(clItems.map((c) => [c.id, c])),
-      })),
-    [],
-  );
-}
-
+// NamespaceLink renders the cluster / namespace breadcrumb for entities
+// that carry a namespace_id. Reads the denormalized parent names from the
+// API response (ADR-0027) — no client-side index needed. A null name on a
+// non-null id means the parent row was hard-deleted; we surface that as
+// an explicit (orphan) badge so operators don't see a bare UUID.
 function NamespaceLink({
   namespaceId,
-  namespacesById,
-  clustersById,
+  namespaceName,
+  clusterId,
+  clusterName,
 }: {
   namespaceId: string;
-  namespacesById: Map<string, api.Namespace>;
-  clustersById: Map<string, api.Cluster>;
+  namespaceName?: string | null;
+  clusterId?: string | null;
+  clusterName?: string | null;
 }) {
-  const ns = namespacesById.get(namespaceId);
-  if (!ns) return <IdLink to={`/namespaces/${namespaceId}`} id={namespaceId} />;
-  const cluster = clustersById.get(ns.cluster_id);
   return (
     <>
-      {cluster && (
-        <Link to={`/clusters/${cluster.id}`} className="muted">
-          {cluster.name}
+      {clusterId ? (
+        <Link to={`/clusters/${clusterId}`} className="muted">
+          {clusterName ?? <span title="cluster row missing">(orphan)</span>}
         </Link>
-      )}
-      {cluster && <span className="muted"> / </span>}
-      <Link to={`/namespaces/${ns.id}`}>{ns.name}</Link>
+      ) : null}
+      {clusterId ? <span className="muted"> / </span> : null}
+      <Link to={`/namespaces/${namespaceId}`}>
+        {namespaceName ?? <span title="namespace row missing">(orphan)</span>}
+      </Link>
     </>
   );
 }
 
 export function Workloads() {
-  const index = useNamespaceIndex();
   const workloads = useResource(() => api.listWorkloads(), []);
   const tableRef = useEntityTable('lists.workloads');
 
   return (
     <>
       <h2><WorkloadIcon size={20} /> Workloads</h2>
-      <AsyncView state={index}>
-        {({ namespacesById, clustersById }) => (
-          <AsyncView state={workloads}>
-            {(resp) =>
-              resp.items.length === 0 ? (
-                <Empty message="No workloads found. Deployments, StatefulSets and DaemonSets will appear here once collected." />
-              ) : (
-                <div className="table-wrap">
-                  <table className="entities" ref={tableRef}>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Kind</th>
-                        <th>Namespace</th>
-                        <th>Replicas</th>
-                        <th>Containers</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {resp.items.map((w) => (
-                        <tr key={w.id}>
-                          <td>
-                            <Link to={`/workloads/${w.id}`}>
-                              <strong>{w.name}</strong>
-                            </Link>
-                          </td>
-                          <td><span className="pill">{w.kind}</span></td>
-                          <td>
-                            <NamespaceLink
-                              namespaceId={w.namespace_id}
-                              namespacesById={namespacesById}
-                              clustersById={clustersById}
-                            />
-                          </td>
-                          <td>
-                            {w.ready_replicas ?? '?'}
-                            <span className="muted">/{w.replicas ?? '?'}</span>
-                          </td>
-                          <td>
-                            {w.containers?.length ? (
-                              <code>{w.containers.map((c) => c.image).join(', ')}</code>
-                            ) : (
-                              <Dash />
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            }
-          </AsyncView>
-        )}
+      <AsyncView state={workloads}>
+        {(resp) =>
+          resp.items.length === 0 ? (
+            <Empty message="No workloads found. Deployments, StatefulSets and DaemonSets will appear here once collected." />
+          ) : (
+            <div className="table-wrap">
+              <table className="entities" ref={tableRef}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Kind</th>
+                    <th>Namespace</th>
+                    <th>Replicas</th>
+                    <th>Containers</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resp.items.map((w) => (
+                    <tr key={w.id}>
+                      <td>
+                        <Link to={`/workloads/${w.id}`}>
+                          <strong>{w.name}</strong>
+                        </Link>
+                      </td>
+                      <td><span className="pill">{w.kind}</span></td>
+                      <td>
+                        <NamespaceLink
+                          namespaceId={w.namespace_id}
+                          namespaceName={w.namespace_name}
+                          clusterId={w.cluster_id}
+                          clusterName={w.cluster_name}
+                        />
+                      </td>
+                      <td>
+                        {w.ready_replicas ?? '?'}
+                        <span className="muted">/{w.replicas ?? '?'}</span>
+                      </td>
+                      <td>
+                        {w.containers?.length ? (
+                          <code>{w.containers.map((c) => c.image).join(', ')}</code>
+                        ) : (
+                          <Dash />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
       </AsyncView>
     </>
   );
 }
 
 export function Pods() {
-  const index = useNamespaceIndex();
   const pods = useResource(() => api.listPods(), []);
-  const workloads = useResource(() => fetchAllWorkloads(), []);
   const tableRef = useEntityTable('lists.pods');
   return (
     <>
       <h2><PodIcon size={20} /> Pods</h2>
-      <AsyncView state={index}>
-        {({ namespacesById, clustersById }) => (
-          <AsyncView state={pods}>
-            {(resp) => (
-              <AsyncView state={workloads}>
-                {(wlItems) => {
-                  const wlById = new Map(wlItems.map((w) => [w.id, w]));
-                  return resp.items.length === 0 ? (
-                    <Empty message="No pods found. Pods are collected from all connected clusters." />
-                  ) : (
-                    <div className="table-wrap">
-                      <table className="entities" ref={tableRef}>
-                        <thead>
-                          <tr>
-                            <th>Name</th>
-                            <th>Namespace</th>
-                            <th>Phase</th>
-                            <th>Node</th>
-                            <th>Pod IP</th>
-                            <th>Workload</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {resp.items.map((p) => {
-                            const wl = p.workload_id ? wlById.get(p.workload_id) : undefined;
-                            return (
-                              <tr key={p.id}>
-                                <td>
-                                  <Link to={`/pods/${p.id}`}>
-                                    <strong>{p.name}</strong>
-                                  </Link>
-                                </td>
-                                <td>
-                                  <NamespaceLink
-                                    namespaceId={p.namespace_id}
-                                    namespacesById={namespacesById}
-                                    clustersById={clustersById}
-                                  />
-                                </td>
-                                <td>{p.phase || <Dash />}</td>
-                                <td>{p.node_name ? <code>{p.node_name}</code> : <Dash />}</td>
-                                <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
-                                <td>
-                                  {wl ? (
-                                    <Link to={`/workloads/${wl.id}`}>
-                                      {wl.name}{' '}
-                                      <span className="muted" style={{ fontSize: '0.8rem' }}>{wl.kind}</span>
-                                    </Link>
-                                  ) : p.workload_id ? (
-                                    <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />
-                                  ) : (
-                                    <Dash />
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                }}
-              </AsyncView>
-            )}
-          </AsyncView>
-        )}
+      <AsyncView state={pods}>
+        {(resp) =>
+          resp.items.length === 0 ? (
+            <Empty message="No pods found. Pods are collected from all connected clusters." />
+          ) : (
+            <div className="table-wrap">
+              <table className="entities" ref={tableRef}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Namespace</th>
+                    <th>Phase</th>
+                    <th>Node</th>
+                    <th>Pod IP</th>
+                    <th>Workload</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resp.items.map((p) => (
+                    <tr key={p.id}>
+                      <td>
+                        <Link to={`/pods/${p.id}`}>
+                          <strong>{p.name}</strong>
+                        </Link>
+                      </td>
+                      <td>
+                        <NamespaceLink
+                          namespaceId={p.namespace_id}
+                          namespaceName={p.namespace_name}
+                          clusterId={p.cluster_id}
+                          clusterName={p.cluster_name}
+                        />
+                      </td>
+                      <td>{p.phase || <Dash />}</td>
+                      <td>{p.node_name ? <code>{p.node_name}</code> : <Dash />}</td>
+                      <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
+                      <td>
+                        {p.workload_id ? (
+                          <Link to={`/workloads/${p.workload_id}`}>
+                            {p.workload_name ?? <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />}
+                          </Link>
+                        ) : (
+                          <Dash />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
       </AsyncView>
     </>
   );
 }
 
 export function Services() {
-  const index = useNamespaceIndex();
   const services = useResource(() => api.listServices(), []);
   const tableRef = useEntityTable('lists.services');
   return (
     <>
       <h2><ServiceIcon size={20} /> Services</h2>
-      <AsyncView state={index}>
-        {({ namespacesById, clustersById }) => (
-          <AsyncView state={services}>
-            {(resp) =>
-              resp.items.length === 0 ? (
-                <Empty message="No services found. Kubernetes Services are collected automatically." />
-              ) : (
-                <div className="table-wrap">
-                  <table className="entities" ref={tableRef}>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Namespace</th>
-                        <th>Type</th>
-                        <th>ClusterIP</th>
-                        <th>Ports</th>
-                        <th>Load balancer</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {resp.items.map((s) => (
-                        <tr key={s.id}>
-                          <td>
-                            <Link to={`/services/${s.id}`}>
-                              <strong>{s.name}</strong>
-                            </Link>
-                          </td>
-                          <td>
-                            <NamespaceLink
-                              namespaceId={s.namespace_id}
-                              namespacesById={namespacesById}
-                              clustersById={clustersById}
-                            />
-                          </td>
+      <AsyncView state={services}>
+        {(resp) =>
+          resp.items.length === 0 ? (
+            <Empty message="No services found. Kubernetes Services are collected automatically." />
+          ) : (
+            <div className="table-wrap">
+              <table className="entities" ref={tableRef}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Namespace</th>
+                    <th>Type</th>
+                    <th>ClusterIP</th>
+                    <th>Ports</th>
+                    <th>Load balancer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resp.items.map((s) => (
+                    <tr key={s.id}>
+                      <td>
+                        <Link to={`/services/${s.id}`}>
+                          <strong>{s.name}</strong>
+                        </Link>
+                      </td>
+                      <td>
+                        <NamespaceLink
+                          namespaceId={s.namespace_id}
+                          namespaceName={s.namespace_name}
+                          clusterId={s.cluster_id}
+                          clusterName={s.cluster_name}
+                        />
+                      </td>
                           <td><span className="pill">{s.type || 'ClusterIP'}</span></td>
                           <td>{s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash />}</td>
                           <td>
@@ -465,79 +424,73 @@ export function Services() {
                               <Dash />
                             )}
                           </td>
-                          <td><LoadBalancerAddresses entries={s.load_balancer} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            }
-          </AsyncView>
-        )}
+                      <td><LoadBalancerAddresses entries={s.load_balancer} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
       </AsyncView>
     </>
   );
 }
 
 export function Ingresses() {
-  const index = useNamespaceIndex();
   const ingresses = useResource(() => api.listIngresses(), []);
   const tableRef = useEntityTable('lists.ingresses');
   return (
     <>
       <h2><IngressIcon size={20} /> Ingresses</h2>
-      <AsyncView state={index}>
-        {({ namespacesById, clustersById }) => (
-          <AsyncView state={ingresses}>
-            {(resp) =>
-              resp.items.length === 0 ? (
-                <Empty message="No ingresses found. Ingress resources are collected from all namespaces." />
-              ) : (
-                <div className="table-wrap">
-                  <table className="entities" ref={tableRef}>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Namespace</th>
-                        <th>Class</th>
-                        <th>Hosts</th>
-                        <th>Load balancer</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {resp.items.map((i) => (
-                        <tr key={i.id}>
-                          <td>
-                            <Link to={`/ingresses/${i.id}`}>
-                              <strong>{i.name}</strong>
-                            </Link>
-                          </td>
-                          <td>
-                            <NamespaceLink
-                              namespaceId={i.namespace_id}
-                              namespacesById={namespacesById}
-                              clustersById={clustersById}
-                            />
-                          </td>
-                          <td>{i.ingress_class_name || <Dash />}</td>
-                          <td>
-                            {i.rules?.length ? (
-                              <code>{i.rules.map((r) => r.host).filter(Boolean).join(', ')}</code>
-                            ) : (
-                              <Dash />
-                            )}
-                          </td>
-                          <td><LoadBalancerAddresses entries={i.load_balancer} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            }
-          </AsyncView>
-        )}
+      <AsyncView state={ingresses}>
+        {(resp) =>
+          resp.items.length === 0 ? (
+            <Empty message="No ingresses found. Ingress resources are collected from all namespaces." />
+          ) : (
+            <div className="table-wrap">
+              <table className="entities" ref={tableRef}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Namespace</th>
+                    <th>Class</th>
+                    <th>Hosts</th>
+                    <th>Load balancer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resp.items.map((i) => (
+                    <tr key={i.id}>
+                      <td>
+                        <Link to={`/ingresses/${i.id}`}>
+                          <strong>{i.name}</strong>
+                        </Link>
+                      </td>
+                      <td>
+                        <NamespaceLink
+                          namespaceId={i.namespace_id}
+                          namespaceName={i.namespace_name}
+                          clusterId={i.cluster_id}
+                          clusterName={i.cluster_name}
+                        />
+                      </td>
+                      <td>{i.ingress_class_name || <Dash />}</td>
+                      <td>
+                        {i.rules?.length ? (
+                          <code>{i.rules.map((r) => r.host).filter(Boolean).join(', ')}</code>
+                        ) : (
+                          <Dash />
+                        )}
+                      </td>
+                      <td><LoadBalancerAddresses entries={i.load_balancer} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
       </AsyncView>
     </>
   );
@@ -608,59 +561,55 @@ export function PersistentVolumes() {
 }
 
 export function PersistentVolumeClaims() {
-  const index = useNamespaceIndex();
   const pvcs = useResource(() => api.listPersistentVolumeClaims(), []);
   const tableRef = useEntityTable('lists.persistent_volume_claims');
   return (
     <>
       <h2><VolumeIcon size={20} /> Persistent Volume Claims</h2>
-      <AsyncView state={index}>
-        {({ namespacesById, clustersById }) => (
-          <AsyncView state={pvcs}>
-            {(resp) =>
-              resp.items.length === 0 ? (
-                <Empty message="No persistent volume claims found. PVCs are collected from all namespaces." />
-              ) : (
-                <div className="table-wrap">
-                  <table className="entities" ref={tableRef}>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Namespace</th>
-                        <th>Phase</th>
-                        <th>Requested</th>
-                        <th>Storage class</th>
-                        <th>Bound PV</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {resp.items.map((pvc) => (
-                        <tr key={pvc.id}>
-                          <td>
-                            <Link to={`/persistentvolumeclaims/${pvc.id}`}>
-                              <strong>{pvc.name}</strong>
-                            </Link>
-                          </td>
-                          <td>
-                            <NamespaceLink
-                              namespaceId={pvc.namespace_id}
-                              namespacesById={namespacesById}
-                              clustersById={clustersById}
-                            />
-                          </td>
-                          <td>{pvc.phase || <Dash />}</td>
-                          <td>{pvc.requested_storage ? <code>{pvc.requested_storage}</code> : <Dash />}</td>
-                          <td>{pvc.storage_class_name || <Dash />}</td>
-                          <td>{pvc.volume_name ? <code>{pvc.volume_name}</code> : <Dash />}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            }
-          </AsyncView>
-        )}
+      <AsyncView state={pvcs}>
+        {(resp) =>
+          resp.items.length === 0 ? (
+            <Empty message="No persistent volume claims found. PVCs are collected from all namespaces." />
+          ) : (
+            <div className="table-wrap">
+              <table className="entities" ref={tableRef}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Namespace</th>
+                    <th>Phase</th>
+                    <th>Requested</th>
+                    <th>Storage class</th>
+                    <th>Bound PV</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resp.items.map((pvc) => (
+                    <tr key={pvc.id}>
+                      <td>
+                        <Link to={`/persistentvolumeclaims/${pvc.id}`}>
+                          <strong>{pvc.name}</strong>
+                        </Link>
+                      </td>
+                      <td>
+                        <NamespaceLink
+                          namespaceId={pvc.namespace_id}
+                          namespaceName={pvc.namespace_name}
+                          clusterId={pvc.cluster_id}
+                          clusterName={pvc.cluster_name}
+                        />
+                      </td>
+                      <td>{pvc.phase || <Dash />}</td>
+                      <td>{pvc.requested_storage ? <code>{pvc.requested_storage}</code> : <Dash />}</td>
+                      <td>{pvc.storage_class_name || <Dash />}</td>
+                      <td>{pvc.volume_name ? <code>{pvc.volume_name}</code> : <Dash />}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
       </AsyncView>
     </>
   );

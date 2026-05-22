@@ -463,6 +463,8 @@ export interface Namespace {
   notes?: string | null;
   runbook_url?: string | null;
   annotations?: Record<string, string> | null;
+  // Denormalized parent name (ADR-0027). Null on orphan.
+  cluster_name?: string | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
@@ -498,6 +500,10 @@ export interface Workload {
   containers?: Container[] | null;
   containers_versions?: Record<string, ContainerVersionInfo> | null;
   labels?: Record<string, string> | null;
+  // Denormalized parent names (ADR-0027). Null on orphan.
+  namespace_name?: string | null;
+  cluster_id?: string | null;
+  cluster_name?: string | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
@@ -514,6 +520,11 @@ export interface Pod {
   containers?: Container[] | null;
   containers_versions?: Record<string, ContainerVersionInfo> | null;
   labels?: Record<string, string> | null;
+  // Denormalized parent names (ADR-0027). Null on orphan.
+  namespace_name?: string | null;
+  cluster_id?: string | null;
+  cluster_name?: string | null;
+  workload_name?: string | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
@@ -551,6 +562,10 @@ export interface Service {
   ports?: ServicePort[] | null;
   load_balancer?: LoadBalancerAddress[] | null;
   labels?: Record<string, string> | null;
+  // Denormalized parent names (ADR-0027). Null on orphan.
+  namespace_name?: string | null;
+  cluster_id?: string | null;
+  cluster_name?: string | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
@@ -579,6 +594,10 @@ export interface Ingress {
   tls?: IngressTLS[] | null;
   load_balancer?: LoadBalancerAddress[] | null;
   labels?: Record<string, string> | null;
+  // Denormalized parent names (ADR-0027). Null on orphan.
+  namespace_name?: string | null;
+  cluster_id?: string | null;
+  cluster_name?: string | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
@@ -614,6 +633,10 @@ export interface PersistentVolumeClaim {
   access_modes?: string[] | null;
   requested_storage?: string | null;
   labels?: Record<string, string> | null;
+  // Denormalized parent names (ADR-0027). Null on orphan.
+  namespace_name?: string | null;
+  cluster_id?: string | null;
+  cluster_name?: string | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
