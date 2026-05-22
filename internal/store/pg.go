@@ -1241,6 +1241,8 @@ const namespaceSelectColumns = `n.id, n.cluster_id, n.name, n.display_name, n.ph
 const namespaceFromJoined = `FROM namespaces n
 	LEFT JOIN clusters c ON c.id = n.cluster_id`
 
+// GetNamespace fetches a namespace by id, including the denormalized
+// cluster_name from the namespace's cluster (ADR-0027).
 func (p *PG) GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, error) {
 	q := `SELECT ` + namespaceSelectColumns + ` ` + namespaceFromJoined + ` WHERE n.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)
@@ -1693,6 +1695,8 @@ const podFromJoined = `FROM pods p
 	LEFT JOIN clusters   c ON c.id = n.cluster_id
 	LEFT JOIN workloads  w ON w.id = p.workload_id`
 
+// GetPod fetches a pod by id, including the denormalized namespace_name,
+// cluster_id, cluster_name, and workload_name (ADR-0027).
 func (p *PG) GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error) {
 	q := `SELECT ` + podSelectColumns + ` ` + podFromJoined + ` WHERE p.id = $1`
 	row := p.pool.QueryRow(ctx, q, id)

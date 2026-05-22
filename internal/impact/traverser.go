@@ -401,7 +401,8 @@ func (b *builder) expandNamespace(ctx context.Context, id uuid.UUID, nodeID stri
 	if err != nil {
 		return fmt.Errorf("list services: %w", err)
 	}
-	for _, s := range svcs {
+	for i := range svcs {
+		s := &svcs[i]
 		svcType := ""
 		if s.Type != nil {
 			svcType = string(*s.Type)
@@ -418,7 +419,8 @@ func (b *builder) expandNamespace(ctx context.Context, id uuid.UUID, nodeID stri
 	if err != nil {
 		return fmt.Errorf("list ingresses: %w", err)
 	}
-	for _, ig := range ings {
+	for i := range ings {
+		ig := &ings[i]
 		gn := GraphNode{ID: idStr(ig.Id), Type: TypeIngress, Name: ig.Name, Status: ptrStr(ig.IngressClassName)}
 		b.addNode(gn)
 		b.addEdge(nodeID, gn.ID, RelContains)
@@ -431,7 +433,8 @@ func (b *builder) expandNamespace(ctx context.Context, id uuid.UUID, nodeID stri
 	if err != nil {
 		return fmt.Errorf("list PVCs: %w", err)
 	}
-	for _, pvc := range pvcs {
+	for i := range pvcs {
+		pvc := &pvcs[i]
 		gn := GraphNode{ID: idStr(pvc.Id), Type: TypePersistentVolumeClaim, Name: pvc.Name, Status: ptrStr(pvc.Phase)}
 		b.addNode(gn)
 		b.addEdge(nodeID, gn.ID, RelContains)
@@ -527,7 +530,8 @@ func (b *builder) expandWorkload(ctx context.Context, id uuid.UUID, nodeID strin
 	if err != nil {
 		return fmt.Errorf("list pods: %w", err)
 	}
-	for _, p := range pods {
+	for i := range pods {
+		p := &pods[i]
 		if p.WorkloadId == nil || *p.WorkloadId != id {
 			continue
 		}

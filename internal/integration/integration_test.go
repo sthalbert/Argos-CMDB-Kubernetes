@@ -1017,6 +1017,7 @@ func verifyPVCBound(t *testing.T, env *testEnv) {
 	t.Helper()
 	var pvcList api.PersistentVolumeClaimList
 	env.doJSON(t, http.MethodGet, "/v1/persistentvolumeclaims", "", &pvcList)
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, pvc := range pvcList.Items {
 		if pvc.Name == "push-pvc-1" {
 			if pvc.BoundVolumeId == nil {

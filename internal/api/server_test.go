@@ -748,6 +748,7 @@ func (m *memStore) ListPods(_ context.Context, filter PodListFilter, limit int, 
 		needle = strings.ToLower(*filter.ImageSubstring)
 	}
 	out := make([]Pod, 0, len(m.podsByID))
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, p := range m.podsByID {
 		if filter.NamespaceID != nil && p.NamespaceId != *filter.NamespaceID {
 			continue
@@ -897,6 +898,7 @@ func (m *memStore) DeletePodsNotIn(_ context.Context, namespaceID uuid.UUID, kee
 		keep[n] = struct{}{}
 	}
 	var deleted int64
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for id, p := range m.podsByID {
 		if p.NamespaceId != namespaceID {
 			continue
@@ -1148,6 +1150,7 @@ func (m *memStore) ListIngresses(_ context.Context, namespaceID *uuid.UUID, limi
 		limit = 50
 	}
 	out := make([]Ingress, 0, len(m.ingressesByID))
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, i := range m.ingressesByID {
 		if namespaceID != nil && i.NamespaceId != *namespaceID {
 			continue
@@ -1251,6 +1254,7 @@ func (m *memStore) DeleteIngressesNotIn(_ context.Context, namespaceID uuid.UUID
 		keep[n] = struct{}{}
 	}
 	var deleted int64
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for id, i := range m.ingressesByID {
 		if i.NamespaceId != namespaceID {
 			continue
@@ -1313,6 +1317,7 @@ func (m *memStore) ListServices(_ context.Context, namespaceID *uuid.UUID, limit
 		limit = 50
 	}
 	out := make([]Service, 0, len(m.servicesByID))
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, s := range m.servicesByID {
 		if namespaceID != nil && s.NamespaceId != *namespaceID {
 			continue
@@ -1425,6 +1430,7 @@ func (m *memStore) DeleteServicesNotIn(_ context.Context, namespaceID uuid.UUID,
 		keep[n] = struct{}{}
 	}
 	var deleted int64
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for id, s := range m.servicesByID {
 		if s.NamespaceId != namespaceID {
 			continue
@@ -1703,6 +1709,7 @@ func (m *memStore) DeletePersistentVolume(_ context.Context, id uuid.UUID) error
 	delete(m.pvsByID, id)
 	delete(m.pvsByNatKey, pvNatKey(pv.ClusterId, pv.Name))
 	// Mirror ON DELETE SET NULL on the FK from PVCs.
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for pvcID, pvc := range m.pvcsByID {
 		if pvc.BoundVolumeId != nil && *pvc.BoundVolumeId == id {
 			pvc.BoundVolumeId = nil
@@ -1787,6 +1794,7 @@ func (m *memStore) DeletePersistentVolumesNotIn(_ context.Context, clusterID uui
 		}
 		delete(m.pvsByID, id)
 		delete(m.pvsByNatKey, pvNatKey(pv.ClusterId, pv.Name))
+		//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 		for pvcID, pvc := range m.pvcsByID {
 			if pvc.BoundVolumeId != nil && *pvc.BoundVolumeId == id {
 				pvc.BoundVolumeId = nil
@@ -1857,6 +1865,7 @@ func (m *memStore) ListPersistentVolumeClaims(
 		limit = 50
 	}
 	out := make([]PersistentVolumeClaim, 0, len(m.pvcsByID))
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, pvc := range m.pvcsByID {
 		if namespaceID != nil && pvc.NamespaceId != *namespaceID {
 			continue
@@ -1983,6 +1992,7 @@ func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespac
 		keep[n] = struct{}{}
 	}
 	var deleted int64
+	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for id, pvc := range m.pvcsByID {
 		if pvc.NamespaceId != namespaceID {
 			continue
