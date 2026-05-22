@@ -3462,6 +3462,15 @@ components:
                 - $ref: '#/components/schemas/Layer'
               readOnly: true
               description: Always `infrastructure_logical` for Namespace. Set by the server.
+            cluster_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: |
+                Denormalized `clusters.name` for the namespace's cluster.
+                Null when the cluster row is gone (orphan); the UI renders
+                that case as an explicit "(orphan)" badge rather than a
+                bare UUID. See ADR-0027.
             created_at:
               type: string
               format: date-time
@@ -3598,6 +3607,30 @@ components:
                 - $ref: '#/components/schemas/Layer'
               readOnly: true
               description: Always `applicative` for Pod. Set by the server.
+            namespace_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.name`. Null on orphans. See ADR-0027.
+            cluster_id:
+              type: string
+              format: uuid
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.cluster_id`. Null on orphans. See ADR-0027.
+            cluster_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `clusters.name`. Null on orphans. See ADR-0027.
+            workload_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: |
+                Denormalized `workloads.name` (the controller that owns the pod).
+                Null when the pod is standalone, the workload row is gone, or the
+                ownerReferences walk did not resolve. See ADR-0027.
             created_at:
               type: string
               format: date-time
@@ -3729,6 +3762,22 @@ components:
                 - $ref: '#/components/schemas/Layer'
               readOnly: true
               description: Always `applicative` for Workload. Set by the server.
+            namespace_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.name`. Null on orphans. See ADR-0027.
+            cluster_id:
+              type: string
+              format: uuid
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.cluster_id`. Null on orphans. See ADR-0027.
+            cluster_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `clusters.name`. Null on orphans. See ADR-0027.
             created_at:
               type: string
               format: date-time
@@ -3864,6 +3913,22 @@ components:
                 - $ref: '#/components/schemas/Layer'
               readOnly: true
               description: Always `applicative` for Service. Set by the server.
+            namespace_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.name`. Null on orphans. See ADR-0027.
+            cluster_id:
+              type: string
+              format: uuid
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.cluster_id`. Null on orphans. See ADR-0027.
+            cluster_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `clusters.name`. Null on orphans. See ADR-0027.
             created_at:
               type: string
               format: date-time
@@ -3989,6 +4054,22 @@ components:
                 - $ref: '#/components/schemas/Layer'
               readOnly: true
               description: Always `applicative` for Ingress. See ADR-0004.
+            namespace_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.name`. Null on orphans. See ADR-0027.
+            cluster_id:
+              type: string
+              format: uuid
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.cluster_id`. Null on orphans. See ADR-0027.
+            cluster_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `clusters.name`. Null on orphans. See ADR-0027.
             created_at:
               type: string
               format: date-time
@@ -4253,6 +4334,22 @@ components:
                 - $ref: '#/components/schemas/Layer'
               readOnly: true
               description: Always `applicative` for PersistentVolumeClaim. Set by the server.
+            namespace_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.name`. Null on orphans. See ADR-0027.
+            cluster_id:
+              type: string
+              format: uuid
+              nullable: true
+              readOnly: true
+              description: Denormalized `namespaces.cluster_id`. Null on orphans. See ADR-0027.
+            cluster_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `clusters.name`. Null on orphans. See ADR-0027.
             created_at:
               type: string
               format: date-time
