@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.24.1](https://github.com/sthalbert/Longue-Vue/compare/v0.24.0...v0.24.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **mirrorresolve:** passthrough unparseable refs instead of erroring ([b0d815e](https://github.com/sthalbert/Longue-Vue/commit/b0d815e1084257756c27010bd3a6a210bba70498))
+* **mirrorresolve:** passthrough unparseable refs instead of erroring ([049d3b1](https://github.com/sthalbert/Longue-Vue/commit/049d3b1a330346d53d9743a5f2ec53707a232eb5))
+
 ## [0.24.0](https://github.com/sthalbert/Longue-Vue/compare/v0.23.0...v0.24.0) (2026-05-21)
 
 
