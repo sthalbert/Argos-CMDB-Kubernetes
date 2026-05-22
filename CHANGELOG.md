@@ -6,6 +6,20 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.25.0](https://github.com/sthalbert/Longue-Vue/compare/v0.24.1...v0.25.0) (2026-05-22)
+
+
+### Features
+
+* **api,store:** denormalize parent names on entity list/get responses ([7e071b6](https://github.com/sthalbert/Longue-Vue/commit/7e071b656ffa6e4164e3e3620ee2599bd07a644d))
+* denormalize parent names on list responses for scale (ADR-0027) ([4ced900](https://github.com/sthalbert/Longue-Vue/commit/4ced90039f509697db02bd3c6a9f9ddb20fd1028))
+* **ui:** drop client-side parent indexes; render denormalized names from API ([6c8b6c4](https://github.com/sthalbert/Longue-Vue/commit/6c8b6c4ae846654f9ea89580e98e4b1149e7407c))
+
+
+### Bug Fixes
+
+* **impact,store:** satisfy gocritic/revive after parent-name denormalization ([3cd02a7](https://github.com/sthalbert/Longue-Vue/commit/3cd02a7e54b6aa20328e557628eab49e7c197ed6))
+
 ## [0.24.1](https://github.com/sthalbert/Longue-Vue/compare/v0.24.0...v0.24.1) (2026-05-22)
 
 
