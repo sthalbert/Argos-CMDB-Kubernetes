@@ -427,6 +427,8 @@ export interface Node {
   // Bare-metal complement to instance_type; set by operators.
   hardware_model?: string | null;
   layer: Layer;
+  // Denormalized clusters.name — null on orphans. See ADR-0027.
+  cluster_name?: string | null;
   created_at: string;
   updated_at: string;
 }
