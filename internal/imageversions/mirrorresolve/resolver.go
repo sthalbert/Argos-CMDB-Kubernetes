@@ -107,8 +107,15 @@ func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) 
 
 	hostname, imagePath, tag, err := splitRef(ref)
 	if err != nil {
-		h.observe("parse_error", started)
-		return "", err
+		// Ref that lacks the host/path shape (bare digest like
+		// sha256:abc…, Docker Hub library shortcut like "nginx" or
+		// "debian:latest", etc.) is by definition not a mirror ref.
+		// Pass it through unchanged so the public-registry enricher
+		// path can parse and route it normally — refusing here would
+		// drop the image from version tracking entirely.
+		h.observe("passthrough", started)
+		//nolint:nilerr // intentional: unparseable refs are passed through to downstream parsing
+		return ref, nil
 	}
 
 	row, ok, err := h.Lookup.FindMirror(ctx, hostname, imagePath)

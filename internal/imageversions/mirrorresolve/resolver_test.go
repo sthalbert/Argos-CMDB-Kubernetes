@@ -116,6 +116,31 @@ func TestHTTPResolver_Passthrough_NoMirror(t *testing.T) {
 	}
 }
 
+// TestHTTPResolver_Passthrough_UnparseableRef covers the regression where
+// refs that lack the host/path shape (bare digests, Docker Hub library
+// shortcuts) were being WARN-logged and dropped from the enricher entirely
+// instead of flowing through to ParseImageRef. See ADR-0026 follow-up.
+func TestHTTPResolver_Passthrough_UnparseableRef(t *testing.T) {
+	cases := []struct{ name, ref string }{
+		{"bare digest", "sha256:e792110c581423bf8ec4d8476bca3658810a24a9437f6f8ff24cdeafd9521dbd"},
+		{"library shortcut with tag", "nginx:1.25"},
+		{"library shortcut no tag", "busybox"},
+		{"namespaced library", "python:3.11-slim"},
+	}
+	r := &HTTPResolver{Lookup: fakeLookup{ok: false}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := r.Resolve(context.Background(), tc.ref)
+			if err != nil {
+				t.Fatalf("expected passthrough, got error: %v", err)
+			}
+			if got != tc.ref {
+				t.Fatalf("got=%q, want unchanged %q", got, tc.ref)
+			}
+		})
+	}
+}
+
 func TestHTTPResolver_AuthError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
