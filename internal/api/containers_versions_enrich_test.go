@@ -153,6 +153,7 @@ func TestEnrichContainersVersions_MissingNameOrImage(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // straight-line seed-then-assert flow; flat structure is clearer than factored helpers
 func TestEnrichContainersVersions_ResolvedOrigin(t *testing.T) {
 	t.Parallel()
 	s := newMemStore()
@@ -174,7 +175,7 @@ func TestEnrichContainersVersions_ResolvedOrigin(t *testing.T) {
 
 	// Seed the resolution row keyed on the pod-ref's image_repo.
 	origin := "ghcr.io/sthalbert/longue-vue-collector"
-	via := "mirror.example.com"
+	via := testMirrorHostname
 	if _, err := s.UpsertImageOriginResolution(ctx, ImageOriginResolutionUpsert{
 		MirrorImageRepo: "local.example.com/containers/sthalbert/longue-vue-collector",
 		Variant:         "",

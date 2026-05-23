@@ -51,28 +51,8 @@ func HandleCreateImageRegistry(s Store) http.Handler {
 			return
 		}
 		if in.ReplicatesFromHostname != nil && *in.ReplicatesFromHostname != "" {
-			if !in.IsMirror {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"replicates_from_hostname requires is_mirror=true")
-				return
-			}
-			if *in.ReplicatesFromHostname == in.Hostname {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"replicates_from_hostname cannot equal hostname")
-				return
-			}
-			target, terr := findReplicaTarget(r.Context(), s, *in.ReplicatesFromHostname)
-			switch {
-			case errors.Is(terr, errReplicaTargetNotFound):
-				writeProblem(w, http.StatusBadRequest, "Bad Request", terr.Error())
-				return
-			case terr != nil:
-				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", terr.Error())
-				return
-			}
-			if target.ReplicatesFromHostname != nil && *target.ReplicatesFromHostname != "" {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"replica target must not itself be a replica")
+			if !validateReplicaPointer(r.Context(), w, s, in.Hostname, in.IsMirror,
+				*in.ReplicatesFromHostname) {
 				return
 			}
 		}
@@ -90,6 +70,8 @@ func HandleCreateImageRegistry(s Store) http.Handler {
 }
 
 // HandleUpdateImageRegistry applies a merge-patch to a registry row.
+//
+//nolint:gocyclo // sequential decode → field validation → existing-row read → replica validation; flat is clearer than factored
 func HandleUpdateImageRegistry(s Store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.PathValue("hostname")
@@ -108,7 +90,6 @@ func HandleUpdateImageRegistry(s Store) http.Handler {
 			return
 		}
 		if p.ReplicatesFromHostname != nil && *p.ReplicatesFromHostname != "" {
-			// Read the existing row to know the current is_mirror value.
 			existing, err := s.GetImageRegistry(r.Context(), host, prefix)
 			if errors.Is(err, ErrNotFound) {
 				writeProblem(w, http.StatusNotFound, "Not Found", "registry not found")
@@ -122,28 +103,8 @@ func HandleUpdateImageRegistry(s Store) http.Handler {
 			if p.IsMirror != nil {
 				isMirror = *p.IsMirror
 			}
-			if !isMirror {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"replicates_from_hostname requires is_mirror=true")
-				return
-			}
-			if *p.ReplicatesFromHostname == host {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"replicates_from_hostname cannot equal hostname")
-				return
-			}
-			target, terr := findReplicaTarget(r.Context(), s, *p.ReplicatesFromHostname)
-			switch {
-			case errors.Is(terr, errReplicaTargetNotFound):
-				writeProblem(w, http.StatusBadRequest, "Bad Request", terr.Error())
-				return
-			case terr != nil:
-				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", terr.Error())
-				return
-			}
-			if target.ReplicatesFromHostname != nil && *target.ReplicatesFromHostname != "" {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"replica target must not itself be a replica")
+			if !validateReplicaPointer(r.Context(), w, s, host, isMirror,
+				*p.ReplicatesFromHostname) {
 				return
 			}
 		}
@@ -219,6 +180,42 @@ func HandleGetImageRegistryCredentials(s Store) http.Handler {
 			"auth_token":    tok,
 		})
 	})
+}
+
+// validateReplicaPointer runs the four replica-pointer validations and
+// writes the appropriate RFC 7807 problem when one fails. Returns true
+// when validation passes and the caller should continue, false when a
+// problem has been written and the caller must return immediately.
+// Callers should only invoke this when replicaTarget is non-empty.
+func validateReplicaPointer(
+	ctx context.Context, w http.ResponseWriter, s Store,
+	hostname string, isMirror bool, replicaTarget string,
+) bool {
+	if !isMirror {
+		writeProblem(w, http.StatusBadRequest, "Bad Request",
+			"replicates_from_hostname requires is_mirror=true")
+		return false
+	}
+	if replicaTarget == hostname {
+		writeProblem(w, http.StatusBadRequest, "Bad Request",
+			"replicates_from_hostname cannot equal hostname")
+		return false
+	}
+	target, err := findReplicaTarget(ctx, s, replicaTarget)
+	switch {
+	case errors.Is(err, errReplicaTargetNotFound):
+		writeProblem(w, http.StatusBadRequest, "Bad Request", err.Error())
+		return false
+	case err != nil:
+		writeProblem(w, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return false
+	}
+	if target.ReplicatesFromHostname != nil && *target.ReplicatesFromHostname != "" {
+		writeProblem(w, http.StatusBadRequest, "Bad Request",
+			"replica target must not itself be a replica")
+		return false
+	}
+	return true
 }
 
 // findReplicaTarget locates the (annotation-mirror) row a replica points

@@ -9,6 +9,11 @@ import (
 	"testing"
 )
 
+// testMirrorHostname is the placeholder hostname used as a mirror target
+// across image-registry and origin-resolution tests. Extracted to satisfy
+// goconst when reused across files in the api package.
+const testMirrorHostname = "mirror.example.com"
+
 // mustMarshal marshals v as JSON or fails the test. Tests build small,
 // known-safe maps so propagating the error would only ever indicate a test
 // programmer error.
@@ -46,7 +51,7 @@ func TestHandleCreateImageRegistry(t *testing.T) {
 	s := newMemStore()
 	h := HandleCreateImageRegistry(s)
 	body := mustMarshal(t, map[string]any{
-		"hostname":           "mirror.example.com",
+		"hostname":           testMirrorHostname,
 		"rate_limit_per_sec": 2.5,
 	})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/admin/image-versions/registries", bytes.NewReader(body))
@@ -216,12 +221,12 @@ func TestHandleCreateImageRegistry_ReplicaValidationOk(t *testing.T) {
 	m := newMemStore()
 	// Seed the annotation mirror that the replica will point at.
 	if _, err := m.CreateImageRegistry(context.Background(), ImageRegistryUpsert{
-		Hostname: "mirror.example.com", PathPrefix: "container/",
+		Hostname: testMirrorHostname, PathPrefix: "container/",
 		RateLimitPerSec: 5, IsMirror: true,
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	target := "mirror.example.com"
+	target := testMirrorHostname
 	body := mustMarshal(t, ImageRegistryUpsert{
 		Hostname: "local.example.com", PathPrefix: "container/",
 		RateLimitPerSec: 5, IsMirror: true,
@@ -291,12 +296,12 @@ func TestHandleCreateImageRegistry_ReplicaRequiresMirror(t *testing.T) {
 	t.Parallel()
 	m := newMemStore()
 	if _, err := m.CreateImageRegistry(context.Background(), ImageRegistryUpsert{
-		Hostname: "mirror.example.com", PathPrefix: "",
+		Hostname: testMirrorHostname, PathPrefix: "",
 		RateLimitPerSec: 5, IsMirror: true,
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	target := "mirror.example.com"
+	target := testMirrorHostname
 	body := mustMarshal(t, ImageRegistryUpsert{
 		Hostname: "public.example.com", PathPrefix: "",
 		RateLimitPerSec: 5, IsMirror: false,

@@ -61,9 +61,9 @@ type memStore struct {
 	authState         memAuthState         // users / sessions / tokens (ADR-0007)
 	pingErr           error
 	createdN          int
-	settings          Settings                      // overridable for handler tests
-	registries        map[[2]string]ImageRegistry        // keyed by [hostname, path_prefix]; image_versions_registries
-	imageVersions     map[[2]string]ImageVersionRow      // keyed by [imageRepo, variant]
+	settings          Settings                            // overridable for handler tests
+	registries        map[[2]string]ImageRegistry         // keyed by [hostname, path_prefix]; image_versions_registries
+	imageVersions     map[[2]string]ImageVersionRow       // keyed by [imageRepo, variant]
 	originResolutions map[[2]string]ImageOriginResolution // keyed by [mirrorImageRepo, variant]; image_origin_resolutions
 }
 
@@ -2013,15 +2013,7 @@ func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespac
 func (m *memStore) UpsertImageOriginResolution(_ context.Context, in ImageOriginResolutionUpsert) (ImageOriginResolution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	row := ImageOriginResolution{
-		MirrorImageRepo: in.MirrorImageRepo,
-		Variant:         in.Variant,
-		OriginImageRepo: in.OriginImageRepo,
-		ViaHostname:     in.ViaHostname,
-		ResolvedAt:      in.ResolvedAt,
-		LastError:       in.LastError,
-		LastErrorAt:     in.LastErrorAt,
-	}
+	row := ImageOriginResolution(in)
 	m.originResolutions[[2]string{in.MirrorImageRepo, in.Variant}] = row
 	return row, nil
 }

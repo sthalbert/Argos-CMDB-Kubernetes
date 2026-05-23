@@ -62,7 +62,9 @@ func newTestPG(t *testing.T) *PG {
 		// cloud_accounts is independent of clusters; CASCADE wipes
 		// virtual_machines via FK so the VM upsert tests see a clean slate.
 		_, _ = pg.pool.Exec(context.Background(),
-			"TRUNCATE clusters, cloud_accounts, image_versions, image_origin_resolutions, api_tokens, sessions, user_identities, oidc_auth_states, audit_events, users CASCADE")
+			"TRUNCATE clusters, cloud_accounts, image_versions, image_origin_resolutions, "+
+				"api_tokens, sessions, user_identities, oidc_auth_states, audit_events, "+
+				"users CASCADE")
 		pg.Close()
 	})
 	return pg

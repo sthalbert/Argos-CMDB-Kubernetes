@@ -218,7 +218,9 @@ func TestPG_ImageRegistries_ReplicaPointer(t *testing.T) {
 	// TRUNCATE list (it carries seeded public-registry rows).
 	t.Cleanup(func() {
 		_, _ = pg.pool.Exec(context.Background(),
-			"DELETE FROM image_versions_registries WHERE hostname IN ('mirror.example.com', 'local.example.com', 'loop.example.com', 'public.example.com')")
+			"DELETE FROM image_versions_registries WHERE hostname IN "+
+				"('mirror.example.com', 'local.example.com', "+
+				"'loop.example.com', 'public.example.com')")
 	})
 
 	// Seed an annotation mirror.

@@ -68,19 +68,12 @@ func (s *fakeStore) GetMirrorAuthToken(_ context.Context, _, _ string) (string, 
 	return "", nil
 }
 
+//nolint:gocritic // in matches the api.Store interface signature
 func (s *fakeStore) UpsertImageOriginResolution(_ context.Context, in api.ImageOriginResolutionUpsert) (api.ImageOriginResolution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.originUpserts = append(s.originUpserts, in)
-	return api.ImageOriginResolution{
-		MirrorImageRepo: in.MirrorImageRepo,
-		Variant:         in.Variant,
-		OriginImageRepo: in.OriginImageRepo,
-		ViaHostname:     in.ViaHostname,
-		ResolvedAt:      in.ResolvedAt,
-		LastError:       in.LastError,
-		LastErrorAt:     in.LastErrorAt,
-	}, nil
+	return api.ImageOriginResolution(in), nil
 }
 
 func (s *fakeStore) DeleteImageOriginResolutionsNotIn(_ context.Context, keep [][2]string) (int64, error) {

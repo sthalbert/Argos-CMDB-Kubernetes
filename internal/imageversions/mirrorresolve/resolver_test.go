@@ -17,6 +17,7 @@ type fakeLookup struct {
 	ok  bool
 }
 
+//nolint:gocritic // f is a test fixture; receiver copy is acceptable here
 func (f fakeLookup) FindMirror(_ context.Context, _, _ string) (MirrorRow, bool, error) {
 	return f.row, f.ok, nil
 }

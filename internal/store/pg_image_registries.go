@@ -144,6 +144,8 @@ RETURNING ` + imageRegistryColumns
 //   - nil   → leave ciphertext unchanged
 //   - ""    → clear ciphertext (set to NULL); also clears auth_username
 //   - other → re-encrypt with PK-bound AAD
+//
+//nolint:gocyclo // straight-line merge-patch branches per nullable field; flat structure is clearer than factored helpers
 func (p *PG) UpdateImageRegistry(ctx context.Context, hostname, pathPrefix string, patch api.ImageRegistryPatch) (api.ImageRegistry, error) {
 	var (
 		tokenProvided bool
