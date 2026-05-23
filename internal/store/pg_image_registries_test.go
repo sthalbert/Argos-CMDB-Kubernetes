@@ -209,3 +209,84 @@ func TestImageRegistries_CreateConflict(t *testing.T) {
 		t.Fatalf("expected ErrConflict for existing hostname, got %v", err)
 	}
 }
+
+func TestPG_ImageRegistries_ReplicaPointer(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	// Per-test cleanup — image_versions_registries is NOT in the global
+	// TRUNCATE list (it carries seeded public-registry rows).
+	t.Cleanup(func() {
+		_, _ = pg.pool.Exec(context.Background(),
+			"DELETE FROM image_versions_registries WHERE hostname IN ('mirror.example.com', 'local.example.com', 'loop.example.com', 'public.example.com')")
+	})
+
+	// Seed an annotation mirror.
+	_, err := pg.CreateImageRegistry(ctx, api.ImageRegistryUpsert{
+		Hostname: "mirror.example.com", PathPrefix: "container/",
+		RateLimitPerSec: 5, IsMirror: true,
+	})
+	if err != nil {
+		t.Fatalf("seed annotation mirror: %v", err)
+	}
+
+	replicaTarget := "mirror.example.com"
+	created, err := pg.CreateImageRegistry(ctx, api.ImageRegistryUpsert{
+		Hostname: "local.example.com", PathPrefix: "container/",
+		RateLimitPerSec:        5,
+		IsMirror:               true,
+		ReplicatesFromHostname: &replicaTarget,
+	})
+	if err != nil {
+		t.Fatalf("create replica: %v", err)
+	}
+	if created.ReplicatesFromHostname == nil || *created.ReplicatesFromHostname != replicaTarget {
+		t.Fatalf("replicates_from_hostname: want %q, got %v", replicaTarget, created.ReplicatesFromHostname)
+	}
+
+	got, err := pg.GetImageRegistry(ctx, "local.example.com", "container/")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ReplicatesFromHostname == nil || *got.ReplicatesFromHostname != replicaTarget {
+		t.Fatalf("get replicates_from_hostname: want %q, got %v", replicaTarget, got.ReplicatesFromHostname)
+	}
+}
+
+func TestPG_ImageRegistries_ReplicaSelfLoopRejected(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_, _ = pg.pool.Exec(context.Background(),
+			"DELETE FROM image_versions_registries WHERE hostname = 'loop.example.com'")
+	})
+	self := "loop.example.com"
+	_, err := pg.CreateImageRegistry(ctx, api.ImageRegistryUpsert{
+		Hostname: "loop.example.com", PathPrefix: "",
+		RateLimitPerSec:        5,
+		IsMirror:               true,
+		ReplicatesFromHostname: &self,
+	})
+	if err == nil {
+		t.Fatal("expected CHECK violation on self-loop, got nil")
+	}
+}
+
+func TestPG_ImageRegistries_ReplicaRequiresMirror(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_, _ = pg.pool.Exec(context.Background(),
+			"DELETE FROM image_versions_registries WHERE hostname = 'public.example.com'")
+	})
+	target := "mirror.example.com"
+	_, err := pg.CreateImageRegistry(ctx, api.ImageRegistryUpsert{
+		Hostname: "public.example.com", PathPrefix: "",
+		RateLimitPerSec:        5,
+		IsMirror:               false, // not a mirror, but replica pointer set
+		ReplicatesFromHostname: &target,
+	})
+	if err == nil {
+		t.Fatal("expected CHECK violation: replica requires is_mirror=true")
+	}
+}

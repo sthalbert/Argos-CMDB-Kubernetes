@@ -674,8 +674,9 @@ type ImageRegistry struct {
 	Hostname string `json:"hostname"`
 
 	// IsMirror True if this row is a Harbor-style mirror needing resolution
-	IsMirror bool    `json:"is_mirror"`
-	Notes    *string `json:"notes,omitempty"`
+	IsMirror               bool    `json:"is_mirror"`
+	Notes                  *string `json:"notes,omitempty"`
+	ReplicatesFromHostname *string `json:"replicates_from_hostname,omitempty"`
 
 	// PathPrefix Repo-path prefix (empty for non-mirror rows)
 	PathPrefix      string    `json:"path_prefix"`
@@ -692,25 +693,27 @@ type ImageRegistryCredentials struct {
 // ImageRegistryPatch defines model for ImageRegistryPatch.
 type ImageRegistryPatch struct {
 	// AuthToken Empty string clears the stored token; omit to leave unchanged
-	AuthToken       *string  `json:"auth_token,omitempty"`
-	AuthUsername    *string  `json:"auth_username,omitempty"`
-	Enabled         *bool    `json:"enabled,omitempty"`
-	IsMirror        *bool    `json:"is_mirror,omitempty"`
-	Notes           *string  `json:"notes,omitempty"`
-	RateLimitPerSec *float32 `json:"rate_limit_per_sec,omitempty"`
+	AuthToken              *string  `json:"auth_token,omitempty"`
+	AuthUsername           *string  `json:"auth_username,omitempty"`
+	Enabled                *bool    `json:"enabled,omitempty"`
+	IsMirror               *bool    `json:"is_mirror,omitempty"`
+	Notes                  *string  `json:"notes,omitempty"`
+	RateLimitPerSec        *float32 `json:"rate_limit_per_sec,omitempty"`
+	ReplicatesFromHostname *string  `json:"replicates_from_hostname,omitempty"`
 }
 
 // ImageRegistryUpsert defines model for ImageRegistryUpsert.
 type ImageRegistryUpsert struct {
 	// AuthToken Robot-account token; never echoed in responses
-	AuthToken       *string `json:"auth_token,omitempty"`
-	AuthUsername    *string `json:"auth_username,omitempty"`
-	Enabled         *bool   `json:"enabled,omitempty"`
-	Hostname        string  `json:"hostname"`
-	IsMirror        bool    `json:"is_mirror"`
-	Notes           *string `json:"notes,omitempty"`
-	PathPrefix      string  `json:"path_prefix"`
-	RateLimitPerSec float32 `json:"rate_limit_per_sec"`
+	AuthToken              *string `json:"auth_token,omitempty"`
+	AuthUsername           *string `json:"auth_username,omitempty"`
+	Enabled                *bool   `json:"enabled,omitempty"`
+	Hostname               string  `json:"hostname"`
+	IsMirror               bool    `json:"is_mirror"`
+	Notes                  *string `json:"notes,omitempty"`
+	PathPrefix             string  `json:"path_prefix"`
+	RateLimitPerSec        float32 `json:"rate_limit_per_sec"`
+	ReplicatesFromHostname *string `json:"replicates_from_hostname,omitempty"`
 }
 
 // ImageVersion defines model for ImageVersion.

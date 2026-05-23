@@ -13,7 +13,7 @@ import (
 
 // imageRegistryColumns lists the SELECT columns in canonical order.
 const imageRegistryColumns = `hostname, path_prefix, rate_limit_per_sec, enabled, notes,
-	is_mirror, auth_username, auth_token_ciphertext, created_at, updated_at`
+	is_mirror, replicates_from_hostname, auth_username, auth_token_ciphertext, created_at, updated_at`
 
 // Static errors for the image-registry store. err113 forbids ad-hoc
 // fmt.Errorf without %w wrapping.
@@ -27,7 +27,7 @@ func scanImageRegistry(row pgx.Row) (api.ImageRegistry, error) {
 	var authUser *string
 	var authToken []byte
 	if err := row.Scan(&r.Hostname, &r.PathPrefix, &r.RateLimitPerSec, &r.Enabled, &r.Notes,
-		&r.IsMirror, &authUser, &authToken,
+		&r.IsMirror, &r.ReplicatesFromHostname, &authUser, &authToken,
 		&r.CreatedAt, &r.UpdatedAt); err != nil {
 		return api.ImageRegistry{}, fmt.Errorf("scan image registry: %w", err)
 	}
@@ -123,12 +123,12 @@ func (p *PG) CreateImageRegistry(ctx context.Context, in api.ImageRegistryUpsert
 	}
 	q := `INSERT INTO image_versions_registries
 	(hostname, path_prefix, rate_limit_per_sec, enabled, notes,
-	 is_mirror, auth_username, auth_token_ciphertext)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	 is_mirror, replicates_from_hostname, auth_username, auth_token_ciphertext)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING ` + imageRegistryColumns
 	r, err := scanImageRegistry(p.pool.QueryRow(ctx, q,
 		in.Hostname, in.PathPrefix, in.RateLimitPerSec, enabled, in.Notes,
-		in.IsMirror, in.AuthUsername, tokenCT))
+		in.IsMirror, in.ReplicatesFromHostname, in.AuthUsername, tokenCT))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return api.ImageRegistry{}, api.ErrConflict
@@ -166,21 +166,40 @@ func (p *PG) UpdateImageRegistry(ctx context.Context, hostname, pathPrefix strin
 		}
 	}
 
+	var (
+		replicaProvided bool
+		clearReplica    bool
+		replicaTarget   string
+	)
+	if patch.ReplicatesFromHostname != nil {
+		replicaProvided = true
+		if *patch.ReplicatesFromHostname == "" {
+			clearReplica = true
+		} else {
+			replicaTarget = *patch.ReplicatesFromHostname
+		}
+	}
+
 	notesProvided := patch.Notes != nil
 	userProvided := patch.AuthUsername != nil
 
 	q := `UPDATE image_versions_registries SET
-		rate_limit_per_sec    = COALESCE($3, rate_limit_per_sec),
-		enabled               = COALESCE($4, enabled),
-		notes                 = CASE WHEN $5::bool THEN $6 ELSE notes END,
-		is_mirror             = COALESCE($7, is_mirror),
-		auth_username         = CASE WHEN $8::bool THEN $9 ELSE auth_username END,
-		auth_token_ciphertext = CASE
-		                          WHEN $10::bool THEN NULL
-		                          WHEN $11::bool THEN $12
-		                          ELSE auth_token_ciphertext
-		                       END,
-		updated_at            = now()
+		rate_limit_per_sec       = COALESCE($3, rate_limit_per_sec),
+		enabled                  = COALESCE($4, enabled),
+		notes                    = CASE WHEN $5::bool THEN $6 ELSE notes END,
+		is_mirror                = COALESCE($7, is_mirror),
+		replicates_from_hostname = CASE
+		                              WHEN $8::bool THEN NULL
+		                              WHEN $9::bool THEN $10
+		                              ELSE replicates_from_hostname
+		                           END,
+		auth_username            = CASE WHEN $11::bool THEN $12 ELSE auth_username END,
+		auth_token_ciphertext    = CASE
+		                              WHEN $13::bool THEN NULL
+		                              WHEN $14::bool THEN $15
+		                              ELSE auth_token_ciphertext
+		                           END,
+		updated_at               = now()
 	WHERE hostname = $1 AND path_prefix = $2
 	RETURNING ` + imageRegistryColumns
 
@@ -189,6 +208,7 @@ func (p *PG) UpdateImageRegistry(ctx context.Context, hostname, pathPrefix strin
 		patch.RateLimitPerSec, patch.Enabled,
 		notesProvided, patch.Notes,
 		patch.IsMirror,
+		clearReplica, replicaProvided && !clearReplica, replicaTarget,
 		userProvided, patch.AuthUsername,
 		clearToken,
 		tokenProvided && !clearToken, tokenCT,
