@@ -23,6 +23,7 @@ import { ImpactSection } from './ImpactGraph';
 import { ClusterHistory } from './ClusterHistory';
 import { LabelsCard } from '../components/inventory/LabelsCard';
 import { ContainerVersionBadge } from '../components/ContainerVersionBadge';
+import { OriginLine } from '../components/OriginLine';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon, IngressIcon,
   ServiceIcon, VolumeIcon,
@@ -651,6 +652,7 @@ export function WorkloadDetail() {
                           </td>
                           <td>
                             <code>{c.image}</code>
+                            <OriginLine image={c.image} info={info} />
                           </td>
                           <td><ContainerVersionBadge info={info ?? undefined} /></td>
                           <td>{c.init ? 'yes' : <Dash />}</td>
@@ -798,15 +800,18 @@ export function PodDetail() {
                         </td>
                         <td>
                           <code>{c.image}</code>
+                          <OriginLine image={c.image} info={info} />
                         </td>
                         <td>
-                          {info?.latest_tag ? (
+                          {info?.origin_status === 'unresolved' ? (
+                            <Dash />
+                          ) : info?.latest_tag ? (
                             <code
                               className={info.is_behind ? 'pill status-bad' : 'pill status-ok'}
                               title={
                                 info.is_behind
-                                  ? `Behind: latest available is ${info.latest_tag} (checked ${new Date(info.last_checked_at).toLocaleString()})`
-                                  : `Up to date (checked ${new Date(info.last_checked_at).toLocaleString()})`
+                                  ? `Behind: latest available is ${info.latest_tag} (checked ${new Date(info.last_checked_at ?? '').toLocaleString()})`
+                                  : `Up to date (checked ${new Date(info.last_checked_at ?? '').toLocaleString()})`
                               }
                             >
                               {info.latest_tag}

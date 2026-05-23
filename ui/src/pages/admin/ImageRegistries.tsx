@@ -66,6 +66,7 @@ function CreateForm({ reload }: { reload: Reload }) {
   const [notes, setNotes] = useState('');
   const [authUser, setAuthUser] = useState('');
   const [authToken, setAuthToken] = useState('');
+  const [replicatesFrom, setReplicatesFrom] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +78,7 @@ function CreateForm({ reload }: { reload: Reload }) {
     setNotes('');
     setAuthUser('');
     setAuthToken('');
+    setReplicatesFrom('');
     setError(null);
   };
 
@@ -102,6 +104,8 @@ function CreateForm({ reload }: { reload: Reload }) {
         is_mirror: isMirror,
         auth_username: isMirror && authUser.trim() ? authUser.trim() : undefined,
         auth_token: isMirror && authToken !== '' ? authToken : undefined,
+        replicates_from_hostname:
+          isMirror && replicatesFrom.trim() ? replicatesFrom.trim() : undefined,
       });
       reset();
       setOpen(false);
@@ -163,33 +167,50 @@ function CreateForm({ reload }: { reload: Reload }) {
         </div>
       </div>
       {isMirror && (
-        <div className="admin-form-row">
-          <div>
-            <label>Path prefix</label>
-            <input
-              value={pathPrefix}
-              onChange={(e) => setPathPrefix(e.target.value)}
-              placeholder="container/"
-            />
+        <>
+          <div className="admin-form-row">
+            <div>
+              <label>Path prefix</label>
+              <input
+                value={pathPrefix}
+                onChange={(e) => setPathPrefix(e.target.value)}
+                placeholder="container/"
+              />
+            </div>
+            <div>
+              <label>Auth username</label>
+              <input
+                value={authUser}
+                onChange={(e) => setAuthUser(e.target.value)}
+                placeholder="robot$lv"
+              />
+            </div>
+            <div>
+              <label>Auth token</label>
+              <input
+                type="password"
+                value={authToken}
+                onChange={(e) => setAuthToken(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
           </div>
-          <div>
-            <label>Auth username</label>
-            <input
-              value={authUser}
-              onChange={(e) => setAuthUser(e.target.value)}
-              placeholder="robot$lv"
-            />
+          <div className="admin-form-row">
+            <div>
+              <label>Replicates from (hostname)</label>
+              <input
+                value={replicatesFrom}
+                onChange={(e) => setReplicatesFrom(e.target.value)}
+                placeholder="mirror.example.com"
+              />
+              <small className="muted">
+                Optional. Set when this row is a local mirror that copies images from
+                another mirror in your registry chain (e.g. per-cluster replicas of a
+                central mirror). The resolver swaps hostname before fetching OCI annotations.
+              </small>
+            </div>
           </div>
-          <div>
-            <label>Auth token</label>
-            <input
-              type="password"
-              value={authToken}
-              onChange={(e) => setAuthToken(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-        </div>
+        </>
       )}
       <div className="admin-form-row">
         <div style={{ flex: 1 }}>
@@ -282,6 +303,11 @@ function RegistryRow({ registry, reload }: { registry: api.ImageRegistry; reload
         <span className={`pill ${registry.is_mirror ? 'status-warn' : 'status-ok'}`}>
           {registry.is_mirror ? 'Mirror' : 'Source'}
         </span>
+        {registry.replicates_from_hostname && (
+          <span className="pill" style={{ marginLeft: '0.25rem' }}>
+            replica of <code>{registry.replicates_from_hostname}</code>
+          </span>
+        )}
         {registry.is_mirror && registry.auth_configured && (
           <span className="pill" style={{ marginLeft: '0.25rem' }}>auth</span>
         )}

@@ -29,10 +29,15 @@ func (l storeLookup) FindMirror(ctx context.Context, hostname, imagePath string)
 	if row.AuthUsername != nil {
 		user = *row.AuthUsername
 	}
+	replica := ""
+	if row.ReplicatesFromHostname != nil {
+		replica = *row.ReplicatesFromHostname
+	}
 	return mirrorresolve.MirrorRow{
-		Hostname:     row.Hostname,
-		PathPrefix:   row.PathPrefix,
-		AuthUsername: user,
+		Hostname:               row.Hostname,
+		PathPrefix:             row.PathPrefix,
+		ReplicatesFromHostname: replica,
+		AuthUsername:           user,
 		TokenSource: func(ctx context.Context) (string, error) {
 			return l.s.GetMirrorAuthToken(ctx, row.Hostname, row.PathPrefix)
 		},

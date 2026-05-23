@@ -30,6 +30,13 @@ type Enricher struct {
 
 	triggerCh chan struct{}
 	running   atomic.Bool
+
+	// pendingResolutionKeys accumulates the (mirror_image_repo, variant)
+	// pairs persisted during the current tick. Reset at the top of every
+	// RunTick; used as the keep-set for reaping image_origin_resolutions.
+	// Safe to mutate without locking: only one tick runs at a time
+	// (running atomic.Bool guards re-entry).
+	pendingResolutionKeys [][2]string
 }
 
 // NewEnricher constructs an Enricher. interval controls the periodic tick;
@@ -120,6 +127,8 @@ func (e *Enricher) RunTick(ctx context.Context) {
 	}
 	defer e.running.Store(false)
 
+	e.pendingResolutionKeys = nil
+
 	start := time.Now()
 	defer func() {
 		if e.metrics != nil {
@@ -145,6 +154,10 @@ func (e *Enricher) RunTick(ctx context.Context) {
 	reaped, err := e.store.DeleteImageVersionsNotIn(ctx, processed)
 	if err != nil {
 		slog.Warn("imageversions: reap failed", slog.String("err", err.Error()))
+	}
+	if _, err := e.store.DeleteImageOriginResolutionsNotIn(ctx, e.pendingResolutionKeys); err != nil {
+		slog.Warn("imageversions: reap origin resolutions failed",
+			slog.String("err", err.Error()))
 	}
 	slog.Info(
 		"imageversions: tick complete",
@@ -239,25 +252,88 @@ func (e *Enricher) discoverWork(ctx context.Context, refs []string, enabledRegs 
 }
 
 // resolveMirrorRef runs the mirror resolver if configured. Returns the
-// resolved ref and skip=true when the caller must drop this ref (no mirror
-// configured returns raw, skip=false).
+// resolved ref and skip=true when the caller must drop this ref.
+// Persists both successes and classified failures into
+// image_origin_resolutions so the GET-time join in
+// internal/api/containers_versions_enrich.go can surface origin info.
 func (e *Enricher) resolveMirrorRef(ctx context.Context, raw string) (string, bool) {
 	if e.resolver == nil {
 		return raw, false
 	}
-	r, err := e.resolver.Resolve(ctx, raw)
-	switch {
-	case errors.Is(err, mirrorresolve.ErrNoOriginAnnotation),
-		errors.Is(err, mirrorresolve.ErrAmbiguousAnnotation):
-		slog.Debug("imageversions: skip mirror ref",
-			slog.String("ref", raw), slog.String("reason", err.Error()))
-		return "", true
-	case err != nil:
+	resolved, err := e.resolver.Resolve(ctx, raw)
+	if err == nil {
+		e.persistResolution(ctx, raw, resolved, "")
+		return resolved, false
+	}
+	classified := classifyResolverErr(err)
+	if classified == "" {
+		// Unclassified error (e.g. fetch_error during a one-off network blip):
+		// log and skip without persisting; next tick retries.
 		slog.Warn("imageversions: mirror resolve error",
 			slog.String("ref", raw), slog.String("err", err.Error()))
 		return "", true
-	default:
-		return r, false
+	}
+	slog.Debug("imageversions: skip mirror ref",
+		slog.String("ref", raw), slog.String("reason", classified))
+	e.persistResolution(ctx, raw, "", classified)
+	return "", true
+}
+
+// classifyResolverErr maps a resolver error to the stable string we
+// persist as last_error and emit as origin_error on the API response.
+// Returns "" for errors that should be retried next tick without
+// persisting a failure row.
+func classifyResolverErr(err error) string {
+	switch {
+	case errors.Is(err, mirrorresolve.ErrNoOriginAnnotation):
+		return "missing_annotation"
+	case errors.Is(err, mirrorresolve.ErrAmbiguousAnnotation):
+		return "ambiguous_annotation"
+	case errors.Is(err, mirrorresolve.ErrChainTooDeep):
+		return "chain_too_deep"
+	case errors.Is(err, mirrorresolve.ErrReplicaTargetMissing):
+		return "replica_target_missing"
+	}
+	return ""
+}
+
+// persistResolution writes a success or failure row for the given raw
+// pod ref. classifiedErr=="" means success (resolved != "" required);
+// non-empty classifiedErr means failure (resolved is ignored). Logs but
+// does not surface store errors — the next tick retries.
+func (e *Enricher) persistResolution(ctx context.Context, raw, resolved, classifiedErr string) {
+	mirrorRef, err := ParseImageRef(raw)
+	if err != nil {
+		return
+	}
+	pt, err := ParseTag(mirrorRef.Tag)
+	if err != nil {
+		return
+	}
+	now := time.Now().UTC()
+	up := api.ImageOriginResolutionUpsert{
+		MirrorImageRepo: mirrorRef.ImageRepo,
+		Variant:         pt.Variant,
+		ResolvedAt:      now,
+	}
+	if classifiedErr != "" {
+		errCopy := classifiedErr
+		up.LastError = &errCopy
+		up.LastErrorAt = &now
+	} else if resolved != "" {
+		originRef, err := ParseImageRef(resolved)
+		if err != nil {
+			return
+		}
+		up.OriginImageRepo = &originRef.ImageRepo
+		// via_hostname = the resolved ref's registry (the annotation mirror
+		// at the end of the chain).
+		up.ViaHostname = &originRef.Registry
+	}
+	e.pendingResolutionKeys = append(e.pendingResolutionKeys, [2]string{mirrorRef.ImageRepo, pt.Variant})
+	if _, err := e.store.UpsertImageOriginResolution(ctx, up); err != nil {
+		slog.Warn("imageversions: persist origin resolution",
+			slog.String("mirror_ref", raw), slog.String("err", err.Error()))
 	}
 }
 

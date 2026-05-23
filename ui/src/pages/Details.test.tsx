@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import {
   ClusterDetail, IngressDetail, NamespaceDetail, NodeDetail,
   PersistentVolumeClaimDetail, PodDetail, ServiceDetail, WorkloadDetail,
 } from './Details';
+import { OriginLine } from '../components/OriginLine';
 import { renderWithRouter } from '../test/render';
 import { server } from '../test/server';
 import {
@@ -259,5 +260,52 @@ describe('NodeDetail (ADR-0027 extension)', () => {
     expect(
       screen.queryByText(new RegExp(fixtureCluster.id.slice(0, 8))),
     ).toBeNull();
+  });
+});
+
+describe('OriginLine', () => {
+  it('renders origin ref when resolved', () => {
+    render(
+      <OriginLine
+        image="local.example.com/containers/sthalbert/longue-vue-collector:0.26"
+        info={{
+          latest_tag: '0.27',
+          is_behind: true,
+          last_checked_at: '2026-05-23T10:00:00Z',
+          origin_image_repo: 'ghcr.io/sthalbert/longue-vue-collector',
+          origin_status: 'resolved',
+        }}
+      />,
+    );
+    expect(
+      screen.getByText('ghcr.io/sthalbert/longue-vue-collector:0.26'),
+    ).toBeInTheDocument();
+  });
+
+  it('renders muted "origin: unknown" with reason on hover when unresolved', () => {
+    render(
+      <OriginLine
+        image="local.example.com/x/y:1.0.0"
+        info={{
+          origin_status: 'unresolved',
+          origin_error: 'missing_annotation',
+        }}
+      />,
+    );
+    const unknown = screen.getByText(/origin: unknown/i);
+    expect(unknown).toBeInTheDocument();
+    // The title attribute is set on the muted container — find it via the
+    // closest element with a title attribute.
+    expect(unknown.closest('[title]')).toHaveAttribute('title', 'missing_annotation');
+  });
+
+  it('renders nothing when origin fields absent (passthrough)', () => {
+    const { container } = render(
+      <OriginLine
+        image="nginx:1.25.3"
+        info={{ latest_tag: '1.27.4', is_behind: true, last_checked_at: '2026-05-23T10:00:00Z' }}
+      />,
+    );
+    expect(container.textContent).not.toMatch(/origin:/i);
   });
 });

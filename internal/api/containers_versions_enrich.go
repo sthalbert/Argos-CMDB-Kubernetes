@@ -164,10 +164,16 @@ func EnrichContainersVersions(ctx context.Context, s Store, containers []map[str
 	return out
 }
 
-// lookupContainerVersion parses one image string and looks up the matching
-// (image_repo, variant) row in image_versions. Returns the populated
-// ContainerVersionInfo on hit, or (zero, false) when the image cannot be
-// enriched (non-parseable, store error, no matching variant, or no LatestTag).
+// lookupContainerVersion looks up a container image's version info using
+// the three-branch logic:
+//
+//  1. The image is known to be a mirror with a successful resolution →
+//     return version info computed against the resolved origin row,
+//     plus origin_image_repo and origin_status="resolved".
+//  2. The image is known to be a mirror with a failed resolution →
+//     return origin_status="unresolved" with origin_error set, no badge.
+//  3. The image isn't in the resolutions table → fall through to direct
+//     lookup against image_versions (today's passthrough behavior).
 func lookupContainerVersion(ctx context.Context, s Store, img string) (ContainerVersionInfo, bool) {
 	ref, err := parseContainerRef(img)
 	if err != nil {
@@ -177,7 +183,47 @@ func lookupContainerVersion(ctx context.Context, s Store, img string) (Container
 	if err != nil {
 		return ContainerVersionInfo{}, false
 	}
-	rows, err := s.GetImageVersionsByRepo(ctx, ref.imageRepo)
+
+	resolution, err := s.GetImageOriginResolution(ctx, ref.imageRepo, cur.variant)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		// Passthrough — fall through to direct image_versions lookup.
+	case err != nil:
+		return ContainerVersionInfo{}, false
+	case resolution.OriginImageRepo == nil:
+		// Failure row — surface the unresolved branch.
+		unresolved := Unresolved
+		errMsg := ""
+		if resolution.LastError != nil {
+			errMsg = *resolution.LastError
+		}
+		return ContainerVersionInfo{
+			OriginStatus: &unresolved,
+			OriginError:  &errMsg,
+		}, true
+	default:
+		// Resolved — look up the origin row in image_versions.
+		info, ok := lookupVersionRow(ctx, s, *resolution.OriginImageRepo, cur)
+		resolved := Resolved
+		info.OriginStatus = &resolved
+		info.OriginImageRepo = resolution.OriginImageRepo
+		// ok==false here means we have a successful resolution but no
+		// origin row yet (next enricher tick will fill it). Surface the
+		// origin info anyway so the UI can show it, just without a badge.
+		_ = ok
+		return info, true
+	}
+
+	// Passthrough lookup.
+	return lookupVersionRow(ctx, s, ref.imageRepo, cur)
+}
+
+// lookupVersionRow finds the matching variant row in image_versions and
+// returns a populated ContainerVersionInfo (without origin fields).
+// Returns (zero, false) when no row matches or the row has no usable
+// latest_tag.
+func lookupVersionRow(ctx context.Context, s Store, imageRepo string, cur containerParsedTag) (ContainerVersionInfo, bool) {
+	rows, err := s.GetImageVersionsByRepo(ctx, imageRepo)
 	if err != nil {
 		return ContainerVersionInfo{}, false
 	}
@@ -190,10 +236,11 @@ func lookupContainerVersion(ctx context.Context, s Store, img string) (Container
 		if err != nil {
 			continue
 		}
+		isBehind := latest.version.gt(cur.version)
 		return ContainerVersionInfo{
-			LatestTag:     *row.LatestTag,
-			IsBehind:      latest.version.gt(cur.version),
-			LastCheckedAt: row.LastCheckedAt,
+			LatestTag:     row.LatestTag,
+			IsBehind:      &isBehind,
+			LastCheckedAt: &row.LastCheckedAt,
 		}, true
 	}
 	return ContainerVersionInfo{}, false

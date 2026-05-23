@@ -61,9 +61,10 @@ type memStore struct {
 	authState         memAuthState         // users / sessions / tokens (ADR-0007)
 	pingErr           error
 	createdN          int
-	settings          Settings                      // overridable for handler tests
-	registries        map[[2]string]ImageRegistry   // keyed by [hostname, path_prefix]; image_versions_registries
-	imageVersions     map[[2]string]ImageVersionRow // keyed by [imageRepo, variant]
+	settings          Settings                            // overridable for handler tests
+	registries        map[[2]string]ImageRegistry         // keyed by [hostname, path_prefix]; image_versions_registries
+	imageVersions     map[[2]string]ImageVersionRow       // keyed by [imageRepo, variant]
+	originResolutions map[[2]string]ImageOriginResolution // keyed by [mirrorImageRepo, variant]; image_origin_resolutions
 }
 
 func newMemStore() *memStore {
@@ -89,6 +90,7 @@ func newMemStore() *memStore {
 		authState:         newMemAuthState(),
 		registries:        make(map[[2]string]ImageRegistry),
 		imageVersions:     make(map[[2]string]ImageVersionRow),
+		originResolutions: make(map[[2]string]ImageOriginResolution),
 	}
 }
 
@@ -2003,6 +2005,47 @@ func (m *memStore) DeletePersistentVolumeClaimsNotIn(_ context.Context, namespac
 		delete(m.pvcsByID, id)
 		delete(m.pvcsByNatKey, pvcNatKey(pvc.NamespaceId, pvc.Name))
 		deleted++
+	}
+	return deleted, nil
+}
+
+//nolint:gocritic // in matches the api.Store interface signature
+func (m *memStore) UpsertImageOriginResolution(_ context.Context, in ImageOriginResolutionUpsert) (ImageOriginResolution, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	row := ImageOriginResolution(in)
+	m.originResolutions[[2]string{in.MirrorImageRepo, in.Variant}] = row
+	return row, nil
+}
+
+func (m *memStore) GetImageOriginResolution(_ context.Context, mirrorImageRepo, variant string) (ImageOriginResolution, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.originResolutions[[2]string{mirrorImageRepo, variant}]
+	if !ok {
+		return ImageOriginResolution{}, ErrNotFound
+	}
+	return r, nil
+}
+
+func (m *memStore) DeleteImageOriginResolutionsNotIn(_ context.Context, keep [][2]string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(keep) == 0 {
+		n := int64(len(m.originResolutions))
+		m.originResolutions = map[[2]string]ImageOriginResolution{}
+		return n, nil
+	}
+	keepSet := make(map[[2]string]struct{}, len(keep))
+	for _, k := range keep {
+		keepSet[k] = struct{}{}
+	}
+	var deleted int64
+	for k := range m.originResolutions {
+		if _, ok := keepSet[k]; !ok {
+			delete(m.originResolutions, k)
+			deleted++
+		}
 	}
 	return deleted, nil
 }

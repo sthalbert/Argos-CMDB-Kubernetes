@@ -37,10 +37,10 @@ func TestEnrichContainersVersions(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'web' to be enriched, got map: %v", out)
 	}
-	if v.LatestTag != "1.27.4" {
-		t.Errorf("web.LatestTag: want 1.27.4, got %q", v.LatestTag)
+	if v.LatestTag == nil || *v.LatestTag != "1.27.4" {
+		t.Errorf("web.LatestTag: want 1.27.4, got %v", v.LatestTag)
 	}
-	if !v.IsBehind {
+	if v.IsBehind == nil || !*v.IsBehind {
 		t.Errorf("web.IsBehind: want true (1.25.3 < 1.27.4)")
 	}
 
@@ -82,7 +82,7 @@ func TestEnrichContainersVersions_NotBehind(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'web' to be enriched")
 	}
-	if v.IsBehind {
+	if v.IsBehind == nil || *v.IsBehind {
 		t.Errorf("web.IsBehind: want false (1.25.3 == 1.25.3)")
 	}
 }
@@ -122,8 +122,8 @@ func TestEnrichContainersVersions_Variant(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'alpine' container to be enriched")
 	}
-	if v.LatestTag != "1.27.4-alpine" {
-		t.Errorf("alpine.LatestTag: want 1.27.4-alpine, got %q", v.LatestTag)
+	if v.LatestTag == nil || *v.LatestTag != "1.27.4-alpine" {
+		t.Errorf("alpine.LatestTag: want 1.27.4-alpine, got %v", v.LatestTag)
 	}
 }
 
@@ -150,5 +150,95 @@ func TestEnrichContainersVersions_MissingNameOrImage(t *testing.T) {
 	})
 	if out != nil {
 		t.Errorf("containers with missing name/image should return nil, got %v", out)
+	}
+}
+
+//nolint:gocyclo // straight-line seed-then-assert flow; flat structure is clearer than factored helpers
+func TestEnrichContainersVersions_ResolvedOrigin(t *testing.T) {
+	t.Parallel()
+	s := newMemStore()
+	ctx := context.Background()
+
+	// Seed the origin row in image_versions.
+	latest := "0.27"
+	if _, err := s.UpsertImageVersion(ctx, ImageVersionUpsert{
+		ImageRepo:     "ghcr.io/sthalbert/longue-vue-collector",
+		Variant:       "",
+		Registry:      "ghcr.io",
+		LatestTag:     &latest,
+		Annotation:    json.RawMessage(`{}`),
+		Source:        "registry",
+		LastCheckedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed image_versions: %v", err)
+	}
+
+	// Seed the resolution row keyed on the pod-ref's image_repo.
+	origin := "ghcr.io/sthalbert/longue-vue-collector"
+	via := testMirrorHostname
+	if _, err := s.UpsertImageOriginResolution(ctx, ImageOriginResolutionUpsert{
+		MirrorImageRepo: "local.example.com/containers/sthalbert/longue-vue-collector",
+		Variant:         "",
+		OriginImageRepo: &origin,
+		ViaHostname:     &via,
+		ResolvedAt:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed origin_resolutions: %v", err)
+	}
+
+	out := EnrichContainersVersions(ctx, s, []map[string]any{
+		{"name": "lv", "image": "local.example.com/containers/sthalbert/longue-vue-collector:0.26"},
+	})
+
+	v, ok := out["lv"]
+	if !ok {
+		t.Fatalf("want enriched 'lv', got %v", out)
+	}
+	if v.OriginStatus == nil || *v.OriginStatus != Resolved {
+		t.Errorf("origin_status: want resolved, got %v", v.OriginStatus)
+	}
+	if v.OriginImageRepo == nil || *v.OriginImageRepo != origin {
+		t.Errorf("origin_image_repo: want %q, got %v", origin, v.OriginImageRepo)
+	}
+	if v.LatestTag == nil || *v.LatestTag != "0.27" {
+		t.Errorf("latest_tag: want 0.27, got %v", v.LatestTag)
+	}
+	if v.IsBehind == nil || !*v.IsBehind {
+		t.Errorf("is_behind: want true (0.26 < 0.27), got %v", v.IsBehind)
+	}
+}
+
+func TestEnrichContainersVersions_UnresolvedOrigin(t *testing.T) {
+	t.Parallel()
+	s := newMemStore()
+	ctx := context.Background()
+
+	errMsg := "missing_annotation"
+	now := time.Now().UTC()
+	if _, err := s.UpsertImageOriginResolution(ctx, ImageOriginResolutionUpsert{
+		MirrorImageRepo: "local.example.com/x/y",
+		Variant:         "",
+		ResolvedAt:      now,
+		LastError:       &errMsg,
+		LastErrorAt:     &now,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	out := EnrichContainersVersions(ctx, s, []map[string]any{
+		{"name": "lv", "image": "local.example.com/x/y:1.0.0"},
+	})
+	v, ok := out["lv"]
+	if !ok {
+		t.Fatalf("want unresolved entry for 'lv', got %v", out)
+	}
+	if v.OriginStatus == nil || *v.OriginStatus != Unresolved {
+		t.Errorf("origin_status: want unresolved, got %v", v.OriginStatus)
+	}
+	if v.OriginError == nil || *v.OriginError != errMsg {
+		t.Errorf("origin_error: want %q, got %v", errMsg, v.OriginError)
+	}
+	if v.LatestTag != nil {
+		t.Errorf("latest_tag should be nil on unresolved, got %v", v.LatestTag)
 	}
 }

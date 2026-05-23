@@ -15,13 +15,15 @@ import (
 func mirrorresolveErrNoOriginAnnotation() error { return mirrorresolve.ErrNoOriginAnnotation }
 
 type fakeStore struct {
-	mu         sync.Mutex
-	settings   api.Settings
-	registries []api.ImageRegistry
-	refs       []string
-	upserted   []api.ImageVersionUpsert
-	reaped     [][][2]string
-	upsertErr  error
+	mu            sync.Mutex
+	settings      api.Settings
+	registries    []api.ImageRegistry
+	refs          []string
+	upserted      []api.ImageVersionUpsert
+	reaped        [][][2]string
+	upsertErr     error
+	originUpserts []api.ImageOriginResolutionUpsert
+	originReaped  [][2]string
 }
 
 func (s *fakeStore) GetSettings(_ context.Context) (api.Settings, error) {
@@ -64,6 +66,21 @@ func (s *fakeStore) FindMirrorForRef(_ context.Context, _, _ string) (api.ImageR
 
 func (s *fakeStore) GetMirrorAuthToken(_ context.Context, _, _ string) (string, error) {
 	return "", nil
+}
+
+//nolint:gocritic // in matches the api.Store interface signature
+func (s *fakeStore) UpsertImageOriginResolution(_ context.Context, in api.ImageOriginResolutionUpsert) (api.ImageOriginResolution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.originUpserts = append(s.originUpserts, in)
+	return api.ImageOriginResolution(in), nil
+}
+
+func (s *fakeStore) DeleteImageOriginResolutionsNotIn(_ context.Context, keep [][2]string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.originReaped = keep
+	return 0, nil
 }
 
 type fakeLister struct {
@@ -255,5 +272,69 @@ func TestEnricher_MirrorResolver_SkipsUnresolved(t *testing.T) {
 
 	if len(s.upserted) != 0 {
 		t.Fatalf("expected zero upserts when resolver skips, got %d", len(s.upserted))
+	}
+	if len(s.originUpserts) != 1 {
+		t.Fatalf("expected 1 origin failure-row upsert, got %d", len(s.originUpserts))
+	}
+	if s.originUpserts[0].LastError == nil {
+		t.Fatalf("origin upsert should have LastError set")
+	}
+}
+
+func TestEnricher_MirrorResolver_PersistsSuccess(t *testing.T) {
+	s := &fakeStore{
+		settings: api.Settings{ImageVersionsEnabled: true},
+		registries: []api.ImageRegistry{
+			{Hostname: "docker.io", Enabled: true, RateLimitPerSec: 5},
+		},
+		refs: []string{"ma-registry.io/container/library/nginx:1.25"},
+	}
+	lister := &fakeLister{byRepo: map[string][]string{
+		"library/nginx": {"1.25", "1.26"},
+	}}
+	resolver := fakeResolver{rewrite: map[string]string{
+		"ma-registry.io/container/library/nginx:1.25": "docker.io/library/nginx:1.25",
+	}}
+	e := NewEnricherWithResolver(s, lister, resolver, time.Hour, nil)
+	e.RunTick(context.Background())
+
+	if len(s.originUpserts) != 1 {
+		t.Fatalf("expected 1 origin upsert, got %d", len(s.originUpserts))
+	}
+	up := s.originUpserts[0]
+	if up.MirrorImageRepo != "ma-registry.io/container/library/nginx" {
+		t.Errorf("mirror_image_repo: %q", up.MirrorImageRepo)
+	}
+	if up.OriginImageRepo == nil || *up.OriginImageRepo != "docker.io/library/nginx" {
+		t.Errorf("origin_image_repo: %v", up.OriginImageRepo)
+	}
+	if up.LastError != nil {
+		t.Errorf("last_error should be nil on success row, got %v", up.LastError)
+	}
+}
+
+func TestEnricher_MirrorResolver_PersistsFailure(t *testing.T) {
+	s := &fakeStore{
+		settings: api.Settings{ImageVersionsEnabled: true},
+		registries: []api.ImageRegistry{
+			{Hostname: "docker.io", Enabled: true, RateLimitPerSec: 5},
+		},
+		refs: []string{"ma-registry.io/container/library/nginx:1.25"},
+	}
+	resolver := fakeResolver{skip: map[string]error{
+		"ma-registry.io/container/library/nginx:1.25": mirrorresolve.ErrNoOriginAnnotation,
+	}}
+	e := NewEnricherWithResolver(s, &fakeLister{}, resolver, time.Hour, nil)
+	e.RunTick(context.Background())
+
+	if len(s.originUpserts) != 1 {
+		t.Fatalf("expected 1 failure-row upsert, got %d", len(s.originUpserts))
+	}
+	up := s.originUpserts[0]
+	if up.OriginImageRepo != nil {
+		t.Errorf("failure row must have nil origin_image_repo, got %v", up.OriginImageRepo)
+	}
+	if up.LastError == nil || *up.LastError == "" {
+		t.Errorf("failure row must have last_error set, got %v", up.LastError)
 	}
 }

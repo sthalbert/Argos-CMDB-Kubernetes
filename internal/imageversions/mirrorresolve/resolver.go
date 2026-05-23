@@ -25,6 +25,12 @@ var (
 	ErrFetchManifest = errors.New("mirrorresolve: fetch manifest")
 	// ErrFetchConfig indicates a non-2xx response fetching a config blob.
 	ErrFetchConfig = errors.New("mirrorresolve: fetch config")
+	// ErrChainTooDeep indicates a replica mirror points at another replica.
+	// Only one hop is supported.
+	ErrChainTooDeep = errors.New("mirrorresolve: replica chain too deep")
+	// ErrReplicaTargetMissing indicates a replica's upstream hostname has
+	// no matching mirror row.
+	ErrReplicaTargetMissing = errors.New("mirrorresolve: replica target missing")
 )
 
 const (
@@ -39,9 +45,10 @@ const (
 
 // MirrorRow is the subset of api.ImageRegistry the resolver needs.
 type MirrorRow struct {
-	Hostname     string
-	PathPrefix   string
-	AuthUsername string
+	Hostname               string
+	PathPrefix             string
+	ReplicatesFromHostname string // empty = annotation mirror; non-empty = replica
+	AuthUsername           string
 	// TokenSource returns the plaintext token at call time. May return ""
 	// for anonymous mirrors. Called at most once per Resolve.
 	TokenSource func(ctx context.Context) (string, error)
@@ -126,6 +133,28 @@ func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) 
 	if !ok {
 		h.observe("passthrough", started)
 		return ref, nil
+	}
+
+	// Replica mirror: one-hop hostname rewrite, then re-lookup.
+	// The path is identical on both registries (hostname-swap only); we
+	// only swap the hostname before fetching annotations from the upstream
+	// annotation mirror.
+	if row.ReplicatesFromHostname != "" {
+		hostname = row.ReplicatesFromHostname
+		upstream, upOK, upErr := h.Lookup.FindMirror(ctx, hostname, imagePath)
+		if upErr != nil {
+			h.observe("lookup_error", started)
+			return "", fmt.Errorf("mirror upstream lookup: %w", upErr)
+		}
+		if !upOK {
+			h.observe("replica_target_missing", started)
+			return "", ErrReplicaTargetMissing
+		}
+		if upstream.ReplicatesFromHostname != "" {
+			h.observe("chain_too_deep", started)
+			return "", ErrChainTooDeep
+		}
+		row = upstream
 	}
 
 	origin, result, err := h.resolveFromMirror(ctx, row, imagePath, tag)

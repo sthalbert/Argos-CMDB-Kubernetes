@@ -16,6 +16,8 @@ type Store interface {
 	DeleteImageVersionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
 	FindMirrorForRef(ctx context.Context, hostname, imagePath string) (api.ImageRegistry, error)
 	GetMirrorAuthToken(ctx context.Context, hostname, pathPrefix string) (string, error)
+	UpsertImageOriginResolution(ctx context.Context, in api.ImageOriginResolutionUpsert) (api.ImageOriginResolution, error)
+	DeleteImageOriginResolutionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
 }
 
 // TagsLister abstracts the OCI client for testing.

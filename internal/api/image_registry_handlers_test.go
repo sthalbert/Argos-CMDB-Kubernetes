@@ -9,6 +9,11 @@ import (
 	"testing"
 )
 
+// testMirrorHostname is the placeholder hostname used as a mirror target
+// across image-registry and origin-resolution tests. Extracted to satisfy
+// goconst when reused across files in the api package.
+const testMirrorHostname = "mirror.example.com"
+
 // mustMarshal marshals v as JSON or fails the test. Tests build small,
 // known-safe maps so propagating the error would only ever indicate a test
 // programmer error.
@@ -46,7 +51,7 @@ func TestHandleCreateImageRegistry(t *testing.T) {
 	s := newMemStore()
 	h := HandleCreateImageRegistry(s)
 	body := mustMarshal(t, map[string]any{
-		"hostname":           "mirror.example.com",
+		"hostname":           testMirrorHostname,
 		"rate_limit_per_sec": 2.5,
 	})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/admin/image-versions/registries", bytes.NewReader(body))
@@ -208,6 +213,106 @@ func TestHandleGetImageRegistryCredentials_NotFound(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status: want 404, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateImageRegistry_ReplicaValidationOk(t *testing.T) {
+	t.Parallel()
+	m := newMemStore()
+	// Seed the annotation mirror that the replica will point at.
+	if _, err := m.CreateImageRegistry(context.Background(), ImageRegistryUpsert{
+		Hostname: testMirrorHostname, PathPrefix: "container/",
+		RateLimitPerSec: 5, IsMirror: true,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	target := testMirrorHostname
+	body := mustMarshal(t, ImageRegistryUpsert{
+		Hostname: "local.example.com", PathPrefix: "container/",
+		RateLimitPerSec: 5, IsMirror: true,
+		ReplicatesFromHostname: &target,
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/v1/admin/image-versions/registries", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	HandleCreateImageRegistry(m).ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleCreateImageRegistry_ReplicaTargetMissing(t *testing.T) {
+	t.Parallel()
+	m := newMemStore()
+	target := "nope.example.com"
+	body := mustMarshal(t, ImageRegistryUpsert{
+		Hostname: "local.example.com", PathPrefix: "container/",
+		RateLimitPerSec: 5, IsMirror: true,
+		ReplicatesFromHostname: &target,
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/v1/admin/image-versions/registries", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	HandleCreateImageRegistry(m).ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for missing target, got %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleCreateImageRegistry_ReplicaTargetIsAlsoReplica(t *testing.T) {
+	t.Parallel()
+	m := newMemStore()
+	other := "outer.example.com"
+	// Seed midway as a replica of "outer" so it itself is a replica.
+	if _, err := m.CreateImageRegistry(context.Background(), ImageRegistryUpsert{
+		Hostname: "outer.example.com", PathPrefix: "",
+		RateLimitPerSec: 5, IsMirror: true,
+	}); err != nil {
+		t.Fatalf("seed outer: %v", err)
+	}
+	if _, err := m.CreateImageRegistry(context.Background(), ImageRegistryUpsert{
+		Hostname: "midway.example.com", PathPrefix: "",
+		RateLimitPerSec: 5, IsMirror: true,
+		ReplicatesFromHostname: &other,
+	}); err != nil {
+		t.Fatalf("seed midway: %v", err)
+	}
+	target := "midway.example.com"
+	body := mustMarshal(t, ImageRegistryUpsert{
+		Hostname: "local.example.com", PathPrefix: "",
+		RateLimitPerSec: 5, IsMirror: true,
+		ReplicatesFromHostname: &target,
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/v1/admin/image-versions/registries", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	HandleCreateImageRegistry(m).ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for replica-of-replica, got %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleCreateImageRegistry_ReplicaRequiresMirror(t *testing.T) {
+	t.Parallel()
+	m := newMemStore()
+	if _, err := m.CreateImageRegistry(context.Background(), ImageRegistryUpsert{
+		Hostname: testMirrorHostname, PathPrefix: "",
+		RateLimitPerSec: 5, IsMirror: true,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	target := testMirrorHostname
+	body := mustMarshal(t, ImageRegistryUpsert{
+		Hostname: "public.example.com", PathPrefix: "",
+		RateLimitPerSec: 5, IsMirror: false,
+		ReplicatesFromHostname: &target,
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/v1/admin/image-versions/registries", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	HandleCreateImageRegistry(m).ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 (is_mirror=false), got %d (%s)", w.Code, w.Body.String())
 	}
 }
 
