@@ -4883,7 +4883,9 @@ components:
 
     ContainerVersionInfo:
       type: object
-      required: [latest_tag, is_behind, last_checked_at]
+      # latest_tag/is_behind/last_checked_at become optional because the
+      # unresolved-origin branch has none of them. Passthrough images
+      # (no mirror) still get all three exactly as before.
       properties:
         latest_tag:
           type: string
@@ -4892,6 +4894,16 @@ components:
         last_checked_at:
           type: string
           format: date-time
+        origin_image_repo:
+          type: string
+          description: "Resolved internet origin repo (e.g. ghcr.io/foo/bar) when the image was routed through a mirror."
+        origin_status:
+          type: string
+          enum: [resolved, unresolved]
+          description: "Absent on passthrough images. 'resolved' = origin found. 'unresolved' = mirror lookup failed; see origin_error."
+        origin_error:
+          type: string
+          description: "Classified resolver failure (missing_annotation, ambiguous_annotation, auth_error, fetch_error, chain_too_deep, replica_target_missing)."
 
     ImageRegistry:
       type: object
@@ -4915,6 +4927,10 @@ components:
         is_mirror:
           type: boolean
           description: "True if this row is a Harbor-style mirror needing resolution"
+        replicates_from_hostname:
+          type: string
+          nullable: true
+          description: "When set, this is a replica mirror; the resolver swaps hostname to this value before fetching annotations from the upstream annotation mirror."
         auth_username:
           type: string
           nullable: true
@@ -4946,6 +4962,9 @@ components:
           type: string
         is_mirror:
           type: boolean
+        replicates_from_hostname:
+          type: string
+          description: "Optional. Must reference an existing non-replica mirror row. Requires is_mirror=true."
         auth_username:
           type: string
         auth_token:
@@ -4967,6 +4986,10 @@ components:
           nullable: true
         is_mirror:
           type: boolean
+        replicates_from_hostname:
+          type: string
+          nullable: true
+          description: "Empty string clears the replica pointer; omit to leave unchanged."
         auth_username:
           type: string
           nullable: true

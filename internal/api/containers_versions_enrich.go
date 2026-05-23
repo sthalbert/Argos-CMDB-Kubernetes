@@ -190,10 +190,11 @@ func lookupContainerVersion(ctx context.Context, s Store, img string) (Container
 		if err != nil {
 			continue
 		}
+		isBehind := latest.version.gt(cur.version)
 		return ContainerVersionInfo{
-			LatestTag:     *row.LatestTag,
-			IsBehind:      latest.version.gt(cur.version),
-			LastCheckedAt: row.LastCheckedAt,
+			LatestTag:     row.LatestTag,
+			IsBehind:      &isBehind,
+			LastCheckedAt: &row.LastCheckedAt,
 		}, true
 	}
 	return ContainerVersionInfo{}, false

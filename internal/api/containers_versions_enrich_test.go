@@ -37,10 +37,10 @@ func TestEnrichContainersVersions(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'web' to be enriched, got map: %v", out)
 	}
-	if v.LatestTag != "1.27.4" {
-		t.Errorf("web.LatestTag: want 1.27.4, got %q", v.LatestTag)
+	if v.LatestTag == nil || *v.LatestTag != "1.27.4" {
+		t.Errorf("web.LatestTag: want 1.27.4, got %v", v.LatestTag)
 	}
-	if !v.IsBehind {
+	if v.IsBehind == nil || !*v.IsBehind {
 		t.Errorf("web.IsBehind: want true (1.25.3 < 1.27.4)")
 	}
 
@@ -82,7 +82,7 @@ func TestEnrichContainersVersions_NotBehind(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'web' to be enriched")
 	}
-	if v.IsBehind {
+	if v.IsBehind == nil || *v.IsBehind {
 		t.Errorf("web.IsBehind: want false (1.25.3 == 1.25.3)")
 	}
 }
@@ -122,8 +122,8 @@ func TestEnrichContainersVersions_Variant(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'alpine' container to be enriched")
 	}
-	if v.LatestTag != "1.27.4-alpine" {
-		t.Errorf("alpine.LatestTag: want 1.27.4-alpine, got %q", v.LatestTag)
+	if v.LatestTag == nil || *v.LatestTag != "1.27.4-alpine" {
+		t.Errorf("alpine.LatestTag: want 1.27.4-alpine, got %v", v.LatestTag)
 	}
 }
 
