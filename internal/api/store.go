@@ -668,6 +668,11 @@ type Store interface {
 	ListImageVersionsByRepo(ctx context.Context, p ImageVersionListParams) (items []ImageVersionRepoView, nextCursor string, err error)
 	DeleteImageVersionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
 	DistinctImageRefs(ctx context.Context) ([]string, error)
+
+	// Image origin resolutions (ADR-0026 extension)
+	UpsertImageOriginResolution(ctx context.Context, in ImageOriginResolutionUpsert) (ImageOriginResolution, error)
+	GetImageOriginResolution(ctx context.Context, mirrorImageRepo, variant string) (ImageOriginResolution, error)
+	DeleteImageOriginResolutionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by
@@ -868,6 +873,33 @@ type ImageVersionRepoView struct {
 	ImageRepo string            `json:"image_repo"`
 	Registry  string            `json:"registry"`
 	Variants  []ImageVersionRow `json:"variants"`
+}
+
+// ImageOriginResolution is the persisted outcome of one mirror-origin
+// resolution attempt, keyed by the pod-ref's (image_repo, variant) — NOT
+// the resolved origin repo. Success rows have origin_image_repo and
+// via_hostname populated; failure rows have last_error populated and
+// origin_image_repo NULL.
+type ImageOriginResolution struct {
+	MirrorImageRepo string     `json:"mirror_image_repo"`
+	Variant         string     `json:"variant"`
+	OriginImageRepo *string    `json:"origin_image_repo,omitempty"`
+	ViaHostname     *string    `json:"via_hostname,omitempty"`
+	ResolvedAt      time.Time  `json:"resolved_at"`
+	LastError       *string    `json:"last_error,omitempty"`
+	LastErrorAt     *time.Time `json:"last_error_at,omitempty"`
+}
+
+// ImageOriginResolutionUpsert is the input shape for
+// UpsertImageOriginResolution.
+type ImageOriginResolutionUpsert struct {
+	MirrorImageRepo string
+	Variant         string
+	OriginImageRepo *string
+	ViaHostname     *string
+	ResolvedAt      time.Time
+	LastError       *string
+	LastErrorAt     *time.Time
 }
 
 // ContainersVersions maps container.name -> ContainerVersionInfo. Keys are
