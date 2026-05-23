@@ -191,3 +191,94 @@ func TestHTTPResolver_DefaultTag(t *testing.T) {
 		t.Fatalf("got=%q", got)
 	}
 }
+
+// stubLookup returns different rows per hostname so we can simulate
+// the local-registry → global-mirror rewrite hop.
+type stubLookup struct {
+	rows map[string]MirrorRow
+}
+
+func (s stubLookup) FindMirror(_ context.Context, hostname, _ string) (MirrorRow, bool, error) {
+	r, ok := s.rows[hostname]
+	return r, ok, nil
+}
+
+func TestHTTPResolver_ReplicaChain_HappyPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Annotation mirror serves the manifest with base.name pointing at ghcr.io.
+		if !strings.HasPrefix(r.URL.Path, "/v2/containers/sthalbert/longue-vue-collector/manifests/") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+		_ = json.NewEncoder(w).Encode(manifestFixture{
+			SchemaVersion: 2,
+			MediaType:     "application/vnd.oci.image.manifest.v1+json",
+			Annotations: map[string]string{
+				annBaseName: "ghcr.io/sthalbert/longue-vue-collector:0.26",
+			},
+		})
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+
+	res := &HTTPResolver{
+		Lookup: stubLookup{rows: map[string]MirrorRow{
+			"local.example.com": {
+				Hostname: "local.example.com", PathPrefix: "containers/",
+				ReplicatesFromHostname: u.Host,
+			},
+			u.Host: {Hostname: u.Host, PathPrefix: "containers/"},
+		}},
+		Scheme: "http",
+	}
+
+	got, err := res.Resolve(context.Background(),
+		"local.example.com/containers/sthalbert/longue-vue-collector:0.26")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	want := "ghcr.io/sthalbert/longue-vue-collector:0.26"
+	if got != want {
+		t.Errorf("origin: want %q, got %q", want, got)
+	}
+}
+
+func TestHTTPResolver_ReplicaChain_TargetMissing(t *testing.T) {
+	res := &HTTPResolver{
+		Lookup: stubLookup{rows: map[string]MirrorRow{
+			"local.example.com": {
+				Hostname: "local.example.com", PathPrefix: "containers/",
+				ReplicatesFromHostname: "mirror.example.com",
+			},
+			// note: mirror.example.com NOT in the lookup
+		}},
+		Scheme: "http",
+	}
+	_, err := res.Resolve(context.Background(),
+		"local.example.com/containers/sthalbert/x:1.0")
+	if !errors.Is(err, ErrReplicaTargetMissing) {
+		t.Fatalf("want ErrReplicaTargetMissing, got %v", err)
+	}
+}
+
+func TestHTTPResolver_ReplicaChain_TooDeep(t *testing.T) {
+	res := &HTTPResolver{
+		Lookup: stubLookup{rows: map[string]MirrorRow{
+			"local.example.com": {
+				Hostname: "local.example.com", PathPrefix: "containers/",
+				ReplicatesFromHostname: "midway.example.com",
+			},
+			"midway.example.com": {
+				Hostname: "midway.example.com", PathPrefix: "containers/",
+				ReplicatesFromHostname: "mirror.example.com",
+			},
+			"mirror.example.com": {Hostname: "mirror.example.com", PathPrefix: "containers/"},
+		}},
+		Scheme: "http",
+	}
+	_, err := res.Resolve(context.Background(),
+		"local.example.com/containers/sthalbert/x:1.0")
+	if !errors.Is(err, ErrChainTooDeep) {
+		t.Fatalf("want ErrChainTooDeep, got %v", err)
+	}
+}
