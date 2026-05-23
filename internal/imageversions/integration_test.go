@@ -24,8 +24,11 @@ type mirrorIntegrationStore struct {
 	settings api.Settings
 	regs     []api.ImageRegistry
 	refs     []string
-	mirror   api.ImageRegistry
+	mirrors  map[string]api.ImageRegistry
 	upserted []api.ImageVersionUpsert
+
+	originUpserts []api.ImageOriginResolutionUpsert
+	originReaped  [][2]string
 }
 
 func (s *mirrorIntegrationStore) GetSettings(_ context.Context) (api.Settings, error) {
@@ -53,14 +56,37 @@ func (s *mirrorIntegrationStore) DeleteImageVersionsNotIn(_ context.Context, _ [
 }
 
 func (s *mirrorIntegrationStore) FindMirrorForRef(_ context.Context, hostname, _ string) (api.ImageRegistry, error) {
-	if hostname == s.mirror.Hostname {
-		return s.mirror, nil
+	if m, ok := s.mirrors[hostname]; ok {
+		return m, nil
 	}
 	return api.ImageRegistry{}, api.ErrNotFound
 }
 
 func (s *mirrorIntegrationStore) GetMirrorAuthToken(_ context.Context, _, _ string) (string, error) {
 	return "", nil
+}
+
+//nolint:gocritic // in matches the Store interface signature
+func (s *mirrorIntegrationStore) UpsertImageOriginResolution(_ context.Context, in api.ImageOriginResolutionUpsert) (api.ImageOriginResolution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.originUpserts = append(s.originUpserts, in)
+	return api.ImageOriginResolution{
+		MirrorImageRepo: in.MirrorImageRepo,
+		Variant:         in.Variant,
+		OriginImageRepo: in.OriginImageRepo,
+		ViaHostname:     in.ViaHostname,
+		ResolvedAt:      in.ResolvedAt,
+		LastError:       in.LastError,
+		LastErrorAt:     in.LastErrorAt,
+	}, nil
+}
+
+func (s *mirrorIntegrationStore) DeleteImageOriginResolutionsNotIn(_ context.Context, keep [][2]string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.originReaped = keep
+	return 0, nil
 }
 
 // stubLister satisfies imageversions.TagsLister.
@@ -95,11 +121,13 @@ func TestImageVersions_Integration(t *testing.T) {
 			{Hostname: "docker.io", Enabled: true, RateLimitPerSec: 5},
 		},
 		refs: []string{u.Host + "/container/library/nginx:1.25"},
-		mirror: api.ImageRegistry{
-			Hostname:   u.Host,
-			PathPrefix: "container/",
-			IsMirror:   true,
-			Enabled:    true,
+		mirrors: map[string]api.ImageRegistry{
+			u.Host: {
+				Hostname:   u.Host,
+				PathPrefix: "container/",
+				IsMirror:   true,
+				Enabled:    true,
+			},
 		},
 	}
 
@@ -124,5 +152,88 @@ func TestImageVersions_Integration(t *testing.T) {
 	}
 	if got.LatestTag == nil || *got.LatestTag != "1.26" {
 		t.Fatalf("latest_tag=%v want 1.26", got.LatestTag)
+	}
+}
+
+// TestImageVersions_Integration_ReplicaChain verifies the three-rung chain:
+// a replica-mirror pod ref -> annotation-mirror manifest fetch -> public
+// registry tags lookup. Confirms both image_versions and
+// image_origin_resolutions rows are written.
+func TestImageVersions_Integration_ReplicaChain(t *testing.T) {
+	// Annotation mirror: serves manifest with base.name -> ghcr.io/...
+	annoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"schemaVersion": 2,
+			"mediaType":     "application/vnd.oci.image.manifest.v1+json",
+			"annotations": map[string]string{
+				"org.opencontainers.image.base.name": "ghcr.io/sthalbert/longue-vue-collector:0.26",
+			},
+		})
+	}))
+	defer annoSrv.Close()
+	annoURL, _ := url.Parse(annoSrv.URL)
+
+	annoHost := annoURL.Host
+	store := &mirrorIntegrationStore{
+		settings: api.Settings{ImageVersionsEnabled: true},
+		regs: []api.ImageRegistry{
+			{Hostname: "ghcr.io", Enabled: true, RateLimitPerSec: 5},
+		},
+		refs: []string{"localreg.example.com/containers/sthalbert/longue-vue-collector:0.26"},
+		mirrors: map[string]api.ImageRegistry{
+			"localreg.example.com": {
+				Hostname:               "localreg.example.com",
+				PathPrefix:             "containers/",
+				IsMirror:               true,
+				Enabled:                true,
+				ReplicatesFromHostname: &annoHost,
+			},
+			annoHost: {
+				Hostname:   annoHost,
+				PathPrefix: "containers/",
+				IsMirror:   true,
+				Enabled:    true,
+			},
+		},
+	}
+
+	lister := &stubLister{tags: map[string][]string{
+		"sthalbert/longue-vue-collector": {"0.25", "0.26", "0.27"},
+	}}
+
+	resolver := &mirrorresolve.HTTPResolver{
+		Lookup: imageversions.NewStoreMirrorLookup(store),
+		Client: annoSrv.Client(),
+		Scheme: "http",
+	}
+	enricher := imageversions.NewEnricherWithResolver(store, lister, resolver, time.Hour, nil)
+	enricher.RunTick(context.Background())
+
+	// Assert image_versions row at the resolved origin.
+	if len(store.upserted) != 1 {
+		t.Fatalf("expected 1 image_versions upsert, got %d", len(store.upserted))
+	}
+	iv := store.upserted[0]
+	if iv.ImageRepo != "ghcr.io/sthalbert/longue-vue-collector" {
+		t.Errorf("image_repo: want ghcr.io/sthalbert/longue-vue-collector, got %q", iv.ImageRepo)
+	}
+	if iv.LatestTag == nil || *iv.LatestTag != "0.27" {
+		t.Errorf("latest_tag: want 0.27, got %v", iv.LatestTag)
+	}
+
+	// Assert image_origin_resolutions row keyed on the replica-side repo.
+	if len(store.originUpserts) != 1 {
+		t.Fatalf("expected 1 origin resolution, got %d", len(store.originUpserts))
+	}
+	or := store.originUpserts[0]
+	if or.MirrorImageRepo != "localreg.example.com/containers/sthalbert/longue-vue-collector" {
+		t.Errorf("mirror_image_repo: %q", or.MirrorImageRepo)
+	}
+	if or.OriginImageRepo == nil || *or.OriginImageRepo != "ghcr.io/sthalbert/longue-vue-collector" {
+		t.Errorf("origin_image_repo: want ghcr.io/sthalbert/longue-vue-collector, got %v", or.OriginImageRepo)
+	}
+	if or.LastError != nil {
+		t.Errorf("last_error should be nil on success, got %v", or.LastError)
 	}
 }
