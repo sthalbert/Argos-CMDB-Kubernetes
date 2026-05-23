@@ -1,7 +1,3 @@
-<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
-
----
-
 ---
 title: "ADR-0018: Helm chart per deployable binary"
 status: "Accepted"
@@ -17,6 +13,10 @@ superseded_by: ""
 ## Status
 
 Proposed | **Accepted** | Rejected | Superseded | Deprecated
+
+- **Date:** 2026-04-29
+- **Supersedes:** none
+- **Superseded by:** none
 
 ## Context
 

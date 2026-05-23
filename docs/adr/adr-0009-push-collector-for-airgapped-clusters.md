@@ -1,7 +1,3 @@
-<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
-
----
-
 ---
 title: "ADR-0009: Push-based collector for air-gapped clusters"
 status: "Accepted"
@@ -17,6 +13,10 @@ superseded_by: ""
 ## Status
 
 Proposed | **Accepted** | Rejected | Superseded | Deprecated
+
+- **Date:** 2026-04-21
+- **Supersedes:** none
+- **Superseded by:** none
 
 ## Context
 

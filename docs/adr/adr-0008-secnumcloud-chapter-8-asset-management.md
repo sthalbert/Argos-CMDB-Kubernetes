@@ -1,7 +1,3 @@
-<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
-
----
-
 ---
 title: "ADR-0008: Asset-management data model for SecNumCloud v3.2 chapter 8"
 status: "Accepted"
@@ -16,7 +12,11 @@ superseded_by: ""
 
 ## Status
 
-**Accepted**
+Proposed | **Accepted** | Rejected | Superseded | Deprecated
+
+- **Date:** 2026-04-20
+- **Supersedes:** none
+- **Superseded by:** none
 
 ## Context
 

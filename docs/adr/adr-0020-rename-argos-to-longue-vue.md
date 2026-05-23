@@ -1,7 +1,3 @@
-<div align="center"><img src="../logo.svg" alt="longue-vue" height="38" /></div>
-
----
-
 ---
 title: "ADR-0020: Rename product Argos to longue-vue"
 status: "Accepted"
@@ -12,7 +8,7 @@ supersedes: ""
 superseded_by: ""
 ---
 
-# ADR-0020 — Rename product "Argos" to "longue-vue"
+# ADR-0020: Rename product "Argos" to "longue-vue"
 
 ## Status
 
