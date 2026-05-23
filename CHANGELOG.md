@@ -6,6 +6,24 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.27.0](https://github.com/sthalbert/Longue-Vue/compare/v0.26.0...v0.27.0) (2026-05-23)
+
+
+### Features
+
+* **api,store,ui:** replica-mirror chain + persisted origin resolutions (ADR-0028) ([6d2abd5](https://github.com/sthalbert/Longue-Vue/commit/6d2abd57586c027668d8706e05ecc81d8c4ec972))
+* **api:** add origin fields to ContainerVersionInfo + replicates_from_hostname to ImageRegistry ([ca3dfdf](https://github.com/sthalbert/Longue-Vue/commit/ca3dfdf9182ea049e50fd2e3b4e1e547835efb71))
+* **api:** join image_origin_resolutions in containers_versions response ([d2b50f5](https://github.com/sthalbert/Longue-Vue/commit/d2b50f501627d797dbcdca728946cd12fb477bff))
+* **api:** validate replicates_from_hostname on image-registry CRUD ([1599964](https://github.com/sthalbert/Longue-Vue/commit/15999649778d229f4e56f70f1976332b85637e39))
+* **imageversions:** one-hop replica→annotation rewrite in mirror resolver ([40caccb](https://github.com/sthalbert/Longue-Vue/commit/40caccbd9b1231505c70173fa3f0c05c38a55863))
+* **imageversions:** persist resolution outcomes + reap stale rows per tick ([6a67e98](https://github.com/sthalbert/Longue-Vue/commit/6a67e981f53ae73f124b227668089a09457bc808))
+* **migrations:** add replica mirror column + image_origin_resolutions table ([8f1f10f](https://github.com/sthalbert/Longue-Vue/commit/8f1f10f29779470e912e4ecd841a4b9b88b21b94))
+* **store:** persist mirror→origin resolutions in image_origin_resolutions ([d536003](https://github.com/sthalbert/Longue-Vue/commit/d53600349a99ce9355c9cb57e989487626f5d100))
+* **store:** support replicates_from_hostname on image_versions_registries ([eccccae](https://github.com/sthalbert/Longue-Vue/commit/eccccae8d909e61053bc0f664ece988cce8dcf0c))
+* **ui:** admin form for replicates_from_hostname on image registries ([8ff01cc](https://github.com/sthalbert/Longue-Vue/commit/8ff01ccf123825f7da15debcfbd5f56abdf3e611))
+* **ui:** extend ContainerVersionInfo and ImageRegistry with origin fields ([42942e4](https://github.com/sthalbert/Longue-Vue/commit/42942e4259f71592067d524260fb69e28b3857b3))
+* **ui:** show resolved origin and unresolved hint on pod/workload detail ([7742a12](https://github.com/sthalbert/Longue-Vue/commit/7742a12ee286ba6b425e1c4dd0e0e518fcaf934e))
+
 ## [0.26.0](https://github.com/sthalbert/Longue-Vue/compare/v0.25.0...v0.26.0) (2026-05-22)
 
 
