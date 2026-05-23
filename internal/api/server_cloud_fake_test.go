@@ -6,6 +6,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"sync"
@@ -678,6 +679,15 @@ func (m *memStore) GetMirrorAuthToken(_ context.Context, hostname, pathPrefix st
 func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert) (ImageRegistry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Mimic the schema CHECK constraints from migration 00044.
+	if in.ReplicatesFromHostname != nil && *in.ReplicatesFromHostname != "" {
+		if !in.IsMirror {
+			return ImageRegistry{}, errors.New("memstore: replicates_from_hostname requires is_mirror=true")
+		}
+		if *in.ReplicatesFromHostname == in.Hostname {
+			return ImageRegistry{}, errors.New("memstore: replicates_from_hostname cannot equal hostname")
+		}
+	}
 	key := [2]string{in.Hostname, in.PathPrefix}
 	if _, exists := m.registries[key]; exists {
 		return ImageRegistry{}, ErrConflict
@@ -688,16 +698,17 @@ func (m *memStore) CreateImageRegistry(_ context.Context, in ImageRegistryUpsert
 	}
 	now := time.Now().UTC()
 	r := ImageRegistry{
-		Hostname:        in.Hostname,
-		PathPrefix:      in.PathPrefix,
-		RateLimitPerSec: in.RateLimitPerSec,
-		Enabled:         enabled,
-		Notes:           in.Notes,
-		IsMirror:        in.IsMirror,
-		AuthUsername:    in.AuthUsername,
-		AuthConfigured:  in.AuthToken != nil && *in.AuthToken != "",
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		Hostname:               in.Hostname,
+		PathPrefix:             in.PathPrefix,
+		RateLimitPerSec:        in.RateLimitPerSec,
+		Enabled:                enabled,
+		Notes:                  in.Notes,
+		IsMirror:               in.IsMirror,
+		ReplicatesFromHostname: in.ReplicatesFromHostname,
+		AuthUsername:           in.AuthUsername,
+		AuthConfigured:         in.AuthToken != nil && *in.AuthToken != "",
+		CreatedAt:              now,
+		UpdatedAt:              now,
 	}
 	m.registries[key] = r
 	return r, nil
@@ -722,6 +733,15 @@ func (m *memStore) UpdateImageRegistry(_ context.Context, hostname, pathPrefix s
 	}
 	if p.IsMirror != nil {
 		r.IsMirror = *p.IsMirror
+	}
+	if p.ReplicatesFromHostname != nil {
+		if *p.ReplicatesFromHostname == "" {
+			r.ReplicatesFromHostname = nil
+		} else {
+			// Clone to avoid sharing the patch's pointer.
+			target := *p.ReplicatesFromHostname
+			r.ReplicatesFromHostname = &target
+		}
 	}
 	if p.AuthUsername != nil {
 		r.AuthUsername = p.AuthUsername

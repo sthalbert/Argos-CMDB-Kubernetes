@@ -1,10 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 )
+
+var errReplicaTargetNotFound = errors.New("replicates_from_hostname does not match any existing mirror row")
 
 // pathPrefixFromRequest decodes the path_prefix path param, mapping the
 // literal "_root" sentinel to an empty string (the canonical form for
@@ -46,6 +50,32 @@ func HandleCreateImageRegistry(s Store) http.Handler {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "rate_limit_per_sec must be > 0")
 			return
 		}
+		if in.ReplicatesFromHostname != nil && *in.ReplicatesFromHostname != "" {
+			if !in.IsMirror {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"replicates_from_hostname requires is_mirror=true")
+				return
+			}
+			if *in.ReplicatesFromHostname == in.Hostname {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"replicates_from_hostname cannot equal hostname")
+				return
+			}
+			target, terr := findReplicaTarget(r.Context(), s, *in.ReplicatesFromHostname)
+			switch {
+			case errors.Is(terr, errReplicaTargetNotFound):
+				writeProblem(w, http.StatusBadRequest, "Bad Request", terr.Error())
+				return
+			case terr != nil:
+				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", terr.Error())
+				return
+			}
+			if target.ReplicatesFromHostname != nil && *target.ReplicatesFromHostname != "" {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"replica target must not itself be a replica")
+				return
+			}
+		}
 		out, err := s.CreateImageRegistry(r.Context(), in)
 		switch {
 		case errors.Is(err, ErrConflict):
@@ -76,6 +106,46 @@ func HandleUpdateImageRegistry(s Store) http.Handler {
 		if p.RateLimitPerSec != nil && *p.RateLimitPerSec <= 0 {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "rate_limit_per_sec must be > 0")
 			return
+		}
+		if p.ReplicatesFromHostname != nil && *p.ReplicatesFromHostname != "" {
+			// Read the existing row to know the current is_mirror value.
+			existing, err := s.GetImageRegistry(r.Context(), host, prefix)
+			if errors.Is(err, ErrNotFound) {
+				writeProblem(w, http.StatusNotFound, "Not Found", "registry not found")
+				return
+			}
+			if err != nil {
+				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", err.Error())
+				return
+			}
+			isMirror := existing.IsMirror
+			if p.IsMirror != nil {
+				isMirror = *p.IsMirror
+			}
+			if !isMirror {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"replicates_from_hostname requires is_mirror=true")
+				return
+			}
+			if *p.ReplicatesFromHostname == host {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"replicates_from_hostname cannot equal hostname")
+				return
+			}
+			target, terr := findReplicaTarget(r.Context(), s, *p.ReplicatesFromHostname)
+			switch {
+			case errors.Is(terr, errReplicaTargetNotFound):
+				writeProblem(w, http.StatusBadRequest, "Bad Request", terr.Error())
+				return
+			case terr != nil:
+				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", terr.Error())
+				return
+			}
+			if target.ReplicatesFromHostname != nil && *target.ReplicatesFromHostname != "" {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"replica target must not itself be a replica")
+				return
+			}
 		}
 		out, err := s.UpdateImageRegistry(r.Context(), host, prefix, p)
 		switch {
@@ -149,4 +219,23 @@ func HandleGetImageRegistryCredentials(s Store) http.Handler {
 			"auth_token":    tok,
 		})
 	})
+}
+
+// findReplicaTarget locates the (annotation-mirror) row a replica points
+// at. We scan all rows for the hostname since the path_prefix isn't part
+// of the replica pointer. Returns the first matching mirror row, or
+// errReplicaTargetNotFound when the hostname doesn't match any mirror.
+// Other errors (e.g. ListImageRegistries failure) are returned as-is so
+// the caller can distinguish 4xx (client input) from 5xx (server fault).
+func findReplicaTarget(ctx context.Context, s Store, hostname string) (ImageRegistry, error) {
+	rows, err := s.ListImageRegistries(ctx)
+	if err != nil {
+		return ImageRegistry{}, fmt.Errorf("list registries: %w", err)
+	}
+	for i := range rows {
+		if rows[i].Hostname == hostname && rows[i].IsMirror {
+			return rows[i], nil
+		}
+	}
+	return ImageRegistry{}, errReplicaTargetNotFound
 }
