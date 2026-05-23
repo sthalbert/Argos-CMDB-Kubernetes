@@ -805,8 +805,8 @@ export function PodDetail() {
                               className={info.is_behind ? 'pill status-bad' : 'pill status-ok'}
                               title={
                                 info.is_behind
-                                  ? `Behind: latest available is ${info.latest_tag} (checked ${new Date(info.last_checked_at).toLocaleString()})`
-                                  : `Up to date (checked ${new Date(info.last_checked_at).toLocaleString()})`
+                                  ? `Behind: latest available is ${info.latest_tag} (checked ${new Date(info.last_checked_at ?? '').toLocaleString()})`
+                                  : `Up to date (checked ${new Date(info.last_checked_at ?? '').toLocaleString()})`
                               }
                             >
                               {info.latest_tag}

@@ -1050,9 +1050,14 @@ export function listDistinctVMApplications() {
 // --- Image versions ---------------------------------------------------------
 
 export interface ContainerVersionInfo {
-  latest_tag: string;
-  is_behind: boolean;
-  last_checked_at: string;
+  // Present on passthrough images and on resolved-origin images.
+  latest_tag?: string;
+  is_behind?: boolean;
+  last_checked_at?: string;
+  // Origin fields. Absent on passthrough images. Present on mirrored refs.
+  origin_image_repo?: string;
+  origin_status?: 'resolved' | 'unresolved';
+  origin_error?: string;
 }
 
 export interface ImageVersionVariant {
@@ -1113,6 +1118,7 @@ export interface ImageRegistry {
   enabled: boolean;
   notes: string | null;
   is_mirror: boolean;
+  replicates_from_hostname?: string | null;
   auth_username: string | null;
   auth_configured: boolean;
   created_at: string;
@@ -1126,6 +1132,7 @@ export interface ImageRegistryCreate {
   enabled?: boolean;
   notes?: string;
   is_mirror?: boolean;
+  replicates_from_hostname?: string;
   auth_username?: string;
   auth_token?: string;
 }
@@ -1135,6 +1142,7 @@ export interface ImageRegistryPatch {
   enabled?: boolean;
   notes?: string | null;
   is_mirror?: boolean;
+  replicates_from_hostname?: string | null;
   auth_username?: string | null;
   auth_token?: string;
 }
