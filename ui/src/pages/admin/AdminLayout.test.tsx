@@ -17,6 +17,7 @@ describe('AdminLayout', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('Users')).toBeInTheDocument();
+    expect(screen.getByText('Classification')).toBeInTheDocument();
   });
 
   it('renders only the audit tab for an auditor role', () => {
@@ -31,5 +32,6 @@ describe('AdminLayout', () => {
     );
     expect(screen.getByText('Audit')).toBeInTheDocument();
     expect(screen.queryByText('Users')).toBeNull();
+    expect(screen.queryByText('Classification')).toBeNull();
   });
 });

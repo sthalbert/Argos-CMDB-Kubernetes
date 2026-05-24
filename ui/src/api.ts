@@ -1563,3 +1563,24 @@ export function extractEol(p: EolExtractParams): Promise<DownloadResult> {
     `longue-vue-eol.${p.format}`,
   );
 }
+
+// extractApplications downloads the Application portfolio extract (ADR-0029
+// §3, Phase 6 backend). The CSV/JSON variants live at distinct paths and
+// accept the same DICT-coverage filters as the list endpoint. The
+// Classification heat-map drives it with `dict_min` only.
+export interface ApplicationExtractParams {
+  format: ExtractFormat;
+  dict_min?: number;
+  criticality?: string;
+}
+
+export function extractApplications(p: ApplicationExtractParams): Promise<DownloadResult> {
+  const params = new URLSearchParams();
+  if (p.dict_min !== undefined) params.set('dict_min', String(p.dict_min));
+  if (p.criticality) params.set('criticality', p.criticality);
+  const qs = params.toString();
+  return downloadExtract(
+    `/v1/applications/extract.${p.format}${qs ? `?${qs}` : ''}`,
+    `longue-vue-applications.${p.format}`,
+  );
+}
