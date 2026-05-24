@@ -19,6 +19,10 @@ type Store interface {
 	// DICTCoverageCounts returns workloads bucketed by effective-DICT source
 	// (ADR-0029 §6).
 	DICTCoverageCounts(ctx context.Context) (application, workload, none int, err error)
+	// ApplicationMetricCounts returns applications bucketed by
+	// (has_block, has_dict) plus the total application_blocks count
+	// (ADR-0029 §9).
+	ApplicationMetricCounts(ctx context.Context) (buckets []metrics.ApplicationCount, blocks int, err error)
 }
 
 // Refresher periodically recomputes store-derived gauges.
@@ -55,10 +59,16 @@ func (r *Refresher) Run(ctx context.Context) error {
 }
 
 func (r *Refresher) refresh(ctx context.Context) {
-	app, wl, none, err := r.store.DICTCoverageCounts(ctx)
-	if err != nil {
+	if app, wl, none, err := r.store.DICTCoverageCounts(ctx); err != nil {
 		slog.Warn("metrics refresher: dict coverage query failed", slog.Any("error", err))
-		return
+	} else {
+		metrics.SetDICTCoverage(app, wl, none)
 	}
-	metrics.SetDICTCoverage(app, wl, none)
+
+	if buckets, blocks, err := r.store.ApplicationMetricCounts(ctx); err != nil {
+		slog.Warn("metrics refresher: application counts query failed", slog.Any("error", err))
+	} else {
+		metrics.SetApplicationCounts(buckets)
+		metrics.SetApplicationBlocksTotal(blocks)
+	}
 }
