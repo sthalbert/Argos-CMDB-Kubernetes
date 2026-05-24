@@ -121,6 +121,7 @@ func (s *fakeStore) GetVirtualMachine(_ context.Context, id uuid.UUID) (api.Virt
 	return api.VirtualMachine{}, api.ErrNotFound
 }
 
+//nolint:gocritic // hugeParam: signature matches api.Store interface
 func (s *fakeStore) UpdateVirtualMachine(_ context.Context, id uuid.UUID, in api.VirtualMachinePatch) (api.VirtualMachine, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

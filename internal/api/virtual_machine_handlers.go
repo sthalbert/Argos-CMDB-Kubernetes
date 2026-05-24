@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -67,15 +68,23 @@ type vmUpsertReq struct {
 // the stored list to preserve `added_at` / `added_by` on entries whose
 // (product, version, name) key is unchanged, and stamps fresh values
 // on new entries. Input values for added_at / added_by are ignored.
+//
+// ADR-0029 link inputs: ApplicationID + ApplicationName link the whole
+// VM to an Application; per-entry application_id on Applications entries
+// link a specific product on the VM. ApplicationName is a write-only
+// convenience resolved server-side via ResolveApplicationID (id wins
+// on conflict, mirrors ADR-0019).
 type vmPatchReq struct {
-	DisplayName  *string            `json:"display_name,omitempty"`
-	Role         *string            `json:"role,omitempty"`
-	Owner        *string            `json:"owner,omitempty"`
-	Criticality  *string            `json:"criticality,omitempty"`
-	Notes        *string            `json:"notes,omitempty"`
-	RunbookURL   *string            `json:"runbook_url,omitempty"`
-	Annotations  *map[string]string `json:"annotations,omitempty"`
-	Applications *[]VMApplication   `json:"applications,omitempty"`
+	DisplayName     *string            `json:"display_name,omitempty"`
+	Role            *string            `json:"role,omitempty"`
+	Owner           *string            `json:"owner,omitempty"`
+	Criticality     *string            `json:"criticality,omitempty"`
+	Notes           *string            `json:"notes,omitempty"`
+	RunbookURL      *string            `json:"runbook_url,omitempty"`
+	Annotations     *map[string]string `json:"annotations,omitempty"`
+	Applications    *[]VMApplication   `json:"applications,omitempty"`
+	ApplicationID   *uuid.UUID         `json:"application_id,omitempty"`
+	ApplicationName *string            `json:"application_name,omitempty"`
 }
 
 // VM applications input bounds — bounded to keep the JSONB column small,
@@ -187,7 +196,7 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 // string. Returns ("", filter) on success; returns (problem, zero) on the
 // first validation error so the caller can surface a 400.
 //
-//nolint:gocyclo // each query param is an independent branch; flat and intentional
+//nolint:gocyclo,gocognit // each query param is an independent branch; flat and intentional
 func parseVMListFilter(r *http.Request) (string, VirtualMachineListFilter) {
 	q := r.URL.Query()
 	var f VirtualMachineListFilter
@@ -249,6 +258,31 @@ func parseVMListFilter(r *http.Request) (string, VirtualMachineListFilter) {
 	if v := q.Get("include_terminated"); v != "" {
 		b, _ := strconv.ParseBool(v)
 		f.IncludeTerminated = b
+	}
+	// ADR-0029 link-aware filters. application_id wins on conflict with
+	// application_name (the store mirrors the precedence). unlinked is
+	// boolean: true narrows to VMs with NULL application_id.
+	if v := q.Get("application_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return "invalid application_id", f
+		}
+		f.ApplicationID = &id
+	}
+	if v := q.Get("application_name"); v != "" {
+		// Reuse the per-product LIKE-substring bound — application
+		// names are similarly short kebab-case identifiers.
+		if len(v) > vmListAppFilterMaxLn {
+			return "application_name too long", f
+		}
+		f.ApplicationName = &v
+	}
+	if v := q.Get("unlinked"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return "invalid unlinked", f
+		}
+		f.Unlinked = &b
 	}
 	return "", f
 }
@@ -313,6 +347,8 @@ func HandleGetVirtualMachine(store Store) http.HandlerFunc {
 }
 
 // HandlePatchVirtualMachine — write scope. PATCH /v1/virtual-machines/{id}.
+//
+//nolint:gocyclo,gocognit // body decode + row-level link resolve + per-entry resolve + diff; each branch is one independent concern
 func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := auth.CallerFromContext(r.Context())
@@ -338,11 +374,50 @@ func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 			RunbookURL:  req.RunbookURL,
 			Annotations: req.Annotations,
 		}
+		// ADR-0029 row-level link resolution. Mirrors the workload
+		// PATCH path in Server.UpdateWorkload: id wins on conflict;
+		// unknown id or name → 400. Resolved before per-entry handling
+		// so a typo in the body fails fast without re-reading the VM.
+		if req.ApplicationID != nil || (req.ApplicationName != nil && *req.ApplicationName != "") {
+			resolved, err := ResolveApplicationID(r.Context(), store, req.ApplicationID, req.ApplicationName)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					writeProblem(w, http.StatusBadRequest, "Bad Request", err.Error())
+					return
+				}
+				slog.Error("resolve vm application", slog.Any("error", err))
+				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+				return
+			}
+			patch.ApplicationID = resolved
+		}
 		if req.Applications != nil {
 			diffed, problem := diffVMApplications(r.Context(), store, id, *req.Applications, caller)
 			if problem != "" {
 				writeProblem(w, http.StatusBadRequest, "Bad Request", problem)
 				return
+			}
+			// Per-entry ADR-0029 link resolution: each entry may carry an
+			// application_id (id wins) or an application_name (the handler
+			// resolves and overwrites with the canonical id). After this
+			// loop the store sees only ApplicationID set.
+			for i := range diffed {
+				if diffed[i].ApplicationID == nil && (diffed[i].ApplicationName == nil || *diffed[i].ApplicationName == "") {
+					continue
+				}
+				resolved, err := ResolveApplicationID(r.Context(), store, diffed[i].ApplicationID, diffed[i].ApplicationName)
+				if err != nil {
+					if errors.Is(err, ErrNotFound) {
+						writeProblem(w, http.StatusBadRequest, "Bad Request",
+							fmt.Sprintf("applications[%d]: %s", i, err.Error()))
+						return
+					}
+					slog.Error("resolve vm-app entry application", slog.Any("error", err))
+					writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+					return
+				}
+				diffed[i].ApplicationID = resolved
+				diffed[i].ApplicationName = nil
 			}
 			patch.Applications = &diffed
 		}

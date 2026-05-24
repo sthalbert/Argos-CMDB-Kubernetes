@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -369,7 +370,7 @@ func (m *memStore) GetVirtualMachine(_ context.Context, id uuid.UUID) (VirtualMa
 // vmMatchesFilter reports whether vm passes the given filter.
 // Called from ListVirtualMachines; extracted to keep cognitive complexity low.
 //
-//nolint:gocyclo,gocritic // filter evaluation is inherently branchy; hugeParam ok in test fake
+//nolint:gocyclo,gocognit,gocritic // filter evaluation is inherently branchy; hugeParam ok in test fake
 func vmMatchesFilter(vm VirtualMachine, filter VirtualMachineListFilter) bool {
 	if !filter.IncludeTerminated && vm.TerminatedAt != nil {
 		return false
@@ -399,6 +400,24 @@ func vmMatchesFilter(vm VirtualMachine, filter VirtualMachineListFilter) bool {
 		return false
 	}
 	if !vmApplicationMatches(vm, filter.Application, filter.ApplicationVersion) {
+		return false
+	}
+	// ADR-0029 link-aware filters. id wins on conflict with name (mirrors PG).
+	if filter.ApplicationID != nil {
+		if vm.ApplicationID == nil || *vm.ApplicationID != *filter.ApplicationID {
+			return false
+		}
+	} else if filter.ApplicationName != nil && *filter.ApplicationName != "" {
+		want := NormalizeApplicationName(*filter.ApplicationName)
+		if vm.ApplicationID == nil {
+			return false
+		}
+		app, ok := appFake.byID[*vm.ApplicationID]
+		if !ok || app.Name != want {
+			return false
+		}
+	}
+	if filter.Unlinked != nil && *filter.Unlinked && vm.ApplicationID != nil {
 		return false
 	}
 	return true
@@ -510,6 +529,7 @@ func (m *memStore) ListDistinctVMApplications(_ context.Context) ([]VMApplicatio
 	return out, nil
 }
 
+//nolint:gocyclo,gocritic // merge-patch checks; hugeParam: signature matches api.Store interface
 func (m *memStore) UpdateVirtualMachine(_ context.Context, id uuid.UUID, in VirtualMachinePatch) (VirtualMachine, error) {
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
@@ -545,10 +565,24 @@ func (m *memStore) UpdateVirtualMachine(_ context.Context, id uuid.UUID, in Virt
 		vm.Annotations = *in.Annotations
 	}
 	if in.Applications != nil {
+		// Per-entry ADR-0029 application_id existence check; mirrors the
+		// batched COUNT query in the PG store.
+		for _, entry := range *in.Applications {
+			if entry.ApplicationID == nil {
+				continue
+			}
+			if _, exists := appFake.byID[*entry.ApplicationID]; !exists {
+				return VirtualMachine{}, fmt.Errorf("one or more application_id references invalid: %w", ErrNotFound)
+			}
+		}
 		// Replace-not-merge: handler has already done the diff.
 		copyApps := make([]VMApplication, len(*in.Applications))
 		copy(copyApps, *in.Applications)
 		vm.Applications = copyApps
+	}
+	if in.ApplicationID != nil {
+		v := *in.ApplicationID
+		vm.ApplicationID = &v
 	}
 	vm.UpdatedAt = time.Now().UTC()
 	cloudFake.vms[id] = vm

@@ -24,13 +24,28 @@ import (
 // "Hashicorp Vault", "hashicorp-vault", and "Vault" deduplicate to the
 // same key. `AddedAt` and `AddedBy` are server-stamped on insert and
 // preserved across PATCH calls when (product, version, name) is unchanged.
+//
+// ApplicationID is the per-entry ADR-0029 soft-pointer to an Application
+// row. Lets a single VM hosting multiple products (Vault + BIND) link
+// each product to a different Application (per ADR-0029 §2.3 / §1).
+// The PATCH handler validates the id against the applications table and
+// rejects the whole PATCH on lookup failure.
+//
+// ApplicationName is a write-only convenience: a caller may supply a name
+// instead of an id, and the PATCH handler resolves it via
+// ResolveApplicationID (id wins on conflict) before persisting. The
+// stored JSONB never contains application_name — the handler strips it to
+// nil after resolution, and the JSON tag stays write-only courtesy of
+// omitempty on a *string that the handler always nils out.
 type VMApplication struct {
-	Product string    `json:"product"`
-	Version string    `json:"version"`
-	Name    *string   `json:"name,omitempty"`
-	Notes   *string   `json:"notes,omitempty"`
-	AddedAt time.Time `json:"added_at"`
-	AddedBy string    `json:"added_by"`
+	Product         string     `json:"product"`
+	Version         string     `json:"version"`
+	Name            *string    `json:"name,omitempty"`
+	Notes           *string    `json:"notes,omitempty"`
+	AddedAt         time.Time  `json:"added_at"`
+	AddedBy         string     `json:"added_by"`
+	ApplicationID   *uuid.UUID `json:"application_id,omitempty"`
+	ApplicationName *string    `json:"application_name,omitempty"`
 }
 
 // NormalizeProductName collapses operator-typed product names into a
@@ -179,10 +194,16 @@ type VirtualMachine struct {
 	Notes                *string           `json:"notes,omitempty"`
 	RunbookURL           *string           `json:"runbook_url,omitempty"`
 	Applications         []VMApplication   `json:"applications"`
-	CreatedAt            time.Time         `json:"created_at"`
-	UpdatedAt            time.Time         `json:"updated_at"`
-	LastSeenAt           time.Time         `json:"last_seen_at"`
-	TerminatedAt         *time.Time        `json:"terminated_at,omitempty"`
+	// ApplicationID is the row-level ADR-0029 soft-pointer linking the
+	// entire VM to an Application. Independent of the per-entry link on
+	// VMApplication: a VM may carry a row-level "this whole VM belongs
+	// to X" pointer while individual application entries point at their
+	// own products. ON DELETE SET NULL via the FK in migration 00047.
+	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	LastSeenAt    time.Time  `json:"last_seen_at"`
+	TerminatedAt  *time.Time `json:"terminated_at,omitempty"`
 }
 
 // VirtualMachineUpsert is the collector-side payload for upserting
@@ -241,6 +262,13 @@ type VirtualMachinePatch struct {
 	RunbookURL   *string
 	Annotations  *map[string]string
 	Applications *[]VMApplication
+	// ApplicationID / ApplicationName are the ADR-0029 row-level link
+	// inputs. The handler resolves Name → ID via ResolveApplicationID
+	// (id wins on conflict, mirrors ADR-0019) and strips ApplicationName
+	// to nil before calling the store. A non-nil ApplicationID writes the
+	// link; nil leaves the existing link untouched (merge-patch semantics).
+	ApplicationID   *uuid.UUID
+	ApplicationName *string
 }
 
 // VirtualMachineListFilter collects the optional filters for ListVirtualMachines.
@@ -264,6 +292,14 @@ type VirtualMachineListFilter struct {
 	// (product, version) tuple via containment.
 	ApplicationVersion *string
 	IncludeTerminated  bool
+	// ADR-0029 link-aware filters. ApplicationID wins on conflict with
+	// ApplicationName (mirrors the cloud_account_id / cloud_account_name
+	// precedence from ADR-0019); ApplicationName is normalised server-side
+	// via NormalizeApplicationName before the sub-SELECT against
+	// applications.name. Unlinked narrows to VMs with NULL application_id.
+	ApplicationID   *uuid.UUID
+	ApplicationName *string
+	Unlinked        *bool
 }
 
 // VMApplicationDistinct is one row of the distinct-applications response.
