@@ -48,6 +48,8 @@ output-options:
     - deleteApplicationBlock
     - listApplications
     - createApplication
+    - applicationsExtractCsv
+    - applicationsExtractJson
     - getApplication
     - getApplicationByName
     - updateApplication
