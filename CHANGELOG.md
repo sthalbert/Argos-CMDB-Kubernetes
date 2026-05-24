@@ -6,6 +6,19 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [Unreleased]
+
+### Added
+
+- **Application + ApplicationBlock entities** — first-class operator-curated inventory for the ANSSI applicative layer (Block → Application → assets), with full CRUD REST API (`/v1/applications`, `/v1/application-blocks`): cursor pagination, idempotent POST on name, RFC 7807 errors, list filters (`name`, `application_block_name`, `criticality`, `has_dict`, `dict_min`), `GET /v1/applications/{id}/members`, and `by-name` lookups (ADR-0029).
+- **Workload + VM linking** — `PATCH /v1/workloads/{id}` and `PATCH /v1/virtual-machines/{id}` accept `application_id` / `application_name`; per-VM-application JSONB entries gained an optional `application_id`; new `application_id` / `application_name` / `unlinked` list filters and an `application` substring filter on `/v1/search`.
+- **DICT classification on Application** — `sec_disponibilite` / `sec_integrite` / `sec_confidentialite` / `sec_tracabilite` (0..4) + `sec_notes`; read-only `effective_dict` (application-wins) on workload + VM responses; `longue_vue_dict_coverage{source}` gauge.
+- **Per-application EOL aggregation** — `GET /v1/applications/{id}/eol` rolls up member EOL signal at read time (workloads via image-versions enrichment, VMs via endoflife annotations).
+- **Applications extract** — audited `GET /v1/applications/extract.{csv,json}` (`dict_min=` filter) for SNC chapter 8 evidence.
+- **MCP tools** — three read-only tools `list_applications`, `get_application`, `list_application_blocks` (gated by `mcp_enabled` + read scope).
+- **UI** — `/applications` list (block grouping, DICT/member badges, filters), `/applications/:id` detail (curated + DICT + members + EOL cards), `/admin/application-blocks` CRUD, `/admin/classification` heat-map, Application pickers on workload + VM detail (incl. per-VM-app-entry picker), EOL dashboard Application column, read-only effective-DICT card on workload + VM detail.
+- **Migrations** — `00045`–`00048` (application_blocks, applications, `application_id` FK on workloads + virtual_machines, `workloads_history.application_id` snapshot).
+
 ## [0.27.0](https://github.com/sthalbert/Longue-Vue/compare/v0.26.0...v0.27.0) (2026-05-23)
 
 

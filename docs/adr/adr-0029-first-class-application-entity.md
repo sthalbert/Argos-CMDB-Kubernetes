@@ -815,6 +815,52 @@ vm-collector binaries are unchanged.
 - **FUT-007** CVE enrichment per Application alongside EOL, mirroring the
   shape proposed in ADR-0019 FUT-004.
 
+## Post-implementation notes
+
+> **Correction (2026-05-24, Phase 7).** Two of this ADR's planning
+> assumptions diverged from the codebase as it actually stood. The
+> implementation reflects reality; these notes pin the divergence so the
+> precedence rules above are not read as describing a code path that never
+> fires.
+
+- **PIN-001 — Workload/Namespace DICT columns never existed.** §6, the
+  "preserve the fallback" framing in the Decision, ALT-011/012, NEG-001,
+  POS-009, and FUT-001 all assume ADR-0008 had already shipped `sec_*`
+  columns on `namespaces` and `workloads`. It had not. ADR-0008 IMP-001
+  proposed those columns in migration slot `00023_application_security_
+  classification.sql`, but that slot was taken by
+  `00023_create_cloud_accounts.sql` (ADR-0015) and the DICT migration was
+  never written. **Consequence:** DICT lives *only* on `applications`
+  (added by this ADR). There is nothing to fall back to, so the
+  `effective_dict.source` field resolves to `application` or `none` in
+  practice; the `workload` and `namespace` source values remain in the
+  enum for forward-compatibility but never fire today. The
+  `longue_vue_dict_coverage{source="workload"}` bucket is therefore always
+  `0`. The §6 precedence ladder is still implemented as written (the
+  `workload` branch is dead-but-harmless), and the workload-DICT
+  inheritance banner / override escape-hatch are not built — there is no
+  per-workload DICT to override. FUT-001 (deprecate the legacy columns) is
+  moot: there are no legacy columns to drop.
+
+- **PIN-002 — Workload EOL signal comes from image-versions, not
+  annotations.** §5 source (1) describes reading `longue-vue.io/eol.*`
+  annotations off workloads. In practice the `Workload` type carries no
+  `annotations` field and no per-workload EOL annotations; the workload
+  EOL signal comes exclusively from per-container image-versions
+  enrichment (ADR-0022). The implemented aggregator therefore derives
+  workload rows from image-versions (`eol_status="outdated"` when a
+  container image is behind the latest available tag, `unknown`
+  otherwise) and VM rows from the `longue-vue.io/eol.*` endoflife
+  annotations (ADR-0019). The `outdated` value is a new `eol_status`
+  alongside the existing `eol` / `approaching` / `supported` / `unknown`.
+
+- **PIN-003 — MCP `get_application` omits the EOL summary.** §4 specifies
+  `get_application` returns the aggregated EOL summary. It does not in v1:
+  the MCP `Store` interface does not satisfy `eolagg.ApplicationStore` and
+  the adapter was larger than v1 warranted. Operators read the
+  per-application EOL summary via `GET /v1/applications/{id}/eol`. Folding
+  it into `get_application` is a deferred follow-up.
+
 ## References
 
 - **REF-001** ADR-0001 — CMDB for SNC using Kubernetes —

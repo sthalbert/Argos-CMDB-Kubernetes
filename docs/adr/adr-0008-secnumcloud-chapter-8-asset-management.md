@@ -259,6 +259,19 @@ and implemented as a follow-up PR series:
   - `00023_application_security_classification.sql` — DICT (4 × INT)
     + `sec_notes` on **namespaces and workloads only**.
 
+  > **Correction (2026-05-24).** The DICT migration in this last slot was
+  > never written: slot `00023` was taken by
+  > `00023_create_cloud_accounts.sql` (ADR-0015) and the
+  > `sec_*`-on-namespaces/workloads columns never shipped. DICT now lives
+  > on the first-class **Application** entity introduced by ADR-0029
+  > (migration `00046_create_applications.sql`), which is where the
+  > EBIOS-RM convention always wanted it (see the rejected "DICT on every
+  > durable kind" alternative above). There are therefore no
+  > Namespace/Workload DICT columns to fall back to or deprecate;
+  > linked workloads/VMs surface a read-only `effective_dict` inherited
+  > from their Application. See ADR-0029 §6 and its post-implementation
+  > notes.
+
 - **IMP-002**: **Collector invariant**: same as PR #48 —
   `UpdateNamespace` / `UpdateNode` / `UpdateWorkload` use merge-patch;
   the collector's per-tick patches set only the fields it actually

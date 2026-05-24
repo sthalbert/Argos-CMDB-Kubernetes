@@ -2,8 +2,9 @@ package api
 
 // Application + ApplicationBlock domain types (ADR-0029). Hand-written
 // because the related endpoints are mounted as hand-written handlers
-// alongside the codegen mux (mirrors the settings + cloud pattern), so
-// these types are not in the OpenAPI spec.
+// alongside the codegen mux (mirrors the settings + cloud pattern). The
+// endpoints and these payload shapes are documented in the OpenAPI spec
+// (api/openapi/openapi.yaml) even though the handlers are not codegen'd.
 
 import (
 	"time"

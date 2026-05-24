@@ -50,6 +50,7 @@ A Configuration Management Database (CMDB) for Kubernetes environments, aligned 
 - **DMZ ingest gateway** -- `longue-vue-ingest-gw` reverse-proxy for collector push traffic behind a network perimeter; mTLS, hardcoded 18-route allowlist, 60 s token-verify cache (ADR-0016).
 - **Hardened public listener** -- native TLS 1.3 with hot cert reload, opt-in trusted-proxy header trust, trust-aware HSTS, secure session cookies, and a startup guard that refuses to ship credentials over plaintext (ADR-0017).
 - **VM application inventory and EOL enrichment** -- operators declare platform software running on each non-Kubernetes VM (Vault, BIND, Cyberwatch, …); the EOL enricher evaluates declared versions against endoflife.date and writes `longue-vue.io/eol.<product>` annotations; the EOL dashboard surfaces VMs alongside clusters and nodes (ADR-0019).
+- **Application inventory** -- Application + ApplicationBlock entities aligned with the ANSSI applicative layer; link workloads and VMs to an Application, classify DICT security needs (0..4 per axis) at the Application level with read-only inheritance onto members, roll up EOL exposure per application, and review the classification heat-map for SNC chapter 8 evidence (ADR-0029).
 - **Helm chart per deployable binary** -- every longue-vue binary (`longue-vue`, `longue-vue-ingest-gw`, `longue-vue-collector`, `longue-vue-vm-collector`) ships with a sibling chart under `charts/`. Independent versioning, shared hardening defaults (ADR-0018).
 - **Audit log** -- every state-changing call is recorded; passwords and tokens are scrubbed; `source` column distinguishes public-listener (`api`) from DMZ-gateway (`ingest_gw`) traffic.
 - **CSV / JSON / ZIP extracts** -- bulk download of Search results and the EOL Dashboard (audit-logged, capped at 50 000 rows).
@@ -100,6 +101,7 @@ See [Getting Started](docs/getting-started.md) for the full walkthrough includin
 | [API Reference](docs/api-reference.md) | REST endpoints with curl examples. |
 | [EOL Enrichment](docs/eol-enrichment.md) | End-of-life inventory: setup, dashboard, annotation format. |
 | [VM Applications](docs/vm-applications.md) | Declare platform software on non-Kubernetes VMs; EOL enrichment and search filters for `applications`. |
+| [Applications](docs/applications.md) | First-class Application + ApplicationBlock inventory: link workloads/VMs, classify DICT, read per-application EOL, classification heat-map (ADR-0029). |
 | [Impact Analysis](docs/impact-analysis.md) | Dependency graph: assess blast radius of a change. |
 | [MCP Server](docs/mcp-server.md) | Model Context Protocol server for AI agent integrations. |
 | [Monitoring](docs/monitoring.md) | Prometheus metrics, alerts, Grafana tips. |
@@ -155,6 +157,7 @@ longue-vue ships as **four binaries**: `longue-vue` (the central server with API
 | [0019](docs/adr/adr-0019-vm-applications-and-eol-and-search.md) | VM applications inventory, EOL enrichment for platform software, and extended VM list search filters. |
 | [0020](docs/adr/adr-0020-rename-argos-to-longue-vue.md) | Rename Argos → longue-vue: product name, token prefix, env vars, and migration guidance. |
 | [0021](docs/adr/adr-0021-time-travel-snapshots.md) | Time-travel snapshots for SecNumCloud asset history (soft-delete foundation). |
+| [0029](docs/adr/adr-0029-first-class-application-entity.md) | First-class Application + ApplicationBlock inventory for the SNC applicative layer; DICT classification on Application, effective-DICT inheritance onto workloads/VMs, per-application EOL roll-up, and classification heat-map. |
 
 ## Contributing
 

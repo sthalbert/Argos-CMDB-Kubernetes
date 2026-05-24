@@ -16,7 +16,8 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - `cmd/longue-vue/` — main daemon (API + UI + in-process collectors).
 - `cmd/longue-vue-ingest-gw/` — stateless DMZ reverse-proxy (ADR-0016).
 - `cmd/longue-vue-vm-collector/` — push-mode cloud-VM collector (ADR-0015).
-- `internal/` — `api/`, `auth/`, `store/` (pgx/v5), `collector/` (K8s pull), `vmcollector/`, `ingestgw/`, `eol/`, `imageversions/`, `mcp/`, `impact/`, `metrics/`, `httputil/`, `secrets/`.
+- `internal/` — `api/`, `auth/`, `store/` (pgx/v5), `collector/` (K8s pull), `vmcollector/`, `ingestgw/`, `eol/`, `eolagg/`, `imageversions/`, `mcp/`, `impact/`, `metrics/`, `httputil/`, `secrets/`.
+- **Applications (ADR-0029)**: `applications` + `application_blocks` are operator-curated top-level tables; Application is the first-class SNC applicative-layer entity (Block → Application → workloads/VMs). `workloads.application_id` + `virtual_machines.application_id` (and an optional per-entry `application_id` on the VM `applications` JSONB) link each asset to at most one Application, all `ON DELETE SET NULL`. Hand-written handlers under `internal/api/application_*` (documented in OpenAPI but not codegen'd).
 - `api/openapi/openapi.yaml` — contract source of truth (codegen drift checked in CI).
 - `migrations/` — goose-style timestamped SQL, embedded.
 - `ui/` — SPA; `make ui-build` produces `ui/dist/` for embed. `noui` build tag skips it.
@@ -114,9 +115,13 @@ Single-row `settings` table (`id=1 CHECK`). Runtime toggles `eol_enabled`, `mcp_
 
 Cluster carries `owner` / `criticality` / `notes` / `runbook_url` / `annotations` JSONB, merge-patched via PATCH; collector leaves them alone. UI: "Ownership & context" card with inline edit. Same pattern queued for namespaces / nodes / workloads.
 
+**DICT (ADR-0029).** DICT security-need axes (`sec_disponibilite`/`_integrite`/`_confidentialite`/`_tracabilite` 0..4 + `sec_notes`) live **only** on the `applications` row — the Application is their home per the EBIOS-RM convention. Linked workloads + VMs surface a read-only `effective_dict` (application-wins precedence). Note: ADR-0008's planned namespace/workload DICT columns were never built (slot `00023` became `create_cloud_accounts`), so `effective_dict.source` is `application` or `none` in practice and `longue_vue_dict_coverage{source="workload"}` is always 0. The classification heat-map (`/ui/admin/classification`) + `GET /v1/applications/extract.csv?dict_min=N` produce the SNC §8.3 evidence.
+
 ## EOL enricher (ADR-0012, ADR-0019)
 
 `internal/eol/` — periodic endoflife.date queries; writes `longue-vue.io/eol.<product>` annotations on clusters, nodes, and (per VM `applications` entry) VMs. Stale keys reaped per tick. `latest_available` field shows newest published version. Centralised on the server — push collectors are unaffected.
+
+**Per-application aggregation (ADR-0029).** `GET /v1/applications/{id}/eol` (and the detail-page EOL card) call `internal/eolagg` to roll up EOL signal across a linked Application's members at read time (no new enricher pass). Workload member rows come from per-container image-versions enrichment (ADR-0022 — workloads carry no EOL annotations), with `eol_status="outdated"` when an image is behind latest; VM member rows come from `longue-vue.io/eol.*` endoflife annotations (eol / approaching / supported / unknown). Each row carries a `sources` list of contributing assets.
 
 ## Extracts (search & EOL)
 
