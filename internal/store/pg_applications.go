@@ -1,10 +1,10 @@
 package store
 
-// Stub implementations for the Application and ApplicationBlock methods on
-// the api.Store interface (ADR-0029). Task 1.5 extends the interface; the
-// real PostgreSQL bodies land in Tasks 1.6 (application_blocks) and 1.7
-// (applications + members). Stubs return zero values + sentinel errors so
-// the build stays green and the rest of Phase 1 can land incrementally.
+// Stub implementations for the Application methods on the api.Store
+// interface (ADR-0029). Task 1.5 introduced the interface; Task 1.6
+// replaced the ApplicationBlock stubs with real PostgreSQL bodies (see
+// pg_application_blocks.go). Task 1.7 will replace the Application
+// stubs below.
 
 import (
 	"context"
@@ -18,38 +18,6 @@ import (
 // errNotImplemented mirrors the memStore convention for write-path stubs
 // that have not yet acquired a real PostgreSQL body.
 var errNotImplemented = errors.New("store: not implemented")
-
-// --- ApplicationBlock stubs (Task 1.6 fills these in) -------------------
-
-// CreateApplicationBlock is a stub; real body lands in Task 1.6.
-func (p *PG) CreateApplicationBlock(_ context.Context, _ api.ApplicationBlockCreate) (api.ApplicationBlock, error) {
-	return api.ApplicationBlock{}, errNotImplemented
-}
-
-// GetApplicationBlock is a stub; real body lands in Task 1.6.
-func (p *PG) GetApplicationBlock(_ context.Context, _ uuid.UUID) (api.ApplicationBlock, error) {
-	return api.ApplicationBlock{}, api.ErrNotFound
-}
-
-// GetApplicationBlockByName is a stub; real body lands in Task 1.6.
-func (p *PG) GetApplicationBlockByName(_ context.Context, _ string) (api.ApplicationBlock, error) {
-	return api.ApplicationBlock{}, api.ErrNotFound
-}
-
-// ListApplicationBlocks is a stub; real body lands in Task 1.6.
-func (p *PG) ListApplicationBlocks(_ context.Context, _ api.ApplicationBlockListFilter, _ int, _ string) ([]api.ApplicationBlock, string, error) {
-	return nil, "", nil
-}
-
-// UpdateApplicationBlock is a stub; real body lands in Task 1.6.
-func (p *PG) UpdateApplicationBlock(_ context.Context, _ uuid.UUID, _ api.ApplicationBlockPatch) (api.ApplicationBlock, error) {
-	return api.ApplicationBlock{}, api.ErrNotFound
-}
-
-// DeleteApplicationBlock is a stub; real body lands in Task 1.6.
-func (p *PG) DeleteApplicationBlock(_ context.Context, _ uuid.UUID) error {
-	return api.ErrNotFound
-}
 
 // --- Application stubs (Task 1.7 fills these in) ------------------------
 
