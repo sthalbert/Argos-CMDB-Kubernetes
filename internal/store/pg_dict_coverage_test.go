@@ -77,7 +77,7 @@ func seedLinkedWorkload(t *testing.T, pg *PG, nsID uuid.UUID, name string, appID
 	if appID == nil {
 		return
 	}
-	if _, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{ApplicationId: appID}); err != nil {
+	if _, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{ApplicationId: appID}, false); err != nil {
 		t.Fatalf("link workload %q: %v", name, err)
 	}
 }

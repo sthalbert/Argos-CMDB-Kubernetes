@@ -270,10 +270,13 @@ type VirtualMachinePatch struct {
 	// ApplicationID / ApplicationName are the ADR-0029 row-level link
 	// inputs. The handler resolves Name → ID via ResolveApplicationID
 	// (id wins on conflict, mirrors ADR-0019) and strips ApplicationName
-	// to nil before calling the store. A non-nil ApplicationID writes the
-	// link; nil leaves the existing link untouched (merge-patch semantics).
-	ApplicationID   *uuid.UUID
-	ApplicationName *string
+	// to nil before calling the store. Three-state merge-patch (RFC 7396):
+	// a non-nil ApplicationID writes the link; ClearApplicationID=true
+	// (an explicit `"application_id": null` in the body) unlinks; otherwise
+	// the existing link is left untouched. An explicit id wins over null.
+	ApplicationID      *uuid.UUID
+	ApplicationName    *string
+	ClearApplicationID bool
 }
 
 // VirtualMachineListFilter collects the optional filters for ListVirtualMachines.

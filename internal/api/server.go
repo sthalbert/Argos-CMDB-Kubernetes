@@ -874,7 +874,11 @@ func (s *Server) UpdateWorkload(ctx context.Context, req UpdateWorkloadRequestOb
 		body.ApplicationId = resolved
 		body.ApplicationName = nil // store doesn't read this.
 	}
-	wl, err := s.store.UpdateWorkload(ctx, req.Id, body)
+	// ADR-0029 §2.3 unlink: an explicit `"application_id": null` clears the FK
+	// (detected pre-decode by DetectWorkloadUnlinkMiddleware). An explicit id
+	// value wins over null, so only clear when no id was resolved.
+	clearApplication := body.ApplicationId == nil && workloadClearApplicationFromCtx(ctx)
+	wl, err := s.store.UpdateWorkload(ctx, req.Id, body, clearApplication)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdateWorkload404ApplicationProblemPlusJSONResponse{

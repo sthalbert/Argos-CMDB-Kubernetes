@@ -221,7 +221,7 @@ func (p *PG) ListApplications(
 	// Name: case-insensitive substring on (name, display_name). Bind
 	// once and reference twice ($N OR $N).
 	if filter.Name != nil && *filter.Name != "" {
-		args = append(args, "%"+strings.ToLower(escapeLIKE(*filter.Name))+"%")
+		args = append(args, "%"+strings.ToLower(escapeLike(*filter.Name))+"%")
 		idx := len(args)
 		conds = append(conds, fmt.Sprintf(
 			"(LOWER(a.name) LIKE $%d ESCAPE '\\' OR LOWER(COALESCE(a.display_name,'')) LIKE $%d ESCAPE '\\')",

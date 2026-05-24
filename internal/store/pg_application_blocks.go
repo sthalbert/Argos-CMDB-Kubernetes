@@ -135,7 +135,7 @@ func (p *PG) ListApplicationBlocks(
 	conds := make([]string, 0, 3)
 
 	if filter.Name != nil {
-		args = append(args, escapeLIKE(strings.ToLower(*filter.Name)))
+		args = append(args, escapeLike(strings.ToLower(*filter.Name)))
 		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE '%%' || $%d || '%%' ESCAPE '\\'", len(args)))
 	}
 	if filter.Owner != nil {

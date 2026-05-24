@@ -1002,7 +1002,7 @@ func (m *memStore) ListWorkloads(
 	return out, "", nil
 }
 
-func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUpdate) (Workload, error) {
+func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUpdate, clearApplication bool) (Workload, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	wl, ok := m.workloadsByID[id]
@@ -1024,11 +1024,15 @@ func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUp
 	if in.Spec != nil {
 		wl.Spec = in.Spec
 	}
-	// ADR-0029 link soft-pointer. Mirrors PG.UpdateWorkload: a non-nil
-	// pointer overwrites; nil leaves it alone (set-to-null is not
-	// expressible through the *uuid.UUID codegen shape).
-	if in.ApplicationId != nil {
+	// ADR-0029 link soft-pointer with three-state merge-patch semantics.
+	// Mirrors PG.UpdateWorkload: an explicit id overwrites (wins over null),
+	// clearApplication=true (explicit `"application_id": null`) clears it,
+	// otherwise the link is left untouched.
+	switch {
+	case in.ApplicationId != nil:
 		wl.ApplicationId = in.ApplicationId
+	case clearApplication:
+		wl.ApplicationId = nil
 	}
 	now := time.Now().UTC()
 	wl.UpdatedAt = &now

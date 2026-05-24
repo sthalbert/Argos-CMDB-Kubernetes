@@ -248,8 +248,11 @@ type Store interface {
 	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) (items []Workload, nextCursor string, err error)
 
 	// UpdateWorkload applies merge-patch on mutable fields. Returns
-	// ErrNotFound if the workload does not exist.
-	UpdateWorkload(ctx context.Context, id uuid.UUID, in WorkloadUpdate) (Workload, error)
+	// ErrNotFound if the workload does not exist. clearApplication carries the
+	// three-state ADR-0029 link semantics the *uuid.UUID field can't express:
+	// when true (explicit `"application_id": null` in the body) the link is
+	// cleared; an explicit application_id value still wins over the null.
+	UpdateWorkload(ctx context.Context, id uuid.UUID, in WorkloadUpdate, clearApplication bool) (Workload, error)
 
 	// DeleteWorkload removes a workload by id.
 	DeleteWorkload(ctx context.Context, id uuid.UUID) error

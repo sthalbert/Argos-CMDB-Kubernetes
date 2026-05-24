@@ -132,6 +132,65 @@ func TestPatchVirtualMachine_IDBeatsName(t *testing.T) {
 	}
 }
 
+// TestPatchVirtualMachine_UnlinkClearsLink confirms an explicit
+// `"application_id": null` clears the row-level link (ADR-0029 §2.3).
+func TestPatchVirtualMachine_UnlinkClearsLink(t *testing.T) {
+	store := newMemStore()
+	enc := newTestEncrypter(t)
+	vmA, _, primary, _ := seedVMLinkFixtures(t, store)
+	mux := buildCloudMux(t, store, enc, adminCaller())
+
+	// Link it first.
+	rr := doReq(t, mux, http.MethodPatch, fmt.Sprintf("/v1/virtual-machines/%s", vmA.ID),
+		map[string]any{"application_id": primary.ID.String()})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("seed link: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Now unlink with explicit null.
+	rr = doReq(t, mux, http.MethodPatch, fmt.Sprintf("/v1/virtual-machines/%s", vmA.ID),
+		map[string]any{"application_id": nil})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unlink: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var vm VirtualMachine
+	if err := json.Unmarshal(rr.Body.Bytes(), &vm); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if vm.ApplicationID != nil {
+		t.Fatalf("unlink failed: application_id=%v, want nil", *vm.ApplicationID)
+	}
+}
+
+// TestPatchVirtualMachine_AbsentKeyLeavesLink confirms a PATCH that omits
+// application_id (touching a different field) leaves the link unchanged.
+func TestPatchVirtualMachine_AbsentKeyLeavesLink(t *testing.T) {
+	store := newMemStore()
+	enc := newTestEncrypter(t)
+	vmA, _, primary, _ := seedVMLinkFixtures(t, store)
+	mux := buildCloudMux(t, store, enc, adminCaller())
+
+	rr := doReq(t, mux, http.MethodPatch, fmt.Sprintf("/v1/virtual-machines/%s", vmA.ID),
+		map[string]any{"application_id": primary.ID.String()})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("seed link: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// PATCH an unrelated field; the link must survive.
+	rr = doReq(t, mux, http.MethodPatch, fmt.Sprintf("/v1/virtual-machines/%s", vmA.ID),
+		map[string]any{"owner": "team-x"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("owner patch: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var vm VirtualMachine
+	if err := json.Unmarshal(rr.Body.Bytes(), &vm); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if vm.ApplicationID == nil || *vm.ApplicationID != primary.ID {
+		t.Fatalf("link should survive a non-link patch: application_id=%v", vm.ApplicationID)
+	}
+}
+
 func TestPatchVirtualMachine_PerEntryNameResolves(t *testing.T) {
 	store := newMemStore()
 	enc := newTestEncrypter(t)

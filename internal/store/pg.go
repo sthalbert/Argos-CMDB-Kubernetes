@@ -2220,7 +2220,7 @@ func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, l
 // UpdateWorkload applies merge-patch semantics on mutable fields.
 //
 //nolint:gocyclo // merge-patch nil checks are inherently repetitive
-func (p *PG) UpdateWorkload(ctx context.Context, id uuid.UUID, in api.WorkloadUpdate) (api.Workload, error) {
+func (p *PG) UpdateWorkload(ctx context.Context, id uuid.UUID, in api.WorkloadUpdate, clearApplication bool) (api.Workload, error) {
 	sets := make([]string, 0, 4)
 	args := make([]any, 0, 6)
 	idx := 1
@@ -2257,14 +2257,20 @@ func (p *PG) UpdateWorkload(ctx context.Context, id uuid.UUID, in api.WorkloadUp
 		}
 		appendSet("spec", b)
 	}
-	// ADR-0029: operator-curated soft-pointer. The codegen-generated field is
-	// *uuid.UUID (single pointer), so set-to-null is not expressible through
-	// merge-patch here — passing nil means "leave unchanged". A non-nil value
-	// links (or re-links) the workload to that application. Unlinking is
-	// currently a future surface (e.g. an explicit DELETE on a link
-	// sub-resource, or upgrading the codegen shape to **UUID).
-	if in.ApplicationId != nil {
+	// ADR-0029: operator-curated soft-pointer with three-state merge-patch
+	// semantics (RFC 7396). The codegen-generated field is *uuid.UUID, which
+	// can't distinguish absent from JSON null, so the handler detects an
+	// explicit `"application_id": null` from the raw body and threads it here
+	// via clearApplication:
+	//   - clearApplication=true  → SET application_id = NULL (unlink),
+	//   - in.ApplicationId != nil → SET application_id = <value> (link/relink),
+	//   - otherwise               → leave the column unchanged.
+	// id wins over null: an explicit value alongside null still links.
+	switch {
+	case in.ApplicationId != nil:
 		appendSet("application_id", *in.ApplicationId)
+	case clearApplication:
+		appendSet("application_id", nil)
 	}
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)

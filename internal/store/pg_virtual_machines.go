@@ -70,7 +70,7 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 		var existsCount int
 		if err := p.pool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM nodes WHERE provider_id LIKE '%' || $1 || '%' ESCAPE '\'`,
-			escapeLIKE(in.ProviderVMID),
+			escapeLike(in.ProviderVMID),
 		).Scan(&existsCount); err != nil {
 			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("dedup check against nodes: %w", err)
 		}
@@ -340,13 +340,13 @@ func (p *PG) ListVirtualMachines(
 		// to seq scan for full substring (acceptable for ≤ a few thousand
 		// VMs per typical SecNumCloud deployment). LIKE-escape applied
 		// so operator-pasted `%` / `_` is treated literally.
-		args = append(args, escapeLIKE(strings.ToLower(*filter.Name)))
+		args = append(args, escapeLike(strings.ToLower(*filter.Name)))
 		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE '%%' || $%d || '%%' ESCAPE '\\'", len(args)))
 	}
 	if filter.Image != nil {
 		// Match across image_id (e.g. "ami-75374985") and image_name
 		// (e.g. "rocky-9.3-2024-08") — the operator may know either.
-		args = append(args, escapeLIKE(*filter.Image))
+		args = append(args, escapeLike(*filter.Image))
 		idx := len(args)
 		conds = append(conds, fmt.Sprintf(
 			"(image_id LIKE '%%' || $%d || '%%' ESCAPE '\\' OR LOWER(image_name) LIKE '%%' || LOWER($%d) || '%%' ESCAPE '\\')",
@@ -498,14 +498,19 @@ func (p *PG) UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.Virt
 		}
 		appendSet("applications", b)
 	}
-	// ADR-0029 row-level link. The PATCH handler has already resolved
-	// ApplicationName → ID via ResolveApplicationID, so by the time the
-	// store sees it the field is a concrete (and validated) UUID. A nil
-	// pointer means "leave the link untouched" (merge-patch semantics);
-	// expressing set-to-null is a future surface (mirrors the workload
-	// behaviour described in UpdateWorkload).
-	if in.ApplicationID != nil {
+	// ADR-0029 row-level link with three-state merge-patch semantics
+	// (RFC 7396; mirrors UpdateWorkload). The PATCH handler has already
+	// resolved ApplicationName → ID via ResolveApplicationID, so the field
+	// is a concrete (and validated) UUID by the time the store sees it.
+	//   - ApplicationID != nil      → SET application_id = <value> (link),
+	//   - ClearApplicationID == true → SET application_id = NULL (unlink),
+	//   - otherwise                  → leave the column unchanged.
+	// An explicit id wins over null.
+	switch {
+	case in.ApplicationID != nil:
 		appendSet("application_id", *in.ApplicationID)
+	case in.ClearApplicationID:
+		appendSet("application_id", nil)
 	}
 	if len(sets) == 0 {
 		return p.GetVirtualMachine(ctx, id)
@@ -879,14 +884,4 @@ func validProviderVMID(s string) bool {
 		}
 	}
 	return true
-}
-
-// escapeLIKE escapes the three SQL LIKE metacharacters with backslash
-// so the surrounding query can use `ESCAPE '\'`. Defensive — the
-// validator above already rejects `%`, but keeping the escape here
-// means a future relaxation of the validator (e.g. allowing `+` /
-// `:`) doesn't accidentally re-open the wildcard injection path.
-func escapeLIKE(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return r.Replace(s)
 }

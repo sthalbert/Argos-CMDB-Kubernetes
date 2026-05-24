@@ -598,9 +598,14 @@ func (m *memStore) UpdateVirtualMachine(_ context.Context, id uuid.UUID, in Virt
 		copy(copyApps, *in.Applications)
 		vm.Applications = copyApps
 	}
-	if in.ApplicationID != nil {
+	// ADR-0029 three-state link: explicit id wins, ClearApplicationID
+	// (explicit JSON null) unlinks, otherwise leave untouched.
+	switch {
+	case in.ApplicationID != nil:
 		v := *in.ApplicationID
 		vm.ApplicationID = &v
+	case in.ClearApplicationID:
+		vm.ApplicationID = nil
 	}
 	vm.UpdatedAt = time.Now().UTC()
 	cloudFake.vms[id] = vm

@@ -370,3 +370,72 @@ func TestPGVMApplicationNameSubstring(t *testing.T) {
 		t.Fatalf("LIKE underscore must be escaped: got %d rows, want 0", len(items))
 	}
 }
+
+// TestPGVMApplicationUnlink pins the ADR-0029 §2.3 three-state merge-patch
+// semantics on the VM row-level link: an explicit clear unlinks, an absent
+// signal leaves the link unchanged, and an explicit id (even alongside a
+// clear) sets it.
+//
+//nolint:gocyclo // four sequential merge-patch cases, each with its own assert
+func TestPGVMApplicationUnlink(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	acct := vmTestAccount(t, pg, "vm-app-unlink")
+	billing, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: vmAppBilling})
+	if err != nil {
+		t.Fatalf("create application: %v", err)
+	}
+
+	vm, _, err := pg.UpsertVirtualMachine(ctx, api.VirtualMachineUpsert{
+		CloudAccountID: acct.ID, ProviderVMID: "i-vm-unlink", Name: "vm-unlink",
+		PowerState: "running", Ready: true, Region: strPtr("eu-west-2"),
+	})
+	if err != nil {
+		t.Fatalf("upsert vm: %v", err)
+	}
+
+	// 1) link it.
+	if _, err := pg.UpdateVirtualMachine(ctx, vm.ID, api.VirtualMachinePatch{
+		ApplicationID: &billing.ID,
+	}); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	// 2) absent clear signal + a non-link field → link survives.
+	owner := "team-x"
+	if _, err := pg.UpdateVirtualMachine(ctx, vm.ID, api.VirtualMachinePatch{Owner: &owner}); err != nil {
+		t.Fatalf("patch owner: %v", err)
+	}
+	got, err := pg.GetVirtualMachine(ctx, vm.ID)
+	if err != nil {
+		t.Fatalf("get after owner patch: %v", err)
+	}
+	if got.ApplicationID == nil || *got.ApplicationID != billing.ID {
+		t.Fatalf("link should survive a non-link patch: application_id=%v", got.ApplicationID)
+	}
+
+	// 3) ClearApplicationID=true → link cleared.
+	if _, err := pg.UpdateVirtualMachine(ctx, vm.ID, api.VirtualMachinePatch{ClearApplicationID: true}); err != nil {
+		t.Fatalf("unlink: %v", err)
+	}
+	got, err = pg.GetVirtualMachine(ctx, vm.ID)
+	if err != nil {
+		t.Fatalf("get after unlink: %v", err)
+	}
+	if got.ApplicationID != nil {
+		t.Fatalf("unlink failed: application_id=%v, want nil", *got.ApplicationID)
+	}
+
+	// 4) explicit id wins over a simultaneous clear → link set.
+	updated, err := pg.UpdateVirtualMachine(ctx, vm.ID, api.VirtualMachinePatch{
+		ApplicationID:      &billing.ID,
+		ClearApplicationID: true,
+	})
+	if err != nil {
+		t.Fatalf("relink with id+clear: %v", err)
+	}
+	if updated.ApplicationID == nil || *updated.ApplicationID != billing.ID {
+		t.Fatalf("id should win over clear: application_id=%v, want %v", updated.ApplicationID, billing.ID)
+	}
+}

@@ -421,11 +421,12 @@ function MembersCard({
                   onChanged();
                 }}
               />
-              {/* VM + VM-application linkage lives in the per-app entries of
-                  the VM's `applications` JSONB array (ADR-0029); there is no
-                  clean top-level VM `application_id` to clear here. In v1 those
-                  links are managed from the VM detail page, so these sub-tables
-                  are read-only and link out. */}
+              {/* VMs do have a top-level `application_id` (cleared via
+                  PATCH {"application_id": null}), and VM-application linkage
+                  lives in the per-app entries of the VM's `applications` JSONB
+                  array (ADR-0029). Both are intentionally managed from the VM
+                  detail page in v1, so these sub-tables are read-only and link
+                  out rather than offering an unlink button here. */}
               <MemberTable
                 title="Virtual Machines"
                 members={vms}

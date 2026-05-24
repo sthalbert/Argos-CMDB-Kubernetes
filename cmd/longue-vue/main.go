@@ -583,8 +583,12 @@ func buildHTTPServer(
 		// Order matters: oapi-codegen wraps in list order, so the last
 		// entry becomes the outermost handler (runs first). Auth must be
 		// outermost so it resolves the caller before the audit layer reads
-		// it from the request context.
+		// it from the request context. The workload-unlink detector is
+		// innermost (runs last, right before the codegen body decode) so it
+		// peeks the body the audit layer has already buffered + restored
+		// (ADR-0029 §2.3).
 		Middlewares: []api.MiddlewareFunc{
+			api.DetectWorkloadUnlinkMiddleware,
 			api.AuditMiddleware(pg, "api", cfg.trustedProxies),
 			api.AuthMiddleware(pg, cfg.cookiePolicy, cfg.trustedProxies),
 		},
