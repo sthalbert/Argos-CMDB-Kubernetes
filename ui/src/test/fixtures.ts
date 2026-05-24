@@ -1,7 +1,7 @@
 import type {
-  ApiToken, Application, ApplicationBlock, AuditEvent, AuthConfig, Cluster,
-  CloudAccount, Container, Ingress, ImpactGraph, Me, Namespace, Node,
-  NodeCondition, NodeTaint, PagedResponse, PersistentVolume,
+  ApiToken, Application, ApplicationBlock, ApplicationMember, AuditEvent,
+  AuthConfig, Cluster, CloudAccount, Container, Ingress, ImpactGraph, Me,
+  Namespace, Node, NodeCondition, NodeTaint, PagedResponse, PersistentVolume,
   PersistentVolumeClaim, Pod, Service, Session, Settings, User,
   VirtualMachine, VMApplication, Workload,
 } from '../api';
@@ -406,6 +406,26 @@ export const fixtureApplication: Application = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-02T00:00:00Z',
   member_counts: { workloads: 2, virtual_machines: 1, vm_applications: 0 },
+};
+
+// Application member rows for the ApplicationDetail members card. The
+// kinds map 1:1 to the three sub-tables.
+export const fixtureWorkloadMember: ApplicationMember = {
+  kind: 'workload',
+  id: fixtureWorkload.id,
+  name: fixtureWorkload.name,
+  parent: { kind: 'namespace', id: fixtureNamespace.id, name: fixtureNamespace.name },
+  linked_at: '2025-01-02T00:00:00Z',
+  linked_by: 'alice',
+};
+
+export const fixtureVirtualMachineMember: ApplicationMember = {
+  kind: 'virtual_machine',
+  id: fixtureVirtualMachine.id,
+  name: fixtureVirtualMachine.name,
+  parent: { kind: 'cloud_account', id: fixtureCloudAccount.id, name: fixtureCloudAccount.name },
+  linked_at: '2025-01-02T00:00:00Z',
+  linked_by: 'alice',
 };
 
 export function paged<T>(items: T[]): PagedResponse<T> {

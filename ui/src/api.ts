@@ -506,9 +506,30 @@ export interface Workload {
   namespace_name?: string | null;
   cluster_id?: string | null;
   cluster_name?: string | null;
+  // ADR-0029 linkage. Null when unlinked.
+  application_id?: string | null;
+  application_name?: string | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
+}
+
+// WorkloadPatch is the merge-patch shape the UI posts. `namespace_id`,
+// `kind`, and `name` are immutable post-create. For ADR-0029 the
+// application linkage may be set by id OR by name (server resolves the
+// name; sending null on `application_id` unlinks).
+export interface WorkloadPatch {
+  application_id?: string | null;
+  application_name?: string | null;
+  labels?: Record<string, string> | null;
+}
+
+export function updateWorkload(id: string, patch: WorkloadPatch) {
+  return request<Workload>(`/v1/workloads/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/merge-patch+json' },
+    body: JSON.stringify(patch),
+  });
 }
 
 export interface Pod {

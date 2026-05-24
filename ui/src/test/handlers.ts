@@ -63,6 +63,7 @@ export const handlers = [
 
   http.get('/v1/workloads', () => HttpResponse.json(paged([fixtureWorkload]))),
   http.get('/v1/workloads/:id', () => HttpResponse.json(fixtureWorkload)),
+  http.patch('/v1/workloads/:id', () => HttpResponse.json(fixtureWorkload)),
 
   http.get('/v1/pods', () => HttpResponse.json(paged([fixturePod]))),
   http.get('/v1/pods/:id', () => HttpResponse.json(fixturePod)),
