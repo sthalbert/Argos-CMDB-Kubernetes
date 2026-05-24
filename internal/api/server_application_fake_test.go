@@ -164,6 +164,50 @@ func (m *memStore) GetApplication(_ context.Context, id uuid.UUID) (Application,
 	return app, nil
 }
 
+func (m *memStore) GetApplicationsByIDs(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]Application, error) {
+	out := make(map[uuid.UUID]Application, len(ids))
+	appFake.mu.Lock()
+	defer appFake.mu.Unlock()
+	for _, id := range ids {
+		app, ok := appFake.byID[id]
+		if !ok {
+			continue
+		}
+		app.Annotations = cloneAnnotations(app.Annotations)
+		app.ApplicationBlockName = blockNameFor(app.ApplicationBlockID)
+		out[id] = app
+	}
+	return out, nil
+}
+
+func (m *memStore) DICTCoverageCounts(_ context.Context) (application, workload, none int, _ error) {
+	m.mu.Lock()
+	appIDs := make([]*uuid.UUID, 0, len(m.workloadsByID))
+	for id := range m.workloadsByID {
+		wl := m.workloadsByID[id]
+		appIDs = append(appIDs, wl.ApplicationId)
+	}
+	m.mu.Unlock()
+
+	appFake.mu.Lock()
+	defer appFake.mu.Unlock()
+	for _, appID := range appIDs {
+		appHasDICT := false
+		if appID != nil {
+			if app, ok := appFake.byID[*appID]; ok {
+				appHasDICT = anyAxisSet(app.SecDisponibilite, app.SecIntegrite, app.SecConfidentialite, app.SecTracabilite)
+			}
+		}
+		if appHasDICT {
+			application++
+		} else {
+			// Workloads carry no DICT columns, so the only fallback is "none".
+			none++
+		}
+	}
+	return application, workload, none, nil
+}
+
 func (m *memStore) GetApplicationByName(_ context.Context, name string) (Application, error) {
 	norm := NormalizeApplicationName(name)
 	if norm == "" {

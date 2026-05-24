@@ -9,6 +9,7 @@ package api
 // dependency.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -520,16 +521,154 @@ func TestApplicationListMembers_Empty(t *testing.T) {
 	}
 }
 
-func TestApplicationEOL_Stub(t *testing.T) {
+// applicationEOLResp mirrors the {items: []ApplicationEOLRow} body shape.
+type applicationEOLResp struct {
+	Items []struct {
+		Product         string `json:"product"`
+		Cycle           string `json:"cycle"`
+		EOLStatus       string `json:"eol_status"`
+		LatestAvailable string `json:"latest_available"`
+		Sources         []struct {
+			Kind string `json:"kind"`
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"sources"`
+	} `json:"items"`
+}
+
+// createTestApplication inserts an application via the fake store and
+// returns its id. Used to seed members for the EOL aggregation tests.
+func createTestApplication(t *testing.T, store Store, name string) uuid.UUID {
+	t.Helper()
+	app, err := store.CreateApplication(context.Background(), ApplicationCreate{Name: name})
+	if err != nil {
+		t.Fatalf("create application: %v", err)
+	}
+	return app.ID
+}
+
+func TestApplicationEOL_UnknownID_404(t *testing.T) {
 	resetApplicationFakes()
+	resetCloudFake()
 	store := newMemStore()
-	h := buildApplicationMux(t, store, editorCaller())
+	h := buildApplicationMux(t, store, viewerCaller())
 
 	rr := doReq(t, h, http.MethodGet, fmt.Sprintf("/v1/applications/%s/eol", uuid.New()), nil)
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d body=%q", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%q", rr.Code, rr.Body.String())
 	}
 	if ct := rr.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Errorf("content-type = %q, want application/problem+json", ct)
+	}
+}
+
+// TestApplicationEOL_NoCaller_Forbidden asserts the read-scope guard:
+// with no Caller in context the handler refuses with 403 (the upstream
+// auth middleware turns a missing credential into 401 before reaching
+// here; at the handler level a scopeless caller is Forbidden).
+func TestApplicationEOL_NoCaller_Forbidden(t *testing.T) {
+	resetApplicationFakes()
+	resetCloudFake()
+	store := newMemStore()
+	h := buildApplicationMux(t, store, nil)
+
+	rr := doReq(t, h, http.MethodGet, fmt.Sprintf("/v1/applications/%s/eol", uuid.New()), nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%q", rr.Code, rr.Body.String())
+	}
+}
+
+func TestApplicationEOL_ViewerOK_EmptyMembers(t *testing.T) {
+	resetApplicationFakes()
+	resetCloudFake()
+	store := newMemStore()
+	appID := createTestApplication(t, store, "vault")
+	h := buildApplicationMux(t, store, viewerCaller())
+
+	rr := doReq(t, h, http.MethodGet, fmt.Sprintf("/v1/applications/%s/eol", appID), nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rr.Code, rr.Body.String())
+	}
+	var resp applicationEOLResp
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 0 {
+		t.Errorf("expected 0 rows for memberless application, got %d", len(resp.Items))
+	}
+}
+
+func TestApplicationEOL_MergesWorkloadAndVMAppEntry(t *testing.T) {
+	resetApplicationFakes()
+	resetCloudFake()
+	store := newMemStore()
+	appID := createTestApplication(t, store, "vault")
+
+	// Seed a workload linked to the application carrying image-versions
+	// enrichment for a "vault" container.
+	wlID := uuid.New()
+	latest := "1.18.2"
+	behind := true
+	nsName := "kube-prod"
+	store.mu.Lock()
+	store.workloadsByID[wlID] = Workload{
+		Id:            &wlID,
+		Name:          "vault",
+		NamespaceName: &nsName,
+		Kind:          "Deployment",
+		ApplicationId: &appID,
+		ContainersVersions: &map[string]ContainerVersionInfo{
+			"vault": {LatestTag: &latest, IsBehind: &behind},
+		},
+	}
+	store.mu.Unlock()
+
+	// Seed a VM (NOT row-level linked) whose applications[] entry carries a
+	// per-entry application_id == appID, plus the matching annotation.
+	vmID := uuid.New()
+	vmDisplay := "bastion-eu"
+	cloudFake.mu.Lock()
+	cloudFake.vms[vmID] = VirtualMachine{
+		ID:          vmID,
+		Name:        "i-abc",
+		DisplayName: &vmDisplay,
+		PowerState:  "running",
+		Annotations: map[string]string{
+			"longue-vue.io/eol.vault": `{"product":"vault","cycle":"1.13","eol_status":"eol","latest_available":"1.18.2","checked_at":"2026-05-15T00:00:00Z"}`,
+		},
+		Applications: []VMApplication{{Product: "vault", Version: "1.13", ApplicationID: &appID}},
+	}
+	cloudFake.mu.Unlock()
+
+	h := buildApplicationMux(t, store, viewerCaller())
+	rr := doReq(t, h, http.MethodGet, fmt.Sprintf("/v1/applications/%s/eol", appID), nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rr.Code, rr.Body.String())
+	}
+	var resp applicationEOLResp
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 merged row, got %d: %+v", len(resp.Items), resp.Items)
+	}
+	row := resp.Items[0]
+	if row.Product != "vault" {
+		t.Errorf("product = %q want vault", row.Product)
+	}
+	// The VM-app entry's real annotation (eol) should win over the
+	// workload's image-versions "outdated".
+	if row.EOLStatus != "eol" {
+		t.Errorf("eol_status = %q want eol", row.EOLStatus)
+	}
+	if len(row.Sources) != 2 {
+		t.Fatalf("expected 2 sources (workload + vm_application), got %d: %+v", len(row.Sources), row.Sources)
+	}
+	kinds := map[string]bool{}
+	for _, s := range row.Sources {
+		kinds[s.Kind] = true
+	}
+	if !kinds["workload"] || !kinds["vm_application"] {
+		t.Errorf("sources kinds = %v want workload + vm_application", kinds)
 	}
 }

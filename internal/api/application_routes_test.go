@@ -118,11 +118,13 @@ func TestApplicationRoutes_ProductionWiring(t *testing.T) {
 		t.Fatalf("members: status=%d body=%q", rr.Code, rr.Body.String())
 	}
 
-	// 4. /eol — stub returns 501 in Phase 1, but it must still dispatch
-	// to HandleGetApplicationEOL rather than fall through to a 404.
+	// 4. /eol — the Phase 5 aggregator returns 200 with an (empty) items
+	// array for a memberless application. The smoke confirms the route
+	// dispatches to HandleGetApplicationEOL rather than falling through to
+	// a 404.
 	rr = doReq(t, h, http.MethodGet, "/v1/applications/"+id+"/eol", nil)
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("eol: status=%d body=%q want 501", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("eol: status=%d body=%q want 200", rr.Code, rr.Body.String())
 	}
 }
 

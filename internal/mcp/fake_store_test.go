@@ -33,10 +33,15 @@ type fakeStore struct {
 	// the fly so test setup just appends rows without nesting.
 	imageVersions []api.ImageVersionRow
 
+	// Applications + ApplicationBlocks (ADR-0029).
+	applications []api.Application
+	appBlocks    []api.ApplicationBlock
+
 	errOn             map[string]error
 	panicOnGetCluster bool // triggers a panic inside GetCluster for panic-recovery tests
 
-	lastVMFilter api.VirtualMachineListFilter
+	lastVMFilter  api.VirtualMachineListFilter
+	lastAppFilter api.ApplicationListFilter
 }
 
 func newFakeStore() *fakeStore {
@@ -423,6 +428,71 @@ func (f *fakeStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) 
 		}
 	}
 	return out, nil
+}
+
+// --- Applications + ApplicationBlocks (ADR-0029) ----
+
+func (f *fakeStore) ListApplications(
+	_ context.Context,
+	filter api.ApplicationListFilter,
+	_ int,
+	_ string,
+) ([]api.Application, string, error) {
+	f.lastAppFilter = filter
+	if err := f.errOn["ListApplications"]; err != nil {
+		return nil, "", err
+	}
+	out := make([]api.Application, 0, len(f.applications))
+	for _, a := range f.applications {
+		if filter.Criticality != nil && (a.Criticality == nil || *a.Criticality != *filter.Criticality) {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, "", nil
+}
+
+func (f *fakeStore) GetApplication(_ context.Context, id uuid.UUID) (api.Application, error) {
+	if err := f.errOn["GetApplication"]; err != nil {
+		return api.Application{}, err
+	}
+	for i := range f.applications {
+		if f.applications[i].ID == id {
+			return f.applications[i], nil
+		}
+	}
+	return api.Application{}, api.ErrNotFound
+}
+
+func (f *fakeStore) GetApplicationByName(_ context.Context, name string) (api.Application, error) {
+	if err := f.errOn["GetApplicationByName"]; err != nil {
+		return api.Application{}, err
+	}
+	for i := range f.applications {
+		if f.applications[i].Name == name {
+			return f.applications[i], nil
+		}
+	}
+	return api.Application{}, api.ErrNotFound
+}
+
+func (f *fakeStore) ListApplicationBlocks(
+	_ context.Context,
+	filter api.ApplicationBlockListFilter,
+	_ int,
+	_ string,
+) ([]api.ApplicationBlock, string, error) {
+	if err := f.errOn["ListApplicationBlocks"]; err != nil {
+		return nil, "", err
+	}
+	out := make([]api.ApplicationBlock, 0, len(f.appBlocks))
+	for _, b := range f.appBlocks {
+		if filter.Owner != nil && (b.Owner == nil || *b.Owner != *filter.Owner) {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out, "", nil
 }
 
 // helpers

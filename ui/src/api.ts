@@ -492,6 +492,22 @@ export function updateNamespace(id: string, patch: NamespacePatch) {
   });
 }
 
+// EffectiveDICT is the read-only inherited DICT classification shipped on
+// workload + VM responses (ADR-0029 §6). The four axes are EBIOS-RM security
+// needs; `source` records where the classification was inherited from. In
+// practice today `source` is only ever "application" or "none" because
+// workloads/namespaces never got their own DICT columns — DICT lives on
+// applications. The field is always read-only; classification is edited on
+// the linked application's detail page.
+export interface EffectiveDICT {
+  disponibilite?: number | null;
+  integrite?: number | null;
+  confidentialite?: number | null;
+  tracabilite?: number | null;
+  notes?: string | null;
+  source: 'application' | 'workload' | 'namespace' | 'none';
+}
+
 export interface Workload {
   id: string;
   namespace_id: string;
@@ -506,9 +522,33 @@ export interface Workload {
   namespace_name?: string | null;
   cluster_id?: string | null;
   cluster_name?: string | null;
+  // ADR-0029 linkage. Null when unlinked.
+  application_id?: string | null;
+  application_name?: string | null;
+  // ADR-0029 §6 read-only inherited classification. Absent if the server
+  // omits it; otherwise carries source="none" when nothing is classified.
+  effective_dict?: EffectiveDICT | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
+}
+
+// WorkloadPatch is the merge-patch shape the UI posts. `namespace_id`,
+// `kind`, and `name` are immutable post-create. For ADR-0029 the
+// application linkage may be set by id OR by name (server resolves the
+// name; sending null on `application_id` unlinks).
+export interface WorkloadPatch {
+  application_id?: string | null;
+  application_name?: string | null;
+  labels?: Record<string, string> | null;
+}
+
+export function updateWorkload(id: string, patch: WorkloadPatch) {
+  return request<Workload>(`/v1/workloads/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/merge-patch+json' },
+    body: JSON.stringify(patch),
+  });
 }
 
 export interface Pod {
@@ -920,6 +960,11 @@ export interface VMApplication {
   notes?: string | null;
   added_at: string;
   added_by: string;
+  // ADR-0029 per-entry linkage: this specific product/version pair on the
+  // VM may point at an Application independently of the VM's row-level link.
+  // application_name is the denormalized display name (server-resolved).
+  application_id?: string | null;
+  application_name?: string | null;
 }
 
 export interface VirtualMachine {
@@ -967,6 +1012,13 @@ export interface VirtualMachine {
   criticality?: string | null;
   notes?: string | null;
   runbook_url?: string | null;
+  // ADR-0029 row-level linkage: links the whole VM to an Application.
+  // The GET response carries only the id (no denormalized name yet), so
+  // the detail page resolves the display name via getApplication.
+  application_id?: string | null;
+  // ADR-0029 §6 read-only inherited classification. VMs have no DICT columns
+  // of their own, so source is only ever "application" or "none".
+  effective_dict?: EffectiveDICT | null;
   created_at: string;
   updated_at: string;
   last_seen_at: string;
@@ -986,6 +1038,11 @@ export interface VirtualMachineListFilter {
   application_version?: string;
 }
 
+// VirtualMachinePatch is the merge-patch shape posted to PATCH
+// /v1/virtual-machines/{id}. ADR-0029 adds the row-level application
+// linkage: application_id sets the link directly, application_name is a
+// write-only convenience the server resolves to an id (id wins on
+// conflict; null on application_id unlinks).
 export type VirtualMachinePatch = Partial<Pick<
   VirtualMachine,
   | 'display_name'
@@ -996,7 +1053,10 @@ export type VirtualMachinePatch = Partial<Pick<
   | 'runbook_url'
   | 'annotations'
   | 'applications'
->>;
+  | 'application_id'
+>> & {
+  application_name?: string | null;
+};
 
 export function listVirtualMachines(filter: VirtualMachineListFilter = {}) {
   return request<PagedResponse<VirtualMachine>>(
@@ -1045,6 +1105,233 @@ export function listDistinctVMApplications() {
   return request<{ products: VMApplicationDistinct[] }>(
     '/v1/virtual-machines/applications/distinct',
   );
+}
+
+// --- Applications + Application blocks (ADR-0029) -------------------------
+
+// ApplicationBlock is the optional grouping layer above Application — a
+// portfolio / business domain (e.g. "Finance" or "Office IT"). The
+// backend keeps name unique and stores curated metadata alongside.
+export interface ApplicationBlock {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  owner?: string;
+  notes?: string;
+  annotations: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+  // Convenience counter: how many applications belong to the block.
+  // Optional because list-vs-detail responses include it inconsistently.
+  application_count?: number;
+}
+
+export interface ApplicationBlockCreate {
+  name: string;
+  display_name?: string;
+  description?: string;
+  owner?: string;
+  notes?: string;
+  annotations?: Record<string, string>;
+}
+
+// ApplicationBlockPatch is the merge-patch shape. `name` is immutable
+// once issued (mirrors clusters/cloud-accounts).
+export type ApplicationBlockPatch = Partial<Omit<ApplicationBlockCreate, 'name'>>;
+
+// ApplicationMemberCounts is the inline summary the backend embeds on
+// every Application response so we don't have to round-trip /members
+// just to render a count badge.
+export interface ApplicationMemberCounts {
+  workloads: number;
+  virtual_machines: number;
+  vm_applications: number;
+}
+
+export interface Application {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  application_block_id?: string | null;
+  application_block_name?: string | null;
+  owner?: string;
+  criticality?: string;
+  notes?: string;
+  runbook_url?: string;
+  annotations: Record<string, string>;
+  // SecNumCloud DICT vector (Disponibilité / Intégrité /
+  // Confidentialité / Traçabilité). null until the operator records it.
+  sec_disponibilite?: number | null;
+  sec_integrite?: number | null;
+  sec_confidentialite?: number | null;
+  sec_tracabilite?: number | null;
+  sec_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  member_counts: ApplicationMemberCounts;
+}
+
+export interface ApplicationCreate {
+  name: string;
+  display_name?: string;
+  description?: string;
+  // Either link by id or by name — backend resolves the name to an id
+  // on create (returns 409 if both are set and disagree).
+  application_block_id?: string;
+  application_block_name?: string;
+  owner?: string;
+  criticality?: string;
+  notes?: string;
+  runbook_url?: string;
+  annotations?: Record<string, string>;
+  sec_disponibilite?: number;
+  sec_integrite?: number;
+  sec_confidentialite?: number;
+  sec_tracabilite?: number;
+  sec_notes?: string;
+}
+
+export type ApplicationPatch = Partial<Omit<ApplicationCreate, 'name'>>;
+
+// ApplicationMember is one row of GET /v1/applications/{id}/members —
+// a workload, VM, or specific vm_application linked to this app.
+export interface ApplicationMember {
+  kind: 'workload' | 'virtual_machine' | 'vm_application';
+  id: string;
+  name: string;
+  parent?: { kind: string; id?: string; name: string };
+  linked_at: string;
+  linked_by: string;
+}
+
+export interface ApplicationListFilter {
+  name?: string;
+  application_block_id?: string;
+  application_block_name?: string;
+  criticality?: string;
+  // has_dict / dict_min surface the DICT-coverage filter set in
+  // ADR-0029 Phase 4.
+  has_dict?: boolean;
+  dict_min?: number;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface ApplicationBlockListFilter {
+  name?: string;
+  owner?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export function listApplicationBlocks(filter: ApplicationBlockListFilter = {}) {
+  return request<PagedResponse<ApplicationBlock>>(
+    '/v1/application-blocks' +
+      query({
+        limit: filter.limit ?? 200,
+        name: filter.name,
+        owner: filter.owner,
+        cursor: filter.cursor,
+      }),
+  );
+}
+
+export function getApplicationBlock(id: string) {
+  return request<ApplicationBlock>(`/v1/application-blocks/${id}`);
+}
+
+export function createApplicationBlock(body: ApplicationBlockCreate) {
+  return request<ApplicationBlock>('/v1/application-blocks', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchApplicationBlock(id: string, body: ApplicationBlockPatch) {
+  return request<ApplicationBlock>(`/v1/application-blocks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteApplicationBlock(id: string) {
+  return request<void>(`/v1/application-blocks/${id}`, { method: 'DELETE' });
+}
+
+export function listApplications(filter: ApplicationListFilter = {}) {
+  return request<PagedResponse<Application>>(
+    '/v1/applications' +
+      query({
+        limit: filter.limit ?? 200,
+        name: filter.name,
+        application_block_id: filter.application_block_id,
+        application_block_name: filter.application_block_name,
+        criticality: filter.criticality,
+        has_dict: filter.has_dict !== undefined ? String(filter.has_dict) : undefined,
+        dict_min: filter.dict_min,
+        cursor: filter.cursor,
+      }),
+  );
+}
+
+export function getApplication(id: string) {
+  return request<Application>(`/v1/applications/${id}`);
+}
+
+export function getApplicationByName(name: string) {
+  return request<Application>(`/v1/applications/by-name/${encodeURIComponent(name)}`);
+}
+
+export function createApplication(body: ApplicationCreate) {
+  return request<Application>('/v1/applications', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchApplication(id: string, body: ApplicationPatch) {
+  return request<Application>(`/v1/applications/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteApplication(id: string) {
+  return request<void>(`/v1/applications/${id}`, { method: 'DELETE' });
+}
+
+export function listApplicationMembers(id: string, cursor?: string, limit?: number) {
+  return request<PagedResponse<ApplicationMember>>(
+    `/v1/applications/${id}/members` + query({ cursor, limit }),
+  );
+}
+
+// ApplicationEOLSource names one member asset contributing an EOL row
+// (ADR-0029 §5).
+export type ApplicationEOLSource = {
+  kind: 'workload' | 'virtual_machine' | 'vm_application' | string;
+  id: string;
+  name: string;
+};
+
+// ApplicationEOLRow is one product rolled up across an application's
+// members, with the contributing sources listed.
+export type ApplicationEOLRow = {
+  product: string;
+  cycle: string;
+  eol_status: string;
+  latest_available?: string;
+  evaluated_at?: string;
+  sources: ApplicationEOLSource[];
+};
+
+// applicationEOL returns the read-time aggregated EOL signal across an
+// application's members (workloads via image-versions, linked VMs, and
+// matching VM-application entries). ADR-0029 §5.
+export function applicationEOL(id: string): Promise<{ items: ApplicationEOLRow[] }> {
+  return request<{ items: ApplicationEOLRow[] }>(`/v1/applications/${id}/eol`);
 }
 
 // --- Image versions ---------------------------------------------------------
@@ -1274,5 +1561,26 @@ export function extractEol(p: EolExtractParams): Promise<DownloadResult> {
   return downloadExtract(
     `/v1/eol/extract?${params.toString()}`,
     `longue-vue-eol.${p.format}`,
+  );
+}
+
+// extractApplications downloads the Application portfolio extract (ADR-0029
+// §3, Phase 6 backend). The CSV/JSON variants live at distinct paths and
+// accept the same DICT-coverage filters as the list endpoint. The
+// Classification heat-map drives it with `dict_min` only.
+export interface ApplicationExtractParams {
+  format: ExtractFormat;
+  dict_min?: number;
+  criticality?: string;
+}
+
+export function extractApplications(p: ApplicationExtractParams): Promise<DownloadResult> {
+  const params = new URLSearchParams();
+  if (p.dict_min !== undefined) params.set('dict_min', String(p.dict_min));
+  if (p.criticality) params.set('criticality', p.criticality);
+  const qs = params.toString();
+  return downloadExtract(
+    `/v1/applications/extract.${p.format}${qs ? `?${qs}` : ''}`,
+    `longue-vue-applications.${p.format}`,
   );
 }

@@ -2797,6 +2797,96 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /v1/applications/extract.csv:
+    get:
+      tags: [applications]
+      summary: Download applications as CSV
+      description: |
+        Streams every Application matching the same filters as
+        GET /v1/applications (name, application_block_id,
+        application_block_name, criticality, has_dict, dict_min), with the
+        four DICT axes and the three member counts flattened into columns —
+        the SecNumCloud chapter-8 evidence shape. The result set is capped
+        at `LONGUE_VUE_EXTRACT_MAX_ROWS` (default 50 000); when the cap is
+        hit the response carries `X-Longue-Vue-Truncated: true` and the
+        file is still well-formed CSV.
+      operationId: applicationsExtractCsv
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - { name: name, in: query, required: false, schema: { type: string } }
+        - { name: application_block_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: application_block_name, in: query, required: false, schema: { type: string } }
+        - { name: criticality, in: query, required: false, schema: { type: string } }
+        - { name: has_dict, in: query, required: false, schema: { type: boolean } }
+        - { name: dict_min, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 4 } }
+      responses:
+        '200':
+          description: CSV body (UTF-8 with a BOM, CRLF endings).
+          headers:
+            X-Longue-Vue-Truncated:
+              schema: { type: string, enum: ['true'] }
+              description: Present and "true" when the row cap was hit.
+            Content-Disposition:
+              schema: { type: string }
+              description: 'attachment; filename="longue-vue-applications-<ts>.csv"'
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/applications/extract.json:
+    get:
+      tags: [applications]
+      summary: Download applications as JSON
+      description: |
+        JSON counterpart of GET /v1/applications/extract.csv. Accepts the
+        same filters and returns a flat array of the full Application
+        objects (DICT axes + member_counts included). Capped at
+        `LONGUE_VUE_EXTRACT_MAX_ROWS`; `X-Longue-Vue-Truncated: true`
+        signals the cap.
+      operationId: applicationsExtractJson
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - { name: name, in: query, required: false, schema: { type: string } }
+        - { name: application_block_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: application_block_name, in: query, required: false, schema: { type: string } }
+        - { name: criticality, in: query, required: false, schema: { type: string } }
+        - { name: has_dict, in: query, required: false, schema: { type: boolean } }
+        - { name: dict_min, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 4 } }
+      responses:
+        '200':
+          description: JSON array of Application objects.
+          headers:
+            X-Longue-Vue-Truncated:
+              schema: { type: string, enum: ['true'] }
+              description: Present and "true" when the row cap was hit.
+            Content-Disposition:
+              schema: { type: string }
+              description: 'attachment; filename="longue-vue-applications-<ts>.json"'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Application'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /v1/applications/{id}:
     parameters:
       - $ref: '#/components/parameters/ApplicationId'
@@ -4313,6 +4403,14 @@ components:
               format: uuid
               nullable: true
               description: "Link to an Application (ADR-0029); operator-curated. Null when unlinked."
+            effective_dict:
+              allOf:
+                - $ref: '#/components/schemas/EffectiveDICT'
+              readOnly: true
+              description: |
+                Read-only inherited DICT classification (ADR-0029 §6).
+                Computed at read time with application-wins precedence; never
+                accepted on PATCH/POST bodies.
             created_at:
               type: string
               format: date-time
@@ -4321,6 +4419,49 @@ components:
               type: string
               format: date-time
               readOnly: true
+
+    EffectiveDICT:
+      description: |
+        Read-only, computed DICT classification for a Workload or VM
+        (ADR-0029 §6). `source` records where the values were inherited from:
+        `application` when the linked Application carries any DICT axis,
+        `workload`/`namespace` when the entity's own classification is used,
+        or `none` when neither is set.
+      type: object
+      required: [source]
+      properties:
+        disponibilite:
+          type: integer
+          minimum: 0
+          maximum: 4
+          nullable: true
+          readOnly: true
+        integrite:
+          type: integer
+          minimum: 0
+          maximum: 4
+          nullable: true
+          readOnly: true
+        confidentialite:
+          type: integer
+          minimum: 0
+          maximum: 4
+          nullable: true
+          readOnly: true
+        tracabilite:
+          type: integer
+          minimum: 0
+          maximum: 4
+          nullable: true
+          readOnly: true
+        notes:
+          type: string
+          nullable: true
+          readOnly: true
+        source:
+          type: string
+          enum: [application, workload, namespace, none]
+          readOnly: true
 
     WorkloadList:
       description: Paged list of workloads.
@@ -5838,10 +5979,69 @@ components:
 
     ApplicationEOLSummary:
       description: |
-        Placeholder for the per-application EOL aggregation. The concrete
-        shape lands in Phase 5 of ADR-0029.
+        Read-time aggregation of the EOL signal across an application's
+        members (ADR-0029 §5). One row per product, each row listing the
+        member assets that contribute it. No caching, no enricher pass.
       type: object
+      required: [items]
       properties:
         items:
           type: array
-          items: { type: object }
+          items:
+            $ref: '#/components/schemas/ApplicationEOLRow'
+    ApplicationEOLRow:
+      description: |
+        One product rolled up across every member that exposes EOL signal
+        for it. `sources` names the contributing assets (workloads via
+        image-versions enrichment, linked VMs, and matching VM-application
+        entries).
+      type: object
+      required: [product, eol_status, sources]
+      properties:
+        product:
+          type: string
+          description: Normalised product key (kebab-case) or container name.
+          example: vault
+        cycle:
+          type: string
+          description: Release cycle from endoflife.date, when known.
+          example: '1.13'
+        eol_status:
+          type: string
+          description: |
+            Lifecycle status. `eol` / `approaching_eol` / `supported`
+            come from the endoflife.date enricher on VMs; `outdated`
+            (image behind latest) / `unknown` come from workload
+            image-versions enrichment.
+          enum: [eol, approaching_eol, supported, outdated, unknown]
+          example: eol
+        latest_available:
+          type: string
+          description: Newest published version / tag known for the product.
+          example: 1.18.2
+        evaluated_at:
+          type: string
+          description: When the underlying signal was last evaluated (RFC 3339).
+          example: '2026-05-15T00:00:00Z'
+        sources:
+          type: array
+          description: Member assets contributing this product's EOL signal.
+          items:
+            $ref: '#/components/schemas/ApplicationEOLSource'
+    ApplicationEOLSource:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind:
+          type: string
+          enum: [workload, virtual_machine, vm_application]
+          example: virtual_machine
+        id:
+          type: string
+          description: |
+            Asset identifier. A UUID for workloads / VMs; a composite
+            `<vm-uuid>#<product>` for VM-application entries.
+          example: 550e8400-e29b-41d4-a716-446655440000
+        name:
+          type: string
+          example: bastion-eu

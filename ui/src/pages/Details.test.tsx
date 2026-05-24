@@ -1,17 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {
   ClusterDetail, IngressDetail, NamespaceDetail, NodeDetail,
   PersistentVolumeClaimDetail, PodDetail, ServiceDetail, WorkloadDetail,
 } from './Details';
 import { OriginLine } from '../components/OriginLine';
 import { renderWithRouter } from '../test/render';
+import { MeProvider } from '../me';
+import type { Me } from '../api';
 import { server } from '../test/server';
 import {
-  fixtureCluster, fixtureIngress, fixtureNamespace, fixtureNode,
-  fixturePod, fixturePVC, fixtureService, fixtureWorkload,
+  fixtureApplication, fixtureCluster, fixtureIngress, fixtureMe, fixtureNamespace,
+  fixtureNode, fixturePod, fixturePVC, fixtureService, fixtureWorkload,
 } from '../test/fixtures';
+
+// renderWorkload mounts WorkloadDetail under both a MemoryRouter (the page
+// uses Links) and a MeProvider so we can exercise the role-gated
+// ApplicationCard affordances.
+function renderWorkload(me: Me | null) {
+  return render(
+    <MeProvider value={me}>
+      <MemoryRouter initialEntries={[`/workloads/${fixtureWorkload.id}`]}>
+        <Routes>
+          <Route path="/workloads/:id" element={<WorkloadDetail />} />
+        </Routes>
+      </MemoryRouter>
+    </MeProvider>,
+  );
+}
+
+const viewerMe: Me = { ...fixtureMe, role: 'viewer', scopes: ['read'] };
 
 describe('ClusterDetail', () => {
   it('renders without crashing', () => {
@@ -98,6 +119,88 @@ describe('WorkloadDetail', () => {
     await waitFor(() =>
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
+  });
+
+  it('renders the ApplicationCard', async () => {
+    renderWorkload(fixtureMe);
+    await waitFor(() =>
+      expect(screen.getByTestId('application-card')).toBeInTheDocument(),
+    );
+    // Unlinked fixture → the card shows "Not linked".
+    expect(screen.getByText('Not linked')).toBeInTheDocument();
+  });
+
+  it('renders the EffectiveDICTCard with the inherited classification', async () => {
+    server.use(
+      http.get('/v1/workloads/:id', () =>
+        HttpResponse.json({
+          ...fixtureWorkload,
+          application_id: fixtureApplication.id,
+          application_name: fixtureApplication.name,
+          effective_dict: {
+            disponibilite: 3,
+            integrite: 2,
+            confidentialite: 4,
+            tracabilite: 1,
+            source: 'application',
+          },
+        }),
+      ),
+    );
+    renderWorkload(fixtureMe);
+    const card = await screen.findByTestId('effective-dict-card');
+    expect(within(card).getByText('Classification (DICT)')).toBeInTheDocument();
+    expect(within(card).getByText('3')).toBeInTheDocument();
+    expect(within(card).getByText(/Inherited from application/)).toBeInTheDocument();
+  });
+
+  it('shows the linked application name from the denormalized field', async () => {
+    server.use(
+      http.get('/v1/workloads/:id', () =>
+        HttpResponse.json({
+          ...fixtureWorkload,
+          application_id: fixtureApplication.id,
+          application_name: fixtureApplication.name,
+        }),
+      ),
+    );
+    renderWorkload(fixtureMe);
+    const card = await screen.findByTestId('application-card');
+    expect(within(card).getByText(fixtureApplication.name)).toBeInTheDocument();
+  });
+
+  it('lets an editor link a workload to an application', async () => {
+    let patchedBody: unknown = null;
+    server.use(
+      http.patch('/v1/workloads/:id', async ({ request }) => {
+        patchedBody = await request.json();
+        return HttpResponse.json({
+          ...fixtureWorkload,
+          application_id: fixtureApplication.id,
+          application_name: fixtureApplication.name,
+        });
+      }),
+    );
+    renderWorkload(fixtureMe);
+    const card = await screen.findByTestId('application-card');
+    // Editor sees the Link… button.
+    await userEvent.click(within(card).getByRole('button', { name: /link/i }));
+    await userEvent.type(
+      within(card).getByLabelText('Search applications'),
+      'bill',
+    );
+    const pick = await within(card).findByRole('button', { name: /billing/i });
+    await userEvent.click(pick);
+    await waitFor(() =>
+      expect(patchedBody).toEqual({ application_id: fixtureApplication.id }),
+    );
+  });
+
+  it('hides edit affordances from a viewer', async () => {
+    renderWorkload(viewerMe);
+    const card = await screen.findByTestId('application-card');
+    expect(within(card).queryByRole('button', { name: /link/i })).toBeNull();
+    expect(within(card).queryByRole('button', { name: /change/i })).toBeNull();
   });
 });
 

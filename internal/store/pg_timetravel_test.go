@@ -166,7 +166,7 @@ func TestTimeTravelCapture_WorkloadApplicationID(t *testing.T) {
 
 	// Link the workload — this is a watched change, so a new history row
 	// is written and the prior (create) row is closed.
-	_, err = pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{ApplicationId: &app.ID})
+	_, err = pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{ApplicationId: &app.ID}, false)
 	require.NoError(t, err)
 
 	// Inspect the *open* history row (valid_to IS NULL) — its application_id

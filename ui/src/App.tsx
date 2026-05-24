@@ -30,6 +30,8 @@ import {
 import EolDashboard from './pages/EolDashboard';
 import VirtualMachines from './pages/VirtualMachines';
 import VirtualMachineDetail from './pages/VirtualMachineDetail';
+import Applications from './pages/Applications';
+import ApplicationDetail from './pages/ApplicationDetail';
 import Images from './pages/Images';
 import ImageDetail from './pages/ImageDetail';
 import AdminLayout from './pages/admin/AdminLayout';
@@ -41,6 +43,8 @@ import SettingsPage from './pages/admin/Settings';
 import CloudAccountsPage from './pages/admin/CloudAccounts';
 import CloudAccountDetail from './pages/admin/CloudAccountDetail';
 import ImageRegistriesPage from './pages/admin/ImageRegistries';
+import ApplicationBlocksPage from './pages/admin/ApplicationBlocks';
+import ClassificationHeatmap from './pages/admin/ClassificationHeatmap';
 import { MeProvider } from './me';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon,
@@ -150,6 +154,9 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           {link('/persistentvolumes', 'PVs', VolumeIcon)}
           {link('/persistentvolumeclaims', 'PVCs', VolumeIcon)}
           <div className="sidebar-divider" />
+          <span className="sidebar-section-label">Applications</span>
+          {link('/applications', 'Applications', WorkloadIcon)}
+          <div className="sidebar-divider" />
           <span className="sidebar-section-label">Cloud Infrastructure</span>
           {link('/virtual-machines', 'Virtual Machines', VirtualMachineIcon)}
           <div className="sidebar-divider" />
@@ -251,6 +258,13 @@ export default function App() {
       <Route path="/virtual-machines" element={authed(<VirtualMachines />)} />
       <Route path="/virtual-machines/:id" element={authed(<VirtualMachineDetail />)} />
 
+      {/* ADR-0029: applications sit alongside Kubernetes + VMs as a
+          first-class business-systems view. Routes added now so
+          deep links from ApplicationCard resolve; the page bodies
+          land in Phase 3 bundle B. */}
+      <Route path="/applications" element={authed(<Applications />)} />
+      <Route path="/applications/:id" element={authed(<ApplicationDetail />)} />
+
       <Route path="/images" element={authed(<Images />)} />
       <Route path="/images/:imageRepo" element={authed(<ImageDetail />)} />
 
@@ -275,6 +289,8 @@ export default function App() {
         <Route path="cloud-accounts" element={<CloudAccountsPage />} />
         <Route path="cloud-accounts/:id" element={<CloudAccountDetail />} />
         <Route path="image-registries" element={<ImageRegistriesPage />} />
+        <Route path="application-blocks" element={<ApplicationBlocksPage />} />
+        <Route path="classification" element={<ClassificationHeatmap />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

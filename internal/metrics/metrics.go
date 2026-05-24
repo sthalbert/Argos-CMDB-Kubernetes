@@ -185,7 +185,7 @@ var (
 	extractsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "longue_vue",
 		Name:      "extracts_total",
-		Help:      "Bulk extracts requested via /v1/search/extract* or /v1/eol/extract, per page, format, and outcome.",
+		Help:      "Bulk extracts requested via /v1/search/extract*, /v1/eol/extract, or /v1/applications/extract.*, per page, format, and outcome.",
 	}, []string{"page", "format", "outcome"})
 
 	extractRowsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -193,6 +193,32 @@ var (
 		Name:      "extract_rows_total",
 		Help:      "Cumulative count of rows emitted by extract endpoints, per page.",
 	}, []string{"page"})
+
+	// dictCoverage counts workloads by where their effective DICT
+	// classification comes from (ADR-0029 §6). Refreshed by a periodic
+	// goroutine in longue-vue from a single SQL query over
+	// workloads ⋈ applications.
+	dictCoverage = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "longue_vue",
+		Name:      "dict_coverage",
+		Help:      "Count of workloads by effective-DICT source (ADR-0029): application | workload | none.",
+	}, []string{"source"})
+
+	// applicationsTotal counts applications split by whether they belong to a
+	// block and whether any DICT axis is set (ADR-0029 §9). Refreshed by the
+	// same periodic goroutine as dictCoverage.
+	applicationsTotal = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "longue_vue",
+		Name:      "applications_total",
+		Help:      "Count of applications, labelled by whether they belong to a block and whether any DICT axis is set (ADR-0029 §9).",
+	}, []string{"has_block", "has_dict"})
+
+	// applicationBlocksTotal counts application blocks (ADR-0029 §9).
+	applicationBlocksTotal = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "longue_vue",
+		Name:      "application_blocks_total",
+		Help:      "Count of application blocks (ADR-0029 §9).",
+	})
 )
 
 func init() {
@@ -223,7 +249,51 @@ func init() {
 		auditEventsSkipped,
 		extractsTotal,
 		extractRowsTotal,
+		dictCoverage,
+		applicationsTotal,
+		applicationBlocksTotal,
 	)
+}
+
+// SetDICTCoverage sets the per-source workload effective-DICT coverage gauge
+// (ADR-0029 §6). Called from the periodic metrics-refresh loop.
+func SetDICTCoverage(application, workload, none int) {
+	dictCoverage.WithLabelValues("application").Set(float64(application))
+	dictCoverage.WithLabelValues("workload").Set(float64(workload))
+	dictCoverage.WithLabelValues("none").Set(float64(none))
+}
+
+// ApplicationCount is one (has_block, has_dict) bucket of the applications
+// population, used to set the longue_vue_applications_total gauge series
+// (ADR-0029 §9).
+type ApplicationCount struct {
+	HasBlock bool
+	HasDict  bool
+	Count    int
+}
+
+// SetApplicationCounts replaces all longue_vue_applications_total series from
+// the supplied buckets. Resets first so a combination that drops to zero
+// between refreshes is cleared rather than left stale. Called from the
+// periodic metrics-refresh loop (ADR-0029 §9).
+func SetApplicationCounts(buckets []ApplicationCount) {
+	applicationsTotal.Reset()
+	for _, b := range buckets {
+		applicationsTotal.WithLabelValues(boolLabel(b.HasBlock), boolLabel(b.HasDict)).Set(float64(b.Count))
+	}
+}
+
+// SetApplicationBlocksTotal sets the longue_vue_application_blocks_total gauge
+// (ADR-0029 §9).
+func SetApplicationBlocksTotal(n int) {
+	applicationBlocksTotal.Set(float64(n))
+}
+
+func boolLabel(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 // IngestVerifyTotal increments the POST /v1/auth/verify outcome counter.

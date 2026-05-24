@@ -33,6 +33,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/impact"
 	argmcp "github.com/sthalbert/longue-vue/internal/mcp"
 	"github.com/sthalbert/longue-vue/internal/metrics"
+	"github.com/sthalbert/longue-vue/internal/metricsrefresh"
 	"github.com/sthalbert/longue-vue/internal/secrets"
 	"github.com/sthalbert/longue-vue/internal/store"
 	"github.com/sthalbert/longue-vue/ui"
@@ -303,6 +304,12 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 	}
 	defer drainEOL()
 
+	drainMetricsRefresh, err := maybeStartMetricsRefresh(rootCtx, pg)
+	if err != nil {
+		return err
+	}
+	defer drainMetricsRefresh()
+
 	imgVersionsEnricher, drainImageVersions, err := maybeStartImageVersionsEnricher(rootCtx, pg)
 	if err != nil {
 		return fmt.Errorf("image versions enricher: %w", err)
@@ -541,7 +548,7 @@ func buildHTTPServer(
 
 	// Application + ApplicationBlock routes (ADR-0029) — extracted to keep
 	// buildHTTPServer within the maintainability-index ceiling.
-	mountApplicationRoutes(mux, pg, requireScope, cloudAuth, auditWrap)
+	mountApplicationRoutes(mux, pg, requireScope, cloudAuth, auditWrap, cfg.extractMaxRows)
 
 	// Extract endpoints — audited via the shouldAudit allowlist (ADR-0024 / SNC ch.8).
 	extractAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
@@ -576,8 +583,12 @@ func buildHTTPServer(
 		// Order matters: oapi-codegen wraps in list order, so the last
 		// entry becomes the outermost handler (runs first). Auth must be
 		// outermost so it resolves the caller before the audit layer reads
-		// it from the request context.
+		// it from the request context. The workload-unlink detector is
+		// innermost (runs last, right before the codegen body decode) so it
+		// peeks the body the audit layer has already buffered + restored
+		// (ADR-0029 §2.3).
 		Middlewares: []api.MiddlewareFunc{
+			api.DetectWorkloadUnlinkMiddleware,
 			api.AuditMiddleware(pg, "api", cfg.trustedProxies),
 			api.AuthMiddleware(pg, cfg.cookiePolicy, cfg.trustedProxies),
 		},
@@ -648,6 +659,7 @@ func mountApplicationRoutes(
 	requireScope func(scope string) func(http.Handler) http.Handler,
 	cloudAuth func(http.Handler) http.Handler,
 	auditWrap func(http.Handler) http.Handler,
+	extractMaxRows int,
 ) {
 	// Application blocks — no internal route conflicts; mount directly.
 	mux.Handle("POST /v1/application-blocks",
@@ -671,6 +683,13 @@ func mountApplicationRoutes(
 		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreateApplication(pg)))))
 	appsRestMux.Handle("GET /v1/applications",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListApplications(pg)))))
+	// Bulk extracts (ADR-0029 §2.1). The ".csv" / ".json" literal segments
+	// are more specific than the {id} wildcard, so net/http.ServeMux routes
+	// them without colliding with GET /v1/applications/{id}.
+	appsRestMux.Handle("GET /v1/applications/extract.csv",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleExtractApplicationsCSV(pg, extractMaxRows)))))
+	appsRestMux.Handle("GET /v1/applications/extract.json",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleExtractApplicationsJSON(pg, extractMaxRows)))))
 	appsRestMux.Handle("GET /v1/applications/{id}",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetApplication(pg)))))
 	appsRestMux.Handle("PATCH /v1/applications/{id}",
@@ -1304,6 +1323,32 @@ func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 		slog.String("base_url", baseURL),
 	)
 
+	return wg.Wait, nil
+}
+
+// maybeStartMetricsRefresh spawns the periodic goroutine that recomputes
+// store-derived Prometheus gauges — currently the longue_vue_dict_coverage
+// gauge (ADR-0029 §6). Mirrors the EOL enricher's lifecycle: always starts,
+// runs once immediately, then on each tick. Returns a drain function the
+// caller defers. Interval via LONGUE_VUE_METRICS_REFRESH_INTERVAL (default
+// 60s).
+func maybeStartMetricsRefresh(ctx context.Context, s *store.PG) (func(), error) {
+	interval, err := parseDurationEnv("LONGUE_VUE_METRICS_REFRESH_INTERVAL", 60*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	refresher := metricsrefresh.New(s, interval)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := refresher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("metrics refresher exited with error", slog.String("error", err.Error()))
+		}
+	}()
+
+	slog.Info("metrics refresher goroutine started", slog.String("interval", interval.String()))
 	return wg.Wait, nil
 }
 

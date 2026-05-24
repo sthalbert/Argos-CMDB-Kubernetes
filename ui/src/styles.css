@@ -2105,3 +2105,43 @@ th.sortable:hover {
 .search-extract-all {
   margin: 8px 0 16px 0;
 }
+
+/* DICT heat-map colours (ADR-0029). 0 = neutral, 1 green, 2 yellow,
+   3 orange, 4 red — the SecNumCloud / EBIOS-RM severity gradient. The
+   values stay legible on both the list-page pill and the detail-page
+   classification cell. */
+.heat-0 { background: #f7fafc; color: #4a5568; }
+.heat-1 { background: #c6f6d5; color: #22543d; }
+.heat-2 { background: #faf089; color: #744210; }
+.heat-3 { background: #fbd38d; color: #7b341e; }
+.heat-4 { background: #feb2b2; color: #742a2a; }
+
+/* Classification (DICT) card grid — one cell per axis. */
+.dict-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.75rem;
+}
+.dict-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+.dict-axis {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.dict-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 6px;
+  font-weight: 700;
+}
+.dict-label {
+  font-size: var(--fs-sm);
+}

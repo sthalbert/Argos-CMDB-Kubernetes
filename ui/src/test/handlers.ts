@@ -1,10 +1,10 @@
 import { http, HttpResponse } from 'msw';
 import {
-  fixtureAuditEvent, fixtureAuthConfig, fixtureCloudAccount, fixtureCluster,
-  fixtureImpactGraph, fixtureIngress, fixtureMe, fixtureNamespace,
-  fixtureNode, fixturePV, fixturePVC, fixturePod, fixtureService,
-  fixtureSession, fixtureSettings, fixtureToken, fixtureUser,
-  fixtureVirtualMachine, fixtureWorkload, paged,
+  fixtureApplication, fixtureApplicationBlock, fixtureAuditEvent,
+  fixtureAuthConfig, fixtureCloudAccount, fixtureCluster, fixtureImpactGraph,
+  fixtureIngress, fixtureMe, fixtureNamespace, fixtureNode, fixturePV,
+  fixturePVC, fixturePod, fixtureService, fixtureSession, fixtureSettings,
+  fixtureToken, fixtureUser, fixtureVirtualMachine, fixtureWorkload, paged,
 } from './fixtures';
 
 // Default handler set — every endpoint api.ts can call has at least one
@@ -63,6 +63,7 @@ export const handlers = [
 
   http.get('/v1/workloads', () => HttpResponse.json(paged([fixtureWorkload]))),
   http.get('/v1/workloads/:id', () => HttpResponse.json(fixtureWorkload)),
+  http.patch('/v1/workloads/:id', () => HttpResponse.json(fixtureWorkload)),
 
   http.get('/v1/pods', () => HttpResponse.json(paged([fixturePod]))),
   http.get('/v1/pods/:id', () => HttpResponse.json(fixturePod)),
@@ -88,6 +89,22 @@ export const handlers = [
   http.get('/v1/virtual-machines/:id', () => HttpResponse.json(fixtureVirtualMachine)),
   http.patch('/v1/virtual-machines/:id', () => HttpResponse.json(fixtureVirtualMachine)),
   http.delete('/v1/virtual-machines/:id', () => new HttpResponse(null, { status: 204 })),
+
+  // --- applications + application blocks (ADR-0029) ---
+  http.get('/v1/application-blocks', () => HttpResponse.json(paged([fixtureApplicationBlock]))),
+  http.get('/v1/application-blocks/:id', () => HttpResponse.json(fixtureApplicationBlock)),
+  http.post('/v1/application-blocks', () => HttpResponse.json(fixtureApplicationBlock)),
+  http.patch('/v1/application-blocks/:id', () => HttpResponse.json(fixtureApplicationBlock)),
+  http.delete('/v1/application-blocks/:id', () => new HttpResponse(null, { status: 204 })),
+
+  http.get('/v1/applications', () => HttpResponse.json(paged([fixtureApplication]))),
+  http.get('/v1/applications/by-name/:name', () => HttpResponse.json(fixtureApplication)),
+  http.get('/v1/applications/:id', () => HttpResponse.json(fixtureApplication)),
+  http.get('/v1/applications/:id/members', () => HttpResponse.json(paged([]))),
+  http.get('/v1/applications/:id/eol', () => HttpResponse.json({ items: [] })),
+  http.post('/v1/applications', () => HttpResponse.json(fixtureApplication)),
+  http.patch('/v1/applications/:id', () => HttpResponse.json(fixtureApplication)),
+  http.delete('/v1/applications/:id', () => new HttpResponse(null, { status: 204 })),
 
   // --- health ---
   http.get('/healthz', () => HttpResponse.json({ status: 'ok', version: 'test' })),

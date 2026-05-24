@@ -164,6 +164,59 @@ func TestUpdateWorkload_UnknownNameIs400(t *testing.T) {
 	}
 }
 
+// TestUpdateWorkload_UnlinkClearsLink confirms that an explicit
+// `"application_id": null` (surfaced by DetectWorkloadUnlinkMiddleware as the
+// context clear-flag) clears the FK (ADR-0029 §2.3).
+func TestUpdateWorkload_UnlinkClearsLink(t *testing.T) {
+	s, ms := newWorkloadLinkServer(t)
+	wlID, primary, _ := seedWorkloadLinkFixtures(t, s, ms)
+	ctx := context.Background()
+
+	// First, link it.
+	link := UpdateWorkloadApplicationMergePatchPlusJSONRequestBody{ApplicationId: &primary.ID}
+	if _, err := s.UpdateWorkload(ctx, UpdateWorkloadRequestObject{Id: wlID, Body: &link}); err != nil {
+		t.Fatalf("seed link: %v", err)
+	}
+
+	// Now PATCH with an empty body but the clear flag set (as the middleware
+	// would on an explicit null). The link must drop to nil.
+	clearCtx := context.WithValue(ctx, ctxKeyClearWorkloadApplication{}, true)
+	body := UpdateWorkloadApplicationMergePatchPlusJSONRequestBody{}
+	resp, err := s.UpdateWorkload(clearCtx, UpdateWorkloadRequestObject{Id: wlID, Body: &body})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	ok, isOK := resp.(UpdateWorkload200JSONResponse)
+	if !isOK {
+		t.Fatalf("expected 200, got %T", resp)
+	}
+	if ok.ApplicationId != nil {
+		t.Fatalf("unlink failed: application_id=%v, want nil", *ok.ApplicationId)
+	}
+}
+
+// TestUpdateWorkload_IDBeatsClear confirms an explicit id wins even when the
+// clear flag is also set (id present in body alongside a stray null is treated
+// as a link, not an unlink).
+func TestUpdateWorkload_IDBeatsClear(t *testing.T) {
+	s, ms := newWorkloadLinkServer(t)
+	wlID, primary, _ := seedWorkloadLinkFixtures(t, s, ms)
+
+	clearCtx := context.WithValue(context.Background(), ctxKeyClearWorkloadApplication{}, true)
+	body := UpdateWorkloadApplicationMergePatchPlusJSONRequestBody{ApplicationId: &primary.ID}
+	resp, err := s.UpdateWorkload(clearCtx, UpdateWorkloadRequestObject{Id: wlID, Body: &body})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	ok, isOK := resp.(UpdateWorkload200JSONResponse)
+	if !isOK {
+		t.Fatalf("expected 200, got %T", resp)
+	}
+	if ok.ApplicationId == nil || *ok.ApplicationId != primary.ID {
+		t.Fatalf("id should win over clear: application_id=%v, want %v", ok.ApplicationId, primary.ID)
+	}
+}
+
 // TestUpdateWorkload_NoLinkFields confirms that omitting both fields
 // leaves the existing link untouched (merge-patch semantics).
 func TestUpdateWorkload_NoLinkFields(t *testing.T) {

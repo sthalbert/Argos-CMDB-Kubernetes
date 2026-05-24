@@ -769,6 +769,9 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 	for i := range items {
 		items[i] = withWorkloadLayer(items[i])
 	}
+	// ADR-0029 §6: project the read-only inherited DICT. Bulk-fetches the
+	// distinct linked applications in one query (no N+1).
+	decorateWorkloadsDICT(ctx, s.store, items)
 	resp := WorkloadList{Items: items}
 	if next != "" {
 		resp.NextCursor = &next
@@ -815,6 +818,7 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 		SetAuditSkip(ctx)
 	}
 	wl = withWorkloadLayer(wl)
+	wl = decorateWorkloadDICT(ctx, s.store, wl)
 
 	loc := "/v1/workloads/"
 	if wl.Id != nil {
@@ -838,6 +842,7 @@ func (s *Server) GetWorkload(ctx context.Context, req GetWorkloadRequestObject) 
 		return nil, fmt.Errorf("store: %w", err)
 	}
 	decorated := withWorkloadLayer(wl)
+	decorated = decorateWorkloadDICT(ctx, s.store, decorated)
 	var containers []map[string]any
 	if decorated.Containers != nil {
 		containers = *decorated.Containers
@@ -869,7 +874,11 @@ func (s *Server) UpdateWorkload(ctx context.Context, req UpdateWorkloadRequestOb
 		body.ApplicationId = resolved
 		body.ApplicationName = nil // store doesn't read this.
 	}
-	wl, err := s.store.UpdateWorkload(ctx, req.Id, body)
+	// ADR-0029 §2.3 unlink: an explicit `"application_id": null` clears the FK
+	// (detected pre-decode by DetectWorkloadUnlinkMiddleware). An explicit id
+	// value wins over null, so only clear when no id was resolved.
+	clearApplication := body.ApplicationId == nil && workloadClearApplicationFromCtx(ctx)
+	wl, err := s.store.UpdateWorkload(ctx, req.Id, body, clearApplication)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdateWorkload404ApplicationProblemPlusJSONResponse{
@@ -878,7 +887,8 @@ func (s *Server) UpdateWorkload(ctx context.Context, req UpdateWorkloadRequestOb
 		}
 		return nil, fmt.Errorf("store: %w", err)
 	}
-	return UpdateWorkload200JSONResponse(withWorkloadLayer(wl)), nil
+	decorated := decorateWorkloadDICT(ctx, s.store, withWorkloadLayer(wl))
+	return UpdateWorkload200JSONResponse(decorated), nil
 }
 
 // DeleteWorkload removes a workload.

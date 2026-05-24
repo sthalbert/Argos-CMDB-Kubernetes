@@ -200,10 +200,15 @@ type VirtualMachine struct {
 	// to X" pointer while individual application entries point at their
 	// own products. ON DELETE SET NULL via the FK in migration 00047.
 	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	LastSeenAt    time.Time  `json:"last_seen_at"`
-	TerminatedAt  *time.Time `json:"terminated_at,omitempty"`
+	// EffectiveDict is the read-only inherited DICT classification
+	// (ADR-0029 §6). VMs have no DICT columns of their own, so the value is
+	// either the linked application's classification or source="none".
+	// Computed at read time; never accepted on PATCH/POST bodies.
+	EffectiveDict *EffectiveDICT `json:"effective_dict,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	LastSeenAt    time.Time      `json:"last_seen_at"`
+	TerminatedAt  *time.Time     `json:"terminated_at,omitempty"`
 }
 
 // VirtualMachineUpsert is the collector-side payload for upserting
@@ -265,10 +270,13 @@ type VirtualMachinePatch struct {
 	// ApplicationID / ApplicationName are the ADR-0029 row-level link
 	// inputs. The handler resolves Name → ID via ResolveApplicationID
 	// (id wins on conflict, mirrors ADR-0019) and strips ApplicationName
-	// to nil before calling the store. A non-nil ApplicationID writes the
-	// link; nil leaves the existing link untouched (merge-patch semantics).
-	ApplicationID   *uuid.UUID
-	ApplicationName *string
+	// to nil before calling the store. Three-state merge-patch (RFC 7396):
+	// a non-nil ApplicationID writes the link; ClearApplicationID=true
+	// (an explicit `"application_id": null` in the body) unlinks; otherwise
+	// the existing link is left untouched. An explicit id wins over null.
+	ApplicationID      *uuid.UUID
+	ApplicationName    *string
+	ClearApplicationID bool
 }
 
 // VirtualMachineListFilter collects the optional filters for ListVirtualMachines.

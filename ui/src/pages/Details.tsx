@@ -15,7 +15,9 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource, useResources } from '../hooks';
-import { useMe, isAdmin } from '../me';
+import { useMe, isAdmin, canEdit } from '../me';
+import { ApplicationCard } from '../components/inventory/ApplicationCard';
+import { EffectiveDICTCard } from '../components/inventory/EffectiveDICTCard';
 import { ClusterCuratedCard } from './cluster_curated';
 import { NamespaceCuratedCard } from './namespace_curated';
 import { NodeCuratedCard } from './node_curated';
@@ -549,7 +551,10 @@ export function NamespaceDetail() {
 
 export function WorkloadDetail() {
   const { id = '' } = useParams();
-  const workloadState = useResource(() => api.getWorkload(id), [id]);
+  const me = useMe();
+  const [nonce, setNonce] = useState(0);
+  const reload = () => setNonce((n) => n + 1);
+  const workloadState = useResource(() => api.getWorkload(id), [id, nonce]);
   // Fetch pods server-side filtered by workload_id so the result set
   // is bounded to this workload's pods regardless of cluster size.
   const podsState = useResource(
@@ -620,6 +625,22 @@ export function WorkloadDetail() {
                 />
                 <KV k="Labels" v={<Labels labels={workload.labels} />} />
               </dl>
+
+              <ApplicationCard
+                linkedId={workload.application_id ?? null}
+                linkedName={workload.application_name ?? null}
+                onLink={async (appId) => {
+                  await api.updateWorkload(workload.id, { application_id: appId });
+                  reload();
+                }}
+                editable={canEdit(me)}
+              />
+
+              <EffectiveDICTCard
+                dict={workload.effective_dict}
+                linkedAppId={workload.application_id ?? null}
+                linkedAppName={workload.application_name ?? null}
+              />
 
               <p className="impact-callout">
                 <strong>All assets hosting this application</strong> — the "application ="

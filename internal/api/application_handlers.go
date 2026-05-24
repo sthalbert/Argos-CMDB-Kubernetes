@@ -22,16 +22,20 @@ package api
 // landed in Task 1.8) — reused here to avoid duplicate declarations.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/longue-vue/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/eolagg"
 )
 
 // Static sentinels for the DICT-shape validators. Required by err113 —
@@ -139,11 +143,72 @@ func HandleCreateApplication(store Store) http.HandlerFunc {
 	}
 }
 
+// errInvalidApplicationFilter signals a malformed GET /v1/applications
+// filter parameter. The accompanying message is operator-facing and safe
+// to surface verbatim in a 400 problem.
+var errInvalidApplicationFilter = errors.New("invalid application filter")
+
+// parseApplicationListFilter parses the shared GET /v1/applications filter
+// query parameters (name, application_block_id, application_block_name,
+// criticality, has_dict, dict_min) into an ApplicationListFilter. Returned
+// as a helper so both HandleListApplications and the extract handlers
+// (application_extract.go) apply identical semantics (DRY — ADR-0029 §2.1).
+// On a malformed value it returns errInvalidApplicationFilter wrapping an
+// operator-facing message; callers write it as a 400.
+//
+//nolint:gocyclo // five optional filters; each branch is trivial
+func parseApplicationListFilter(q url.Values) (ApplicationListFilter, error) {
+	var filter ApplicationListFilter
+	if v := q.Get("name"); v != "" {
+		filter.Name = &v
+	}
+	if v := q.Get("application_block_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return filter, fmt.Errorf("%w: invalid application_block_id", errInvalidApplicationFilter)
+		}
+		filter.ApplicationBlockID = &id
+	}
+	if v := q.Get("application_block_name"); v != "" {
+		filter.ApplicationBlockName = &v
+	}
+	if v := q.Get("criticality"); v != "" {
+		filter.Criticality = &v
+	}
+	if v := q.Get("has_dict"); v != "" {
+		switch v {
+		case "true", "1":
+			b := true
+			filter.HasDICT = &b
+		case "false", "0":
+			b := false
+			filter.HasDICT = &b
+		default:
+			return filter, fmt.Errorf("%w: invalid has_dict (use true/false/1/0)", errInvalidApplicationFilter)
+		}
+	}
+	if v := q.Get("dict_min"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 4 {
+			return filter, fmt.Errorf("%w: dict_min must be an integer 0..4", errInvalidApplicationFilter)
+		}
+		filter.DICTMin = &n
+	}
+	return filter, nil
+}
+
+// filterErrMessage unwraps the operator-facing message from an
+// errInvalidApplicationFilter chain (drops the "invalid application
+// filter: " sentinel prefix) so the 400 problem detail reads cleanly.
+func filterErrMessage(err error) string {
+	msg := err.Error()
+	prefix := errInvalidApplicationFilter.Error() + ": "
+	return strings.TrimPrefix(msg, prefix)
+}
+
 // HandleListApplications — read scope. GET /v1/applications. Filter
 // params: name (substring), application_block_id (UUID), application_block_name,
 // criticality, has_dict (bool), dict_min (int 0..4), plus cursor + limit.
-//
-//nolint:gocyclo // five optional filters + cursor; each branch is trivial
 func HandleListApplications(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -153,44 +218,10 @@ func HandleListApplications(store Store) http.HandlerFunc {
 		limit := parseLimit(q.Get("limit"), 50)
 		cursor := q.Get("cursor")
 
-		var filter ApplicationListFilter
-		if v := q.Get("name"); v != "" {
-			filter.Name = &v
-		}
-		if v := q.Get("application_block_id"); v != "" {
-			id, err := uuid.Parse(v)
-			if err != nil {
-				writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid application_block_id")
-				return
-			}
-			filter.ApplicationBlockID = &id
-		}
-		if v := q.Get("application_block_name"); v != "" {
-			filter.ApplicationBlockName = &v
-		}
-		if v := q.Get("criticality"); v != "" {
-			filter.Criticality = &v
-		}
-		if v := q.Get("has_dict"); v != "" {
-			switch v {
-			case "true", "1":
-				b := true
-				filter.HasDICT = &b
-			case "false", "0":
-				b := false
-				filter.HasDICT = &b
-			default:
-				writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid has_dict (use true/false/1/0)")
-				return
-			}
-		}
-		if v := q.Get("dict_min"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 0 || n > 4 {
-				writeProblem(w, http.StatusBadRequest, "Bad Request", "dict_min must be an integer 0..4")
-				return
-			}
-			filter.DICTMin = &n
+		filter, err := parseApplicationListFilter(q)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", filterErrMessage(err))
+			return
 		}
 
 		items, next, err := store.ListApplications(r.Context(), filter, limit, cursor)
@@ -356,14 +387,167 @@ func HandleListApplicationMembers(store Store) http.HandlerFunc {
 	}
 }
 
-// HandleGetApplicationEOL is a 501 stub. The real implementation lands
-// in Phase 5 Task 5.2: it will walk the application's members, collect
-// their EOL annotations (cluster + node + VM levels), and return a
-// per-product aggregate. Wiring the endpoint now keeps the API surface
-// stable across the rollout.
-func HandleGetApplicationEOL(_ Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeProblem(w, http.StatusNotImplemented, "Not Implemented",
-			"EOL aggregation lands in Phase 5")
+// HandleGetApplicationEOL — read scope. GET /v1/applications/{id}/eol.
+// Confirms the application exists (404 if not), then read-time aggregates
+// the EOL signal across its three member sources (workloads' image-versions
+// enrichment, linked VMs' annotations, and VM-application JSONB entries
+// whose per-entry application_id matches — even when the parent VM is not
+// itself linked). No enricher pass, no DB writes (ADR-0029 §5).
+func HandleGetApplicationEOL(store Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireScope(w, r, auth.ScopeRead) {
+			return
+		}
+		id, ok := pathUUID(w, r, "id")
+		if !ok {
+			return
+		}
+		if _, err := store.GetApplication(r.Context(), id); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeProblem(w, http.StatusNotFound, "Not Found", "")
+				return
+			}
+			slog.Error("get application (eol)", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		rows, err := eolagg.AggregateForApplication(r.Context(), eolAppStore{store}, id)
+		if err != nil {
+			slog.Error("aggregate application eol", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": rows})
 	}
+}
+
+// eolAppStore adapts api.Store to eolagg.ApplicationStore. The eolagg
+// package is intentionally free of an internal/api dependency (api imports
+// eolagg for the extract path; the reverse would cycle), so the adaptation
+// — paginating the member lists and mapping api types to eolagg's local
+// input shapes — lives here.
+type eolAppStore struct{ s Store }
+
+// eolMemberPageLimit bounds each member-list page. ADR-0029 §5/NEG-006:
+// expected fleet sizes are low hundreds of members per application; we
+// page at 200 and walk the cursor to completion.
+const eolMemberPageLimit = 200
+
+// ApplicationWorkloadMembers walks every workload linked to the
+// application and maps each one's container image-versions enrichment
+// (ADR-0022) into eolagg's WorkloadMember shape. Workloads carry no
+// longue-vue.io/eol.* annotations — image-versions is their only EOL
+// signal.
+func (e eolAppStore) ApplicationWorkloadMembers(ctx context.Context, appID uuid.UUID) ([]eolagg.WorkloadMember, error) {
+	out := make([]eolagg.WorkloadMember, 0, eolMemberPageLimit)
+	filter := WorkloadListFilter{ApplicationID: &appID}
+	cursor := ""
+	for {
+		items, next, err := e.s.ListWorkloads(ctx, filter, eolMemberPageLimit, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("list workload members: %w", err)
+		}
+		for i := range items {
+			out = append(out, toWorkloadMember(&items[i]))
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	return out, nil
+}
+
+// ApplicationVMMembers walks every VM whose row-level application_id links
+// it to the application and maps its annotations into eolagg's VMMember.
+func (e eolAppStore) ApplicationVMMembers(ctx context.Context, appID uuid.UUID) ([]eolagg.VMMember, error) {
+	out := make([]eolagg.VMMember, 0, eolMemberPageLimit)
+	filter := VirtualMachineListFilter{ApplicationID: &appID}
+	cursor := ""
+	for {
+		items, next, err := e.s.ListVirtualMachines(ctx, filter, eolMemberPageLimit, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("list vm members: %w", err)
+		}
+		for i := range items {
+			out = append(out, eolagg.VMMember{
+				ID:          items[i].ID.String(),
+				Name:        vmDisplayName(&items[i]),
+				Annotations: items[i].Annotations,
+			})
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	return out, nil
+}
+
+// ApplicationVMAppEntryMembers returns one eolagg.VMAppEntryMember per
+// applications[] JSONB entry whose per-entry application_id matches the
+// application — independent of the parent VM's row-level link. A single VM
+// hosting two products linked to this app yields two entries.
+func (e eolAppStore) ApplicationVMAppEntryMembers(ctx context.Context, appID uuid.UUID) ([]eolagg.VMAppEntryMember, error) {
+	vms, err := e.s.ListVMsWithApplicationEntry(ctx, appID)
+	if err != nil {
+		return nil, fmt.Errorf("list vms with application entry: %w", err)
+	}
+	out := make([]eolagg.VMAppEntryMember, 0, len(vms))
+	for i := range vms {
+		vm := &vms[i]
+		name := vmDisplayName(vm)
+		for j := range vm.Applications {
+			entry := &vm.Applications[j]
+			if entry.ApplicationID == nil || *entry.ApplicationID != appID {
+				continue
+			}
+			out = append(out, eolagg.VMAppEntryMember{
+				VMID:        vm.ID.String(),
+				VMName:      name,
+				Product:     NormalizeProductName(entry.Product),
+				Annotations: vm.Annotations,
+			})
+		}
+	}
+	return out, nil
+}
+
+// toWorkloadMember maps an api.Workload's containers_versions map into the
+// eolagg shape, keeping only the fields the aggregator reads.
+func toWorkloadMember(w *Workload) eolagg.WorkloadMember {
+	name := w.Name
+	if w.NamespaceName != nil && *w.NamespaceName != "" {
+		name = *w.NamespaceName + "/" + w.Name
+	}
+	m := eolagg.WorkloadMember{Name: name}
+	if w.Id != nil {
+		m.ID = w.Id.String()
+	}
+	if w.ContainersVersions != nil {
+		m.ContainersVersions = make(map[string]eolagg.ContainerVersion, len(*w.ContainersVersions))
+		for container, cv := range *w.ContainersVersions {
+			ec := eolagg.ContainerVersion{}
+			if cv.LatestTag != nil {
+				ec.LatestTag = *cv.LatestTag
+			}
+			if cv.IsBehind != nil {
+				ec.IsBehind = *cv.IsBehind
+			}
+			if cv.LastCheckedAt != nil {
+				ec.LastCheckedAt = cv.LastCheckedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+			}
+			m.ContainersVersions[container] = ec
+		}
+	}
+	return m
+}
+
+// vmDisplayName prefers the operator-set display name, falling back to the
+// provider name — mirrors the eolagg.displayOrName convention.
+func vmDisplayName(vm *VirtualMachine) string {
+	if vm.DisplayName != nil && *vm.DisplayName != "" {
+		return *vm.DisplayName
+	}
+	return vm.Name
 }

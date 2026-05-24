@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -313,6 +314,9 @@ func HandleListVirtualMachines(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
+		// ADR-0029 §6: project the read-only inherited DICT. Bulk-fetches
+		// the distinct linked applications in one query (no N+1).
+		decorateVMsDICT(r.Context(), store, items)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"items":       items,
 			"next_cursor": next,
@@ -342,6 +346,8 @@ func HandleGetVirtualMachine(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
+		// ADR-0029 §6: project the read-only inherited DICT.
+		decorateVMDICT(r.Context(), store, &vm)
 		writeJSON(w, http.StatusOK, vm)
 	}
 }
@@ -360,19 +366,29 @@ func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 		if !ok {
 			return
 		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid request body")
+			return
+		}
 		var req vmPatchReq
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(raw, &req); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
 		}
+		// ADR-0029 §2.3 unlink: distinguish an explicit `"application_id": null`
+		// (clear the link) from an absent key (leave unchanged). The typed
+		// *uuid.UUID can't express this, so peek the raw object.
+		clearApplication := explicitNullJSONField(raw, "application_id")
 		patch := VirtualMachinePatch{
-			DisplayName: req.DisplayName,
-			Role:        req.Role,
-			Owner:       req.Owner,
-			Criticality: req.Criticality,
-			Notes:       req.Notes,
-			RunbookURL:  req.RunbookURL,
-			Annotations: req.Annotations,
+			DisplayName:        req.DisplayName,
+			Role:               req.Role,
+			Owner:              req.Owner,
+			Criticality:        req.Criticality,
+			Notes:              req.Notes,
+			RunbookURL:         req.RunbookURL,
+			Annotations:        req.Annotations,
+			ClearApplicationID: clearApplication && req.ApplicationID == nil,
 		}
 		// ADR-0029 row-level link resolution. Mirrors the workload
 		// PATCH path in Server.UpdateWorkload: id wins on conflict;
@@ -431,6 +447,9 @@ func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
+		// ADR-0029 §6: project the read-only inherited DICT (the patch may
+		// have just (un)linked the VM to an application).
+		decorateVMDICT(r.Context(), store, &vm)
 		writeJSON(w, http.StatusOK, vm)
 	}
 }

@@ -70,7 +70,7 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 		var existsCount int
 		if err := p.pool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM nodes WHERE provider_id LIKE '%' || $1 || '%' ESCAPE '\'`,
-			escapeLIKE(in.ProviderVMID),
+			escapeLike(in.ProviderVMID),
 		).Scan(&existsCount); err != nil {
 			return api.VirtualMachine{}, api.OutcomeNoChange, fmt.Errorf("dedup check against nodes: %w", err)
 		}
@@ -340,13 +340,13 @@ func (p *PG) ListVirtualMachines(
 		// to seq scan for full substring (acceptable for ≤ a few thousand
 		// VMs per typical SecNumCloud deployment). LIKE-escape applied
 		// so operator-pasted `%` / `_` is treated literally.
-		args = append(args, escapeLIKE(strings.ToLower(*filter.Name)))
+		args = append(args, escapeLike(strings.ToLower(*filter.Name)))
 		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE '%%' || $%d || '%%' ESCAPE '\\'", len(args)))
 	}
 	if filter.Image != nil {
 		// Match across image_id (e.g. "ami-75374985") and image_name
 		// (e.g. "rocky-9.3-2024-08") — the operator may know either.
-		args = append(args, escapeLIKE(*filter.Image))
+		args = append(args, escapeLike(*filter.Image))
 		idx := len(args)
 		conds = append(conds, fmt.Sprintf(
 			"(image_id LIKE '%%' || $%d || '%%' ESCAPE '\\' OR LOWER(image_name) LIKE '%%' || LOWER($%d) || '%%' ESCAPE '\\')",
@@ -498,14 +498,19 @@ func (p *PG) UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.Virt
 		}
 		appendSet("applications", b)
 	}
-	// ADR-0029 row-level link. The PATCH handler has already resolved
-	// ApplicationName → ID via ResolveApplicationID, so by the time the
-	// store sees it the field is a concrete (and validated) UUID. A nil
-	// pointer means "leave the link untouched" (merge-patch semantics);
-	// expressing set-to-null is a future surface (mirrors the workload
-	// behaviour described in UpdateWorkload).
-	if in.ApplicationID != nil {
+	// ADR-0029 row-level link with three-state merge-patch semantics
+	// (RFC 7396; mirrors UpdateWorkload). The PATCH handler has already
+	// resolved ApplicationName → ID via ResolveApplicationID, so the field
+	// is a concrete (and validated) UUID by the time the store sees it.
+	//   - ApplicationID != nil      → SET application_id = <value> (link),
+	//   - ClearApplicationID == true → SET application_id = NULL (unlink),
+	//   - otherwise                  → leave the column unchanged.
+	// An explicit id wins over null.
+	switch {
+	case in.ApplicationID != nil:
 		appendSet("application_id", *in.ApplicationID)
+	case in.ClearApplicationID:
+		appendSet("application_id", nil)
 	}
 	if len(sets) == 0 {
 		return p.GetVirtualMachine(ctx, id)
@@ -651,6 +656,44 @@ func (p *PG) ListDistinctVMApplications(ctx context.Context) ([]api.VMApplicatio
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate distinct vm applications: %w", err)
+	}
+	return out, nil
+}
+
+// ListVMsWithApplicationEntry returns every non-terminated VM that has at
+// least one applications[] JSONB entry whose per-entry application_id
+// matches appID, regardless of the VM's row-level application_id. Powers
+// the per-application EOL aggregator's third source (ADR-0029 §5): a
+// VM-application entry contributes even when its parent VM is not itself
+// linked. The match uses jsonb containment so the GIN jsonb_path_ops index
+// on `applications` is eligible. The full VM row is returned so the caller
+// reads annotations + filters the matching entries in Go.
+func (p *PG) ListVMsWithApplicationEntry(ctx context.Context, appID uuid.UUID) ([]api.VirtualMachine, error) {
+	// Containment probe: [{"application_id":"<uuid>"}]. Built server-side
+	// from the typed UUID so no injection surface; json.Marshal of a
+	// []map[string]string is always serialisable.
+	entry := []map[string]string{{"application_id": appID.String()}}
+	probe, _ := json.Marshal(entry)
+	q := `SELECT ` + vmColumns + `
+		FROM virtual_machines
+		WHERE terminated_at IS NULL
+		  AND applications @> $1::jsonb
+		ORDER BY name, id`
+	rows, err := p.pool.Query(ctx, q, string(probe))
+	if err != nil {
+		return nil, fmt.Errorf("query vms with application entry: %w", err)
+	}
+	defer rows.Close()
+	out := make([]api.VirtualMachine, 0, 8)
+	for rows.Next() {
+		vm, err := scanVirtualMachine(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan vm with application entry: %w", err)
+		}
+		out = append(out, vm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate vms with application entry: %w", err)
 	}
 	return out, nil
 }
@@ -841,14 +884,4 @@ func validProviderVMID(s string) bool {
 		}
 	}
 	return true
-}
-
-// escapeLIKE escapes the three SQL LIKE metacharacters with backslash
-// so the surrounding query can use `ESCAPE '\'`. Defensive — the
-// validator above already rejects `%`, but keeping the escape here
-// means a future relaxation of the validator (e.g. allowing `+` /
-// `:`) doesn't accidentally re-open the wildcard injection path.
-func escapeLIKE(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return r.Replace(s)
 }

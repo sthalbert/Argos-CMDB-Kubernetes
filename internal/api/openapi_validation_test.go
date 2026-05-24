@@ -624,8 +624,9 @@ func TestOpenAPI_ListApplicationMembers_200(t *testing.T) {
 	}
 }
 
-// TestOpenAPI_GetApplicationEOL_200 validates the placeholder summary shape
-// (Phase 5 of ADR-0029 fleshes out the real schema).
+// TestOpenAPI_GetApplicationEOL_200 validates the per-application EOL
+// aggregation response (ADR-0029 §5) against a representative populated
+// body: one product merged across a VM source and a workload source.
 func TestOpenAPI_GetApplicationEOL_200(t *testing.T) {
 	t.Parallel()
 	v := loadValidator(t)
@@ -634,7 +635,14 @@ func TestOpenAPI_GetApplicationEOL_200(t *testing.T) {
 		"/v1/applications/550e8400-e29b-41d4-a716-446655440020/eol", http.NoBody)
 	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
 
-	respBody := `{"items": []}`
+	respBody := `{"items":[{` +
+		`"product":"vault","cycle":"1.13","eol_status":"eol",` +
+		`"latest_available":"1.18.2","evaluated_at":"2026-05-15T00:00:00Z",` +
+		`"sources":[` +
+		`{"kind":"virtual_machine","id":"550e8400-e29b-41d4-a716-446655440000","name":"bastion-eu"},` +
+		`{"kind":"vm_application","id":"550e8400-e29b-41d4-a716-446655440000#vault","name":"bastion-eu / vault"},` +
+		`{"kind":"workload","id":"550e8400-e29b-41d4-a716-446655440099","name":"kube-prod/vault"}` +
+		`]}]}`
 	resp := buildResponse(t, http.StatusOK, respBody)
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	ok, errs := v.ValidateHttpResponse(req, resp)

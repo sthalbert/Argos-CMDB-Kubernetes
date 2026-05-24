@@ -1037,7 +1037,7 @@ func TestPGWorkloadCRUD(t *testing.T) {
 	}
 
 	newReplicas := 5
-	updated, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{Replicas: &newReplicas})
+	updated, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{Replicas: &newReplicas}, false)
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}

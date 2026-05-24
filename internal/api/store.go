@@ -248,8 +248,11 @@ type Store interface {
 	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) (items []Workload, nextCursor string, err error)
 
 	// UpdateWorkload applies merge-patch on mutable fields. Returns
-	// ErrNotFound if the workload does not exist.
-	UpdateWorkload(ctx context.Context, id uuid.UUID, in WorkloadUpdate) (Workload, error)
+	// ErrNotFound if the workload does not exist. clearApplication carries the
+	// three-state ADR-0029 link semantics the *uuid.UUID field can't express:
+	// when true (explicit `"application_id": null` in the body) the link is
+	// cleared; an explicit application_id value still wins over the null.
+	UpdateWorkload(ctx context.Context, id uuid.UUID, in WorkloadUpdate, clearApplication bool) (Workload, error)
 
 	// DeleteWorkload removes a workload by id.
 	DeleteWorkload(ctx context.Context, id uuid.UUID) error
@@ -645,6 +648,15 @@ type Store interface {
 	// product → version dropdown in the VM list UI (ADR-0019 §3).
 	ListDistinctVMApplications(ctx context.Context) ([]VMApplicationDistinct, error)
 
+	// ListVMsWithApplicationEntry returns every non-terminated VM that has
+	// at least one applications[] JSONB entry whose per-entry
+	// application_id matches the given application — regardless of the VM's
+	// row-level application_id link. Used by the per-application EOL
+	// aggregator (ADR-0029 §5 source 3) to surface VM-application entries
+	// whose parent VM is not itself linked. The full VM is returned so the
+	// caller can read its annotations and filter the matching entries.
+	ListVMsWithApplicationEntry(ctx context.Context, appID uuid.UUID) ([]VirtualMachine, error)
+
 	// --- Time-travel history (ADR-0021 Phase 3) ----------------------------
 
 	// ListEntityHistory returns up to limit history rows for one entity,
@@ -704,11 +716,20 @@ type Store interface {
 	// Applications (ADR-0029).
 	CreateApplication(ctx context.Context, in ApplicationCreate) (Application, error)
 	GetApplication(ctx context.Context, id uuid.UUID) (Application, error)
+	// GetApplicationsByIDs bulk-fetches applications by id in a single query,
+	// returned keyed by id. Unknown ids are silently omitted from the map
+	// (no error). Used by the effective-DICT decoration on workload + VM
+	// list responses to avoid an N+1 (ADR-0029 §6).
+	GetApplicationsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Application, error)
 	GetApplicationByName(ctx context.Context, name string) (Application, error)
 	ListApplications(ctx context.Context, filter ApplicationListFilter, limit int, cursor string) (items []Application, nextCursor string, err error)
 	UpdateApplication(ctx context.Context, id uuid.UUID, in ApplicationPatch) (Application, error)
 	DeleteApplication(ctx context.Context, id uuid.UUID) error
 	ListApplicationMembers(ctx context.Context, id uuid.UUID, limit int, cursor string) (items []ApplicationMember, nextCursor string, err error)
+	// DICTCoverageCounts returns the number of workloads in each
+	// effective-DICT source bucket (application | workload | none), feeding
+	// the longue_vue_dict_coverage gauge (ADR-0029 §6).
+	DICTCoverageCounts(ctx context.Context) (application, workload, none int, err error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by

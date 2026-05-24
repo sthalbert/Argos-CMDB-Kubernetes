@@ -64,7 +64,7 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	// --- 1. PATCH with application_id → row picks up the link --------------
 	updated, err := pg.UpdateWorkload(ctx, *wlLinked.Id, api.WorkloadUpdate{
 		ApplicationId: &billing.ID,
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("update workload: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	// --- 7. Re-link the same workload to a different application --------
 	updated, err = pg.UpdateWorkload(ctx, *wlLinked.Id, api.WorkloadUpdate{
 		ApplicationId: &checkout.ID,
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("re-link: %v", err)
 	}
@@ -209,6 +209,75 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	}
 
 	_ = uuid.UUID{} // keep the import even if Go decides one branch is enough.
+}
+
+// TestPGWorkloadApplicationUnlink pins the ADR-0029 §2.3 three-state
+// merge-patch semantics on the workload row-level link: an explicit clear
+// unlinks, an absent signal leaves the link unchanged, and an explicit id
+// (even alongside a clear) sets it.
+//
+//nolint:gocyclo // four sequential merge-patch cases, each with its own assert
+func TestPGWorkloadApplicationUnlink(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "wlapp-unlink"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	ns, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("namespace: %v", err)
+	}
+	billing, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: "billing"})
+	if err != nil {
+		t.Fatalf("create application: %v", err)
+	}
+	wl, err := pg.CreateWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "web",
+	})
+	if err != nil {
+		t.Fatalf("create workload: %v", err)
+	}
+
+	// 1) link it.
+	if _, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{ApplicationId: &billing.ID}, false); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	// 2) absent clear signal + a non-link field → link survives.
+	replicas := 4
+	if _, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{Replicas: &replicas}, false); err != nil {
+		t.Fatalf("patch replicas: %v", err)
+	}
+	got, err := pg.GetWorkload(ctx, *wl.Id)
+	if err != nil {
+		t.Fatalf("get after replicas patch: %v", err)
+	}
+	if got.ApplicationId == nil || *got.ApplicationId != billing.ID {
+		t.Fatalf("link should survive a non-link patch: application_id=%v", got.ApplicationId)
+	}
+
+	// 3) clearApplication=true → link cleared.
+	if _, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{}, true); err != nil {
+		t.Fatalf("unlink: %v", err)
+	}
+	got, err = pg.GetWorkload(ctx, *wl.Id)
+	if err != nil {
+		t.Fatalf("get after unlink: %v", err)
+	}
+	if got.ApplicationId != nil {
+		t.Fatalf("unlink failed: application_id=%v, want nil", *got.ApplicationId)
+	}
+
+	// 4) explicit id wins over a simultaneous clear → link set.
+	updated, err := pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{ApplicationId: &billing.ID}, true)
+	if err != nil {
+		t.Fatalf("relink with id+clear: %v", err)
+	}
+	if updated.ApplicationId == nil || *updated.ApplicationId != billing.ID {
+		t.Fatalf("id should win over clear: application_id=%v, want %v", updated.ApplicationId, billing.ID)
+	}
 }
 
 // TestPGWorkloadApplicationNameSubstring exercises ADR-0029 §2.4 — the
@@ -267,13 +336,13 @@ func TestPGWorkloadApplicationNameSubstring(t *testing.T) {
 		t.Fatalf("create wlBilling: %v", err)
 	}
 
-	if _, err := pg.UpdateWorkload(ctx, *wlLog4j.Id, api.WorkloadUpdate{ApplicationId: &log4jPlat.ID}); err != nil {
+	if _, err := pg.UpdateWorkload(ctx, *wlLog4j.Id, api.WorkloadUpdate{ApplicationId: &log4jPlat.ID}, false); err != nil {
 		t.Fatalf("link wlLog4j: %v", err)
 	}
-	if _, err := pg.UpdateWorkload(ctx, *wlVault.Id, api.WorkloadUpdate{ApplicationId: &vaultPlat.ID}); err != nil {
+	if _, err := pg.UpdateWorkload(ctx, *wlVault.Id, api.WorkloadUpdate{ApplicationId: &vaultPlat.ID}, false); err != nil {
 		t.Fatalf("link wlVault: %v", err)
 	}
-	if _, err := pg.UpdateWorkload(ctx, *wlBilling.Id, api.WorkloadUpdate{ApplicationId: &billing.ID}); err != nil {
+	if _, err := pg.UpdateWorkload(ctx, *wlBilling.Id, api.WorkloadUpdate{ApplicationId: &billing.ID}, false); err != nil {
 		t.Fatalf("link wlBilling: %v", err)
 	}
 

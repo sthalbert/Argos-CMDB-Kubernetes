@@ -981,6 +981,16 @@ func (m *memStore) ListWorkloads(
 		if needle != "" && !podContainersMatch(wl.Containers, needle) {
 			continue
 		}
+		// ADR-0029 link-aware filter. ApplicationID is the only one the
+		// EOL aggregator drives; ApplicationName resolution lives in PG.
+		if filter.ApplicationID != nil {
+			if wl.ApplicationId == nil || *wl.ApplicationId != *filter.ApplicationID {
+				continue
+			}
+		}
+		if filter.Unlinked != nil && *filter.Unlinked && wl.ApplicationId != nil {
+			continue
+		}
 		// Filter out terminated workloads unless IncludeTerminated is true.
 		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
 		_ = filter.IncludeTerminated
@@ -992,7 +1002,7 @@ func (m *memStore) ListWorkloads(
 	return out, "", nil
 }
 
-func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUpdate) (Workload, error) {
+func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUpdate, clearApplication bool) (Workload, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	wl, ok := m.workloadsByID[id]
@@ -1014,11 +1024,15 @@ func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUp
 	if in.Spec != nil {
 		wl.Spec = in.Spec
 	}
-	// ADR-0029 link soft-pointer. Mirrors PG.UpdateWorkload: a non-nil
-	// pointer overwrites; nil leaves it alone (set-to-null is not
-	// expressible through the *uuid.UUID codegen shape).
-	if in.ApplicationId != nil {
+	// ADR-0029 link soft-pointer with three-state merge-patch semantics.
+	// Mirrors PG.UpdateWorkload: an explicit id overwrites (wins over null),
+	// clearApplication=true (explicit `"application_id": null`) clears it,
+	// otherwise the link is left untouched.
+	switch {
+	case in.ApplicationId != nil:
 		wl.ApplicationId = in.ApplicationId
+	case clearApplication:
+		wl.ApplicationId = nil
 	}
 	now := time.Now().UTC()
 	wl.UpdatedAt = &now

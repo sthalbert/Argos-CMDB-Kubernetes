@@ -1,8 +1,9 @@
 import type {
-  ApiToken, AuditEvent, AuthConfig, Cluster, CloudAccount, Container,
-  Ingress, ImpactGraph, Me, Namespace, Node, NodeCondition, NodeTaint,
-  PagedResponse, PersistentVolume, PersistentVolumeClaim, Pod, Service,
-  Session, Settings, User, VirtualMachine, VMApplication, Workload,
+  ApiToken, Application, ApplicationBlock, ApplicationMember, AuditEvent,
+  AuthConfig, Cluster, CloudAccount, Container, Ingress, ImpactGraph, Me,
+  Namespace, Node, NodeCondition, NodeTaint, PagedResponse, PersistentVolume,
+  PersistentVolumeClaim, Pod, Service, Session, Settings, User,
+  VirtualMachine, VMApplication, Workload,
 } from '../api';
 
 export const fixtureCluster: Cluster = {
@@ -236,7 +237,7 @@ export const fixtureCloudAccount: CloudAccount = {
   disabled_at: null,
 };
 
-const fixtureApplication: VMApplication = {
+const fixtureVMApplication: VMApplication = {
   product: 'nginx',
   version: '1.27.0',
   name: 'edge',
@@ -283,7 +284,7 @@ export const fixtureVirtualMachine: VirtualMachine = {
   tags: null,
   labels: null,
   annotations: null,
-  applications: [fixtureApplication],
+  applications: [fixtureVMApplication],
   owner: 'platform',
   criticality: 'high',
   notes: null,
@@ -373,6 +374,58 @@ export const fixtureImpactGraph: ImpactGraph = {
     { id: fixtureNamespace.id, type: 'namespace', name: fixtureNamespace.name },
   ],
   edges: [{ from: fixtureCluster.id, to: fixtureNamespace.id, relation: 'contains' }],
+};
+
+export const fixtureApplicationBlock: ApplicationBlock = {
+  id: 'f1111111-1111-1111-1111-111111111111',
+  name: 'finance',
+  display_name: 'Finance',
+  description: 'Finance & accounting portfolio',
+  owner: 'cfo-team',
+  annotations: {},
+  created_at: '2025-01-01T00:00:00Z',
+  updated_at: '2025-01-01T00:00:00Z',
+  application_count: 2,
+};
+
+export const fixtureApplication: Application = {
+  id: 'a2222222-2222-2222-2222-222222222222',
+  name: 'billing',
+  display_name: 'Billing service',
+  description: 'Invoices + revenue recognition',
+  application_block_id: fixtureApplicationBlock.id,
+  application_block_name: fixtureApplicationBlock.name,
+  owner: 'finance-platform',
+  criticality: 'high',
+  annotations: {},
+  sec_disponibilite: 3,
+  sec_integrite: 3,
+  sec_confidentialite: 2,
+  sec_tracabilite: 2,
+  sec_notes: null,
+  created_at: '2025-01-01T00:00:00Z',
+  updated_at: '2025-01-02T00:00:00Z',
+  member_counts: { workloads: 2, virtual_machines: 1, vm_applications: 0 },
+};
+
+// Application member rows for the ApplicationDetail members card. The
+// kinds map 1:1 to the three sub-tables.
+export const fixtureWorkloadMember: ApplicationMember = {
+  kind: 'workload',
+  id: fixtureWorkload.id,
+  name: fixtureWorkload.name,
+  parent: { kind: 'namespace', id: fixtureNamespace.id, name: fixtureNamespace.name },
+  linked_at: '2025-01-02T00:00:00Z',
+  linked_by: 'alice',
+};
+
+export const fixtureVirtualMachineMember: ApplicationMember = {
+  kind: 'virtual_machine',
+  id: fixtureVirtualMachine.id,
+  name: fixtureVirtualMachine.name,
+  parent: { kind: 'cloud_account', id: fixtureCloudAccount.id, name: fixtureCloudAccount.name },
+  linked_at: '2025-01-02T00:00:00Z',
+  linked_by: 'alice',
 };
 
 export function paged<T>(items: T[]): PagedResponse<T> {

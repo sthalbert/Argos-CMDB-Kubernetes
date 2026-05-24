@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { ApplicationsCard } from './ApplicationsCard';
 import { MeProvider } from '../../me';
 import type { VMApplication } from '../../api';
@@ -114,5 +115,27 @@ describe('ApplicationsCard', () => {
       </MeProvider>,
     );
     expect(getByText(/alice/)).toBeInTheDocument();
+  });
+
+  it('renders the linked application chip for a per-entry link (ADR-0029)', () => {
+    const linked: VMApplication[] = [
+      {
+        ...fixtureApps[0],
+        application_id: 'a2222222-2222-2222-2222-222222222222',
+        application_name: 'billing',
+      },
+    ];
+    const { getByRole } = render(
+      <MemoryRouter>
+        <MeProvider value={viewerMe}>
+          <ApplicationsCard applications={linked} onSave={noopSave} onSaved={noopSaved} />
+        </MeProvider>
+      </MemoryRouter>,
+    );
+    const link = getByRole('link', { name: 'billing' });
+    expect(link).toHaveAttribute(
+      'href',
+      '/applications/a2222222-2222-2222-2222-222222222222',
+    );
   });
 });
