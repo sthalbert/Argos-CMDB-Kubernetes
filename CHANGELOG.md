@@ -6,6 +6,43 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.28.0](https://github.com/sthalbert/Longue-Vue/compare/v0.27.0...v0.28.0) (2026-05-24)
+
+
+### Features
+
+* ADR-0029 application entity (Phases 3-7 — UI, DICT, EOL, MCP) ([097606d](https://github.com/sthalbert/Longue-Vue/commit/097606dd1a755e4c728ca77959e88544e37a7061))
+* ADR-0029 first-class Application entity (Phases 1+2) ([6d7acfa](https://github.com/sthalbert/Longue-Vue/commit/6d7acfa09332f6db2de9f924963be17384760b15))
+* **api,mcp:** applications extract endpoint + read-only mcp tools (ADR-0029) ([d1c9e3b](https://github.com/sthalbert/Longue-Vue/commit/d1c9e3b654b91e07d20f96bd0529b30a86ad7871))
+* **api,metrics:** effective_dict inheritance + dict coverage gauge (ADR-0029) ([59c1a48](https://github.com/sthalbert/Longue-Vue/commit/59c1a48816ce2471f29eecb431f0a7fa0e427245))
+* **api,store:** link VMs + per-VM-app entries to applications via application_id (ADR-0029) ([d44835e](https://github.com/sthalbert/Longue-Vue/commit/d44835e737e46a8635360e18c210c2eb4d0cfac4))
+* **api,store:** link workloads to applications via application_id (ADR-0029) ([a4740c2](https://github.com/sthalbert/Longue-Vue/commit/a4740c28eea937e0728c1cbddff421abde550ae0))
+* **api,ui:** per-application EOL aggregation endpoint + summary card (ADR-0029) ([e17e8ec](https://github.com/sthalbert/Longue-Vue/commit/e17e8ec3142df365b45c298965162bf32fe10ad5))
+* **api:** add Application and ApplicationBlock type definitions (ADR-0029) ([2e84435](https://github.com/sthalbert/Longue-Vue/commit/2e844358bbc974d97a36cc5250f65f1f98ed9d48))
+* **api:** add Store interface methods for Application and ApplicationBlock (ADR-0029) ([b2068b4](https://github.com/sthalbert/Longue-Vue/commit/b2068b4dcfbbb590777d9e285588264824ae8f55))
+* **api:** application block handlers (ADR-0029) ([d4dad56](https://github.com/sthalbert/Longue-Vue/commit/d4dad56d839a37366ce4e67f8c84878ee5852af8))
+* **api:** application handlers — CRUD, members, EOL stub (ADR-0029) ([ea155b0](https://github.com/sthalbert/Longue-Vue/commit/ea155b0282441c080db0c2c0a5930118b1eb9ecc))
+* **api:** search endpoint filters by linked application name (ADR-0029) ([aba896f](https://github.com/sthalbert/Longue-Vue/commit/aba896fbc029f3633638897509e8c4c82767777b))
+* **api:** wire application + application-block routes (ADR-0029) ([7ea8728](https://github.com/sthalbert/Longue-Vue/commit/7ea8728061a84bde708ffd870ac8cd311516356c))
+* **metrics:** applications_total + application_blocks_total gauges (ADR-0029) ([38116f2](https://github.com/sthalbert/Longue-Vue/commit/38116f2f1a6273fe0207f3aebf75d2d8a2581dfb))
+* **store:** migration 00045 — application_blocks table (ADR-0029) ([e9dd113](https://github.com/sthalbert/Longue-Vue/commit/e9dd1134dac5ac96b53bef31e57633049fc4e01e))
+* **store:** migration 00046 — applications table with DICT (ADR-0029) ([a37b8fe](https://github.com/sthalbert/Longue-Vue/commit/a37b8fe52e687148d05bec820274f98eb217a1e4))
+* **store:** migration 00047 — application_id FK on workloads + VMs (ADR-0029) ([f87a432](https://github.com/sthalbert/Longue-Vue/commit/f87a43230bf4e3b9f1a14caa272db83ec834270f))
+* **store:** pg_application_blocks CRUD (ADR-0029) ([d66dbb0](https://github.com/sthalbert/Longue-Vue/commit/d66dbb0ccaff7deddd92ec13004a19c921b91844))
+* **store:** pg_applications CRUD + members walk (ADR-0029) ([6fc01a5](https://github.com/sthalbert/Longue-Vue/commit/6fc01a51ec3daef040673979ce58ce6cca7ee844))
+* **ui:** application api types, ApplicationCard component, routes (ADR-0029 phase 3 bundle A) ([7a92a2f](https://github.com/sthalbert/Longue-Vue/commit/7a92a2fc0bfc0e7215d2b272374ba1671fae8eb0))
+* **ui:** application list, detail, and admin blocks pages (ADR-0029 phase 3 bundle B) ([39c8ea4](https://github.com/sthalbert/Longue-Vue/commit/39c8ea4df478565eec669423f28d09030520c075))
+* **ui:** application pickers on detail pages + eol dashboard column (ADR-0029) ([cd76b47](https://github.com/sthalbert/Longue-Vue/commit/cd76b47417e39927f40c6ab6648ffc12337e4468))
+* **ui:** classification heat-map admin page (ADR-0029) ([cdcfebf](https://github.com/sthalbert/Longue-Vue/commit/cdcfebf8c0454e0859d84127a9ef363cf991142d))
+* **ui:** effective DICT classification card on workload + vm detail (ADR-0029) ([fcd0d6a](https://github.com/sthalbert/Longue-Vue/commit/fcd0d6a3e9ca30ef9690d909fc1763dfc2cdc7fd))
+
+
+### Bug Fixes
+
+* **api,store:** honor application_id unlink on workload + vm patch (ADR-0029) ([92fec92](https://github.com/sthalbert/Longue-Vue/commit/92fec92a6e4450f432fbefef9831de07f5672488))
+* **api:** exclude application extract ops from codegen and regenerate (ADR-0029) ([f73420f](https://github.com/sthalbert/Longue-Vue/commit/f73420f3860edca4fcfdba70de205741952facad))
+* **timetravel:** classify workload + VM application_id watched fields (ADR-0029) ([9bbfdc4](https://github.com/sthalbert/Longue-Vue/commit/9bbfdc44f9e092cd1765674388c85e0911453dd2))
+
 ## [Unreleased]
 
 ### Added
