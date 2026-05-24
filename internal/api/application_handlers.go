@@ -28,7 +28,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -141,11 +143,72 @@ func HandleCreateApplication(store Store) http.HandlerFunc {
 	}
 }
 
+// errInvalidApplicationFilter signals a malformed GET /v1/applications
+// filter parameter. The accompanying message is operator-facing and safe
+// to surface verbatim in a 400 problem.
+var errInvalidApplicationFilter = errors.New("invalid application filter")
+
+// parseApplicationListFilter parses the shared GET /v1/applications filter
+// query parameters (name, application_block_id, application_block_name,
+// criticality, has_dict, dict_min) into an ApplicationListFilter. Returned
+// as a helper so both HandleListApplications and the extract handlers
+// (application_extract.go) apply identical semantics (DRY — ADR-0029 §2.1).
+// On a malformed value it returns errInvalidApplicationFilter wrapping an
+// operator-facing message; callers write it as a 400.
+//
+//nolint:gocyclo // five optional filters; each branch is trivial
+func parseApplicationListFilter(q url.Values) (ApplicationListFilter, error) {
+	var filter ApplicationListFilter
+	if v := q.Get("name"); v != "" {
+		filter.Name = &v
+	}
+	if v := q.Get("application_block_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return filter, fmt.Errorf("%w: invalid application_block_id", errInvalidApplicationFilter)
+		}
+		filter.ApplicationBlockID = &id
+	}
+	if v := q.Get("application_block_name"); v != "" {
+		filter.ApplicationBlockName = &v
+	}
+	if v := q.Get("criticality"); v != "" {
+		filter.Criticality = &v
+	}
+	if v := q.Get("has_dict"); v != "" {
+		switch v {
+		case "true", "1":
+			b := true
+			filter.HasDICT = &b
+		case "false", "0":
+			b := false
+			filter.HasDICT = &b
+		default:
+			return filter, fmt.Errorf("%w: invalid has_dict (use true/false/1/0)", errInvalidApplicationFilter)
+		}
+	}
+	if v := q.Get("dict_min"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 4 {
+			return filter, fmt.Errorf("%w: dict_min must be an integer 0..4", errInvalidApplicationFilter)
+		}
+		filter.DICTMin = &n
+	}
+	return filter, nil
+}
+
+// filterErrMessage unwraps the operator-facing message from an
+// errInvalidApplicationFilter chain (drops the "invalid application
+// filter: " sentinel prefix) so the 400 problem detail reads cleanly.
+func filterErrMessage(err error) string {
+	msg := err.Error()
+	prefix := errInvalidApplicationFilter.Error() + ": "
+	return strings.TrimPrefix(msg, prefix)
+}
+
 // HandleListApplications — read scope. GET /v1/applications. Filter
 // params: name (substring), application_block_id (UUID), application_block_name,
 // criticality, has_dict (bool), dict_min (int 0..4), plus cursor + limit.
-//
-//nolint:gocyclo // five optional filters + cursor; each branch is trivial
 func HandleListApplications(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -155,44 +218,10 @@ func HandleListApplications(store Store) http.HandlerFunc {
 		limit := parseLimit(q.Get("limit"), 50)
 		cursor := q.Get("cursor")
 
-		var filter ApplicationListFilter
-		if v := q.Get("name"); v != "" {
-			filter.Name = &v
-		}
-		if v := q.Get("application_block_id"); v != "" {
-			id, err := uuid.Parse(v)
-			if err != nil {
-				writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid application_block_id")
-				return
-			}
-			filter.ApplicationBlockID = &id
-		}
-		if v := q.Get("application_block_name"); v != "" {
-			filter.ApplicationBlockName = &v
-		}
-		if v := q.Get("criticality"); v != "" {
-			filter.Criticality = &v
-		}
-		if v := q.Get("has_dict"); v != "" {
-			switch v {
-			case "true", "1":
-				b := true
-				filter.HasDICT = &b
-			case "false", "0":
-				b := false
-				filter.HasDICT = &b
-			default:
-				writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid has_dict (use true/false/1/0)")
-				return
-			}
-		}
-		if v := q.Get("dict_min"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 0 || n > 4 {
-				writeProblem(w, http.StatusBadRequest, "Bad Request", "dict_min must be an integer 0..4")
-				return
-			}
-			filter.DICTMin = &n
+		filter, err := parseApplicationListFilter(q)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", filterErrMessage(err))
+			return
 		}
 
 		items, next, err := store.ListApplications(r.Context(), filter, limit, cursor)

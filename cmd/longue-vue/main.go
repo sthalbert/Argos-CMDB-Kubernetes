@@ -548,7 +548,7 @@ func buildHTTPServer(
 
 	// Application + ApplicationBlock routes (ADR-0029) — extracted to keep
 	// buildHTTPServer within the maintainability-index ceiling.
-	mountApplicationRoutes(mux, pg, requireScope, cloudAuth, auditWrap)
+	mountApplicationRoutes(mux, pg, requireScope, cloudAuth, auditWrap, cfg.extractMaxRows)
 
 	// Extract endpoints — audited via the shouldAudit allowlist (ADR-0024 / SNC ch.8).
 	extractAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
@@ -655,6 +655,7 @@ func mountApplicationRoutes(
 	requireScope func(scope string) func(http.Handler) http.Handler,
 	cloudAuth func(http.Handler) http.Handler,
 	auditWrap func(http.Handler) http.Handler,
+	extractMaxRows int,
 ) {
 	// Application blocks — no internal route conflicts; mount directly.
 	mux.Handle("POST /v1/application-blocks",
@@ -678,6 +679,13 @@ func mountApplicationRoutes(
 		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreateApplication(pg)))))
 	appsRestMux.Handle("GET /v1/applications",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListApplications(pg)))))
+	// Bulk extracts (ADR-0029 §2.1). The ".csv" / ".json" literal segments
+	// are more specific than the {id} wildcard, so net/http.ServeMux routes
+	// them without colliding with GET /v1/applications/{id}.
+	appsRestMux.Handle("GET /v1/applications/extract.csv",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleExtractApplicationsCSV(pg, extractMaxRows)))))
+	appsRestMux.Handle("GET /v1/applications/extract.json",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleExtractApplicationsJSON(pg, extractMaxRows)))))
 	appsRestMux.Handle("GET /v1/applications/{id}",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetApplication(pg)))))
 	appsRestMux.Handle("PATCH /v1/applications/{id}",

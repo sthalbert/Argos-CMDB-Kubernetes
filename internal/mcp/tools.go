@@ -280,6 +280,53 @@ func (s *Server) registerTools() {
 		),
 		s.handleGetImageVersionsSummary,
 	)
+
+	// Applications + ApplicationBlocks (ADR-0029 §4) — read-only.
+	s.registerApplicationTools()
+}
+
+// registerApplicationTools registers the three read-only Application /
+// ApplicationBlock tools (ADR-0029 §4). Split out of registerTools to keep
+// that function under the maintainability-index ceiling.
+func (s *Server) registerApplicationTools() {
+	s.mcp.AddTool(
+		mcp.NewTool(
+			"list_applications",
+			mcp.WithDescription(
+				"List curated first-class Applications with their DICT (SecNumCloud D/I/C/T) classification and workload/VM/vm-application member counts.",
+			),
+			mcp.WithString("name", mcp.Description("Filter by name/display_name substring, case-insensitive (optional)")),
+			mcp.WithString("application_block_name", mcp.Description("Restrict to applications in the block with this exact name (optional)")),
+			mcp.WithString("criticality", mcp.Description("Exact criticality filter, e.g. critical / standard (optional)")),
+			mcp.WithString("has_dict", mcp.Description("true = only apps with at least one DICT axis set; false = only apps with none (optional)")),
+			mcp.WithString("dict_min", mcp.Description("Restrict to apps whose MAX(sec_*) is at least this value, 0..4 (optional)")),
+		),
+		s.handleListApplications,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool(
+			"get_application",
+			mcp.WithDescription(
+				"Get a single Application by its UUID or by its (normalized) name. Exactly one of id or name is required.",
+			),
+			mcp.WithString("id", mcp.Description("Application UUID (provide id OR name)")),
+			mcp.WithString("name", mcp.Description("Application name; normalized to kebab-case server-side (provide id OR name)")),
+		),
+		s.handleGetApplication,
+	)
+
+	s.mcp.AddTool(
+		mcp.NewTool(
+			"list_application_blocks",
+			mcp.WithDescription(
+				"List Application Blocks (the SNC two-level grouping above Application), each with a denormalized application_count.",
+			),
+			mcp.WithString("name", mcp.Description("Filter by block name substring (optional)")),
+			mcp.WithString("owner", mcp.Description("Filter by owner (optional)")),
+		),
+		s.handleListApplicationBlocks,
+	)
 }
 
 // --- tool handlers ----------------------------------------------------------

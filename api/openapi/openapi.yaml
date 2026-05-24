@@ -2797,6 +2797,96 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /v1/applications/extract.csv:
+    get:
+      tags: [applications]
+      summary: Download applications as CSV
+      description: |
+        Streams every Application matching the same filters as
+        GET /v1/applications (name, application_block_id,
+        application_block_name, criticality, has_dict, dict_min), with the
+        four DICT axes and the three member counts flattened into columns —
+        the SecNumCloud chapter-8 evidence shape. The result set is capped
+        at `LONGUE_VUE_EXTRACT_MAX_ROWS` (default 50 000); when the cap is
+        hit the response carries `X-Longue-Vue-Truncated: true` and the
+        file is still well-formed CSV.
+      operationId: applicationsExtractCsv
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - { name: name, in: query, required: false, schema: { type: string } }
+        - { name: application_block_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: application_block_name, in: query, required: false, schema: { type: string } }
+        - { name: criticality, in: query, required: false, schema: { type: string } }
+        - { name: has_dict, in: query, required: false, schema: { type: boolean } }
+        - { name: dict_min, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 4 } }
+      responses:
+        '200':
+          description: CSV body (UTF-8 with a BOM, CRLF endings).
+          headers:
+            X-Longue-Vue-Truncated:
+              schema: { type: string, enum: ['true'] }
+              description: Present and "true" when the row cap was hit.
+            Content-Disposition:
+              schema: { type: string }
+              description: 'attachment; filename="longue-vue-applications-<ts>.csv"'
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/applications/extract.json:
+    get:
+      tags: [applications]
+      summary: Download applications as JSON
+      description: |
+        JSON counterpart of GET /v1/applications/extract.csv. Accepts the
+        same filters and returns a flat array of the full Application
+        objects (DICT axes + member_counts included). Capped at
+        `LONGUE_VUE_EXTRACT_MAX_ROWS`; `X-Longue-Vue-Truncated: true`
+        signals the cap.
+      operationId: applicationsExtractJson
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - { name: name, in: query, required: false, schema: { type: string } }
+        - { name: application_block_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: application_block_name, in: query, required: false, schema: { type: string } }
+        - { name: criticality, in: query, required: false, schema: { type: string } }
+        - { name: has_dict, in: query, required: false, schema: { type: boolean } }
+        - { name: dict_min, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 4 } }
+      responses:
+        '200':
+          description: JSON array of Application objects.
+          headers:
+            X-Longue-Vue-Truncated:
+              schema: { type: string, enum: ['true'] }
+              description: Present and "true" when the row cap was hit.
+            Content-Disposition:
+              schema: { type: string }
+              description: 'attachment; filename="longue-vue-applications-<ts>.json"'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Application'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /v1/applications/{id}:
     parameters:
       - $ref: '#/components/parameters/ApplicationId'

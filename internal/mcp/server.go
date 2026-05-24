@@ -90,6 +90,17 @@ type Store interface {
 	// Image versions (ADR-0022)
 	ListImageVersionsByRepo(ctx context.Context, lp api.ImageVersionListParams) ([]api.ImageVersionRepoView, string, error)
 	GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]api.ImageVersionRow, error)
+
+	// Applications + ApplicationBlocks (ADR-0029). All read-only.
+	ListApplications(ctx context.Context, filter api.ApplicationListFilter, limit int, cursor string) ([]api.Application, string, error)
+	GetApplication(ctx context.Context, id uuid.UUID) (api.Application, error)
+	GetApplicationByName(ctx context.Context, name string) (api.Application, error)
+	ListApplicationBlocks(
+		ctx context.Context,
+		filter api.ApplicationBlockListFilter,
+		limit int,
+		cursor string,
+	) ([]api.ApplicationBlock, string, error)
 }
 
 // Caller carries the resolved identity of a tool-call initiator.

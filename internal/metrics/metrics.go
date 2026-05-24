@@ -185,7 +185,7 @@ var (
 	extractsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "longue_vue",
 		Name:      "extracts_total",
-		Help:      "Bulk extracts requested via /v1/search/extract* or /v1/eol/extract, per page, format, and outcome.",
+		Help:      "Bulk extracts requested via /v1/search/extract*, /v1/eol/extract, or /v1/applications/extract.*, per page, format, and outcome.",
 	}, []string{"page", "format", "outcome"})
 
 	extractRowsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{

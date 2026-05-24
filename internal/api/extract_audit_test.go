@@ -12,6 +12,8 @@ func TestShouldAudit_AllowlistsExtractRoutes(t *testing.T) {
 		"/v1/search/extract",
 		"/v1/search/extract.zip",
 		"/v1/eol/extract",
+		"/v1/applications/extract.csv",
+		"/v1/applications/extract.json",
 	}
 	for _, path := range cases {
 		req := httptest.NewRequest("GET", path, http.NoBody)
