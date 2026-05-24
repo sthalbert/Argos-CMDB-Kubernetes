@@ -35,7 +35,7 @@ const vmColumns = `id, cloud_account_id,
 	block_devices, root_device_type, root_device_name,
 	tags, labels, annotations,
 	owner, criticality, notes, runbook_url,
-	applications,
+	applications, application_id,
 	created_at, updated_at, last_seen_at, terminated_at`
 
 // UpsertVirtualMachine inserts a new VM or updates the existing row
@@ -110,6 +110,13 @@ func (p *PG) UpsertVirtualMachine(ctx context.Context, in api.VirtualMachineUpse
 	// written by collector); last_seen_at and updated_at (clock fields);
 	// owner/criticality/notes/runbook_url/annotations/display_name
 	// (curator metadata, never overwritten by collector upsert).
+	//
+	// COLLECTOR INVARIANT (ADR-0029 §7): application_id is operator-curated
+	// and is deliberately absent from both the INSERT column list and the
+	// ON CONFLICT SET list below. The per-entry application_id inside the
+	// `applications` JSONB column is likewise untouched — the collector
+	// never writes the applications column at all. Pinned by
+	// TestPGVMApplicationLinkage in pg_virtual_machines_test.go.
 	const q = `
 		WITH old AS (
 		  SELECT name, role, private_ip, public_ip, private_dns_name,
@@ -365,6 +372,33 @@ func (p *PG) ListVirtualMachines(
 		args = append(args, string(probe))
 		conds = append(conds, fmt.Sprintf("applications @> $%d::jsonb", len(args)))
 	}
+	// ADR-0029 link-aware filters. ApplicationID wins on conflict with
+	// ApplicationName (mirrors the cloud_account_id / cloud_account_name
+	// precedence from ADR-0019). ApplicationName is normalised server-side
+	// to match the kebab-case stored in applications.name.
+	if filter.ApplicationID != nil {
+		args = append(args, *filter.ApplicationID)
+		conds = append(conds, fmt.Sprintf("application_id = $%d", len(args)))
+	} else if filter.ApplicationName != nil && *filter.ApplicationName != "" {
+		args = append(args, api.NormalizeApplicationName(*filter.ApplicationName))
+		conds = append(conds, fmt.Sprintf(
+			"application_id = (SELECT id FROM applications WHERE name = $%d)",
+			len(args),
+		))
+	}
+	if filter.Unlinked != nil && *filter.Unlinked {
+		conds = append(conds, "application_id IS NULL")
+	}
+	// ADR-0029 §2.4: substring match on linked application name (used by
+	// the Search endpoint). LIKE metacharacters are escaped; case-insensitive
+	// via LOWER on both sides.
+	if filter.ApplicationNameSubstring != nil && *filter.ApplicationNameSubstring != "" {
+		args = append(args, "%"+escapeLike(strings.ToLower(*filter.ApplicationNameSubstring))+"%")
+		conds = append(conds, fmt.Sprintf(
+			"application_id IN (SELECT id FROM applications WHERE LOWER(name) LIKE $%d ESCAPE '\\')",
+			len(args),
+		))
+	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
 		if err != nil {
@@ -412,7 +446,7 @@ func (p *PG) ListVirtualMachines(
 
 // UpdateVirtualMachine applies merge-patch on curated-only fields.
 //
-//nolint:gocyclo // merge-patch checks each optional field; branching is unavoidable
+//nolint:gocyclo,gocritic // merge-patch checks each optional field; hugeParam: signature matches api.Store interface
 func (p *PG) UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.VirtualMachinePatch) (api.VirtualMachine, error) {
 	sets := make([]string, 0, 8)
 	args := make([]any, 0, 9)
@@ -448,6 +482,12 @@ func (p *PG) UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.Virt
 		appendSet("annotations", b)
 	}
 	if in.Applications != nil {
+		// Per-entry ADR-0029 link validation: every non-nil application_id
+		// must reference an existing applications row. Batched in one
+		// COUNT query to avoid N+1 on VMs with many entries.
+		if err := p.validateVMAppEntryApplicationIDs(ctx, *in.Applications); err != nil {
+			return api.VirtualMachine{}, err
+		}
 		// Replace-not-merge semantics (ADR-0019 §4): the handler has
 		// already diffed the input against the stored list to preserve
 		// added_at / added_by where the (product, version, name) key
@@ -457,6 +497,15 @@ func (p *PG) UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.Virt
 			return api.VirtualMachine{}, fmt.Errorf("marshal vm applications: %w", err)
 		}
 		appendSet("applications", b)
+	}
+	// ADR-0029 row-level link. The PATCH handler has already resolved
+	// ApplicationName → ID via ResolveApplicationID, so by the time the
+	// store sees it the field is a concrete (and validated) UUID. A nil
+	// pointer means "leave the link untouched" (merge-patch semantics);
+	// expressing set-to-null is a future surface (mirrors the workload
+	// behaviour described in UpdateWorkload).
+	if in.ApplicationID != nil {
+		appendSet("application_id", *in.ApplicationID)
 	}
 	if len(sets) == 0 {
 		return p.GetVirtualMachine(ctx, id)
@@ -472,6 +521,45 @@ func (p *PG) UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.Virt
 		return api.VirtualMachine{}, api.ErrNotFound
 	}
 	return p.GetVirtualMachine(ctx, id)
+}
+
+// validateVMAppEntryApplicationIDs verifies every non-nil per-entry
+// application_id references an existing applications row. Batches into a
+// single COUNT(*) query so VMs with many application entries don't pay
+// the N+1 penalty. Returns nil when no ids are present.
+func (p *PG) validateVMAppEntryApplicationIDs(ctx context.Context, entries []api.VMApplication) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	// Dedup distinct ids in Go so a count mismatch surfaces a missing row,
+	// not a duplicate-reference noise hit.
+	distinct := make(map[uuid.UUID]struct{}, len(entries))
+	refIDs := make([]uuid.UUID, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ApplicationID == nil {
+			continue
+		}
+		id := *entry.ApplicationID
+		if _, seen := distinct[id]; seen {
+			continue
+		}
+		distinct[id] = struct{}{}
+		refIDs = append(refIDs, id)
+	}
+	if len(refIDs) == 0 {
+		return nil
+	}
+	var count int
+	if err := p.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM applications WHERE id = ANY($1)`,
+		refIDs,
+	).Scan(&count); err != nil {
+		return fmt.Errorf("validate vm-app application_ids: %w", err)
+	}
+	if count != len(refIDs) {
+		return fmt.Errorf("one or more application_id references invalid: %w", api.ErrNotFound)
+	}
+	return nil
 }
 
 // DeleteVirtualMachine soft-deletes by setting terminated_at + power_state.
@@ -625,6 +713,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		notes                sql.NullString
 		runbookURL           sql.NullString
 		applicationsJSON     []byte
+		applicationID        uuid.NullUUID
 		terminatedAt         *time.Time
 	)
 	if err := row.Scan(
@@ -640,7 +729,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		&blockDevicesJSON, &rootDeviceType, &rootDeviceName,
 		&tagsJSON, &labelsJSON, &annotationsJSON,
 		&owner, &criticality, &notes, &runbookURL,
-		&applicationsJSON,
+		&applicationsJSON, &applicationID,
 		&out.CreatedAt, &out.UpdatedAt, &out.LastSeenAt, &terminatedAt,
 	); err != nil {
 		return api.VirtualMachine{}, fmt.Errorf("scan virtual machine: %w", err)
@@ -718,6 +807,10 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		if len(apps) > 0 {
 			out.Applications = apps
 		}
+	}
+	if applicationID.Valid {
+		v := applicationID.UUID
+		out.ApplicationID = &v
 	}
 	out.TerminatedAt = terminatedAt
 	return out, nil

@@ -343,8 +343,10 @@ func toEolaggVMs(in []VirtualMachine) []eolagg.VMInput {
 	return out
 }
 
-// HandleSearchExtract — read scope. GET /v1/search/extract?q=...&kind=workloads|pods|virtual_machines&format=csv|json
+// HandleSearchExtract — read scope. GET /v1/search/extract?q=...&kind=workloads|pods|virtual_machines&format=csv|json[&application=<substring>]
 // Searches container images (workloads/pods) or VM image/application (virtual_machines).
+// ADR-0029 §2.4: optional `application` parameter narrows to entities linked
+// to an application whose name matches the substring (case-insensitive).
 //
 //nolint:gocyclo,gocognit // dispatch + validation branches inflate the score; each branch is short and self-contained
 func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
@@ -362,6 +364,11 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		}
 		if len(searchQ) > extractQueryMax {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "q must be ≤ 256 characters")
+			return
+		}
+		applicationQ := q.Get("application")
+		if len(applicationQ) > extractQueryMax {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "application must be ≤ 256 characters")
 			return
 		}
 		kind := q.Get("kind")
@@ -388,13 +395,14 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			objs []any
 			err  error
 		)
+		filters := searchFilters{q: searchQ, applicationSubstring: applicationQ}
 		switch kind {
 		case extractKindWorkloads:
-			rows, objs, err = collectWorkloadExtract(r.Context(), store, searchQ)
+			rows, objs, err = collectWorkloadExtract(r.Context(), store, filters)
 		case extractKindPods:
-			rows, objs, err = collectPodExtract(r.Context(), store, searchQ)
+			rows, objs, err = collectPodExtract(r.Context(), store, filters)
 		case extractKindVMs:
-			rows, objs, err = collectVMExtract(r.Context(), store, searchQ)
+			rows, objs, err = collectVMExtract(r.Context(), store, filters)
 		}
 		if err != nil {
 			slog.Error("extract: search collect", slog.String("kind", kind), slog.Any("error", err))
@@ -460,7 +468,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(buf.Bytes())
 
-		SetAuditDetails(r.Context(), map[string]any{
+		auditDetails := map[string]any{
 			"action":    "extract",
 			"page":      "search",
 			"kind":      kind,
@@ -469,7 +477,11 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			"row_count": len(rows),
 			"truncated": truncated,
 			"outcome":   outcome,
-		})
+		}
+		if applicationQ != "" {
+			auditDetails["application"] = applicationQ
+		}
+		SetAuditDetails(r.Context(), auditDetails)
 		metrics.ObserveExtract("search", format, outcome, len(rows))
 	}
 }
@@ -598,12 +610,23 @@ func derefTimeStr(t *time.Time) string {
 }
 
 func collectAllWorkloads(ctx context.Context, store ExtractStore) ([]Workload, error) {
+	return listAllWorkloadsByFilter(ctx, store, WorkloadListFilter{})
+}
+
+// listAllWorkloadsByFilter paginates ListWorkloads with the given filter and
+// returns the full result set. Shared by collectAllWorkloads and the pod
+// extractor's app-linkage pre-filter (ADR-0029 §2.4).
+func listAllWorkloadsByFilter(
+	ctx context.Context,
+	store ExtractStore,
+	filter WorkloadListFilter,
+) ([]Workload, error) {
 	var out []Workload
 	cursor := ""
 	for {
-		items, next, err := store.ListWorkloads(ctx, WorkloadListFilter{}, extractPageSize, cursor)
+		items, next, err := store.ListWorkloads(ctx, filter, extractPageSize, cursor)
 		if err != nil {
-			return nil, fmt.Errorf("collectAllWorkloads: %w", err)
+			return nil, fmt.Errorf("listAllWorkloadsByFilter: %w", err)
 		}
 		out = append(out, items...)
 		if next == "" {
@@ -629,19 +652,35 @@ func collectAllCloudAccounts(ctx context.Context, store ExtractStore) ([]CloudAc
 	}
 }
 
+// searchFilters bundles the cross-entity Search inputs. q is the image/app
+// substring (required at the handler boundary); applicationSubstring is the
+// optional ADR-0029 §2.4 link-aware filter — when non-empty, results are
+// restricted to entities whose linked Application name matches the substring.
+type searchFilters struct {
+	q                    string
+	applicationSubstring string
+}
+
+//nolint:gocyclo // pagination loop + per-row pointer-deref branches inflate the score; each branch is short and self-contained
 func collectWorkloadExtract(
 	ctx context.Context,
 	store ExtractStore,
-	q string,
+	f searchFilters,
 ) (rows [][]string, objs []any, _ error) {
 	clusterByID, nsByID, err := loadClusterNamespaceIndex(ctx, store)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	q := f.q
+	wlFilter := WorkloadListFilter{ImageSubstring: &q}
+	if f.applicationSubstring != "" {
+		app := f.applicationSubstring
+		wlFilter.ApplicationNameSubstring = &app
+	}
 	cursor := ""
 	for {
-		items, next, err := store.ListWorkloads(ctx, WorkloadListFilter{ImageSubstring: &q}, extractPageSize, cursor)
+		items, next, err := store.ListWorkloads(ctx, wlFilter, extractPageSize, cursor)
 		if err != nil {
 			return nil, nil, fmt.Errorf("collectWorkloadExtract: %w", err)
 		}
@@ -696,11 +735,11 @@ func collectWorkloadExtract(
 }
 
 //
-//nolint:gocyclo // two lookups (cluster/ns + workload) plus pod iteration; complexity is inherent not accidental
+//nolint:gocyclo,gocognit // two lookups (cluster/ns + workload) plus pod iteration plus optional app-link filter; complexity is inherent not accidental
 func collectPodExtract(
 	ctx context.Context,
 	store ExtractStore,
-	q string,
+	f searchFilters,
 ) (rows [][]string, objs []any, _ error) {
 	clusterByID, nsByID, err := loadClusterNamespaceIndex(ctx, store)
 	if err != nil {
@@ -718,6 +757,28 @@ func collectPodExtract(
 		}
 	}
 
+	// ADR-0029 §2.4: when an application filter is present, derive the set
+	// of workload IDs whose linked application matches, then keep only pods
+	// owned by one of those workloads. Pods have no application_id of their
+	// own, so transitivity-through-workload is the canonical semantics.
+	var appLinkedWorkloads map[uuid.UUID]struct{}
+	if f.applicationSubstring != "" {
+		app := f.applicationSubstring
+		matches, err := listAllWorkloadsByFilter(ctx, store, WorkloadListFilter{
+			ApplicationNameSubstring: &app,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("collectPodExtract apps: %w", err)
+		}
+		appLinkedWorkloads = make(map[uuid.UUID]struct{}, len(matches))
+		for i := range matches {
+			if matches[i].Id != nil {
+				appLinkedWorkloads[*matches[i].Id] = struct{}{}
+			}
+		}
+	}
+
+	q := f.q
 	cursor := ""
 	for {
 		items, next, err := store.ListPods(ctx, PodListFilter{ImageSubstring: &q}, extractPageSize, cursor)
@@ -726,6 +787,14 @@ func collectPodExtract(
 		}
 		for i := range items {
 			p := &items[i]
+			if appLinkedWorkloads != nil {
+				if p.WorkloadId == nil {
+					continue
+				}
+				if _, ok := appLinkedWorkloads[*p.WorkloadId]; !ok {
+					continue
+				}
+			}
 			cluster, namespace := lookupClusterNamespace(p.NamespaceId, nsByID, clusterByID)
 			var workloadKind, workloadName string
 			if p.WorkloadId != nil {
@@ -770,7 +839,7 @@ func collectPodExtract(
 func collectVMExtract(
 	ctx context.Context,
 	store ExtractStore,
-	q string,
+	f searchFilters,
 ) (rows [][]string, objs []any, _ error) {
 	accounts, err := collectAllCloudAccounts(ctx, store)
 	if err != nil {
@@ -781,16 +850,29 @@ func collectVMExtract(
 		accountNameByID[accounts[i].ID] = accounts[i].Name
 	}
 
+	q := f.q
+	imageFilter := VirtualMachineListFilter{Image: &q}
+	appJSONBFilter := VirtualMachineListFilter{Application: &q}
+	if f.applicationSubstring != "" {
+		// ADR-0029 §2.4: AND-combine with the linked-application substring.
+		// The substring applies to BOTH legs of the union so the final set
+		// is "matches q (image or JSONB app) AND linked to an application
+		// whose name matches".
+		app := f.applicationSubstring
+		imageFilter.ApplicationNameSubstring = &app
+		appJSONBFilter.ApplicationNameSubstring = &app
+	}
+
 	// Union by-image and by-application results.
 	union := make(map[uuid.UUID]VirtualMachine)
-	byImage, err := collectAllVMs(ctx, store, VirtualMachineListFilter{Image: &q})
+	byImage, err := collectAllVMs(ctx, store, imageFilter)
 	if err != nil {
 		return nil, nil, fmt.Errorf("collectVMExtract image: %w", err)
 	}
 	for i := range byImage {
 		union[byImage[i].ID] = byImage[i]
 	}
-	byApp, err := collectAllVMs(ctx, store, VirtualMachineListFilter{Application: &q})
+	byApp, err := collectAllVMs(ctx, store, appJSONBFilter)
 	if err != nil {
 		return nil, nil, fmt.Errorf("collectVMExtract application: %w", err)
 	}
@@ -849,7 +931,8 @@ func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
 			return
 		}
-		q := r.URL.Query().Get("q")
+		qry := r.URL.Query()
+		q := qry.Get("q")
 		if q == "" {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "search", "format": "zip", "outcome": "denied",
@@ -866,6 +949,16 @@ func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "q is longer than 256 characters")
 			return
 		}
+		applicationQ := qry.Get("application")
+		if len(applicationQ) > extractQueryMax {
+			SetAuditDetails(r.Context(), map[string]any{
+				"action": "extract", "page": "search", "format": "zip", "outcome": "denied",
+			})
+			metrics.ObserveExtract("search", "zip", "denied", 0)
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "application is longer than 256 characters")
+			return
+		}
+		filters := searchFilters{q: q, applicationSubstring: applicationQ}
 
 		generated := time.Now()
 		var buf bytes.Buffer
@@ -898,20 +991,20 @@ func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 			return nil
 		}
 
-		wlRows, _, err := collectWorkloadExtract(r.Context(), store, q)
+		wlRows, _, err := collectWorkloadExtract(r.Context(), store, filters)
 		if err == nil {
 			err = emit("workloads.csv", searchCSVHeader(extractKindWorkloads), wlRows)
 		}
 		if err == nil {
 			var podRows [][]string
-			podRows, _, err = collectPodExtract(r.Context(), store, q)
+			podRows, _, err = collectPodExtract(r.Context(), store, filters)
 			if err == nil {
 				err = emit("pods.csv", searchCSVHeader(extractKindPods), podRows)
 			}
 		}
 		if err == nil {
 			var vmRows [][]string
-			vmRows, _, err = collectVMExtract(r.Context(), store, q)
+			vmRows, _, err = collectVMExtract(r.Context(), store, filters)
 			if err == nil {
 				err = emit("virtual_machines.csv", searchCSVHeader("virtual_machines"), vmRows)
 			}
@@ -941,10 +1034,14 @@ func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(buf.Bytes())
 
-		SetAuditDetails(r.Context(), map[string]any{
+		auditDetails := map[string]any{
 			"action": "extract", "page": "search", "format": "zip", "q": q,
 			"row_count": totalRows, "truncated": truncated, "outcome": outcome,
-		})
+		}
+		if applicationQ != "" {
+			auditDetails["application"] = applicationQ
+		}
+		SetAuditDetails(r.Context(), auditDetails)
 		metrics.ObserveExtract("search", "zip", outcome, totalRows)
 	}
 }

@@ -2,6 +2,23 @@ package: api
 output: api.gen.go
 output-options:
   skip-prune: true
+  # ADR-0029: keep the Application + ApplicationBlock model types hand-written
+  # (see internal/api/application_types.go) so the strict server interface
+  # doesn't pull in a parallel set of generated structs. The endpoints are
+  # also excluded under exclude-operation-ids below.
+  exclude-schemas:
+    - Application
+    - ApplicationBlock
+    - ApplicationBlockCreate
+    - ApplicationBlockPatch
+    - ApplicationBlockList
+    - ApplicationCreate
+    - ApplicationPatch
+    - ApplicationList
+    - ApplicationMember
+    - ApplicationMemberCounts
+    - ApplicationMemberList
+    - ApplicationEOLSummary
   exclude-operation-ids:
     # The extract endpoints are hand-written handlers mounted directly on
     # the mux in cmd/longue-vue/main.go. Documented in openapi.yaml so
@@ -14,6 +31,24 @@ output-options:
     # uses the composite (hostname, path_prefix) key that the strict
     # server can't easily express alongside the single-key CRUD routes.
     - getImageRegistryCredentials
+    # ADR-0029: Application + ApplicationBlock endpoints are hand-written
+    # handlers mounted alongside the strict mux (matches the cloud-accounts
+    # pattern). Documented in openapi.yaml so they appear in Swagger UI and
+    # downstream clients, but excluded from the strict-server interface to
+    # avoid duplicate-type conflicts with internal/api/application_types.go.
+    - listApplicationBlocks
+    - createApplicationBlock
+    - getApplicationBlock
+    - updateApplicationBlock
+    - deleteApplicationBlock
+    - listApplications
+    - createApplication
+    - getApplication
+    - getApplicationByName
+    - updateApplication
+    - deleteApplication
+    - listApplicationMembers
+    - getApplicationEOL
 generate:
   models: true
   std-http-server: true

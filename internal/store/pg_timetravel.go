@@ -303,7 +303,7 @@ func nodeRowMapFromRow(row pgx.Row) (map[string]any, error) { //nolint:funlen //
 func workloadRowMap(ctx context.Context, tx pgx.Tx, id uuid.UUID) (map[string]any, error) {
 	const q = `
 		SELECT id, namespace_id, kind, name, replicas, ready_replicas,
-		       containers, labels, spec, created_at, updated_at, terminated_at
+		       containers, labels, spec, application_id, created_at, updated_at, terminated_at
 		FROM workloads WHERE id = $1 FOR UPDATE`
 	return workloadRowMapFromRow(tx.QueryRow(ctx, q, id))
 }
@@ -311,7 +311,7 @@ func workloadRowMap(ctx context.Context, tx pgx.Tx, id uuid.UUID) (map[string]an
 func workloadRowMapNoLock(ctx context.Context, tx pgx.Tx, id uuid.UUID) (map[string]any, error) {
 	const q = `
 		SELECT id, namespace_id, kind, name, replicas, ready_replicas,
-		       containers, labels, spec, created_at, updated_at, terminated_at
+		       containers, labels, spec, application_id, created_at, updated_at, terminated_at
 		FROM workloads WHERE id = $1`
 	return workloadRowMapFromRow(tx.QueryRow(ctx, q, id))
 }
@@ -327,6 +327,7 @@ func workloadRowMapFromRow(row pgx.Row) (map[string]any, error) {
 		containersJSON []byte
 		labelsJSON     []byte
 		specJSON       []byte
+		applicationID  uuid.NullUUID
 		createdAt      time.Time
 		updatedAt      time.Time
 		terminatedAt   *time.Time
@@ -334,7 +335,7 @@ func workloadRowMapFromRow(row pgx.Row) (map[string]any, error) {
 	if err := row.Scan(
 		&id, &namespaceID, &kind, &name,
 		&replicas, &readyReplicas,
-		&containersJSON, &labelsJSON, &specJSON,
+		&containersJSON, &labelsJSON, &specJSON, &applicationID,
 		&createdAt, &updatedAt, &terminatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -366,6 +367,11 @@ func workloadRowMapFromRow(row pgx.Row) (map[string]any, error) {
 		"terminated_at": terminatedAt,
 		"created_at":    createdAt,
 		"updated_at":    updatedAt,
+	}
+	if applicationID.Valid {
+		m["application_id"] = applicationID.UUID
+	} else {
+		m["application_id"] = nil
 	}
 	if replicas.Valid {
 		m["replicas"] = int(replicas.Int32)

@@ -1014,6 +1014,12 @@ func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUp
 	if in.Spec != nil {
 		wl.Spec = in.Spec
 	}
+	// ADR-0029 link soft-pointer. Mirrors PG.UpdateWorkload: a non-nil
+	// pointer overwrites; nil leaves it alone (set-to-null is not
+	// expressible through the *uuid.UUID codegen shape).
+	if in.ApplicationId != nil {
+		wl.ApplicationId = in.ApplicationId
+	}
 	now := time.Now().UTC()
 	wl.UpdatedAt = &now
 	m.workloadsByID[id] = wl
@@ -2996,6 +3002,10 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 		}
 	}
 }
+
+// Application store methods live in server_application_fake_test.go
+// (real in-memory impl, used by the application handler tests).
+// ApplicationBlock methods live in server_application_block_fake_test.go.
 
 func do(h http.Handler, method, target, body string) *httptest.ResponseRecorder {
 	req, _ := http.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))

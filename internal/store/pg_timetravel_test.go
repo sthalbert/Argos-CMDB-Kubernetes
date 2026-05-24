@@ -139,6 +139,61 @@ func TestTimeTravelCapture_SoftDeleteCascade(t *testing.T) {
 	checkSDRow("workloads_history", "workload", *wl.Id)
 }
 
+// TestTimeTravelCapture_WorkloadApplicationID pins ADR-0029 / migration
+// 00048: linking a workload to an application is a watched change and the
+// resulting history row carries the snapshotted application_id column.
+// Without the migration + insertWorkloadHistory wiring, the column would
+// either be absent (failed migrate) or always NULL (capture didn't write
+// it), so this test catches both regressions.
+func TestTimeTravelCapture_WorkloadApplicationID(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "tt-wlapp-" + uuid.New().String()[:8]})
+	require.NoError(t, err)
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{
+		ClusterId: *cluster.Id, Name: "ns-" + uuid.New().String()[:8],
+	})
+	require.NoError(t, err)
+
+	app, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: "tt-app-" + uuid.New().String()[:8]})
+	require.NoError(t, err)
+
+	wl, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *ns.Id, Kind: api.Deployment, Name: "wl-" + uuid.New().String()[:8],
+	})
+	require.NoError(t, err)
+
+	// Link the workload — this is a watched change, so a new history row
+	// is written and the prior (create) row is closed.
+	_, err = pg.UpdateWorkload(ctx, *wl.Id, api.WorkloadUpdate{ApplicationId: &app.ID})
+	require.NoError(t, err)
+
+	// Inspect the *open* history row (valid_to IS NULL) — its application_id
+	// column must equal the link target.
+	var got *uuid.UUID
+	err = pg.pool.QueryRow(ctx,
+		`SELECT application_id FROM workloads_history
+		  WHERE entity_id=$1 AND valid_to IS NULL`,
+		*wl.Id,
+	).Scan(&got)
+	require.NoError(t, err)
+	require.NotNil(t, got, "open history row should have application_id populated")
+	assert.Equal(t, app.ID, *got)
+
+	// The prior create row should carry NULL (the workload was unlinked when
+	// it was created) so we know the column is preserved per-snapshot,
+	// not retroactively rewritten.
+	var prior *uuid.UUID
+	err = pg.pool.QueryRow(ctx,
+		`SELECT application_id FROM workloads_history
+		  WHERE entity_id=$1 AND change_type='create'`,
+		*wl.Id,
+	).Scan(&prior)
+	require.NoError(t, err)
+	assert.Nil(t, prior, "create snapshot should have NULL application_id (workload was unlinked at create time)")
+}
+
 func TestTimeTravelCapture_Resurrection(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

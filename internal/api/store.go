@@ -46,6 +46,20 @@ type WorkloadListFilter struct {
 	// to live ones. Default (false) hides rows whose terminated_at is set.
 	// ADR-0021 phase 1.
 	IncludeTerminated bool
+	// ApplicationID, ApplicationName, Unlinked — ADR-0029 link-aware filters.
+	// ApplicationID wins on conflict with ApplicationName (the handler resolves
+	// names server-side; the store layer also accepts a bare name for callers
+	// that bypass the handler, e.g. MCP). Unlinked = true returns only rows
+	// with application_id IS NULL.
+	ApplicationID   *uuid.UUID
+	ApplicationName *string
+	Unlinked        *bool
+	// ApplicationNameSubstring is a case-insensitive substring match on the
+	// linked application's name, used by the cross-entity Search endpoint
+	// (ADR-0029 §2.4). LIKE metacharacters are escaped at the SQL layer
+	// (ESCAPE '\\'). Ignored when empty. AND-combined with the other
+	// link-aware filters.
+	ApplicationNameSubstring *string
 }
 
 // CascadeCounts holds the number of child resources that will be removed
@@ -673,6 +687,28 @@ type Store interface {
 	UpsertImageOriginResolution(ctx context.Context, in ImageOriginResolutionUpsert) (ImageOriginResolution, error)
 	GetImageOriginResolution(ctx context.Context, mirrorImageRepo, variant string) (ImageOriginResolution, error)
 	DeleteImageOriginResolutionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
+
+	// Application blocks (ADR-0029).
+	CreateApplicationBlock(ctx context.Context, in ApplicationBlockCreate) (ApplicationBlock, error)
+	GetApplicationBlock(ctx context.Context, id uuid.UUID) (ApplicationBlock, error)
+	GetApplicationBlockByName(ctx context.Context, name string) (ApplicationBlock, error)
+	ListApplicationBlocks(
+		ctx context.Context,
+		filter ApplicationBlockListFilter,
+		limit int,
+		cursor string,
+	) (items []ApplicationBlock, nextCursor string, err error)
+	UpdateApplicationBlock(ctx context.Context, id uuid.UUID, in ApplicationBlockPatch) (ApplicationBlock, error)
+	DeleteApplicationBlock(ctx context.Context, id uuid.UUID) error
+
+	// Applications (ADR-0029).
+	CreateApplication(ctx context.Context, in ApplicationCreate) (Application, error)
+	GetApplication(ctx context.Context, id uuid.UUID) (Application, error)
+	GetApplicationByName(ctx context.Context, name string) (Application, error)
+	ListApplications(ctx context.Context, filter ApplicationListFilter, limit int, cursor string) (items []Application, nextCursor string, err error)
+	UpdateApplication(ctx context.Context, id uuid.UUID, in ApplicationPatch) (Application, error)
+	DeleteApplication(ctx context.Context, id uuid.UUID) error
+	ListApplicationMembers(ctx context.Context, id uuid.UUID, limit int, cursor string) (items []ApplicationMember, nextCursor string, err error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by
