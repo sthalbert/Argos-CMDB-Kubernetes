@@ -941,6 +941,11 @@ export interface VMApplication {
   notes?: string | null;
   added_at: string;
   added_by: string;
+  // ADR-0029 per-entry linkage: this specific product/version pair on the
+  // VM may point at an Application independently of the VM's row-level link.
+  // application_name is the denormalized display name (server-resolved).
+  application_id?: string | null;
+  application_name?: string | null;
 }
 
 export interface VirtualMachine {
@@ -988,6 +993,10 @@ export interface VirtualMachine {
   criticality?: string | null;
   notes?: string | null;
   runbook_url?: string | null;
+  // ADR-0029 row-level linkage: links the whole VM to an Application.
+  // The GET response carries only the id (no denormalized name yet), so
+  // the detail page resolves the display name via getApplication.
+  application_id?: string | null;
   created_at: string;
   updated_at: string;
   last_seen_at: string;
@@ -1007,6 +1016,11 @@ export interface VirtualMachineListFilter {
   application_version?: string;
 }
 
+// VirtualMachinePatch is the merge-patch shape posted to PATCH
+// /v1/virtual-machines/{id}. ADR-0029 adds the row-level application
+// linkage: application_id sets the link directly, application_name is a
+// write-only convenience the server resolves to an id (id wins on
+// conflict; null on application_id unlinks).
 export type VirtualMachinePatch = Partial<Pick<
   VirtualMachine,
   | 'display_name'
@@ -1017,7 +1031,10 @@ export type VirtualMachinePatch = Partial<Pick<
   | 'runbook_url'
   | 'annotations'
   | 'applications'
->>;
+  | 'application_id'
+>> & {
+  application_name?: string | null;
+};
 
 export function listVirtualMachines(filter: VirtualMachineListFilter = {}) {
   return request<PagedResponse<VirtualMachine>>(

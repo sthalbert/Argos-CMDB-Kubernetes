@@ -85,6 +85,12 @@ interface EolRow {
   latest: string | undefined;
   latestAvailable: string | undefined;
   checkedAt: string | undefined;
+  // ADR-0029 linkage. Only VM rows can carry a row-level Application link
+  // today (clusters/nodes are not linkable); resolved client-side from the
+  // applications list. Best-effort until Phase 5's per-application EOL
+  // aggregation lands a server-side denorm.
+  applicationId: string | undefined;
+  applicationName: string | undefined;
 }
 
 const STATUS_ORDER: Record<string, number> = { eol: 0, approaching_eol: 1, supported: 2, unknown: 3 };
@@ -93,6 +99,7 @@ function buildRows(
   clusters: api.Cluster[],
   nodes: api.Node[],
   vms: api.VirtualMachine[],
+  appNameById: Map<string, string> = new Map(),
 ): EolRow[] {
   const clusterById = new Map(clusters.map((c) => [c.id, c]));
   const rows: EolRow[] = [];
@@ -111,6 +118,8 @@ function buildRows(
         latest: ann.latest,
         latestAvailable: ann.latest_available,
         checkedAt: ann.checked_at,
+        applicationId: undefined,
+        applicationName: undefined,
       });
     }
   }
@@ -130,11 +139,14 @@ function buildRows(
         latest: ann.latest,
         latestAvailable: ann.latest_available,
         checkedAt: ann.checked_at,
+        applicationId: undefined,
+        applicationName: undefined,
       });
     }
   }
 
   for (const vm of vms) {
+    const appId = vm.application_id ?? undefined;
     for (const ann of parseEolAnnotations(vm.annotations)) {
       rows.push({
         entityType: 'vm',
@@ -148,6 +160,10 @@ function buildRows(
         latest: ann.latest,
         latestAvailable: ann.latest_available,
         checkedAt: ann.checked_at,
+        applicationId: appId,
+        applicationName: appId
+          ? appNameById.get(appId) ?? `${appId.slice(0, 8)}…`
+          : undefined,
       });
     }
   }
@@ -175,7 +191,7 @@ function countStatuses(rows: EolRow[]): StatusCounts {
 
 // --- Sortable column header -----------------------------------------------
 
-type SortKey = 'status' | 'product' | 'entity' | 'cluster' | 'eolDate';
+type SortKey = 'status' | 'product' | 'entity' | 'cluster' | 'application' | 'eolDate';
 
 function compareRows(a: EolRow, b: EolRow, key: SortKey, asc: boolean): number {
   let cmp = 0;
@@ -191,6 +207,9 @@ function compareRows(a: EolRow, b: EolRow, key: SortKey, asc: boolean): number {
       break;
     case 'cluster':
       cmp = a.clusterName.localeCompare(b.clusterName);
+      break;
+    case 'application':
+      cmp = (a.applicationName ?? '￿').localeCompare(b.applicationName ?? '￿');
       break;
     case 'eolDate':
       cmp = (a.eolDate ?? '9999').localeCompare(b.eolDate ?? '9999');
@@ -224,10 +243,16 @@ function SortHeader({
 
 export default function EolDashboard() {
   const state = useResources(
-    [() => api.listClusters(), () => api.listNodes(), () => api.listVirtualMachines()] as const,
+    [
+      () => api.listClusters(),
+      () => api.listNodes(),
+      () => api.listVirtualMachines(),
+      () => api.listApplications({ limit: 200 }),
+    ] as const,
     [],
   );
   const [statusFilter, setStatusFilter] = useState<EolStatus | null>(null);
+  const [appFilter, setAppFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('status');
   const [sortAsc, setSortAsc] = useState(true);
   const [truncated, setTruncated] = useState(false);
@@ -255,38 +280,51 @@ export default function EolDashboard() {
       </p>
       <TruncationBanner visible={truncated} />
       <AsyncView state={state}>
-        {([clustersResp, nodesResp, vmsResp]) => (
-          <>
-            {(() => {
-              const rows = buildRows(clustersResp.items, nodesResp.items, vmsResp.items);
-              if (rows.length === 0) return null;
-              return (
-                <div className="eol-extract">
-                  <ExtractButton
-                    label="Extract"
-                    onExtract={(format) =>
-                      api.extractEol({
-                        format,
-                        status: statusFilter ?? undefined,
-                      })
-                    }
-                    onTruncation={setTruncated}
-                  />
-                </div>
-              );
-            })()}
-            <EolTable
-              clusters={clustersResp.items}
-              nodes={nodesResp.items}
-              vms={vmsResp.items}
-              statusFilter={statusFilter}
-              sortKey={sortKey}
-              sortAsc={sortAsc}
-              onCardClick={handleCardClick}
-              onSort={handleSort}
-            />
-          </>
-        )}
+        {([clustersResp, nodesResp, vmsResp, appsResp]) => {
+          const appNameById = new Map(
+            (appsResp.items ?? []).map((a) => [a.id, a.display_name || a.name]),
+          );
+          return (
+            <>
+              {(() => {
+                const rows = buildRows(
+                  clustersResp.items,
+                  nodesResp.items,
+                  vmsResp.items,
+                  appNameById,
+                );
+                if (rows.length === 0) return null;
+                return (
+                  <div className="eol-extract">
+                    <ExtractButton
+                      label="Extract"
+                      onExtract={(format) =>
+                        api.extractEol({
+                          format,
+                          status: statusFilter ?? undefined,
+                        })
+                      }
+                      onTruncation={setTruncated}
+                    />
+                  </div>
+                );
+              })()}
+              <EolTable
+                clusters={clustersResp.items}
+                nodes={nodesResp.items}
+                vms={vmsResp.items}
+                appNameById={appNameById}
+                statusFilter={statusFilter}
+                appFilter={appFilter}
+                onAppFilterChange={setAppFilter}
+                sortKey={sortKey}
+                sortAsc={sortAsc}
+                onCardClick={handleCardClick}
+                onSort={handleSort}
+              />
+            </>
+          );
+        }}
       </AsyncView>
     </>
   );
@@ -296,7 +334,10 @@ function EolTable({
   clusters,
   nodes,
   vms,
+  appNameById,
   statusFilter,
+  appFilter,
+  onAppFilterChange,
   sortKey,
   sortAsc,
   onCardClick,
@@ -305,19 +346,32 @@ function EolTable({
   clusters: api.Cluster[];
   nodes: api.Node[];
   vms: api.VirtualMachine[];
+  appNameById: Map<string, string>;
   statusFilter: EolStatus | null;
+  appFilter: string;
+  onAppFilterChange: (v: string) => void;
   sortKey: SortKey;
   sortAsc: boolean;
   onCardClick: (status: EolStatus) => void;
   onSort: (key: SortKey) => void;
 }) {
-  const allRows = useMemo(() => buildRows(clusters, nodes, vms), [clusters, nodes, vms]);
+  const allRows = useMemo(
+    () => buildRows(clusters, nodes, vms, appNameById),
+    [clusters, nodes, vms, appNameById],
+  );
   const counts = useMemo(() => countStatuses(allRows), [allRows]);
   const tableRef = useEntityTable('eol.table');
 
+  const appNeedle = appFilter.trim().toLowerCase();
   const filtered = useMemo(
-    () => (statusFilter ? allRows.filter((r) => r.eolStatus === statusFilter) : allRows),
-    [allRows, statusFilter],
+    () =>
+      allRows.filter((r) => {
+        if (statusFilter && r.eolStatus !== statusFilter) return false;
+        if (appNeedle && !(r.applicationName ?? '').toLowerCase().includes(appNeedle))
+          return false;
+        return true;
+      }),
+    [allRows, statusFilter, appNeedle],
   );
 
   const sorted = useMemo(
@@ -354,12 +408,39 @@ function EolTable({
         </div>
       </div>
 
-      {statusFilter && (
-        <p style={{ marginBottom: '0.75rem' }}>
-          Filtering: <EolBadge status={statusFilter} />{' '}
-          <button className="link-btn" onClick={() => onCardClick(statusFilter)}>
+      <div className="eol-app-filter" style={{ marginBottom: '0.75rem' }}>
+        <input
+          type="text"
+          value={appFilter}
+          placeholder="Filter by application…"
+          aria-label="Filter by application"
+          onChange={(e) => onAppFilterChange(e.target.value)}
+        />
+        {appFilter && (
+          <button
+            className="link-btn"
+            style={{ marginLeft: '0.5rem' }}
+            onClick={() => onAppFilterChange('')}
+          >
             clear
           </button>
+        )}
+      </div>
+
+      {(statusFilter || appNeedle) && (
+        <p style={{ marginBottom: '0.75rem' }}>
+          Filtering:{' '}
+          {statusFilter && (
+            <>
+              <EolBadge status={statusFilter} />{' '}
+              <button className="link-btn" onClick={() => onCardClick(statusFilter)}>
+                clear
+              </button>{' '}
+            </>
+          )}
+          {appNeedle && (
+            <span className="pill">application ~ {appFilter}</span>
+          )}
           <span className="muted" style={{ marginLeft: '0.5rem' }}>
             ({sorted.length} of {allRows.length})
           </span>
@@ -374,6 +455,7 @@ function EolTable({
             <th>Version</th>
             <th>Patch</th>
             <SortHeader label="Entity" sortKey="entity" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <SortHeader label="Application" sortKey="application" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
             <SortHeader label="Cluster" sortKey="cluster" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
             <th>Latest Available</th>
             <SortHeader label="EOL Date" sortKey="eolDate" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
@@ -408,6 +490,13 @@ function EolTable({
                 <span className="muted" style={{ marginLeft: '0.4rem', fontSize: '0.8rem' }}>
                   {r.entityType}
                 </span>
+              </td>
+              <td>
+                {r.applicationId ? (
+                  <Link to={`/applications/${r.applicationId}`}>{r.applicationName}</Link>
+                ) : (
+                  <Dash />
+                )}
               </td>
               <td>{r.clusterName || <Dash />}</td>
               <td className="eol-col-separator">{r.latestAvailable ? <code>{r.latestAvailable}</code> : <Dash />}</td>

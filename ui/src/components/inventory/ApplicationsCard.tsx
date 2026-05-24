@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { Link } from 'react-router-dom';
 import * as api from '../../api';
 import { canEdit, useMe } from '../../me';
 import { Dash, Empty, SectionTitle } from '../../components';
@@ -61,6 +62,7 @@ export function ApplicationsCard({
               <th>Product</th>
               <th>Version</th>
               <th>Instance name</th>
+              <th>Linked application</th>
               <th>Notes</th>
               <th>Added</th>
             </tr>
@@ -75,6 +77,15 @@ export function ApplicationsCard({
                   <code>{a.version}</code>
                 </td>
                 <td>{a.name ? <code>{a.name}</code> : <Dash />}</td>
+                <td>
+                  {a.application_id ? (
+                    <Link to={`/applications/${a.application_id}`} className="pill">
+                      {a.application_name ?? `${a.application_id.slice(0, 8)}…`}
+                    </Link>
+                  ) : (
+                    <Dash />
+                  )}
+                </td>
                 <td>
                   {a.notes ? (
                     <span style={{ whiteSpace: 'pre-wrap' }}>{a.notes}</span>
@@ -108,6 +119,11 @@ interface DraftApp {
   version: string;
   name: string;
   notes: string;
+  // ADR-0029 per-entry linkage. application_id is the soft pointer; the
+  // name is carried for display and as a write-only resolve convenience
+  // (the server resolves application_name → id, id wins on conflict).
+  application_id?: string | null;
+  application_name?: string | null;
   // Preserved across edits so we can hand the row back unchanged on save
   // and let the server keep its added_at / added_by stamps.
   added_at?: string;
@@ -131,6 +147,8 @@ function ApplicationsForm({
       version: a.version,
       name: a.name ?? '',
       notes: a.notes ?? '',
+      application_id: a.application_id ?? null,
+      application_name: a.application_name ?? null,
       added_at: a.added_at,
       added_by: a.added_by,
     })),
@@ -143,7 +161,17 @@ function ApplicationsForm({
   const remove = (i: number) =>
     setDrafts((prev) => prev.filter((_, idx) => idx !== i));
   const add = () =>
-    setDrafts((prev) => [...prev, { product: '', version: '', name: '', notes: '' }]);
+    setDrafts((prev) => [
+      ...prev,
+      {
+        product: '',
+        version: '',
+        name: '',
+        notes: '',
+        application_id: null,
+        application_name: null,
+      },
+    ]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -156,10 +184,14 @@ function ApplicationsForm({
         version: d.version.trim(),
         name: d.name.trim(),
         notes: d.notes,
+        application_id: d.application_id ?? null,
+        application_name: d.application_name ?? null,
         added_at: d.added_at,
         added_by: d.added_by,
       }))
-      .filter((d) => d.product || d.version || d.name || d.notes);
+      .filter(
+        (d) => d.product || d.version || d.name || d.notes || d.application_id,
+      );
     for (const d of cleaned) {
       if (!d.product) {
         setError('Every row needs a product (e.g. vault, cyberwatch).');
@@ -178,6 +210,9 @@ function ApplicationsForm({
       version: d.version,
       ...(d.name ? { name: d.name } : {}),
       ...(d.notes ? { notes: d.notes } : {}),
+      // Send the per-entry link as application_id. A null clears the link;
+      // the server preserves application_name's denorm on resolve.
+      application_id: d.application_id ?? null,
       ...(d.added_at ? { added_at: d.added_at } : {}),
       ...(d.added_by ? { added_by: d.added_by } : {}),
     })) as api.VMApplication[];
@@ -212,6 +247,7 @@ function ApplicationsForm({
                 <th>Product</th>
                 <th>Version</th>
                 <th>Instance name</th>
+                <th>Linked application</th>
                 <th>Notes</th>
                 <th></th>
               </tr>
@@ -241,6 +277,19 @@ function ApplicationsForm({
                       value={d.name}
                       placeholder="vault-prod-01 (optional)"
                       onChange={(e) => update(i, { name: e.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <EntryAppPicker
+                      linkedId={d.application_id ?? null}
+                      linkedName={d.application_name ?? null}
+                      disabled={busy}
+                      onPick={(app) =>
+                        update(i, {
+                          application_id: app?.id ?? null,
+                          application_name: app?.name ?? null,
+                        })
+                      }
                     />
                   </td>
                   <td>
@@ -288,5 +337,88 @@ function ApplicationsForm({
         enrichment cycle from <strong>Admin &gt; Settings</strong>, or wait for the next tick.
       </p>
     </section>
+  );
+}
+
+// EntryAppPicker is the lightweight per-software-row Application picker for
+// the VM applications edit form (ADR-0029 §3). When a row is already linked
+// it shows the application name + an Unlink button; otherwise it offers a
+// type-ahead search backed by listApplications. Picking an entry hands the
+// chosen Application back to the parent so the row's application_id /
+// application_name are persisted through the existing applications[] save.
+function EntryAppPicker({
+  linkedId,
+  linkedName,
+  disabled,
+  onPick,
+}: {
+  linkedId: string | null;
+  linkedName: string | null;
+  disabled?: boolean;
+  onPick: (app: api.Application | null) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [matches, setMatches] = useState<api.Application[]>([]);
+
+  async function onSearchChange(v: string) {
+    setQuery(v);
+    if (!v) {
+      setMatches([]);
+      return;
+    }
+    try {
+      const page = await api.listApplications({ name: v, limit: 10 });
+      setMatches(page.items ?? []);
+    } catch {
+      setMatches([]);
+    }
+  }
+
+  if (linkedId) {
+    return (
+      <span>
+        <span className="pill">{linkedName ?? `${linkedId.slice(0, 8)}…`}</span>{' '}
+        <button
+          type="button"
+          className="danger"
+          disabled={disabled}
+          onClick={() => onPick(null)}
+        >
+          Unlink
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <div>
+      <input
+        type="text"
+        value={query}
+        placeholder="link application…"
+        aria-label="Search applications"
+        disabled={disabled}
+        onChange={(e) => onSearchChange(e.target.value)}
+      />
+      {matches.length > 0 && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: '0.25rem 0 0' }}>
+          {matches.map((a) => (
+            <li key={a.id}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  onPick(a);
+                  setQuery('');
+                  setMatches([]);
+                }}
+              >
+                {a.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

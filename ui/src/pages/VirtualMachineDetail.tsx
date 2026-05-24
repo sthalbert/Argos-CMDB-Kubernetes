@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
-import { isAdmin, useMe } from '../me';
+import { canEdit, isAdmin, useMe } from '../me';
 import { AsyncView, Dash, KV, SectionTitle, Empty } from '../components';
 import { VirtualMachineIcon } from '../icons';
 import { PowerStatePill } from './VirtualMachines';
@@ -11,6 +11,7 @@ import { NetworkingCard } from '../components/inventory/NetworkingCard';
 import { CapacityCard } from '../components/inventory/CapacityCard';
 import { LabelsCard } from '../components/inventory/LabelsCard';
 import { AnnotationsCard } from '../components/inventory/AnnotationsCard';
+import { ApplicationCard } from '../components/inventory/ApplicationCard';
 import { ApplicationsCard } from '../components/inventory/ApplicationsCard';
 import { CuratedMetadataCard } from '../components/inventory/CuratedMetadataCard';
 
@@ -49,6 +50,32 @@ export default function VirtualMachineDetail() {
     },
     [me?.role ?? '', vmState.status === 'ready' ? vmState.data.cloud_account_id : ''],
   );
+
+  // The VM GET response carries only application_id (no denormalized
+  // application_name yet — ADR-0029 Phase 5), so resolve the display name
+  // for the row-level ApplicationCard via a cheap getApplication lookup.
+  const linkedAppId =
+    vmState.status === 'ready' ? vmState.data.application_id ?? null : null;
+  const [linkedAppName, setLinkedAppName] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!linkedAppId) {
+      setLinkedAppName(null);
+      return;
+    }
+    api
+      .getApplication(linkedAppId)
+      .then((app) => {
+        if (!cancelled) setLinkedAppName(app.display_name || app.name);
+      })
+      .catch(() => {
+        // Best-effort: fall back to the id prefix if the lookup fails.
+        if (!cancelled) setLinkedAppName(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedAppId]);
 
   return (
     <>
@@ -231,6 +258,19 @@ export default function VirtualMachineDetail() {
                 />
               </dl>
               <BlockDevicesTable devices={vm.block_devices} />
+
+              <ApplicationCard
+                linkedId={linkedAppId}
+                linkedName={
+                  linkedAppName ??
+                  (linkedAppId ? `${linkedAppId.slice(0, 8)}…` : null)
+                }
+                onLink={async (appId) => {
+                  await api.updateVirtualMachine(vm.id, { application_id: appId });
+                  reload();
+                }}
+                editable={canEdit(me)}
+              />
 
               <ApplicationsCard
                 applications={vm.applications}
