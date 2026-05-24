@@ -645,6 +645,15 @@ type Store interface {
 	// product → version dropdown in the VM list UI (ADR-0019 §3).
 	ListDistinctVMApplications(ctx context.Context) ([]VMApplicationDistinct, error)
 
+	// ListVMsWithApplicationEntry returns every non-terminated VM that has
+	// at least one applications[] JSONB entry whose per-entry
+	// application_id matches the given application — regardless of the VM's
+	// row-level application_id link. Used by the per-application EOL
+	// aggregator (ADR-0029 §5 source 3) to surface VM-application entries
+	// whose parent VM is not itself linked. The full VM is returned so the
+	// caller can read its annotations and filter the matching entries.
+	ListVMsWithApplicationEntry(ctx context.Context, appID uuid.UUID) ([]VirtualMachine, error)
+
 	// --- Time-travel history (ADR-0021 Phase 3) ----------------------------
 
 	// ListEntityHistory returns up to limit history rows for one entity,

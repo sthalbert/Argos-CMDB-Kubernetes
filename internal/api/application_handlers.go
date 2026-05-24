@@ -22,6 +22,7 @@ package api
 // landed in Task 1.8) — reused here to avoid duplicate declarations.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/longue-vue/internal/auth"
+	"github.com/sthalbert/longue-vue/internal/eolagg"
 )
 
 // Static sentinels for the DICT-shape validators. Required by err113 —
@@ -356,14 +358,167 @@ func HandleListApplicationMembers(store Store) http.HandlerFunc {
 	}
 }
 
-// HandleGetApplicationEOL is a 501 stub. The real implementation lands
-// in Phase 5 Task 5.2: it will walk the application's members, collect
-// their EOL annotations (cluster + node + VM levels), and return a
-// per-product aggregate. Wiring the endpoint now keeps the API surface
-// stable across the rollout.
-func HandleGetApplicationEOL(_ Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeProblem(w, http.StatusNotImplemented, "Not Implemented",
-			"EOL aggregation lands in Phase 5")
+// HandleGetApplicationEOL — read scope. GET /v1/applications/{id}/eol.
+// Confirms the application exists (404 if not), then read-time aggregates
+// the EOL signal across its three member sources (workloads' image-versions
+// enrichment, linked VMs' annotations, and VM-application JSONB entries
+// whose per-entry application_id matches — even when the parent VM is not
+// itself linked). No enricher pass, no DB writes (ADR-0029 §5).
+func HandleGetApplicationEOL(store Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireScope(w, r, auth.ScopeRead) {
+			return
+		}
+		id, ok := pathUUID(w, r, "id")
+		if !ok {
+			return
+		}
+		if _, err := store.GetApplication(r.Context(), id); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeProblem(w, http.StatusNotFound, "Not Found", "")
+				return
+			}
+			slog.Error("get application (eol)", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		rows, err := eolagg.AggregateForApplication(r.Context(), eolAppStore{store}, id)
+		if err != nil {
+			slog.Error("aggregate application eol", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": rows})
 	}
+}
+
+// eolAppStore adapts api.Store to eolagg.ApplicationStore. The eolagg
+// package is intentionally free of an internal/api dependency (api imports
+// eolagg for the extract path; the reverse would cycle), so the adaptation
+// — paginating the member lists and mapping api types to eolagg's local
+// input shapes — lives here.
+type eolAppStore struct{ s Store }
+
+// eolMemberPageLimit bounds each member-list page. ADR-0029 §5/NEG-006:
+// expected fleet sizes are low hundreds of members per application; we
+// page at 200 and walk the cursor to completion.
+const eolMemberPageLimit = 200
+
+// ApplicationWorkloadMembers walks every workload linked to the
+// application and maps each one's container image-versions enrichment
+// (ADR-0022) into eolagg's WorkloadMember shape. Workloads carry no
+// longue-vue.io/eol.* annotations — image-versions is their only EOL
+// signal.
+func (e eolAppStore) ApplicationWorkloadMembers(ctx context.Context, appID uuid.UUID) ([]eolagg.WorkloadMember, error) {
+	out := make([]eolagg.WorkloadMember, 0, eolMemberPageLimit)
+	filter := WorkloadListFilter{ApplicationID: &appID}
+	cursor := ""
+	for {
+		items, next, err := e.s.ListWorkloads(ctx, filter, eolMemberPageLimit, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("list workload members: %w", err)
+		}
+		for i := range items {
+			out = append(out, toWorkloadMember(&items[i]))
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	return out, nil
+}
+
+// ApplicationVMMembers walks every VM whose row-level application_id links
+// it to the application and maps its annotations into eolagg's VMMember.
+func (e eolAppStore) ApplicationVMMembers(ctx context.Context, appID uuid.UUID) ([]eolagg.VMMember, error) {
+	out := make([]eolagg.VMMember, 0, eolMemberPageLimit)
+	filter := VirtualMachineListFilter{ApplicationID: &appID}
+	cursor := ""
+	for {
+		items, next, err := e.s.ListVirtualMachines(ctx, filter, eolMemberPageLimit, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("list vm members: %w", err)
+		}
+		for i := range items {
+			out = append(out, eolagg.VMMember{
+				ID:          items[i].ID.String(),
+				Name:        vmDisplayName(&items[i]),
+				Annotations: items[i].Annotations,
+			})
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	return out, nil
+}
+
+// ApplicationVMAppEntryMembers returns one eolagg.VMAppEntryMember per
+// applications[] JSONB entry whose per-entry application_id matches the
+// application — independent of the parent VM's row-level link. A single VM
+// hosting two products linked to this app yields two entries.
+func (e eolAppStore) ApplicationVMAppEntryMembers(ctx context.Context, appID uuid.UUID) ([]eolagg.VMAppEntryMember, error) {
+	vms, err := e.s.ListVMsWithApplicationEntry(ctx, appID)
+	if err != nil {
+		return nil, fmt.Errorf("list vms with application entry: %w", err)
+	}
+	out := make([]eolagg.VMAppEntryMember, 0, len(vms))
+	for i := range vms {
+		vm := &vms[i]
+		name := vmDisplayName(vm)
+		for j := range vm.Applications {
+			entry := &vm.Applications[j]
+			if entry.ApplicationID == nil || *entry.ApplicationID != appID {
+				continue
+			}
+			out = append(out, eolagg.VMAppEntryMember{
+				VMID:        vm.ID.String(),
+				VMName:      name,
+				Product:     NormalizeProductName(entry.Product),
+				Annotations: vm.Annotations,
+			})
+		}
+	}
+	return out, nil
+}
+
+// toWorkloadMember maps an api.Workload's containers_versions map into the
+// eolagg shape, keeping only the fields the aggregator reads.
+func toWorkloadMember(w *Workload) eolagg.WorkloadMember {
+	name := w.Name
+	if w.NamespaceName != nil && *w.NamespaceName != "" {
+		name = *w.NamespaceName + "/" + w.Name
+	}
+	m := eolagg.WorkloadMember{Name: name}
+	if w.Id != nil {
+		m.ID = w.Id.String()
+	}
+	if w.ContainersVersions != nil {
+		m.ContainersVersions = make(map[string]eolagg.ContainerVersion, len(*w.ContainersVersions))
+		for container, cv := range *w.ContainersVersions {
+			ec := eolagg.ContainerVersion{}
+			if cv.LatestTag != nil {
+				ec.LatestTag = *cv.LatestTag
+			}
+			if cv.IsBehind != nil {
+				ec.IsBehind = *cv.IsBehind
+			}
+			if cv.LastCheckedAt != nil {
+				ec.LastCheckedAt = cv.LastCheckedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+			}
+			m.ContainersVersions[container] = ec
+		}
+	}
+	return m
+}
+
+// vmDisplayName prefers the operator-set display name, falling back to the
+// provider name — mirrors the eolagg.displayOrName convention.
+func vmDisplayName(vm *VirtualMachine) string {
+	if vm.DisplayName != nil && *vm.DisplayName != "" {
+		return *vm.DisplayName
+	}
+	return vm.Name
 }

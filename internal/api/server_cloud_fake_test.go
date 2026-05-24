@@ -487,6 +487,24 @@ func (m *memStore) ListVirtualMachines(_ context.Context, filter VirtualMachineL
 	return out, "", nil
 }
 
+func (m *memStore) ListVMsWithApplicationEntry(_ context.Context, appID uuid.UUID) ([]VirtualMachine, error) {
+	cloudFake.mu.Lock()
+	defer cloudFake.mu.Unlock()
+	out := make([]VirtualMachine, 0)
+	for _, vm := range cloudFake.vms { //nolint:gocritic // rangeValCopy: test fake; copy is intentional
+		if vm.TerminatedAt != nil {
+			continue
+		}
+		for i := range vm.Applications {
+			if vm.Applications[i].ApplicationID != nil && *vm.Applications[i].ApplicationID == appID {
+				out = append(out, vm)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 //nolint:gocyclo // aggregates versions per product; complexity is inherent in the in-memory grouping
 func (m *memStore) ListDistinctVMApplications(_ context.Context) ([]VMApplicationDistinct, error) {
 	cloudFake.mu.Lock()

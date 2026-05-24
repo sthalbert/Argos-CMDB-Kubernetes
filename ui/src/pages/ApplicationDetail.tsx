@@ -625,10 +625,42 @@ function AddMemberForm({ appId, onAdded }: { appId: string; onAdded: () => void 
 
 // --- End-of-life summary card -------------------------------------------
 
+// eolStatusClass maps an aggregated eol_status to the shared pill classes
+// (mirrors statusClass in EolDashboard.tsx). The aggregator can also emit
+// "outdated" (workload image-versions behind latest), which we render as a
+// warning, and "unknown" / unset as a neutral pill.
+function eolStatusClass(status: string): string {
+  switch (status) {
+    case 'eol':
+      return 'pill status-bad';
+    case 'approaching_eol':
+    case 'outdated':
+      return 'pill status-warn';
+    case 'supported':
+      return 'pill status-ok';
+    default:
+      return 'pill';
+  }
+}
+
+function eolStatusLabel(status: string): string {
+  switch (status) {
+    case 'eol':
+      return 'End of Life';
+    case 'approaching_eol':
+      return 'Approaching EOL';
+    case 'supported':
+      return 'Supported';
+    case 'outdated':
+      return 'Outdated';
+    default:
+      return 'Unknown';
+  }
+}
+
 function EolSummaryCard({ appId }: { appId: string }) {
-  // Wire the fetcher behind the placeholder: the endpoint currently
-  // returns 501 (Phase 5), so swallow the error and keep showing the
-  // placeholder. When Phase 5 ships this becomes a real table.
+  // Keep the try/catch so a transient endpoint error degrades to the empty
+  // state rather than crashing the whole detail page.
   const state = useResource(async () => {
     try {
       return await api.applicationEOL(appId);
@@ -640,17 +672,52 @@ function EolSummaryCard({ appId }: { appId: string }) {
   // Hide entirely if we somehow have no application id.
   if (!appId) return null;
 
-  const ready = state.status === 'ready' && state.data && state.data.items.length > 0;
+  const rows = state.status === 'ready' && state.data ? state.data.items : [];
 
   return (
     <section className="curated-card">
       <div className="curated-card-header">
         <h3>End-of-life summary</h3>
       </div>
-      {ready ? (
-        <p className="muted">Aggregated EOL data available.</p>
+      {rows.length === 0 ? (
+        <p className="muted empty">No end-of-life signal for this application&apos;s members yet.</p>
       ) : (
-        <p className="muted">Aggregated EOL view lands in Phase 5.</p>
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Cycle</th>
+              <th>Status</th>
+              <th>Latest available</th>
+              <th>Sources</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.product}>
+                <td>{r.product}</td>
+                <td>{r.cycle || <Dash />}</td>
+                <td>
+                  <span className={eolStatusClass(r.eol_status)}>{eolStatusLabel(r.eol_status)}</span>
+                </td>
+                <td>{r.latest_available || <Dash />}</td>
+                <td>
+                  {r.sources.length === 0 ? (
+                    <Dash />
+                  ) : (
+                    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                      {r.sources.map((s) => (
+                        <span key={`${s.kind}:${s.id}`} className="pill" title={s.kind}>
+                          {s.name}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </section>
   );

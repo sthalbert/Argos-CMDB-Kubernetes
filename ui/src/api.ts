@@ -1308,12 +1308,30 @@ export function listApplicationMembers(id: string, cursor?: string, limit?: numb
   );
 }
 
-// applicationEOL returns the aggregated EOL annotations for an
-// application's members. The endpoint exists but currently returns 501;
-// it lights up in Phase 5. Defined here so callers don't have to be
-// rewired later.
-export function applicationEOL(id: string) {
-  return request<{ items: unknown[] }>(`/v1/applications/${id}/eol`);
+// ApplicationEOLSource names one member asset contributing an EOL row
+// (ADR-0029 §5).
+export type ApplicationEOLSource = {
+  kind: 'workload' | 'virtual_machine' | 'vm_application' | string;
+  id: string;
+  name: string;
+};
+
+// ApplicationEOLRow is one product rolled up across an application's
+// members, with the contributing sources listed.
+export type ApplicationEOLRow = {
+  product: string;
+  cycle: string;
+  eol_status: string;
+  latest_available?: string;
+  evaluated_at?: string;
+  sources: ApplicationEOLSource[];
+};
+
+// applicationEOL returns the read-time aggregated EOL signal across an
+// application's members (workloads via image-versions, linked VMs, and
+// matching VM-application entries). ADR-0029 §5.
+export function applicationEOL(id: string): Promise<{ items: ApplicationEOLRow[] }> {
+  return request<{ items: ApplicationEOLRow[] }>(`/v1/applications/${id}/eol`);
 }
 
 // --- Image versions ---------------------------------------------------------

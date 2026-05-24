@@ -655,6 +655,44 @@ func (p *PG) ListDistinctVMApplications(ctx context.Context) ([]api.VMApplicatio
 	return out, nil
 }
 
+// ListVMsWithApplicationEntry returns every non-terminated VM that has at
+// least one applications[] JSONB entry whose per-entry application_id
+// matches appID, regardless of the VM's row-level application_id. Powers
+// the per-application EOL aggregator's third source (ADR-0029 §5): a
+// VM-application entry contributes even when its parent VM is not itself
+// linked. The match uses jsonb containment so the GIN jsonb_path_ops index
+// on `applications` is eligible. The full VM row is returned so the caller
+// reads annotations + filters the matching entries in Go.
+func (p *PG) ListVMsWithApplicationEntry(ctx context.Context, appID uuid.UUID) ([]api.VirtualMachine, error) {
+	// Containment probe: [{"application_id":"<uuid>"}]. Built server-side
+	// from the typed UUID so no injection surface; json.Marshal of a
+	// []map[string]string is always serialisable.
+	entry := []map[string]string{{"application_id": appID.String()}}
+	probe, _ := json.Marshal(entry)
+	q := `SELECT ` + vmColumns + `
+		FROM virtual_machines
+		WHERE terminated_at IS NULL
+		  AND applications @> $1::jsonb
+		ORDER BY name, id`
+	rows, err := p.pool.Query(ctx, q, string(probe))
+	if err != nil {
+		return nil, fmt.Errorf("query vms with application entry: %w", err)
+	}
+	defer rows.Close()
+	out := make([]api.VirtualMachine, 0, 8)
+	for rows.Next() {
+		vm, err := scanVirtualMachine(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan vm with application entry: %w", err)
+		}
+		out = append(out, vm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate vms with application entry: %w", err)
+	}
+	return out, nil
+}
+
 // jsonOrEmptyArray returns the raw JSON if non-nil, else "[]".
 func jsonOrEmptyArray(b json.RawMessage) []byte {
 	if len(b) == 0 {

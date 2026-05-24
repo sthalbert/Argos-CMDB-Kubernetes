@@ -981,6 +981,16 @@ func (m *memStore) ListWorkloads(
 		if needle != "" && !podContainersMatch(wl.Containers, needle) {
 			continue
 		}
+		// ADR-0029 link-aware filter. ApplicationID is the only one the
+		// EOL aggregator drives; ApplicationName resolution lives in PG.
+		if filter.ApplicationID != nil {
+			if wl.ApplicationId == nil || *wl.ApplicationId != *filter.ApplicationID {
+				continue
+			}
+		}
+		if filter.Unlinked != nil && *filter.Unlinked && wl.ApplicationId != nil {
+			continue
+		}
 		// Filter out terminated workloads unless IncludeTerminated is true.
 		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
 		_ = filter.IncludeTerminated

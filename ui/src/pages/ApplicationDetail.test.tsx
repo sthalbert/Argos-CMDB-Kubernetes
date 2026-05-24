@@ -43,8 +43,10 @@ describe('ApplicationDetail', () => {
     expect(screen.getByRole('heading', { name: /Classification \(DICT\)/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /^Members$/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /End-of-life summary/i })).toBeInTheDocument();
-    // EOL placeholder copy.
-    expect(screen.getByText(/Aggregated EOL view lands in Phase 5/i)).toBeInTheDocument();
+    // Default test handler returns no EOL rows → empty state copy.
+    expect(
+      screen.getByText(/No end-of-life signal for this application's members yet/i),
+    ).toBeInTheDocument();
   });
 
   it('hides Edit buttons for a viewer', async () => {
@@ -168,6 +170,69 @@ describe('ApplicationDetail', () => {
     );
     await user.click(screen.getByRole('button', { name: /^Unlink$/i }));
     await waitFor(() => expect(wlPatch).toHaveBeenCalledWith({ application_id: null }));
+  });
+
+  it('renders EOL rows from applicationEOL', async () => {
+    server.use(
+      http.get('/v1/applications/:id/eol', () =>
+        HttpResponse.json({
+          items: [
+            {
+              product: 'vault',
+              cycle: '1.13',
+              eol_status: 'eol',
+              latest_available: '1.18.2',
+              sources: [{ kind: 'virtual_machine', id: 'v1', name: 'bastion-eu' }],
+            },
+          ],
+        }),
+      ),
+    );
+    renderDetail();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /End-of-life summary/i })).toBeInTheDocument(),
+    );
+    expect(screen.getByText('vault')).toBeInTheDocument();
+    expect(screen.getByText('1.18.2')).toBeInTheDocument();
+    expect(screen.getByText('End of Life')).toBeInTheDocument();
+    expect(screen.getByText('bastion-eu')).toBeInTheDocument();
+  });
+
+  it('shows the empty state when applicationEOL returns no rows', async () => {
+    server.use(http.get('/v1/applications/:id/eol', () => HttpResponse.json({ items: [] })));
+    renderDetail();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /End-of-life summary/i })).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/No end-of-life signal for this application's members yet/i),
+    ).toBeInTheDocument();
+  });
+
+  it('renders one chip per source on a merged EOL row', async () => {
+    server.use(
+      http.get('/v1/applications/:id/eol', () =>
+        HttpResponse.json({
+          items: [
+            {
+              product: 'vault',
+              cycle: '1.13',
+              eol_status: 'eol',
+              latest_available: '1.18.2',
+              sources: [
+                { kind: 'virtual_machine', id: 'v1', name: 'bastion-eu' },
+                { kind: 'workload', id: 'w1', name: 'kube-prod/vault' },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    renderDetail();
+    await waitFor(() =>
+      expect(screen.getByText('bastion-eu')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('kube-prod/vault')).toBeInTheDocument();
   });
 
   it('renders a Not found message on 404', async () => {

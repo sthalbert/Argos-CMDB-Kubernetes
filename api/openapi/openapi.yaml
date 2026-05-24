@@ -5889,10 +5889,69 @@ components:
 
     ApplicationEOLSummary:
       description: |
-        Placeholder for the per-application EOL aggregation. The concrete
-        shape lands in Phase 5 of ADR-0029.
+        Read-time aggregation of the EOL signal across an application's
+        members (ADR-0029 §5). One row per product, each row listing the
+        member assets that contribute it. No caching, no enricher pass.
       type: object
+      required: [items]
       properties:
         items:
           type: array
-          items: { type: object }
+          items:
+            $ref: '#/components/schemas/ApplicationEOLRow'
+    ApplicationEOLRow:
+      description: |
+        One product rolled up across every member that exposes EOL signal
+        for it. `sources` names the contributing assets (workloads via
+        image-versions enrichment, linked VMs, and matching VM-application
+        entries).
+      type: object
+      required: [product, eol_status, sources]
+      properties:
+        product:
+          type: string
+          description: Normalised product key (kebab-case) or container name.
+          example: vault
+        cycle:
+          type: string
+          description: Release cycle from endoflife.date, when known.
+          example: '1.13'
+        eol_status:
+          type: string
+          description: |
+            Lifecycle status. `eol` / `approaching_eol` / `supported`
+            come from the endoflife.date enricher on VMs; `outdated`
+            (image behind latest) / `unknown` come from workload
+            image-versions enrichment.
+          enum: [eol, approaching_eol, supported, outdated, unknown]
+          example: eol
+        latest_available:
+          type: string
+          description: Newest published version / tag known for the product.
+          example: 1.18.2
+        evaluated_at:
+          type: string
+          description: When the underlying signal was last evaluated (RFC 3339).
+          example: '2026-05-15T00:00:00Z'
+        sources:
+          type: array
+          description: Member assets contributing this product's EOL signal.
+          items:
+            $ref: '#/components/schemas/ApplicationEOLSource'
+    ApplicationEOLSource:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind:
+          type: string
+          enum: [workload, virtual_machine, vm_application]
+          example: virtual_machine
+        id:
+          type: string
+          description: |
+            Asset identifier. A UUID for workloads / VMs; a composite
+            `<vm-uuid>#<product>` for VM-application entries.
+          example: 550e8400-e29b-41d4-a716-446655440000
+        name:
+          type: string
+          example: bastion-eu
