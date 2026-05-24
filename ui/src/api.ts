@@ -1047,6 +1047,215 @@ export function listDistinctVMApplications() {
   );
 }
 
+// --- Applications + Application blocks (ADR-0029) -------------------------
+
+// ApplicationBlock is the optional grouping layer above Application — a
+// portfolio / business domain (e.g. "Finance" or "Office IT"). The
+// backend keeps name unique and stores curated metadata alongside.
+export interface ApplicationBlock {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  owner?: string;
+  notes?: string;
+  annotations: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+  // Convenience counter: how many applications belong to the block.
+  // Optional because list-vs-detail responses include it inconsistently.
+  application_count?: number;
+}
+
+export interface ApplicationBlockCreate {
+  name: string;
+  display_name?: string;
+  description?: string;
+  owner?: string;
+  notes?: string;
+  annotations?: Record<string, string>;
+}
+
+// ApplicationBlockPatch is the merge-patch shape. `name` is immutable
+// once issued (mirrors clusters/cloud-accounts).
+export type ApplicationBlockPatch = Partial<Omit<ApplicationBlockCreate, 'name'>>;
+
+// ApplicationMemberCounts is the inline summary the backend embeds on
+// every Application response so we don't have to round-trip /members
+// just to render a count badge.
+export interface ApplicationMemberCounts {
+  workloads: number;
+  virtual_machines: number;
+  vm_applications: number;
+}
+
+export interface Application {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  application_block_id?: string | null;
+  application_block_name?: string | null;
+  owner?: string;
+  criticality?: string;
+  notes?: string;
+  runbook_url?: string;
+  annotations: Record<string, string>;
+  // SecNumCloud DICT vector (Disponibilité / Intégrité /
+  // Confidentialité / Traçabilité). null until the operator records it.
+  sec_disponibilite?: number | null;
+  sec_integrite?: number | null;
+  sec_confidentialite?: number | null;
+  sec_tracabilite?: number | null;
+  sec_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  member_counts: ApplicationMemberCounts;
+}
+
+export interface ApplicationCreate {
+  name: string;
+  display_name?: string;
+  description?: string;
+  // Either link by id or by name — backend resolves the name to an id
+  // on create (returns 409 if both are set and disagree).
+  application_block_id?: string;
+  application_block_name?: string;
+  owner?: string;
+  criticality?: string;
+  notes?: string;
+  runbook_url?: string;
+  annotations?: Record<string, string>;
+  sec_disponibilite?: number;
+  sec_integrite?: number;
+  sec_confidentialite?: number;
+  sec_tracabilite?: number;
+  sec_notes?: string;
+}
+
+export type ApplicationPatch = Partial<Omit<ApplicationCreate, 'name'>>;
+
+// ApplicationMember is one row of GET /v1/applications/{id}/members —
+// a workload, VM, or specific vm_application linked to this app.
+export interface ApplicationMember {
+  kind: 'workload' | 'virtual_machine' | 'vm_application';
+  id: string;
+  name: string;
+  parent?: { kind: string; id?: string; name: string };
+  linked_at: string;
+  linked_by: string;
+}
+
+export interface ApplicationListFilter {
+  name?: string;
+  application_block_id?: string;
+  application_block_name?: string;
+  criticality?: string;
+  // has_dict / dict_min surface the DICT-coverage filter set in
+  // ADR-0029 Phase 4.
+  has_dict?: boolean;
+  dict_min?: number;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface ApplicationBlockListFilter {
+  name?: string;
+  owner?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export function listApplicationBlocks(filter: ApplicationBlockListFilter = {}) {
+  return request<PagedResponse<ApplicationBlock>>(
+    '/v1/application-blocks' +
+      query({
+        limit: filter.limit ?? 200,
+        name: filter.name,
+        owner: filter.owner,
+        cursor: filter.cursor,
+      }),
+  );
+}
+
+export function getApplicationBlock(id: string) {
+  return request<ApplicationBlock>(`/v1/application-blocks/${id}`);
+}
+
+export function createApplicationBlock(body: ApplicationBlockCreate) {
+  return request<ApplicationBlock>('/v1/application-blocks', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchApplicationBlock(id: string, body: ApplicationBlockPatch) {
+  return request<ApplicationBlock>(`/v1/application-blocks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteApplicationBlock(id: string) {
+  return request<void>(`/v1/application-blocks/${id}`, { method: 'DELETE' });
+}
+
+export function listApplications(filter: ApplicationListFilter = {}) {
+  return request<PagedResponse<Application>>(
+    '/v1/applications' +
+      query({
+        limit: filter.limit ?? 200,
+        name: filter.name,
+        application_block_id: filter.application_block_id,
+        application_block_name: filter.application_block_name,
+        criticality: filter.criticality,
+        has_dict: filter.has_dict !== undefined ? String(filter.has_dict) : undefined,
+        dict_min: filter.dict_min,
+        cursor: filter.cursor,
+      }),
+  );
+}
+
+export function getApplication(id: string) {
+  return request<Application>(`/v1/applications/${id}`);
+}
+
+export function getApplicationByName(name: string) {
+  return request<Application>(`/v1/applications/by-name/${encodeURIComponent(name)}`);
+}
+
+export function createApplication(body: ApplicationCreate) {
+  return request<Application>('/v1/applications', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchApplication(id: string, body: ApplicationPatch) {
+  return request<Application>(`/v1/applications/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteApplication(id: string) {
+  return request<void>(`/v1/applications/${id}`, { method: 'DELETE' });
+}
+
+export function listApplicationMembers(id: string, cursor?: string, limit?: number) {
+  return request<PagedResponse<ApplicationMember>>(
+    `/v1/applications/${id}/members` + query({ cursor, limit }),
+  );
+}
+
+// applicationEOL returns the aggregated EOL annotations for an
+// application's members. The endpoint exists but currently returns 501;
+// it lights up in Phase 5. Defined here so callers don't have to be
+// rewired later.
+export function applicationEOL(id: string) {
+  return request<{ items: unknown[] }>(`/v1/applications/${id}/eol`);
+}
+
 // --- Image versions ---------------------------------------------------------
 
 export interface ContainerVersionInfo {
