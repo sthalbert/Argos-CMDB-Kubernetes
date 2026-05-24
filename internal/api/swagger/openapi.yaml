@@ -2450,6 +2450,17 @@ paths:
           schema:
             type: string
             enum: [csv, json]
+        - in: query
+          name: application
+          required: false
+          description: |
+            ADR-0029 §2.4. Narrows the result set to entities whose linked
+            Application's name matches the substring (case-insensitive).
+            Affects workloads + VMs directly; pods inherit via their
+            owning workload's link. AND-combined with `q`.
+          schema:
+            type: string
+            maxLength: 256
       responses:
         '200':
           description: Extract body. CSV is UTF-8 with a BOM and CRLF endings; JSON is a flat array.
@@ -2499,6 +2510,16 @@ paths:
         - in: query
           name: q
           required: true
+          schema:
+            type: string
+            maxLength: 256
+        - in: query
+          name: application
+          required: false
+          description: |
+            ADR-0029 §2.4. Narrows each of the three bundled CSVs to
+            entities whose linked Application's name matches the
+            substring (case-insensitive). AND-combined with `q`.
           schema:
             type: string
             maxLength: 256

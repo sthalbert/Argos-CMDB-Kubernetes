@@ -389,6 +389,16 @@ func (p *PG) ListVirtualMachines(
 	if filter.Unlinked != nil && *filter.Unlinked {
 		conds = append(conds, "application_id IS NULL")
 	}
+	// ADR-0029 §2.4: substring match on linked application name (used by
+	// the Search endpoint). LIKE metacharacters are escaped; case-insensitive
+	// via LOWER on both sides.
+	if filter.ApplicationNameSubstring != nil && *filter.ApplicationNameSubstring != "" {
+		args = append(args, "%"+escapeLike(strings.ToLower(*filter.ApplicationNameSubstring))+"%")
+		conds = append(conds, fmt.Sprintf(
+			"application_id IN (SELECT id FROM applications WHERE LOWER(name) LIKE $%d ESCAPE '\\')",
+			len(args),
+		))
+	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
 		if err != nil {

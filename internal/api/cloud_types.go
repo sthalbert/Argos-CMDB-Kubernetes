@@ -300,6 +300,12 @@ type VirtualMachineListFilter struct {
 	ApplicationID   *uuid.UUID
 	ApplicationName *string
 	Unlinked        *bool
+	// ApplicationNameSubstring is a case-insensitive substring match on the
+	// linked application's name, used by the cross-entity Search endpoint
+	// (ADR-0029 §2.4). LIKE metacharacters are escaped at the SQL layer
+	// (ESCAPE '\\'). Ignored when empty. AND-combined with the other
+	// link-aware filters.
+	ApplicationNameSubstring *string
 }
 
 // VMApplicationDistinct is one row of the distinct-applications response.

@@ -16,6 +16,11 @@ import (
 // share intuition.
 const vmAppBilling = "billing"
 
+// appLinkageNoSuchApp is the bogus application name reused across the
+// linkage and substring tests to assert non-matching look-ups return zero
+// rows. Hoisted to a const so goconst stays happy.
+const appLinkageNoSuchApp = "no-such-app"
+
 // TestPGVMApplicationLinkage exercises the ADR-0029 wiring on the
 // virtual_machines side end-to-end at the store layer:
 //
@@ -160,7 +165,7 @@ func TestPGVMApplicationLinkage(t *testing.T) {
 	}
 
 	// --- 5. ListVirtualMachines with unknown application_name → 0 rows ---
-	bogus := "no-such-app"
+	bogus := appLinkageNoSuchApp
 	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		CloudAccountID:  &acct.ID,
 		ApplicationName: &bogus,
@@ -267,5 +272,101 @@ func TestPGVMApplicationLinkage(t *testing.T) {
 	}
 	if got.ApplicationID != nil {
 		t.Fatalf("ON DELETE SET NULL violated: application_id=%v", *got.ApplicationID)
+	}
+}
+
+// TestPGVMApplicationNameSubstring exercises ADR-0029 §2.4 — the
+// substring filter on the linked application's name on the VM side of
+// the cross-entity Search endpoint. Covers: hit, case-insensitivity,
+// non-matching exclusion, and LIKE-metacharacter safety.
+//
+//nolint:gocyclo // covers several distinct cases; complexity is inherent.
+func TestPGVMApplicationNameSubstring(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	acct := vmTestAccount(t, pg, "vm-app-substring")
+
+	vaultPlat, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: "vault-platform"})
+	if err != nil {
+		t.Fatalf("create vault-platform: %v", err)
+	}
+	billing, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: vmAppBilling})
+	if err != nil {
+		t.Fatalf("create billing: %v", err)
+	}
+
+	vmVault, _, err := pg.UpsertVirtualMachine(ctx, api.VirtualMachineUpsert{
+		CloudAccountID: acct.ID, ProviderVMID: "i-vm-vault", Name: "vm-vault",
+		PowerState: "running", Ready: true, Region: strPtr("eu-west-2"),
+	})
+	if err != nil {
+		t.Fatalf("upsert vmVault: %v", err)
+	}
+	vmBilling, _, err := pg.UpsertVirtualMachine(ctx, api.VirtualMachineUpsert{
+		CloudAccountID: acct.ID, ProviderVMID: "i-vm-billing", Name: "vm-billing",
+		PowerState: "running", Ready: true, Region: strPtr("eu-west-2"),
+	})
+	if err != nil {
+		t.Fatalf("upsert vmBilling: %v", err)
+	}
+
+	if _, err := pg.UpdateVirtualMachine(ctx, vmVault.ID, api.VirtualMachinePatch{
+		ApplicationID: &vaultPlat.ID,
+	}); err != nil {
+		t.Fatalf("link vmVault: %v", err)
+	}
+	if _, err := pg.UpdateVirtualMachine(ctx, vmBilling.ID, api.VirtualMachinePatch{
+		ApplicationID: &billing.ID,
+	}); err != nil {
+		t.Fatalf("link vmBilling: %v", err)
+	}
+
+	// --- substring "vault" → only the vault-platform-linked VM ----------
+	vault := "vault"
+	items, _, err := pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
+		ApplicationNameSubstring: &vault,
+	}, 50, "")
+	if err != nil {
+		t.Fatalf("list by substring 'vault': %v", err)
+	}
+	if len(items) != 1 || items[0].ID != vmVault.ID {
+		t.Fatalf("substring 'vault': want 1 row (vmVault), got %d (%+v)", len(items), items)
+	}
+
+	// --- case-insensitive ----------------------------------------------
+	vaultUpper := "VaUlT"
+	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
+		ApplicationNameSubstring: &vaultUpper,
+	}, 50, "")
+	if err != nil {
+		t.Fatalf("list by substring 'VaUlT': %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("case-insensitive lookup broken: got %d, want 1", len(items))
+	}
+
+	// --- non-matching → 0 rows -----------------------------------------
+	miss := appLinkageNoSuchApp
+	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
+		ApplicationNameSubstring: &miss,
+	}, 50, "")
+	if err != nil {
+		t.Fatalf("list miss: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("non-matching substring: want 0 rows, got %d", len(items))
+	}
+
+	// --- LIKE metacharacter safety: underscore must be a literal -------
+	underscore := "vault_"
+	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
+		ApplicationNameSubstring: &underscore,
+	}, 50, "")
+	if err != nil {
+		t.Fatalf("list 'vault_': %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("LIKE underscore must be escaped: got %d rows, want 0", len(items))
 	}
 }

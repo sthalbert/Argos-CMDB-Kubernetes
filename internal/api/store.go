@@ -54,6 +54,12 @@ type WorkloadListFilter struct {
 	ApplicationID   *uuid.UUID
 	ApplicationName *string
 	Unlinked        *bool
+	// ApplicationNameSubstring is a case-insensitive substring match on the
+	// linked application's name, used by the cross-entity Search endpoint
+	// (ADR-0029 §2.4). LIKE metacharacters are escaped at the SQL layer
+	// (ESCAPE '\\'). Ignored when empty. AND-combined with the other
+	// link-aware filters.
+	ApplicationNameSubstring *string
 }
 
 // CascadeCounts holds the number of child resources that will be removed

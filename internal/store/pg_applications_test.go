@@ -21,6 +21,11 @@ import (
 // test-local avoids polluting api/* with a generic pointer helper.
 func intPtr(i int) *int { return &i }
 
+// appNameVault is the canonical fixture application name reused throughout
+// this test file. Hoisted to a const so goconst stays happy as new tests
+// across the package also seed "vault".
+const appNameVault = "vault"
+
 // TestPGApplicationCRUD walks the happy path: create with block FK +
 // DICT axes → get-by-id → get-by-name → update criticality + sec_notes
 // → list with name substring → list with DICTMin → delete → get returns
@@ -37,7 +42,7 @@ func TestPGApplicationCRUD(t *testing.T) {
 	}
 
 	app, err := pg.CreateApplication(ctx, api.ApplicationCreate{
-		Name:               "vault",
+		Name:               appNameVault,
 		DisplayName:        strPtr("HashiCorp Vault"),
 		ApplicationBlockID: &blk.ID,
 		Owner:              strPtr("security-team"),
@@ -50,7 +55,7 @@ func TestPGApplicationCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if app.Name != "vault" {
+	if app.Name != appNameVault {
 		t.Fatalf("expected name vault, got %q", app.Name)
 	}
 	if app.ApplicationBlockID == nil || *app.ApplicationBlockID != blk.ID {
@@ -83,7 +88,7 @@ func TestPGApplicationCRUD(t *testing.T) {
 		t.Fatalf("get-by-id returned wrong row: %v", got.ID)
 	}
 
-	byName, err := pg.GetApplicationByName(ctx, "vault")
+	byName, err := pg.GetApplicationByName(ctx, appNameVault)
 	if err != nil {
 		t.Fatalf("get by name: %v", err)
 	}
@@ -188,10 +193,10 @@ func TestPGApplicationDuplicateName(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 
-	if _, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: "vault"}); err != nil {
+	if _, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: appNameVault}); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	_, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: "vault"})
+	_, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: appNameVault})
 	if !errors.Is(err, api.ErrConflict) {
 		t.Errorf("duplicate name create should be ErrConflict, got %v", err)
 	}
@@ -249,7 +254,7 @@ func TestPGApplicationDeleteSweepsVMAppReferences(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 
-	app, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: "vault"})
+	app, err := pg.CreateApplication(ctx, api.ApplicationCreate{Name: appNameVault})
 	if err != nil {
 		t.Fatalf("create app: %v", err)
 	}
@@ -270,7 +275,7 @@ func TestPGApplicationDeleteSweepsVMAppReferences(t *testing.T) {
 	// later phases; this is the canonical "patch the table" shortcut.
 	apps := []map[string]any{
 		{
-			"product":        "vault",
+			"product":        appNameVault,
 			"version":        "1.15.4",
 			"added_at":       "2026-05-24T10:00:00Z",
 			"added_by":       "test",
@@ -306,7 +311,7 @@ func TestPGApplicationDeleteSweepsVMAppReferences(t *testing.T) {
 	if len(out) != 1 {
 		t.Fatalf("expected 1 vm-app entry after sweep, got %d", len(out))
 	}
-	if out[0]["product"] != "vault" {
+	if out[0]["product"] != appNameVault {
 		t.Errorf("product should survive sweep, got %v", out[0]["product"])
 	}
 	if _, present := out[0]["application_id"]; present {
