@@ -1014,6 +1014,12 @@ func (m *memStore) UpdateWorkload(_ context.Context, id uuid.UUID, in WorkloadUp
 	if in.Spec != nil {
 		wl.Spec = in.Spec
 	}
+	// ADR-0029 link soft-pointer. Mirrors PG.UpdateWorkload: a non-nil
+	// pointer overwrites; nil leaves it alone (set-to-null is not
+	// expressible through the *uuid.UUID codegen shape).
+	if in.ApplicationId != nil {
+		wl.ApplicationId = in.ApplicationId
+	}
 	now := time.Now().UTC()
 	wl.UpdatedAt = &now
 	m.workloadsByID[id] = wl

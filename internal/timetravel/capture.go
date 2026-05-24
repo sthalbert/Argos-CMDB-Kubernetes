@@ -301,25 +301,29 @@ func insertWorkloadHistory(
 	actor Actor,
 	r map[string]any,
 ) error {
+	// ADR-0029 §7 / migration 00048: application_id is captured verbatim from
+	// the parent row. The history column is a bare UUID (no FK) so rows
+	// outlive the parent application — that lets "what was this workload
+	// linked to last Tuesday?" survive an admin DELETE on the application.
 	const q = `
 		INSERT INTO workloads_history (
 			history_id, entity_id, valid_from, valid_to, change_type,
 			actor_id, actor_kind,
 			namespace_id, kind, name, replicas, ready_replicas,
-			labels, spec, containers,
+			labels, spec, containers, application_id,
 			terminated_at, created_at, updated_at
 		) VALUES (
 			$1,$2,$3,NULL,$4,
 			$5,$6,
 			$7,$8,$9,$10,$11,
-			$12,$13,$14,
-			$15,$16,$17
+			$12,$13,$14,$15,
+			$16,$17,$18
 		)`
 	_, err := tx.Exec(ctx, q,
 		historyID, entityID, validFrom, changeType,
 		actor.ID, actor.Kind,
 		uuidField(r, "namespace_id"), strField(r, "kind"), strField(r, "name"), intField(r, "replicas"), intField(r, "ready_replicas"),
-		jsonField(r, "labels"), jsonField(r, "spec"), jsonField(r, "containers"),
+		jsonField(r, "labels"), jsonField(r, "spec"), jsonField(r, "containers"), uuidField(r, "application_id"),
 		timeField(r, "terminated_at"), timeField(r, "created_at"), timeField(r, "updated_at"),
 	)
 	if err != nil {

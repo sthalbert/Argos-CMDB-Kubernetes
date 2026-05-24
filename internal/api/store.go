@@ -46,6 +46,14 @@ type WorkloadListFilter struct {
 	// to live ones. Default (false) hides rows whose terminated_at is set.
 	// ADR-0021 phase 1.
 	IncludeTerminated bool
+	// ApplicationID, ApplicationName, Unlinked — ADR-0029 link-aware filters.
+	// ApplicationID wins on conflict with ApplicationName (the handler resolves
+	// names server-side; the store layer also accepts a bare name for callers
+	// that bypass the handler, e.g. MCP). Unlinked = true returns only rows
+	// with application_id IS NULL.
+	ApplicationID   *uuid.UUID
+	ApplicationName *string
+	Unlinked        *bool
 }
 
 // CascadeCounts holds the number of child resources that will be removed

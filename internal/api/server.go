@@ -754,6 +754,11 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 		Kind:              req.Params.Kind,
 		ImageSubstring:    req.Params.Image,
 		IncludeTerminated: includeTerminated,
+		// ADR-0029 link-aware filters. id wins over name; the store layer
+		// enforces the precedence and normalises the name.
+		ApplicationID:   req.Params.ApplicationId,
+		ApplicationName: req.Params.ApplicationName,
+		Unlinked:        req.Params.Unlinked,
 	}
 
 	items, next, err := s.store.ListWorkloads(ctx, filter, limit, cursor)
@@ -844,8 +849,27 @@ func (s *Server) GetWorkload(ctx context.Context, req GetWorkloadRequestObject) 
 }
 
 // UpdateWorkload applies merge-patch updates.
+//
+// ADR-0029 §2.3: when the body carries application_id or application_name,
+// resolve to a concrete UUID first (id wins on conflict). The store layer
+// is unaware of names; the handler is the resolution boundary so the
+// store contract stays a thin SQL projection.
 func (s *Server) UpdateWorkload(ctx context.Context, req UpdateWorkloadRequestObject) (UpdateWorkloadResponseObject, error) {
-	wl, err := s.store.UpdateWorkload(ctx, req.Id, *req.Body)
+	body := *req.Body
+	if body.ApplicationId != nil || (body.ApplicationName != nil && *body.ApplicationName != "") {
+		resolved, err := ResolveApplicationID(ctx, s.store, body.ApplicationId, body.ApplicationName)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return UpdateWorkload400ApplicationProblemPlusJSONResponse{
+					BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid application", err.Error())),
+				}, nil
+			}
+			return nil, fmt.Errorf("resolve application: %w", err)
+		}
+		body.ApplicationId = resolved
+		body.ApplicationName = nil // store doesn't read this.
+	}
+	wl, err := s.store.UpdateWorkload(ctx, req.Id, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UpdateWorkload404ApplicationProblemPlusJSONResponse{

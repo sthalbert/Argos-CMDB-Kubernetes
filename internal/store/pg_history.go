@@ -539,9 +539,13 @@ func scanNodeHistoryRow(row pgx.Row) (map[string]any, error) { //nolint:funlen /
 
 // --- workload history row scanner -------------------------------------------
 
+// workloadHistoryColumns lists the parent-table columns snapshotted into
+// workloads_history. application_id (ADR-0029 / migration 00048) is part
+// of the snapshot so /v1/workloads/{id}/history can show the curator's
+// link as of any point in time.
 const workloadHistoryColumns = `
 	namespace_id, kind, name, replicas, ready_replicas,
-	labels, spec, containers,
+	labels, spec, containers, application_id,
 	terminated_at, created_at, updated_at`
 
 func scanWorkloadHistoryRow(row pgx.Row) (map[string]any, error) {
@@ -554,13 +558,14 @@ func scanWorkloadHistoryRow(row pgx.Row) (map[string]any, error) {
 		labelsJSON     []byte
 		specJSON       []byte
 		containersJSON []byte
+		applicationID  uuid.NullUUID
 		terminatedAt   *time.Time
 		createdAt      time.Time
 		updatedAt      time.Time
 	)
 	if err := row.Scan(
 		&namespaceID, &kind, &name, &replicas, &readyReplicas,
-		&labelsJSON, &specJSON, &containersJSON,
+		&labelsJSON, &specJSON, &containersJSON, &applicationID,
 		&terminatedAt, &createdAt, &updatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -584,6 +589,9 @@ func scanWorkloadHistoryRow(row pgx.Row) (map[string]any, error) {
 	}
 	if readyReplicas != nil {
 		m["ready_replicas"] = int(*readyReplicas)
+	}
+	if applicationID.Valid {
+		m["application_id"] = applicationID.UUID.String()
 	}
 	return m, nil
 }

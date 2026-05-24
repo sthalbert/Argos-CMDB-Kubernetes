@@ -681,6 +681,9 @@ paths:
         - $ref: '#/components/parameters/WorkloadNamespaceIdFilter'
         - $ref: '#/components/parameters/WorkloadKindFilter'
         - $ref: '#/components/parameters/WorkloadImageFilter'
+        - $ref: '#/components/parameters/WorkloadApplicationIdFilter'
+        - $ref: '#/components/parameters/WorkloadApplicationNameFilter'
+        - $ref: '#/components/parameters/WorkloadUnlinkedFilter'
       responses:
         '200':
           description: Paged list of workloads.
@@ -3124,6 +3127,33 @@ components:
         type: string
         maxLength: 253
 
+    WorkloadApplicationIdFilter:
+      name: application_id
+      in: query
+      required: false
+      description: Return only workloads linked to this Application (ADR-0029).
+      schema:
+        type: string
+        format: uuid
+
+    WorkloadApplicationNameFilter:
+      name: application_name
+      in: query
+      required: false
+      description: |
+        Return only workloads linked to the Application with this name
+        (ADR-0029). Resolved server-side.
+      schema:
+        type: string
+
+    WorkloadUnlinkedFilter:
+      name: unlinked
+      in: query
+      required: false
+      description: When true, return only workloads with application_id IS NULL.
+      schema:
+        type: boolean
+
     ServiceId:
       name: id
       in: path
@@ -4198,6 +4228,22 @@ components:
         `name` are immutable. Omitted fields are left unchanged.
       allOf:
         - $ref: '#/components/schemas/WorkloadMutable'
+        - type: object
+          properties:
+            application_id:
+              type: string
+              format: uuid
+              nullable: true
+              description: |
+                Link this workload to an Application (ADR-0029). When both
+                application_id and application_name are set, application_id wins.
+                Setting to null unlinks (per merge-patch semantics, omit the field
+                entirely to leave the link unchanged).
+            application_name:
+              type: string
+              description: |
+                Convenience: link by Application name; resolved server-side.
+                See application_id.
 
     Workload:
       description: A Kubernetes workload controller registered in the CMDB.
@@ -4241,6 +4287,11 @@ components:
               nullable: true
               readOnly: true
               description: Denormalized `clusters.name`. Null on orphans. See ADR-0027.
+            application_id:
+              type: string
+              format: uuid
+              nullable: true
+              description: "Link to an Application (ADR-0029); operator-curated. Null when unlinked."
             created_at:
               type: string
               format: date-time

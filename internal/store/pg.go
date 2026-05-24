@@ -2081,9 +2081,10 @@ func (p *PG) CreateWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 	}, nil
 }
 
-// Workload read-side projection with parent-name JOINs (ADR-0027).
+// Workload read-side projection with parent-name JOINs (ADR-0027) plus
+// the operator-curated application_id soft-pointer (ADR-0029).
 const workloadSelectColumns = `w.id, w.namespace_id, w.kind, w.name, w.replicas, w.ready_replicas,
-	w.containers, w.labels, w.spec, w.created_at, w.updated_at,
+	w.containers, w.labels, w.spec, w.application_id, w.created_at, w.updated_at,
 	n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name`
 
 const workloadFromJoined = `FROM workloads w
@@ -2141,6 +2142,23 @@ func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, l
 			"EXISTS (SELECT 1 FROM jsonb_array_elements(w.containers) elem WHERE elem->>'image' ILIKE $%d)",
 			len(args),
 		))
+	}
+	// ADR-0029: link-aware filters. application_id wins on conflict with
+	// application_name (mirrors the cloud_account_id / cloud_account_name
+	// precedence from ADR-0019). application_name is normalised server-side
+	// to match the kebab-case stored in applications.name.
+	if filter.ApplicationID != nil {
+		args = append(args, *filter.ApplicationID)
+		conds = append(conds, fmt.Sprintf("w.application_id = $%d", len(args)))
+	} else if filter.ApplicationName != nil && *filter.ApplicationName != "" {
+		args = append(args, api.NormalizeApplicationName(*filter.ApplicationName))
+		conds = append(conds, fmt.Sprintf(
+			"w.application_id = (SELECT id FROM applications WHERE name = $%d)",
+			len(args),
+		))
+	}
+	if filter.Unlinked != nil && *filter.Unlinked {
+		conds = append(conds, "w.application_id IS NULL")
 	}
 	if cursor != "" {
 		ts, cid, err := decodeCursor(cursor)
@@ -2229,6 +2247,15 @@ func (p *PG) UpdateWorkload(ctx context.Context, id uuid.UUID, in api.WorkloadUp
 		}
 		appendSet("spec", b)
 	}
+	// ADR-0029: operator-curated soft-pointer. The codegen-generated field is
+	// *uuid.UUID (single pointer), so set-to-null is not expressible through
+	// merge-patch here — passing nil means "leave unchanged". A non-nil value
+	// links (or re-links) the workload to that application. Unlinking is
+	// currently a future surface (e.g. an explicit DELETE on a link
+	// sub-resource, or upgrading the codegen shape to **UUID).
+	if in.ApplicationId != nil {
+		appendSet("application_id", *in.ApplicationId)
+	}
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)
 
@@ -2311,6 +2338,12 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 
 	// AUDIT_BUSINESS_FIELDS: replicas, ready_replicas, containers, labels, spec,
 	// terminated_at (restore flips it). updated_at is a clock field — excluded.
+	//
+	// COLLECTOR INVARIANT (ADR-0029 §7): application_id is operator-curated and
+	// MUST NOT be touched by collector ticks. The upsert deliberately omits it
+	// from both the INSERT column list and the ON CONFLICT SET list so that
+	// re-running reconcile preserves the curator's link. The PATCH path
+	// (UpdateWorkload) is the only place that writes this column.
 	const q = `
 		WITH old AS (
 		  SELECT replicas, ready_replicas, containers, labels, spec, terminated_at
@@ -2519,6 +2552,7 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 		containersJSON     []byte
 		labelsJSON         []byte
 		specJSON           []byte
+		applicationID      uuid.NullUUID
 		namespaceName      sql.NullString
 		namespaceClusterID uuid.NullUUID
 		clusterName        sql.NullString
@@ -2526,7 +2560,7 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 	if err := row.Scan(
 		&id, &namespaceID, &kind, &w.Name,
 		&replicas, &readyReplicas,
-		&containersJSON, &labelsJSON, &specJSON,
+		&containersJSON, &labelsJSON, &specJSON, &applicationID,
 		&createdAt, &updatedAt,
 		&namespaceName, &namespaceClusterID, &clusterName,
 	); err != nil {
@@ -2543,6 +2577,10 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 		w.ClusterId = &v
 	}
 	w.ClusterName = nullableString(clusterName)
+	if applicationID.Valid {
+		v := applicationID.UUID
+		w.ApplicationId = &v
+	}
 	if replicas.Valid {
 		v := int(replicas.Int32)
 		w.Replicas = &v
