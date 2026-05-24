@@ -333,6 +333,8 @@ var singularNames = map[string]string{ //nolint:gochecknoglobals // read-only lo
 	"persistent-volume-claims": "persistent_volume_claim",
 	"cloud-accounts":           "cloud_account",
 	"virtual-machines":         "virtual_machine",
+	"applications":             "application",
+	"application-blocks":       "application_block",
 	"auth":                     "auth",
 }
 

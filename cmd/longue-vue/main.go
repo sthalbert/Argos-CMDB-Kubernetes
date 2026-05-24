@@ -539,6 +539,10 @@ func buildHTTPServer(
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", requireScope(auth.ScopeDelete)(cloudAuth(auditWrap(api.HandleDeleteVirtualMachine(pg)))))
 
+	// Application + ApplicationBlock routes (ADR-0029) — extracted to keep
+	// buildHTTPServer within the maintainability-index ceiling.
+	mountApplicationRoutes(mux, pg, requireScope, cloudAuth, auditWrap)
+
 	// Extract endpoints — audited via the shouldAudit allowlist (ADR-0024 / SNC ch.8).
 	extractAuth := auth.Middleware(pg, cfg.cookiePolicy, cfg.trustedProxies)
 	mux.Handle("GET /v1/search/extract",
@@ -622,6 +626,69 @@ func buildHTTPServer(
 		}
 	}
 	return srv, nil
+}
+
+// mountApplicationRoutes wires the five /v1/application-blocks routes
+// and the eight /v1/applications routes (ADR-0029) on the supplied mux.
+// Extracted from buildHTTPServer to keep that function under the
+// maintainability-index ceiling.
+//
+// Routing note: GET /v1/applications/by-name/{name} and
+// GET /v1/applications/{id}/members are both three-segment patterns with
+// a literal at the same position; net/http.ServeMux refuses to register
+// both on the same mux (verified empirically — it panics at registration
+// with "neither is more specific"). We sidestep that by mounting the
+// by-name pattern on a dedicated child mux keyed on the longer literal
+// prefix, so the parent dispatcher routes by-name requests through the
+// child mux before they reach the {id}-rooted patterns. Mirrors the test
+// scaffold in internal/api/application_handlers_test.go.
+func mountApplicationRoutes(
+	mux *http.ServeMux,
+	pg *store.PG,
+	requireScope func(scope string) func(http.Handler) http.Handler,
+	cloudAuth func(http.Handler) http.Handler,
+	auditWrap func(http.Handler) http.Handler,
+) {
+	// Application blocks — no internal route conflicts; mount directly.
+	mux.Handle("POST /v1/application-blocks",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreateApplicationBlock(pg)))))
+	mux.Handle("GET /v1/application-blocks",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListApplicationBlocks(pg)))))
+	mux.Handle("GET /v1/application-blocks/{id}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetApplicationBlock(pg)))))
+	mux.Handle("PATCH /v1/application-blocks/{id}",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchApplicationBlock(pg)))))
+	mux.Handle("DELETE /v1/application-blocks/{id}",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleDeleteApplicationBlock(pg)))))
+
+	// Applications — sub-mux split to dodge the by-name vs {id}/members panic.
+	appsByNameMux := http.NewServeMux()
+	appsByNameMux.Handle("GET /v1/applications/by-name/{name}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetApplicationByName(pg)))))
+
+	appsRestMux := http.NewServeMux()
+	appsRestMux.Handle("POST /v1/applications",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreateApplication(pg)))))
+	appsRestMux.Handle("GET /v1/applications",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListApplications(pg)))))
+	appsRestMux.Handle("GET /v1/applications/{id}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetApplication(pg)))))
+	appsRestMux.Handle("PATCH /v1/applications/{id}",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchApplication(pg)))))
+	appsRestMux.Handle("DELETE /v1/applications/{id}",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleDeleteApplication(pg)))))
+	appsRestMux.Handle("GET /v1/applications/{id}/members",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListApplicationMembers(pg)))))
+	appsRestMux.Handle("GET /v1/applications/{id}/eol",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetApplicationEOL(pg)))))
+
+	// Parent-mux dispatch: longer literal prefix wins, so by-name/...
+	// routes through appsByNameMux first; everything else falls to
+	// appsRestMux. The trailing-slash subtree pattern covers nested paths,
+	// the bare pattern covers the collection root.
+	mux.Handle("/v1/applications/by-name/", appsByNameMux)
+	mux.Handle("/v1/applications/", appsRestMux)
+	mux.Handle("/v1/applications", appsRestMux)
 }
 
 // blockIngestOnlyPaths 404s requests to paths that should never appear on
