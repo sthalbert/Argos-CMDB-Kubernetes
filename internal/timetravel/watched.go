@@ -22,7 +22,8 @@ const (
 //   - nodes:      configuration + identity + curated metadata + lifecycle flags.
 //     Excluded: internal_ip, external_ip, pod_cidr (transient in cloud),
 //     conditions, taints (flap-prone JSONB), capacity_*/allocatable_* (numeric drift).
-//   - workloads:  kind + spec JSONB + curated metadata + terminated_at.
+//   - workloads:  kind + spec JSONB + curated metadata (including the
+//     curator-only application_id soft-pointer, ADR-0029 §7) + terminated_at.
 //     Excluded: labels, replicas, ready_replicas, containers (collector noise).
 var WatchedFields = map[string][]string{
 	KindCluster: {
@@ -72,6 +73,7 @@ var WatchedFields = map[string][]string{
 		"notes",
 		"runbook_url",
 		"annotations",
+		"application_id",
 		"terminated_at",
 	},
 }
