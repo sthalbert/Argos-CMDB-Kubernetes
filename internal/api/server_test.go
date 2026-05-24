@@ -2997,6 +2997,61 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 	}
 }
 
+// --- Application + ApplicationBlock stubs (ADR-0029) ---
+
+func (m *memStore) CreateApplicationBlock(_ context.Context, _ ApplicationBlockCreate) (ApplicationBlock, error) {
+	return ApplicationBlock{}, errors.New("memStore: not implemented")
+}
+
+func (m *memStore) GetApplicationBlock(_ context.Context, _ uuid.UUID) (ApplicationBlock, error) {
+	return ApplicationBlock{}, ErrNotFound
+}
+
+func (m *memStore) GetApplicationBlockByName(_ context.Context, _ string) (ApplicationBlock, error) {
+	return ApplicationBlock{}, ErrNotFound
+}
+
+func (m *memStore) ListApplicationBlocks(_ context.Context, _ ApplicationBlockListFilter, _ int, _ string) ([]ApplicationBlock, string, error) {
+	return nil, "", nil
+}
+
+func (m *memStore) UpdateApplicationBlock(_ context.Context, _ uuid.UUID, _ ApplicationBlockPatch) (ApplicationBlock, error) {
+	return ApplicationBlock{}, ErrNotFound
+}
+
+func (m *memStore) DeleteApplicationBlock(_ context.Context, _ uuid.UUID) error {
+	return ErrNotFound
+}
+
+func (m *memStore) CreateApplication(_ context.Context, _ ApplicationCreate) (Application, error) { //nolint:gocritic // interface-mandated signature
+	return Application{}, errors.New("memStore: not implemented")
+}
+
+func (m *memStore) GetApplication(_ context.Context, _ uuid.UUID) (Application, error) {
+	return Application{}, ErrNotFound
+}
+
+func (m *memStore) GetApplicationByName(_ context.Context, _ string) (Application, error) {
+	return Application{}, ErrNotFound
+}
+
+func (m *memStore) ListApplications(_ context.Context, _ ApplicationListFilter, _ int, _ string) ([]Application, string, error) {
+	return nil, "", nil
+}
+
+//nolint:gocritic // interface-mandated signature
+func (m *memStore) UpdateApplication(_ context.Context, _ uuid.UUID, _ ApplicationPatch) (Application, error) {
+	return Application{}, ErrNotFound
+}
+
+func (m *memStore) DeleteApplication(_ context.Context, _ uuid.UUID) error {
+	return ErrNotFound
+}
+
+func (m *memStore) ListApplicationMembers(_ context.Context, _ uuid.UUID, _ int, _ string) ([]ApplicationMember, string, error) {
+	return nil, "", nil
+}
+
 func do(h http.Handler, method, target, body string) *httptest.ResponseRecorder {
 	req, _ := http.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))
 	if body != "" {

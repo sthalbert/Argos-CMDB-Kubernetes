@@ -143,6 +143,7 @@ type ApplicationListFilter struct {
 // ApplicationMemberKind enumerates the member types of an Application.
 type ApplicationMemberKind string
 
+// ApplicationMemberKind values surfaced by GET /v1/applications/{id}/members.
 const (
 	ApplicationMemberKindWorkload       ApplicationMemberKind = "workload"
 	ApplicationMemberKindVirtualMachine ApplicationMemberKind = "virtual_machine"
@@ -159,6 +160,9 @@ type ApplicationMember struct {
 	LinkedBy string                `json:"linked_by"`
 }
 
+// ApplicationMemberRef points back to the parent entity of an
+// ApplicationMember row (e.g. the workload's namespace, the VM that owns
+// a vm_application). nil on top-level members.
 type ApplicationMemberRef struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id"`
