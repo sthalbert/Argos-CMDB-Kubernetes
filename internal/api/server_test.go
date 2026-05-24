@@ -2997,31 +2997,9 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 	}
 }
 
-// --- Application + ApplicationBlock stubs (ADR-0029) ---
-
-func (m *memStore) CreateApplicationBlock(_ context.Context, _ ApplicationBlockCreate) (ApplicationBlock, error) {
-	return ApplicationBlock{}, errors.New("memStore: not implemented")
-}
-
-func (m *memStore) GetApplicationBlock(_ context.Context, _ uuid.UUID) (ApplicationBlock, error) {
-	return ApplicationBlock{}, ErrNotFound
-}
-
-func (m *memStore) GetApplicationBlockByName(_ context.Context, _ string) (ApplicationBlock, error) {
-	return ApplicationBlock{}, ErrNotFound
-}
-
-func (m *memStore) ListApplicationBlocks(_ context.Context, _ ApplicationBlockListFilter, _ int, _ string) ([]ApplicationBlock, string, error) {
-	return nil, "", nil
-}
-
-func (m *memStore) UpdateApplicationBlock(_ context.Context, _ uuid.UUID, _ ApplicationBlockPatch) (ApplicationBlock, error) {
-	return ApplicationBlock{}, ErrNotFound
-}
-
-func (m *memStore) DeleteApplicationBlock(_ context.Context, _ uuid.UUID) error {
-	return ErrNotFound
-}
+// --- Application stubs (ADR-0029). ApplicationBlock methods live in
+// server_application_block_fake_test.go (real in-memory impl, used by
+// the application_block handler tests). ---
 
 func (m *memStore) CreateApplication(_ context.Context, _ ApplicationCreate) (Application, error) { //nolint:gocritic // interface-mandated signature
 	return Application{}, errors.New("memStore: not implemented")
