@@ -334,3 +334,314 @@ func filterNullableErrors(errs []*liberrors.ValidationError) []*liberrors.Valida
 	}
 	return out
 }
+
+// ── ADR-0029: Application + ApplicationBlock validation ───────────────────────
+
+// testTimestamp is a fixed RFC 3339 timestamp shared across the ADR-0029
+// validation cases so every test asserts against the same well-formed
+// `date-time` literal. Extracted to silence goconst's "repeated string" lint.
+const testTimestamp = "2024-01-01T12:00:00Z"
+
+// TestOpenAPI_CreateApplicationBlock_201 validates a POST /v1/application-blocks
+// minimal request and 201 response against the spec.
+func TestOpenAPI_CreateApplicationBlock_201(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	reqBody := `{"name":"core-platform"}`
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/v1/application-blocks", bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	ok, errs := v.ValidateHttpRequest(req)
+	if !ok {
+		reportValidationErrors(t, "POST /v1/application-blocks request", errs)
+	}
+
+	now := testTimestamp
+	respBody := `{
+		"id": "550e8400-e29b-41d4-a716-446655440010",
+		"name": "core-platform",
+		"annotations": {},
+		"created_at": "` + now + `",
+		"updated_at": "` + now + `"
+	}`
+	resp := buildResponse(t, http.StatusCreated, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs = v.ValidateHttpResponse(req, resp)
+	if !ok {
+		critical := filterNullableErrors(errs)
+		if len(critical) > 0 {
+			reportValidationErrors(t, "POST /v1/application-blocks 201 response", critical)
+		}
+	}
+}
+
+// TestOpenAPI_ListApplicationBlocks_200 validates the list envelope.
+func TestOpenAPI_ListApplicationBlocks_200(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/application-blocks?limit=10", http.NoBody)
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	now := testTimestamp
+	respBody := `{
+		"items": [{
+			"id": "550e8400-e29b-41d4-a716-446655440011",
+			"name": "core-platform",
+			"annotations": {},
+			"created_at": "` + now + `",
+			"updated_at": "` + now + `",
+			"application_count": 3
+		}]
+	}`
+	resp := buildResponse(t, http.StatusOK, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs := v.ValidateHttpResponse(req, resp)
+	if !ok {
+		critical := filterNullableErrors(errs)
+		if len(critical) > 0 {
+			reportValidationErrors(t, "GET /v1/application-blocks 200 response", critical)
+		}
+	}
+}
+
+// TestOpenAPI_PatchApplicationBlock_200 validates merge-patch body + response.
+func TestOpenAPI_PatchApplicationBlock_200(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	reqBody := `{"display_name":"Core Platform","owner":"platform-team"}`
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPatch,
+		"/v1/application-blocks/550e8400-e29b-41d4-a716-446655440010",
+		bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/merge-patch+json")
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	ok, errs := v.ValidateHttpRequest(req)
+	if !ok {
+		reportValidationErrors(t, "PATCH /v1/application-blocks/{id} request", errs)
+	}
+
+	now := testTimestamp
+	respBody := `{
+		"id": "550e8400-e29b-41d4-a716-446655440010",
+		"name": "core-platform",
+		"display_name": "Core Platform",
+		"owner": "platform-team",
+		"annotations": {},
+		"created_at": "` + now + `",
+		"updated_at": "` + now + `"
+	}`
+	resp := buildResponse(t, http.StatusOK, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs = v.ValidateHttpResponse(req, resp)
+	if !ok {
+		critical := filterNullableErrors(errs)
+		if len(critical) > 0 {
+			reportValidationErrors(t, "PATCH /v1/application-blocks/{id} 200 response", critical)
+		}
+	}
+}
+
+// TestOpenAPI_CreateApplication_201 validates the minimal POST /v1/applications
+// request body + 201 response (including the required member_counts subobject).
+func TestOpenAPI_CreateApplication_201(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	reqBody := `{
+		"name": "billing",
+		"sec_disponibilite": 3,
+		"sec_integrite": 3,
+		"sec_confidentialite": 2,
+		"sec_tracabilite": 2
+	}`
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/v1/applications", bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	ok, errs := v.ValidateHttpRequest(req)
+	if !ok {
+		reportValidationErrors(t, "POST /v1/applications request", errs)
+	}
+
+	now := testTimestamp
+	respBody := `{
+		"id": "550e8400-e29b-41d4-a716-446655440020",
+		"name": "billing",
+		"annotations": {},
+		"sec_disponibilite": 3,
+		"sec_integrite": 3,
+		"sec_confidentialite": 2,
+		"sec_tracabilite": 2,
+		"created_at": "` + now + `",
+		"updated_at": "` + now + `",
+		"member_counts": {"workloads": 0, "virtual_machines": 0, "vm_applications": 0}
+	}`
+	resp := buildResponse(t, http.StatusCreated, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs = v.ValidateHttpResponse(req, resp)
+	if !ok {
+		critical := filterNullableErrors(errs)
+		if len(critical) > 0 {
+			reportValidationErrors(t, "POST /v1/applications 201 response", critical)
+		}
+	}
+}
+
+// TestOpenAPI_GetApplication_200 validates the response shape of
+// GET /v1/applications/{id}.
+func TestOpenAPI_GetApplication_200(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/applications/550e8400-e29b-41d4-a716-446655440020", http.NoBody)
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	now := testTimestamp
+	respBody := `{
+		"id": "550e8400-e29b-41d4-a716-446655440020",
+		"name": "billing",
+		"display_name": "Billing",
+		"application_block_id": "550e8400-e29b-41d4-a716-446655440010",
+		"application_block_name": "core-platform",
+		"owner": "billing-team",
+		"criticality": "high",
+		"runbook_url": "https://runbooks.example.com/billing",
+		"annotations": {"longue-vue.io/cost-centre": "fin-42"},
+		"sec_disponibilite": 3,
+		"sec_integrite": 3,
+		"sec_confidentialite": 2,
+		"sec_tracabilite": 2,
+		"sec_notes": "PCI DSS scope",
+		"created_at": "` + now + `",
+		"updated_at": "` + now + `",
+		"member_counts": {"workloads": 4, "virtual_machines": 2, "vm_applications": 1}
+	}`
+	resp := buildResponse(t, http.StatusOK, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs := v.ValidateHttpResponse(req, resp)
+	if !ok {
+		critical := filterNullableErrors(errs)
+		if len(critical) > 0 {
+			reportValidationErrors(t, "GET /v1/applications/{id} 200 response", critical)
+		}
+	}
+}
+
+// TestOpenAPI_ListApplications_200 validates the list envelope + filter params.
+func TestOpenAPI_ListApplications_200(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/applications?has_dict=true&dict_min=3&criticality=high&limit=20", http.NoBody)
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	ok, errs := v.ValidateHttpRequest(req)
+	if !ok {
+		reportValidationErrors(t, "GET /v1/applications request", errs)
+	}
+
+	now := testTimestamp
+	respBody := `{
+		"items": [{
+			"id": "550e8400-e29b-41d4-a716-446655440020",
+			"name": "billing",
+			"annotations": {},
+			"created_at": "` + now + `",
+			"updated_at": "` + now + `",
+			"member_counts": {"workloads": 4, "virtual_machines": 2, "vm_applications": 1}
+		}],
+		"next_cursor": "opaque-cursor-value"
+	}`
+	resp := buildResponse(t, http.StatusOK, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs = v.ValidateHttpResponse(req, resp)
+	if !ok {
+		critical := filterNullableErrors(errs)
+		if len(critical) > 0 {
+			reportValidationErrors(t, "GET /v1/applications 200 response", critical)
+		}
+	}
+}
+
+// TestOpenAPI_PatchApplication_400_DICTOutOfRange validates that a DICT value
+// outside 0..4 is rejected at the schema layer.
+func TestOpenAPI_PatchApplication_400_DICTOutOfRange(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	// sec_disponibilite = 7 violates maximum: 4.
+	reqBody := `{"sec_disponibilite":7}`
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPatch,
+		"/v1/applications/550e8400-e29b-41d4-a716-446655440020",
+		bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/merge-patch+json")
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	ok, _ := v.ValidateHttpRequest(req)
+	if ok {
+		t.Errorf("expected validation failure for sec_disponibilite=7 (out of [0,4]); got ok=true")
+	}
+}
+
+// TestOpenAPI_ListApplicationMembers_200 validates the members envelope.
+func TestOpenAPI_ListApplicationMembers_200(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/applications/550e8400-e29b-41d4-a716-446655440020/members?kind=workload",
+		http.NoBody)
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	now := testTimestamp
+	respBody := `{
+		"items": [{
+			"kind": "workload",
+			"id": "550e8400-e29b-41d4-a716-446655440030",
+			"name": "billing-api",
+			"parent": {"kind": "namespace", "id": "ns-1", "name": "billing"},
+			"linked_at": "` + now + `",
+			"linked_by": "alice@example.com"
+		}]
+	}`
+	resp := buildResponse(t, http.StatusOK, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs := v.ValidateHttpResponse(req, resp)
+	if !ok {
+		critical := filterNullableErrors(errs)
+		if len(critical) > 0 {
+			reportValidationErrors(t, "GET /v1/applications/{id}/members 200 response", critical)
+		}
+	}
+}
+
+// TestOpenAPI_GetApplicationEOL_200 validates the placeholder summary shape
+// (Phase 5 of ADR-0029 fleshes out the real schema).
+func TestOpenAPI_GetApplicationEOL_200(t *testing.T) {
+	t.Parallel()
+	v := loadValidator(t)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/applications/550e8400-e29b-41d4-a716-446655440020/eol", http.NoBody)
+	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
+
+	respBody := `{"items": []}`
+	resp := buildResponse(t, http.StatusOK, respBody)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	ok, errs := v.ValidateHttpResponse(req, resp)
+	if !ok {
+		critical := filterNullableErrors(errs)
+		if len(critical) > 0 {
+			reportValidationErrors(t, "GET /v1/applications/{id}/eol 200 response", critical)
+		}
+	}
+}

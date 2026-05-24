@@ -66,6 +66,16 @@ tags:
     description: |
       Admin-only endpoints: user management, machine-token issuance,
       active-session review. Gated on the `admin` scope (role=admin).
+  - name: applications
+    description: |
+      First-class Application entity (ADR-0029). Operator-curated cross-cluster
+      grouping of workloads + virtual machines + VM applications, carrying the
+      SNC DICT classification (sec_disponibilite / sec_integrite /
+      sec_confidentialite / sec_tracabilite).
+  - name: application-blocks
+    description: |
+      Application Block — the SNC two-level grouping above Application
+      (ADR-0029 §1). Operator-curated; never written by collectors.
 
 security:
   - BearerAuth: []
@@ -2509,6 +2519,436 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /v1/application-blocks:
+    get:
+      tags: [application-blocks]
+      summary: List application blocks
+      operationId: listApplicationBlocks
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: name
+          in: query
+          required: false
+          description: Case-insensitive substring filter on name + display_name.
+          schema: { type: string }
+        - name: owner
+          in: query
+          required: false
+          description: Exact owner filter.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Paged list of application blocks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationBlockList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [application-blocks]
+      summary: Create an application block
+      operationId: createApplicationBlock
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationBlockCreate'
+      responses:
+        '201':
+          description: Application block created.
+          headers:
+            Location:
+              description: URI of the newly created application block.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationBlock'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/application-blocks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationBlockId'
+    get:
+      tags: [application-blocks]
+      summary: Get an application block
+      operationId: getApplicationBlock
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      responses:
+        '200':
+          description: Application block details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationBlock'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [application-blocks]
+      summary: Update mutable fields of an application block
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `name` is immutable after creation.
+      operationId: updateApplicationBlock
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ApplicationBlockPatch'
+      responses:
+        '200':
+          description: Updated application block.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationBlock'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [application-blocks]
+      summary: Delete an application block
+      description: |
+        Application blocks may only be deleted once no Application still
+        references them; otherwise 409 Conflict is returned.
+      operationId: deleteApplicationBlock
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      responses:
+        '204':
+          description: Application block deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/applications:
+    get:
+      tags: [applications]
+      summary: List applications
+      operationId: listApplications
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: name
+          in: query
+          required: false
+          description: Case-insensitive substring filter on name + display_name.
+          schema: { type: string }
+        - name: application_block_id
+          in: query
+          required: false
+          description: Restrict to applications belonging to this block.
+          schema:
+            type: string
+            format: uuid
+        - name: application_block_name
+          in: query
+          required: false
+          description: Restrict to applications belonging to the block with this exact name.
+          schema: { type: string }
+        - name: criticality
+          in: query
+          required: false
+          description: Exact criticality filter.
+          schema: { type: string }
+        - name: has_dict
+          in: query
+          required: false
+          description: |
+            When true, restrict to applications with at least one DICT
+            classification field set. When false, restrict to applications
+            with none set.
+          schema: { type: boolean }
+        - name: dict_min
+          in: query
+          required: false
+          description: |
+            Restrict to applications whose `MAX(sec_*)` is at least this
+            value (SNC severity floor filter).
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 4
+      responses:
+        '200':
+          description: Paged list of applications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [applications]
+      summary: Create an application
+      description: |
+        Either `application_block_id` (UUID) or `application_block_name`
+        (string) may be supplied to link the new application to a block.
+        If both are present the UUID wins.
+      operationId: createApplication
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationCreate'
+      responses:
+        '201':
+          description: Application created.
+          headers:
+            Location:
+              description: URI of the newly created application.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/applications/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [applications]
+      summary: Get an application
+      operationId: getApplication
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      responses:
+        '200':
+          description: Application details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [applications]
+      summary: Update mutable fields of an application
+      description: |
+        Merge-patch semantics: fields omitted from the body are unchanged.
+        `name` is immutable after creation. Supplying either
+        `application_block_id` or `application_block_name` re-points the
+        application to a different block.
+      operationId: updateApplication
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ApplicationPatch'
+      responses:
+        '200':
+          description: Updated application.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [applications]
+      summary: Delete an application
+      description: |
+        Deletes the application; any workloads or VMs still referencing it
+        have their `application_id` FK reset to NULL.
+      operationId: deleteApplication
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      responses:
+        '204':
+          description: Application deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/applications/by-name/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: Normalised application name (see ADR-0029 §3).
+        schema:
+          type: string
+    get:
+      tags: [applications]
+      summary: Get an application by name
+      operationId: getApplicationByName
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      responses:
+        '200':
+          description: Application details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/applications/{id}/members:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [applications]
+      summary: List the members of an application
+      description: |
+        Returns every workload, virtual machine and VM application linked
+        to this application, with a per-row `linked_at` / `linked_by`
+        provenance triple.
+      operationId: listApplicationMembers
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: kind
+          in: query
+          required: false
+          description: Restrict to members of this kind.
+          schema:
+            type: string
+            enum: [workload, virtual_machine, vm_application]
+      responses:
+        '200':
+          description: Paged list of application members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationMemberList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/applications/{id}/eol:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [applications]
+      summary: Aggregated EOL summary for an application
+      description: |
+        Returns the union of EOL annotations across this application's
+        members (workloads, virtual machines, VM applications). Response
+        shape is a placeholder for Phase 5 of ADR-0029 — the body shape
+        will be filled in once the aggregation pipeline lands.
+      operationId: getApplicationEOL
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      responses:
+        '200':
+          description: EOL summary for the application.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationEOLSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
 
   securitySchemes:
@@ -2814,6 +3254,24 @@ components:
       schema:
         type: boolean
         default: false
+
+    ApplicationBlockId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned application block identifier.
+      schema:
+        type: string
+        format: uuid
+
+    ApplicationId:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned application identifier.
+      schema:
+        type: string
+        format: uuid
 
   responses:
 
@@ -5128,3 +5586,190 @@ components:
         replicas: { type: integer }
         ready_replicas: { type: integer }
         updated_at: { type: string, format: date-time }
+
+    # ── ADR-0029: Application + ApplicationBlock ─────────────────────────────
+
+    ApplicationBlock:
+      type: object
+      required: [id, name, annotations, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        display_name: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        owner: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        annotations:
+          type: object
+          additionalProperties: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        application_count: { type: integer, readOnly: true }
+
+    ApplicationBlockCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        display_name: { type: string }
+        description: { type: string }
+        owner: { type: string }
+        notes: { type: string }
+        annotations:
+          type: object
+          additionalProperties: { type: string }
+
+    ApplicationBlockPatch:
+      type: object
+      properties:
+        display_name: { type: string }
+        description: { type: string }
+        owner: { type: string }
+        notes: { type: string }
+        annotations:
+          type: object
+          additionalProperties: { type: string }
+
+    ApplicationBlockList:
+      description: Paged list of application blocks.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApplicationBlock'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    ApplicationMemberCounts:
+      type: object
+      required: [workloads, virtual_machines, vm_applications]
+      properties:
+        workloads:        { type: integer }
+        virtual_machines: { type: integer }
+        vm_applications:  { type: integer }
+
+    Application:
+      type: object
+      required: [id, name, annotations, created_at, updated_at, member_counts]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        display_name: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        application_block_id: { type: string, format: uuid, nullable: true }
+        application_block_name: { type: string, nullable: true, readOnly: true }
+        owner: { type: string, nullable: true }
+        criticality: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        runbook_url: { type: string, nullable: true }
+        annotations:
+          type: object
+          additionalProperties: { type: string }
+        sec_disponibilite:   { type: integer, minimum: 0, maximum: 4, nullable: true }
+        sec_integrite:       { type: integer, minimum: 0, maximum: 4, nullable: true }
+        sec_confidentialite: { type: integer, minimum: 0, maximum: 4, nullable: true }
+        sec_tracabilite:     { type: integer, minimum: 0, maximum: 4, nullable: true }
+        sec_notes: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        member_counts: { $ref: '#/components/schemas/ApplicationMemberCounts' }
+
+    ApplicationCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        display_name: { type: string }
+        description: { type: string }
+        application_block_id: { type: string, format: uuid }
+        application_block_name: { type: string }
+        owner: { type: string }
+        criticality: { type: string }
+        notes: { type: string }
+        runbook_url: { type: string }
+        annotations: { type: object, additionalProperties: { type: string } }
+        sec_disponibilite:   { type: integer, minimum: 0, maximum: 4 }
+        sec_integrite:       { type: integer, minimum: 0, maximum: 4 }
+        sec_confidentialite: { type: integer, minimum: 0, maximum: 4 }
+        sec_tracabilite:     { type: integer, minimum: 0, maximum: 4 }
+        sec_notes: { type: string }
+
+    ApplicationPatch:
+      type: object
+      properties:
+        display_name: { type: string }
+        description: { type: string }
+        application_block_id: { type: string, format: uuid }
+        application_block_name: { type: string }
+        owner: { type: string }
+        criticality: { type: string }
+        notes: { type: string }
+        runbook_url: { type: string }
+        annotations: { type: object, additionalProperties: { type: string } }
+        sec_disponibilite:   { type: integer, minimum: 0, maximum: 4 }
+        sec_integrite:       { type: integer, minimum: 0, maximum: 4 }
+        sec_confidentialite: { type: integer, minimum: 0, maximum: 4 }
+        sec_tracabilite:     { type: integer, minimum: 0, maximum: 4 }
+        sec_notes: { type: string }
+
+    ApplicationList:
+      description: Paged list of applications.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Application'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as `?cursor=` to fetch the next page.
+            Absent or null when no more pages remain.
+
+    ApplicationMember:
+      type: object
+      required: [kind, id, name, linked_at, linked_by]
+      properties:
+        kind: { type: string, enum: [workload, virtual_machine, vm_application] }
+        id:   { type: string }
+        name: { type: string }
+        parent:
+          type: object
+          nullable: true
+          properties:
+            kind: { type: string }
+            id:   { type: string }
+            name: { type: string }
+        linked_at: { type: string, format: date-time }
+        linked_by: { type: string }
+
+    ApplicationMemberList:
+      description: Paged list of application members.
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApplicationMember'
+        next_cursor:
+          type: string
+          nullable: true
+
+    ApplicationEOLSummary:
+      description: |
+        Placeholder for the per-application EOL aggregation. The concrete
+        shape lands in Phase 5 of ADR-0029.
+      type: object
+      properties:
+        items:
+          type: array
+          items: { type: object }
