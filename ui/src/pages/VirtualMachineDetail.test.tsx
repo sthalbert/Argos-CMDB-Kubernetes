@@ -74,6 +74,35 @@ describe('VirtualMachineDetail', () => {
     );
   });
 
+  it('renders the EffectiveDICTCard with the inherited classification', async () => {
+    server.use(
+      http.get('/v1/virtual-machines/:id', () =>
+        HttpResponse.json({
+          ...fixtureVirtualMachine,
+          application_id: fixtureApplication.id,
+          effective_dict: {
+            disponibilite: 2,
+            integrite: 3,
+            confidentialite: 1,
+            tracabilite: 4,
+            source: 'application',
+          },
+        }),
+      ),
+    );
+    renderVM();
+    const card = await screen.findByTestId('effective-dict-card');
+    expect(within(card).getByText('Classification (DICT)')).toBeInTheDocument();
+    expect(within(card).getByText('3')).toBeInTheDocument();
+    // The application name resolves async via getApplication, surfacing the
+    // "Inherited from application X" source line.
+    await waitFor(() =>
+      expect(
+        within(card).getByText(/Inherited from application/),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it('links the VM via the patch fetcher with application_id', async () => {
     let patchedBody: Record<string, unknown> | null = null;
     server.use(

@@ -12,6 +12,7 @@ import { CapacityCard } from '../components/inventory/CapacityCard';
 import { LabelsCard } from '../components/inventory/LabelsCard';
 import { AnnotationsCard } from '../components/inventory/AnnotationsCard';
 import { ApplicationCard } from '../components/inventory/ApplicationCard';
+import { EffectiveDICTCard } from '../components/inventory/EffectiveDICTCard';
 import { ApplicationsCard } from '../components/inventory/ApplicationsCard';
 import { CuratedMetadataCard } from '../components/inventory/CuratedMetadataCard';
 
@@ -270,6 +271,12 @@ export default function VirtualMachineDetail() {
                   reload();
                 }}
                 editable={canEdit(me)}
+              />
+
+              <EffectiveDICTCard
+                dict={vm.effective_dict}
+                linkedAppId={linkedAppId}
+                linkedAppName={linkedAppName}
               />
 
               <ApplicationsCard

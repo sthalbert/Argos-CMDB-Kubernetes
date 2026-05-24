@@ -130,6 +130,30 @@ describe('WorkloadDetail', () => {
     expect(screen.getByText('Not linked')).toBeInTheDocument();
   });
 
+  it('renders the EffectiveDICTCard with the inherited classification', async () => {
+    server.use(
+      http.get('/v1/workloads/:id', () =>
+        HttpResponse.json({
+          ...fixtureWorkload,
+          application_id: fixtureApplication.id,
+          application_name: fixtureApplication.name,
+          effective_dict: {
+            disponibilite: 3,
+            integrite: 2,
+            confidentialite: 4,
+            tracabilite: 1,
+            source: 'application',
+          },
+        }),
+      ),
+    );
+    renderWorkload(fixtureMe);
+    const card = await screen.findByTestId('effective-dict-card');
+    expect(within(card).getByText('Classification (DICT)')).toBeInTheDocument();
+    expect(within(card).getByText('3')).toBeInTheDocument();
+    expect(within(card).getByText(/Inherited from application/)).toBeInTheDocument();
+  });
+
   it('shows the linked application name from the denormalized field', async () => {
     server.use(
       http.get('/v1/workloads/:id', () =>

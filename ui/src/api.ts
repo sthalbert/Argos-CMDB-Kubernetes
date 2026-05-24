@@ -492,6 +492,22 @@ export function updateNamespace(id: string, patch: NamespacePatch) {
   });
 }
 
+// EffectiveDICT is the read-only inherited DICT classification shipped on
+// workload + VM responses (ADR-0029 §6). The four axes are EBIOS-RM security
+// needs; `source` records where the classification was inherited from. In
+// practice today `source` is only ever "application" or "none" because
+// workloads/namespaces never got their own DICT columns — DICT lives on
+// applications. The field is always read-only; classification is edited on
+// the linked application's detail page.
+export interface EffectiveDICT {
+  disponibilite?: number | null;
+  integrite?: number | null;
+  confidentialite?: number | null;
+  tracabilite?: number | null;
+  notes?: string | null;
+  source: 'application' | 'workload' | 'namespace' | 'none';
+}
+
 export interface Workload {
   id: string;
   namespace_id: string;
@@ -509,6 +525,9 @@ export interface Workload {
   // ADR-0029 linkage. Null when unlinked.
   application_id?: string | null;
   application_name?: string | null;
+  // ADR-0029 §6 read-only inherited classification. Absent if the server
+  // omits it; otherwise carries source="none" when nothing is classified.
+  effective_dict?: EffectiveDICT | null;
   layer: Layer;
   created_at: string;
   updated_at: string;
@@ -997,6 +1016,9 @@ export interface VirtualMachine {
   // The GET response carries only the id (no denormalized name yet), so
   // the detail page resolves the display name via getApplication.
   application_id?: string | null;
+  // ADR-0029 §6 read-only inherited classification. VMs have no DICT columns
+  // of their own, so source is only ever "application" or "none".
+  effective_dict?: EffectiveDICT | null;
   created_at: string;
   updated_at: string;
   last_seen_at: string;

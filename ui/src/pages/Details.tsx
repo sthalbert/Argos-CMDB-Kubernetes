@@ -17,6 +17,7 @@ import * as api from '../api';
 import { useResource, useResources } from '../hooks';
 import { useMe, isAdmin, canEdit } from '../me';
 import { ApplicationCard } from '../components/inventory/ApplicationCard';
+import { EffectiveDICTCard } from '../components/inventory/EffectiveDICTCard';
 import { ClusterCuratedCard } from './cluster_curated';
 import { NamespaceCuratedCard } from './namespace_curated';
 import { NodeCuratedCard } from './node_curated';
@@ -633,6 +634,12 @@ export function WorkloadDetail() {
                   reload();
                 }}
                 editable={canEdit(me)}
+              />
+
+              <EffectiveDICTCard
+                dict={workload.effective_dict}
+                linkedAppId={workload.application_id ?? null}
+                linkedAppName={workload.application_name ?? null}
               />
 
               <p className="impact-callout">
