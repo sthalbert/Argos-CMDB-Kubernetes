@@ -193,6 +193,16 @@ var (
 		Name:      "extract_rows_total",
 		Help:      "Cumulative count of rows emitted by extract endpoints, per page.",
 	}, []string{"page"})
+
+	// dictCoverage counts workloads by where their effective DICT
+	// classification comes from (ADR-0029 §6). Refreshed by a periodic
+	// goroutine in longue-vue from a single SQL query over
+	// workloads ⋈ applications.
+	dictCoverage = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "longue_vue",
+		Name:      "dict_coverage",
+		Help:      "Count of workloads by effective-DICT source (ADR-0029): application | workload | none.",
+	}, []string{"source"})
 )
 
 func init() {
@@ -223,7 +233,16 @@ func init() {
 		auditEventsSkipped,
 		extractsTotal,
 		extractRowsTotal,
+		dictCoverage,
 	)
+}
+
+// SetDICTCoverage sets the per-source workload effective-DICT coverage gauge
+// (ADR-0029 §6). Called from the periodic metrics-refresh loop.
+func SetDICTCoverage(application, workload, none int) {
+	dictCoverage.WithLabelValues("application").Set(float64(application))
+	dictCoverage.WithLabelValues("workload").Set(float64(workload))
+	dictCoverage.WithLabelValues("none").Set(float64(none))
 }
 
 // IngestVerifyTotal increments the POST /v1/auth/verify outcome counter.

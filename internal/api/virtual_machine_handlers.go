@@ -313,6 +313,9 @@ func HandleListVirtualMachines(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
+		// ADR-0029 §6: project the read-only inherited DICT. Bulk-fetches
+		// the distinct linked applications in one query (no N+1).
+		decorateVMsDICT(r.Context(), store, items)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"items":       items,
 			"next_cursor": next,
@@ -342,6 +345,8 @@ func HandleGetVirtualMachine(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
+		// ADR-0029 §6: project the read-only inherited DICT.
+		decorateVMDICT(r.Context(), store, &vm)
 		writeJSON(w, http.StatusOK, vm)
 	}
 }
@@ -431,6 +436,9 @@ func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
+		// ADR-0029 §6: project the read-only inherited DICT (the patch may
+		// have just (un)linked the VM to an application).
+		decorateVMDICT(r.Context(), store, &vm)
 		writeJSON(w, http.StatusOK, vm)
 	}
 }

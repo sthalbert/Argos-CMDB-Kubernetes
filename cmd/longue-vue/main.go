@@ -33,6 +33,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/impact"
 	argmcp "github.com/sthalbert/longue-vue/internal/mcp"
 	"github.com/sthalbert/longue-vue/internal/metrics"
+	"github.com/sthalbert/longue-vue/internal/metricsrefresh"
 	"github.com/sthalbert/longue-vue/internal/secrets"
 	"github.com/sthalbert/longue-vue/internal/store"
 	"github.com/sthalbert/longue-vue/ui"
@@ -302,6 +303,12 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 		return err
 	}
 	defer drainEOL()
+
+	drainMetricsRefresh, err := maybeStartMetricsRefresh(rootCtx, pg)
+	if err != nil {
+		return err
+	}
+	defer drainMetricsRefresh()
 
 	imgVersionsEnricher, drainImageVersions, err := maybeStartImageVersionsEnricher(rootCtx, pg)
 	if err != nil {
@@ -1304,6 +1311,32 @@ func maybeStartEOLEnricher(ctx context.Context, s api.Store) (func(), error) {
 		slog.String("base_url", baseURL),
 	)
 
+	return wg.Wait, nil
+}
+
+// maybeStartMetricsRefresh spawns the periodic goroutine that recomputes
+// store-derived Prometheus gauges — currently the longue_vue_dict_coverage
+// gauge (ADR-0029 §6). Mirrors the EOL enricher's lifecycle: always starts,
+// runs once immediately, then on each tick. Returns a drain function the
+// caller defers. Interval via LONGUE_VUE_METRICS_REFRESH_INTERVAL (default
+// 60s).
+func maybeStartMetricsRefresh(ctx context.Context, s *store.PG) (func(), error) {
+	interval, err := parseDurationEnv("LONGUE_VUE_METRICS_REFRESH_INTERVAL", 60*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	refresher := metricsrefresh.New(s, interval)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := refresher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("metrics refresher exited with error", slog.String("error", err.Error()))
+		}
+	}()
+
+	slog.Info("metrics refresher goroutine started", slog.String("interval", interval.String()))
 	return wg.Wait, nil
 }
 

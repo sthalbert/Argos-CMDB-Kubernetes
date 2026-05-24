@@ -19,6 +19,11 @@ output-options:
     - ApplicationMemberCounts
     - ApplicationMemberList
     - ApplicationEOLSummary
+    # ADR-0029 §6: EffectiveDICT is hand-written (internal/api/dict_inherit.go)
+    # so the EffectiveDICT helper function and the DICTSource enum stay in one
+    # place and codegen doesn't emit a parallel struct. The generated
+    # Workload.EffectiveDict field references this hand-written type.
+    - EffectiveDICT
   exclude-operation-ids:
     # The extract endpoints are hand-written handlers mounted directly on
     # the mux in cmd/longue-vue/main.go. Documented in openapi.yaml so

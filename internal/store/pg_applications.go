@@ -150,6 +150,34 @@ func (p *PG) GetApplication(ctx context.Context, id uuid.UUID) (api.Application,
 	return app, nil
 }
 
+// GetApplicationsByIDs bulk-fetches applications by id in a single query,
+// returned keyed by id. Unknown ids are silently omitted. Used by the
+// effective-DICT decoration on workload + VM list responses to avoid an
+// N+1 (ADR-0029 §6). Returns an empty (non-nil) map when ids is empty.
+func (p *PG) GetApplicationsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]api.Application, error) {
+	out := make(map[uuid.UUID]api.Application, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	q := `SELECT ` + applicationSelect + ` ` + applicationFrom + ` WHERE a.id = ANY($1)`
+	rows, err := p.pool.Query(ctx, q, ids)
+	if err != nil {
+		return nil, fmt.Errorf("query applications by ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		app, err := scanApplication(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan application: %w", err)
+		}
+		out[app.ID] = app
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate applications by ids: %w", err)
+	}
+	return out, nil
+}
+
 // GetApplicationByName normalises the input so operator-typed
 // "HashiCorp Vault" and the stored "hashicorp-vault" both match.
 func (p *PG) GetApplicationByName(ctx context.Context, name string) (api.Application, error) {

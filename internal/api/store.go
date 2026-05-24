@@ -704,11 +704,20 @@ type Store interface {
 	// Applications (ADR-0029).
 	CreateApplication(ctx context.Context, in ApplicationCreate) (Application, error)
 	GetApplication(ctx context.Context, id uuid.UUID) (Application, error)
+	// GetApplicationsByIDs bulk-fetches applications by id in a single query,
+	// returned keyed by id. Unknown ids are silently omitted from the map
+	// (no error). Used by the effective-DICT decoration on workload + VM
+	// list responses to avoid an N+1 (ADR-0029 §6).
+	GetApplicationsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Application, error)
 	GetApplicationByName(ctx context.Context, name string) (Application, error)
 	ListApplications(ctx context.Context, filter ApplicationListFilter, limit int, cursor string) (items []Application, nextCursor string, err error)
 	UpdateApplication(ctx context.Context, id uuid.UUID, in ApplicationPatch) (Application, error)
 	DeleteApplication(ctx context.Context, id uuid.UUID) error
 	ListApplicationMembers(ctx context.Context, id uuid.UUID, limit int, cursor string) (items []ApplicationMember, nextCursor string, err error)
+	// DICTCoverageCounts returns the number of workloads in each
+	// effective-DICT source bucket (application | workload | none), feeding
+	// the longue_vue_dict_coverage gauge (ADR-0029 §6).
+	DICTCoverageCounts(ctx context.Context) (application, workload, none int, err error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by

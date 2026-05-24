@@ -769,6 +769,9 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 	for i := range items {
 		items[i] = withWorkloadLayer(items[i])
 	}
+	// ADR-0029 §6: project the read-only inherited DICT. Bulk-fetches the
+	// distinct linked applications in one query (no N+1).
+	decorateWorkloadsDICT(ctx, s.store, items)
 	resp := WorkloadList{Items: items}
 	if next != "" {
 		resp.NextCursor = &next
@@ -815,6 +818,7 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 		SetAuditSkip(ctx)
 	}
 	wl = withWorkloadLayer(wl)
+	wl = decorateWorkloadDICT(ctx, s.store, wl)
 
 	loc := "/v1/workloads/"
 	if wl.Id != nil {
@@ -838,6 +842,7 @@ func (s *Server) GetWorkload(ctx context.Context, req GetWorkloadRequestObject) 
 		return nil, fmt.Errorf("store: %w", err)
 	}
 	decorated := withWorkloadLayer(wl)
+	decorated = decorateWorkloadDICT(ctx, s.store, decorated)
 	var containers []map[string]any
 	if decorated.Containers != nil {
 		containers = *decorated.Containers
@@ -878,7 +883,8 @@ func (s *Server) UpdateWorkload(ctx context.Context, req UpdateWorkloadRequestOb
 		}
 		return nil, fmt.Errorf("store: %w", err)
 	}
-	return UpdateWorkload200JSONResponse(withWorkloadLayer(wl)), nil
+	decorated := decorateWorkloadDICT(ctx, s.store, withWorkloadLayer(wl))
+	return UpdateWorkload200JSONResponse(decorated), nil
 }
 
 // DeleteWorkload removes a workload.

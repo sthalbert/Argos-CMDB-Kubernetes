@@ -4313,6 +4313,14 @@ components:
               format: uuid
               nullable: true
               description: "Link to an Application (ADR-0029); operator-curated. Null when unlinked."
+            effective_dict:
+              allOf:
+                - $ref: '#/components/schemas/EffectiveDICT'
+              readOnly: true
+              description: |
+                Read-only inherited DICT classification (ADR-0029 §6).
+                Computed at read time with application-wins precedence; never
+                accepted on PATCH/POST bodies.
             created_at:
               type: string
               format: date-time
@@ -4321,6 +4329,49 @@ components:
               type: string
               format: date-time
               readOnly: true
+
+    EffectiveDICT:
+      description: |
+        Read-only, computed DICT classification for a Workload or VM
+        (ADR-0029 §6). `source` records where the values were inherited from:
+        `application` when the linked Application carries any DICT axis,
+        `workload`/`namespace` when the entity's own classification is used,
+        or `none` when neither is set.
+      type: object
+      required: [source]
+      properties:
+        disponibilite:
+          type: integer
+          minimum: 0
+          maximum: 4
+          nullable: true
+          readOnly: true
+        integrite:
+          type: integer
+          minimum: 0
+          maximum: 4
+          nullable: true
+          readOnly: true
+        confidentialite:
+          type: integer
+          minimum: 0
+          maximum: 4
+          nullable: true
+          readOnly: true
+        tracabilite:
+          type: integer
+          minimum: 0
+          maximum: 4
+          nullable: true
+          readOnly: true
+        notes:
+          type: string
+          nullable: true
+          readOnly: true
+        source:
+          type: string
+          enum: [application, workload, namespace, none]
+          readOnly: true
 
     WorkloadList:
       description: Paged list of workloads.
