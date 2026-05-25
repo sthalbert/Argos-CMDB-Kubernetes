@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
+import { fetchAllPages } from '../lib/paginate';
 import { isAdmin, useMe } from '../me';
 import { AsyncView, Dash } from '../components';
 import { useEntityTable } from '../components/column_filters';
@@ -188,7 +189,7 @@ export default function VirtualMachines() {
   const appsState = useResource(() => api.listDistinctVMApplications(), []);
 
   const vmsState = useResource(
-    () => api.listVirtualMachines(filter),
+    () => fetchAllPages((cursor) => api.listVirtualMachines({ ...filter, cursor, limit: 500 })),
     [
       cloudAccountId,
       region,
@@ -631,11 +632,6 @@ export default function VirtualMachines() {
                   </tbody>
                 </table>
                 </div>
-              )}
-              {vms.next_cursor && (
-                <p className="muted" style={{ marginTop: '0.75rem' }}>
-                  More results available — refine filters to narrow the page.
-                </p>
               )}
             </>
           );

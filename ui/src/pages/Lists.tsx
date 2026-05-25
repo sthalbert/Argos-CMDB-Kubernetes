@@ -6,6 +6,7 @@
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
+import { fetchAllPages } from '../lib/paginate';
 import { AsyncView, Dash, IdLink, LayerPill, LoadBalancerAddresses, Empty, NamespaceLink } from '../components';
 import { useEntityTable } from '../components/column_filters';
 import {
@@ -14,7 +15,10 @@ import {
 } from '../icons';
 
 export function Clusters() {
-  const state = useResource(() => api.listClusters(), []);
+  const state = useResource(
+    () => fetchAllPages((cursor) => api.listClusters({ cursor, limit: 500 })),
+    [],
+  );
   const tableRef = useEntityTable('lists.clusters');
   return (
     <>
@@ -69,7 +73,10 @@ export function Clusters() {
 export function Nodes() {
   const state = useResource(
     () =>
-      Promise.all([api.listNodes(), fetchAllClusters()]).then(([nodes, clItems]) => ({
+      Promise.all([
+        fetchAllPages((cursor) => api.listNodes({ cursor, limit: 500 })),
+        fetchAllClusters(),
+      ]).then(([nodes, clItems]) => ({
         nodes: nodes.items,
         clustersById: new Map(clItems.map((c) => [c.id, c])),
       })),
@@ -156,7 +163,10 @@ function NodeStatusBadge({
 }
 
 export function Namespaces() {
-  const namespaces = useResource(() => api.listNamespaces(), []);
+  const namespaces = useResource(
+    () => fetchAllPages((cursor) => api.listNamespaces({ cursor, limit: 500 })),
+    [],
+  );
   const tableRef = useEntityTable('lists.namespaces');
   return (
     <>
@@ -203,24 +213,14 @@ export function Namespaces() {
 
 // Shared helper: fetch namespaces + clusters so a list of namespace-scoped
 // rows can show "cluster / namespace" breadcrumbs without per-row calls.
-async function fetchAllPaged<T>(
-  fetchPage: (cursor?: string) => Promise<api.PagedResponse<T>>,
-): Promise<T[]> {
-  const out: T[] = [];
-  let cursor: string | undefined = undefined;
-  for (let i = 0; i < 200; i++) {
-    const page = await fetchPage(cursor);
-    out.push(...page.items);
-    if (!page.next_cursor) break;
-    cursor = page.next_cursor;
-  }
-  return out;
-}
-
-const fetchAllClusters = () => fetchAllPaged((cursor) => api.listClusters({ cursor, limit: 500 }));
+const fetchAllClusters = () =>
+  fetchAllPages((cursor) => api.listClusters({ cursor, limit: 500 })).then((r) => r.items);
 
 export function Workloads() {
-  const workloads = useResource(() => api.listWorkloads(), []);
+  const workloads = useResource(
+    () => fetchAllPages((cursor) => api.listWorkloads({ cursor, limit: 500 })),
+    [],
+  );
   const tableRef = useEntityTable('lists.workloads');
 
   return (
@@ -283,7 +283,10 @@ export function Workloads() {
 }
 
 export function Pods() {
-  const pods = useResource(() => api.listPods(), []);
+  const pods = useResource(
+    () => fetchAllPages((cursor) => api.listPods({ cursor, limit: 500 })),
+    [],
+  );
   const tableRef = useEntityTable('lists.pods');
   return (
     <>
@@ -346,7 +349,10 @@ export function Pods() {
 }
 
 export function Services() {
-  const services = useResource(() => api.listServices(), []);
+  const services = useResource(
+    () => fetchAllPages((cursor) => api.listServices({ cursor, limit: 500 })),
+    [],
+  );
   const tableRef = useEntityTable('lists.services');
   return (
     <>
@@ -407,7 +413,10 @@ export function Services() {
 }
 
 export function Ingresses() {
-  const ingresses = useResource(() => api.listIngresses(), []);
+  const ingresses = useResource(
+    () => fetchAllPages((cursor) => api.listIngresses({ cursor, limit: 500 })),
+    [],
+  );
   const tableRef = useEntityTable('lists.ingresses');
   return (
     <>
@@ -468,9 +477,12 @@ export function Ingresses() {
 export function PersistentVolumes() {
   const state = useResource(
     () =>
-      Promise.all([api.listPersistentVolumes(), api.listClusters()]).then(([pvs, clusters]) => ({
+      Promise.all([
+        fetchAllPages((cursor) => api.listPersistentVolumes({ cursor, limit: 500 })),
+        fetchAllClusters(),
+      ]).then(([pvs, clItems]) => ({
         pvs: pvs.items,
-        clustersById: new Map(clusters.items.map((c) => [c.id, c])),
+        clustersById: new Map(clItems.map((c) => [c.id, c])),
       })),
     [],
   );
@@ -530,7 +542,10 @@ export function PersistentVolumes() {
 }
 
 export function PersistentVolumeClaims() {
-  const pvcs = useResource(() => api.listPersistentVolumeClaims(), []);
+  const pvcs = useResource(
+    () => fetchAllPages((cursor) => api.listPersistentVolumeClaims({ cursor, limit: 500 })),
+    [],
+  );
   const tableRef = useEntityTable('lists.persistent_volume_claims');
   return (
     <>
