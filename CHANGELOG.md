@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.28.2](https://github.com/sthalbert/Longue-Vue/compare/v0.28.1...v0.28.2) (2026-05-25)
+
+
+### Bug Fixes
+
+* **ui:** walk cursor on list pages so rows past page 1 are visible ([7e3a7e1](https://github.com/sthalbert/Longue-Vue/commit/7e3a7e1afdf47046b0754ca38f3af8a6af282b77))
+* **ui:** walk cursor on list pages so rows past page 1 are visible ([35e4eb7](https://github.com/sthalbert/Longue-Vue/commit/35e4eb70abb5610215b8f9b878127c144892ff40))
+
 ## [0.28.1](https://github.com/sthalbert/Longue-Vue/compare/v0.28.0...v0.28.1) (2026-05-25)
 
 
