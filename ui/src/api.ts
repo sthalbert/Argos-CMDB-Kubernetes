@@ -696,7 +696,7 @@ export function deleteCluster(id: string) {
   return request<void>(`/v1/clusters/${id}`, { method: 'DELETE' });
 }
 
-export function listNodes(filter?: { cluster_id?: string }) {
+export function listNodes(filter?: { cluster_id?: string; cursor?: string; limit?: number }) {
   return request<PagedResponse<Node>>('/v1/nodes' + query({ limit: 200, ...filter }));
 }
 export function getNode(id: string) {
@@ -728,6 +728,8 @@ export function listPods(filter?: {
   node_name?: string;
   workload_id?: string;
   image?: string;
+  cursor?: string;
+  limit?: number;
 }) {
   return request<PagedResponse<Pod>>('/v1/pods' + query({ limit: 200, ...filter }));
 }
@@ -735,21 +737,21 @@ export function getPod(id: string) {
   return request<Pod>(`/v1/pods/${id}`);
 }
 
-export function listServices(filter?: { namespace_id?: string }) {
+export function listServices(filter?: { namespace_id?: string; cursor?: string; limit?: number }) {
   return request<PagedResponse<Service>>('/v1/services' + query({ limit: 200, ...filter }));
 }
 export function getService(id: string) {
   return request<Service>(`/v1/services/${id}`);
 }
 
-export function listIngresses(filter?: { namespace_id?: string }) {
+export function listIngresses(filter?: { namespace_id?: string; cursor?: string; limit?: number }) {
   return request<PagedResponse<Ingress>>('/v1/ingresses' + query({ limit: 200, ...filter }));
 }
 export function getIngress(id: string) {
   return request<Ingress>(`/v1/ingresses/${id}`);
 }
 
-export function listPersistentVolumes(filter?: { cluster_id?: string }) {
+export function listPersistentVolumes(filter?: { cluster_id?: string; cursor?: string; limit?: number }) {
   return request<PagedResponse<PersistentVolume>>(
     '/v1/persistentvolumes' + query({ limit: 200, ...filter }),
   );
@@ -758,7 +760,7 @@ export function getPersistentVolume(id: string) {
   return request<PersistentVolume>(`/v1/persistentvolumes/${id}`);
 }
 
-export function listPersistentVolumeClaims(filter?: { namespace_id?: string }) {
+export function listPersistentVolumeClaims(filter?: { namespace_id?: string; cursor?: string; limit?: number }) {
   return request<PagedResponse<PersistentVolumeClaim>>(
     '/v1/persistentvolumeclaims' + query({ limit: 200, ...filter }),
   );
@@ -1037,6 +1039,8 @@ export interface VirtualMachineListFilter {
   image?: string;
   application?: string;
   application_version?: string;
+  cursor?: string;
+  limit?: number;
 }
 
 // VirtualMachinePatch is the merge-patch shape posted to PATCH
@@ -1063,7 +1067,8 @@ export function listVirtualMachines(filter: VirtualMachineListFilter = {}) {
   return request<PagedResponse<VirtualMachine>>(
     '/v1/virtual-machines' +
       query({
-        limit: 200,
+        limit: filter.limit ?? 200,
+        cursor: filter.cursor,
         cloud_account_id: filter.cloud_account_id,
         cloud_account_name: filter.cloud_account_name,
         region: filter.region,
