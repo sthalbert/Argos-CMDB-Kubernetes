@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from './api';
+import type { PagedResponse } from './api';
 
 // useDebouncedValue delays propagation of a fast-changing value (typed
 // search input) until it has been stable for `delayMs`. Used by list
@@ -123,4 +124,81 @@ export function usePageSize(): [PageSize, (n: PageSize) => void] {
   };
 
   return [size, update];
+}
+
+export type PagedListState<T> = {
+  items: T[];
+  loading: boolean;
+  error: string | null;
+  pageSize: PageSize;
+  setPageSize: (n: PageSize) => void;
+  hasPrev: boolean;
+  hasNext: boolean;
+  next: () => void;
+  prev: () => void;
+};
+
+// usePagedList drives one paginated panel. The cursor stack is local
+// to the hook instance — navigating away and back starts fresh, which
+// matches the rest of the UI's "fetch on mount" posture.
+export function usePagedList<T>(
+  fetchPage: (cursor: string | undefined, limit: number) => Promise<PagedResponse<T>>,
+  deps: unknown[],
+): PagedListState<T> {
+  const [pageSize, setPageSizeRaw] = usePageSize();
+  const [stack, setStack] = useState<string[]>([]);
+  const [items, setItems] = useState<T[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  const cursor = stack.length === 0 ? undefined : stack[stack.length - 1];
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchPage(cursor, pageSize)
+      .then((page) => {
+        if (cancelled) return;
+        setItems(page.items);
+        setNextCursor(page.next_cursor ?? undefined);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate('/login', { replace: true });
+          return;
+        }
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor, pageSize, ...deps]);
+
+  // Reset to page 1 whenever the caller's deps change (filter switch).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setStack([]), deps);
+
+  return {
+    items,
+    loading,
+    error,
+    pageSize,
+    setPageSize: (n) => {
+      setStack([]);
+      setPageSizeRaw(n);
+    },
+    hasPrev: stack.length > 0,
+    hasNext: !!nextCursor,
+    next: () => {
+      if (nextCursor) setStack((s) => [...s, nextCursor]);
+    },
+    prev: () => setStack((s) => s.slice(0, -1)),
+  };
 }
