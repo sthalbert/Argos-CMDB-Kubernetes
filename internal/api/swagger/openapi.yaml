@@ -4403,6 +4403,11 @@ components:
               format: uuid
               nullable: true
               description: "Link to an Application (ADR-0029); operator-curated. Null when unlinked."
+            application_name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Denormalized `applications.name`. Null when unlinked. See ADR-0027 / ADR-0029.
             effective_dict:
               allOf:
                 - $ref: '#/components/schemas/EffectiveDICT'

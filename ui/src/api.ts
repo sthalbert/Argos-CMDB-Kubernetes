@@ -1013,9 +1013,10 @@ export interface VirtualMachine {
   notes?: string | null;
   runbook_url?: string | null;
   // ADR-0029 row-level linkage: links the whole VM to an Application.
-  // The GET response carries only the id (no denormalized name yet), so
-  // the detail page resolves the display name via getApplication.
+  // application_name is the server-denormalized display name (ADR-0027
+  // pattern), null when unlinked.
   application_id?: string | null;
+  application_name?: string | null;
   // ADR-0029 §6 read-only inherited classification. VMs have no DICT columns
   // of their own, so source is only ever "application" or "none".
   effective_dict?: EffectiveDICT | null;

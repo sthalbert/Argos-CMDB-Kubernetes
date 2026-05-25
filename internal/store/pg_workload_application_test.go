@@ -81,6 +81,12 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	if got.ApplicationId == nil || *got.ApplicationId != billing.ID {
 		t.Fatalf("GET: expected application_id=%v, got %v", billing.ID, got.ApplicationId)
 	}
+	// Denormalized application_name is exposed on the read path (ADR-0027
+	// pattern), so the UI does not need a second round-trip to render the
+	// link on the workload detail panel.
+	if got.ApplicationName == nil || *got.ApplicationName != vmAppBilling {
+		t.Fatalf("GET: expected application_name=%q, got %v", vmAppBilling, got.ApplicationName)
+	}
 
 	// --- 2. ListWorkloads filter by application_id → returns only linked ---
 	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{

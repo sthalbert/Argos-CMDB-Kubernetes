@@ -20,9 +20,12 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-// vmColumns is the canonical SELECT/INSERT column order for the
+// vmColumns is the canonical SELECT column order for the
 // virtual_machines table — kept as one constant so adding a column is
-// a three-line change (const + values + scan).
+// a three-line change (const + values + scan). The trailing
+// `application_name` is a read-side denormalization (ADR-0027 pattern)
+// resolved via a correlated subquery against `applications.id` (PK
+// indexed; O(1) per row). INSERTs/UPDATEs inline columns separately.
 const vmColumns = `id, cloud_account_id,
 	provider_vm_id, name, display_name, role,
 	private_ip, public_ip, private_dns_name, vpc_id, subnet_id,
@@ -36,7 +39,8 @@ const vmColumns = `id, cloud_account_id,
 	tags, labels, annotations,
 	owner, criticality, notes, runbook_url,
 	applications, application_id,
-	created_at, updated_at, last_seen_at, terminated_at`
+	created_at, updated_at, last_seen_at, terminated_at,
+	(SELECT name FROM applications WHERE id = virtual_machines.application_id) AS application_name`
 
 // UpsertVirtualMachine inserts a new VM or updates the existing row
 // keyed on (cloud_account_id, provider_vm_id). Server-side dedup
@@ -758,6 +762,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		applicationsJSON     []byte
 		applicationID        uuid.NullUUID
 		terminatedAt         *time.Time
+		applicationName      sql.NullString
 	)
 	if err := row.Scan(
 		&out.ID, &out.CloudAccountID,
@@ -774,6 +779,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		&owner, &criticality, &notes, &runbookURL,
 		&applicationsJSON, &applicationID,
 		&out.CreatedAt, &out.UpdatedAt, &out.LastSeenAt, &terminatedAt,
+		&applicationName,
 	); err != nil {
 		return api.VirtualMachine{}, fmt.Errorf("scan virtual machine: %w", err)
 	}
@@ -855,6 +861,7 @@ func scanVirtualMachine(row pgx.Row) (api.VirtualMachine, error) {
 		v := applicationID.UUID
 		out.ApplicationID = &v
 	}
+	out.ApplicationName = nullableString(applicationName)
 	out.TerminatedAt = terminatedAt
 	return out, nil
 }

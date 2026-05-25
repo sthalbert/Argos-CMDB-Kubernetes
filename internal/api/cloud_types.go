@@ -200,6 +200,10 @@ type VirtualMachine struct {
 	// to X" pointer while individual application entries point at their
 	// own products. ON DELETE SET NULL via the FK in migration 00047.
 	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
+	// ApplicationName is the denormalized `applications.name` for ApplicationID
+	// (ADR-0027 pattern). Read-only, computed at read time via correlated
+	// subquery; never accepted on PATCH/POST bodies.
+	ApplicationName *string `json:"application_name,omitempty"`
 	// EffectiveDict is the read-only inherited DICT classification
 	// (ADR-0029 §6). VMs have no DICT columns of their own, so the value is
 	// either the linked application's classification or source="none".

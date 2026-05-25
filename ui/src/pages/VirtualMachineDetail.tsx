@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
@@ -52,31 +52,10 @@ export default function VirtualMachineDetail() {
     [me?.role ?? '', vmState.status === 'ready' ? vmState.data.cloud_account_id : ''],
   );
 
-  // The VM GET response carries only application_id (no denormalized
-  // application_name yet — ADR-0029 Phase 5), so resolve the display name
-  // for the row-level ApplicationCard via a cheap getApplication lookup.
   const linkedAppId =
     vmState.status === 'ready' ? vmState.data.application_id ?? null : null;
-  const [linkedAppName, setLinkedAppName] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (!linkedAppId) {
-      setLinkedAppName(null);
-      return;
-    }
-    api
-      .getApplication(linkedAppId)
-      .then((app) => {
-        if (!cancelled) setLinkedAppName(app.display_name || app.name);
-      })
-      .catch(() => {
-        // Best-effort: fall back to the id prefix if the lookup fails.
-        if (!cancelled) setLinkedAppName(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [linkedAppId]);
+  const linkedAppName =
+    vmState.status === 'ready' ? vmState.data.application_name ?? null : null;
 
   return (
     <>
@@ -262,10 +241,7 @@ export default function VirtualMachineDetail() {
 
               <ApplicationCard
                 linkedId={linkedAppId}
-                linkedName={
-                  linkedAppName ??
-                  (linkedAppId ? `${linkedAppId.slice(0, 8)}…` : null)
-                }
+                linkedName={linkedAppName}
                 onLink={async (appId) => {
                   await api.updateVirtualMachine(vm.id, { application_id: appId });
                   reload();
