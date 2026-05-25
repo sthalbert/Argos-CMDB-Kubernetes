@@ -87,3 +87,40 @@ export function useResources<T extends readonly unknown[]>(
 
   return state;
 }
+
+export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+
+const PAGE_SIZE_STORAGE_KEY = 'lv.ui.pageSize';
+const PAGE_SIZE_EVENT = 'lv.ui.pageSize.changed';
+
+function readStoredPageSize(): PageSize {
+  const raw = localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return (PAGE_SIZE_OPTIONS as readonly number[]).includes(n) ? (n as PageSize) : 20;
+}
+
+// usePageSize is the one global rows-per-page knob shared across every
+// paginated panel. Persists in localStorage; broadcasts changes so two
+// panels on the same page stay in sync.
+export function usePageSize(): [PageSize, (n: PageSize) => void] {
+  const [size, setSize] = useState<PageSize>(() => readStoredPageSize());
+
+  useEffect(() => {
+    const sync = () => setSize(readStoredPageSize());
+    window.addEventListener('storage', sync);
+    window.addEventListener(PAGE_SIZE_EVENT, sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener(PAGE_SIZE_EVENT, sync);
+    };
+  }, []);
+
+  const update = (n: PageSize) => {
+    localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(n));
+    window.dispatchEvent(new Event(PAGE_SIZE_EVENT));
+    setSize(n);
+  };
+
+  return [size, update];
+}

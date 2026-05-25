@@ -3,7 +3,7 @@ import { act, render, renderHook, screen, waitFor } from '@testing-library/react
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { type ReactNode, useState } from 'react';
 import { ApiError } from './api';
-import { useDebouncedValue, useResource, useResources } from './hooks';
+import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS } from './hooks';
 
 afterEach(() => vi.useRealTimers());
 
@@ -135,6 +135,40 @@ describe('useResources', () => {
       { wrapper: withRouter() },
     );
     await waitFor(() => expect(result.current.status).toBe('error'));
+  });
+});
+
+describe('usePageSize', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('defaults to 20', () => {
+    const { result } = renderHook(() => usePageSize());
+    expect(result.current[0]).toBe(20);
+  });
+
+  it('persists choice in localStorage', () => {
+    const { result } = renderHook(() => usePageSize());
+    act(() => result.current[1](50));
+    expect(localStorage.getItem('lv.ui.pageSize')).toBe('50');
+    const { result: r2 } = renderHook(() => usePageSize());
+    expect(r2.current[0]).toBe(50);
+  });
+
+  it('rejects values outside the allowed set', () => {
+    localStorage.setItem('lv.ui.pageSize', '37');
+    const { result } = renderHook(() => usePageSize());
+    expect(result.current[0]).toBe(20);
+  });
+
+  it('exposes the canonical option list', () => {
+    expect(PAGE_SIZE_OPTIONS).toEqual([20, 50, 100]);
+  });
+
+  it('syncs across hook instances via storage event', () => {
+    const { result: a } = renderHook(() => usePageSize());
+    const { result: b } = renderHook(() => usePageSize());
+    act(() => a.current[1](100));
+    expect(b.current[0]).toBe(100);
   });
 });
 
