@@ -55,22 +55,20 @@ describe('VirtualMachineDetail', () => {
     );
   });
 
-  it('resolves the linked application name via getApplication', async () => {
+  it('renders the linked application name from the VM response', async () => {
     server.use(
       http.get('/v1/virtual-machines/:id', () =>
         HttpResponse.json({
           ...fixtureVirtualMachine,
           application_id: fixtureApplication.id,
+          application_name: fixtureApplication.name,
         }),
       ),
     );
     renderVM();
     const card = await screen.findByTestId('application-card');
-    // getApplication returns fixtureApplication → display_name wins.
     await waitFor(() =>
-      expect(
-        within(card).getByText(fixtureApplication.display_name!),
-      ).toBeInTheDocument(),
+      expect(within(card).getByText(fixtureApplication.name)).toBeInTheDocument(),
     );
   });
 
@@ -80,6 +78,7 @@ describe('VirtualMachineDetail', () => {
         HttpResponse.json({
           ...fixtureVirtualMachine,
           application_id: fixtureApplication.id,
+          application_name: fixtureApplication.name,
           effective_dict: {
             disponibilite: 2,
             integrite: 3,
@@ -94,8 +93,8 @@ describe('VirtualMachineDetail', () => {
     const card = await screen.findByTestId('effective-dict-card');
     expect(within(card).getByText('Classification (DICT)')).toBeInTheDocument();
     expect(within(card).getByText('3')).toBeInTheDocument();
-    // The application name resolves async via getApplication, surfacing the
-    // "Inherited from application X" source line.
+    // The application name is now denormalized in the VM response (ADR-0027),
+    // surfacing the "Inherited from application X" source line directly.
     await waitFor(() =>
       expect(
         within(card).getByText(/Inherited from application/),

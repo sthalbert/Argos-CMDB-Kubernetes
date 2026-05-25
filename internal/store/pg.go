@@ -2085,11 +2085,13 @@ func (p *PG) CreateWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 // the operator-curated application_id soft-pointer (ADR-0029).
 const workloadSelectColumns = `w.id, w.namespace_id, w.kind, w.name, w.replicas, w.ready_replicas,
 	w.containers, w.labels, w.spec, w.application_id, w.created_at, w.updated_at,
-	n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name`
+	n.name AS namespace_name, n.cluster_id AS namespace_cluster_id, c.name AS cluster_name,
+	a.name AS application_name`
 
 const workloadFromJoined = `FROM workloads w
-	LEFT JOIN namespaces n ON n.id = w.namespace_id
-	LEFT JOIN clusters   c ON c.id = n.cluster_id`
+	LEFT JOIN namespaces   n ON n.id = w.namespace_id
+	LEFT JOIN clusters     c ON c.id = n.cluster_id
+	LEFT JOIN applications a ON a.id = w.application_id`
 
 // GetWorkload fetches a workload by id.
 func (p *PG) GetWorkload(ctx context.Context, id uuid.UUID) (api.Workload, error) {
@@ -2572,6 +2574,7 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 		namespaceName      sql.NullString
 		namespaceClusterID uuid.NullUUID
 		clusterName        sql.NullString
+		applicationName    sql.NullString
 	)
 	if err := row.Scan(
 		&id, &namespaceID, &kind, &w.Name,
@@ -2579,6 +2582,7 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 		&containersJSON, &labelsJSON, &specJSON, &applicationID,
 		&createdAt, &updatedAt,
 		&namespaceName, &namespaceClusterID, &clusterName,
+		&applicationName,
 	); err != nil {
 		return api.Workload{}, fmt.Errorf("scan workload: %w", err)
 	}
@@ -2597,6 +2601,7 @@ func scanWorkload(row pgx.Row) (api.Workload, error) {
 		v := applicationID.UUID
 		w.ApplicationId = &v
 	}
+	w.ApplicationName = nullableString(applicationName)
 	if replicas.Valid {
 		v := int(replicas.Int32)
 		w.Replicas = &v
