@@ -5,9 +5,7 @@
 
 import { Link } from 'react-router-dom';
 import * as api from '../api';
-import { useResource } from '../hooks';
-import { usePagedList } from '../hooks';
-import { fetchAllPages } from '../lib/paginate';
+import { useResource, usePagedList } from '../hooks';
 import { Dash, IdLink, LayerPill, LoadBalancerAddresses, Empty, NamespaceLink, Paginator } from '../components';
 import { useEntityTable } from '../components/column_filters';
 import {
@@ -79,10 +77,19 @@ export function Clusters() {
   );
 }
 
-// Lookup map only — not user-facing. Keep fetchAllPages so we have every
-// cluster regardless of UI page size.
-const fetchAllClusters = () =>
-  fetchAllPages((cursor) => api.listClusters({ cursor, limit: 500 })).then((r) => r.items);
+// Lookup map only — not user-facing. Walks every server page so id→name
+// resolution stays complete regardless of the UI's selected page size.
+async function fetchAllClusters(): Promise<api.Cluster[]> {
+  const items: api.Cluster[] = [];
+  let cursor: string | undefined = undefined;
+  for (let i = 0; i < 1000; i++) {
+    const page = await api.listClusters({ cursor, limit: 500 });
+    items.push(...page.items);
+    if (!page.next_cursor) break;
+    cursor = page.next_cursor;
+  }
+  return items;
+}
 
 export function Nodes() {
   const list = usePagedList<api.Node>(
