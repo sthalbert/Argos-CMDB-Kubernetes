@@ -84,8 +84,8 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	// Denormalized application_name is exposed on the read path (ADR-0027
 	// pattern), so the UI does not need a second round-trip to render the
 	// link on the workload detail panel.
-	if got.ApplicationName == nil || *got.ApplicationName != "billing" {
-		t.Fatalf("GET: expected application_name=\"billing\", got %v", got.ApplicationName)
+	if got.ApplicationName == nil || *got.ApplicationName != vmAppBilling {
+		t.Fatalf("GET: expected application_name=%q, got %v", vmAppBilling, got.ApplicationName)
 	}
 
 	// --- 2. ListWorkloads filter by application_id → returns only linked ---
