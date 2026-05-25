@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import {
   AsyncView, Code, Dash, Empty, IdLink, KV, Labels, LayerPill,
-  LoadBalancerAddresses, SectionTitle, ShortId,
+  LoadBalancerAddresses, Paginator, SectionTitle, ShortId,
 } from './components';
 
 describe('Dash / Code / Empty', () => {
@@ -123,6 +123,39 @@ describe('Labels', () => {
   it('renders one chip per label', () => {
     const { container } = render(<Labels labels={{ env: 'prod', tier: 'web' }} />);
     expect(container.querySelectorAll('.label-chip').length).toBe(2);
+  });
+});
+
+describe('Paginator', () => {
+  const baseProps = {
+    pageSize: 20 as const,
+    hasPrev: false,
+    hasNext: true,
+    onPrev: () => {},
+    onNext: () => {},
+    onPageSize: () => {},
+  };
+
+  it('disables Prev when hasPrev is false', () => {
+    render(<Paginator {...baseProps} />);
+    expect(screen.getByRole('button', { name: /prev/i })).toBeDisabled();
+  });
+
+  it('disables Next when hasNext is false', () => {
+    render(<Paginator {...baseProps} hasPrev hasNext={false} />);
+    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled();
+  });
+
+  it('fires onPageSize with a number when the selector changes', () => {
+    const onPageSize = vi.fn();
+    render(<Paginator {...baseProps} onPageSize={onPageSize} />);
+    fireEvent.change(screen.getByLabelText(/rows per page/i), { target: { value: '50' } });
+    expect(onPageSize).toHaveBeenCalledWith(50);
+  });
+
+  it('renders nothing when neither prev nor next is available', () => {
+    const { container } = render(<Paginator {...baseProps} hasPrev={false} hasNext={false} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });
 

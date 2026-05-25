@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { AsyncState } from './hooks';
+import { PAGE_SIZE_OPTIONS, type PageSize } from './hooks';
 
 // Muted dash used where a field is null / absent.
 export const Dash = () => <span className="muted">—</span>;
@@ -191,3 +192,43 @@ export const Labels = ({ labels }: { labels?: Record<string, string> | null }) =
     </div>
   );
 };
+
+export interface PaginatorProps {
+  pageSize: PageSize;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  onPageSize: (n: PageSize) => void;
+}
+
+export function Paginator({
+  pageSize, hasPrev, hasNext, onPrev, onNext, onPageSize,
+}: PaginatorProps) {
+  if (!hasPrev && !hasNext) return null;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 12,
+        alignItems: 'center',
+        margin: '8px 0 12px',
+        fontSize: 13,
+      }}
+    >
+      <button type="button" onClick={onPrev} disabled={!hasPrev}>← Prev</button>
+      <button type="button" onClick={onNext} disabled={!hasNext}>Next →</button>
+      <label style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+        Rows per page
+        <select
+          value={pageSize}
+          onChange={(e) => onPageSize(Number(e.target.value) as PageSize)}
+        >
+          {PAGE_SIZE_OPTIONS.map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
