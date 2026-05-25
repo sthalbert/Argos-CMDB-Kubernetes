@@ -6,6 +6,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.28.1](https://github.com/sthalbert/Longue-Vue/compare/v0.28.0...v0.28.1) (2026-05-25)
+
+
+### Bug Fixes
+
+* **api:** denormalize application_name on Workload and VM read paths ([4b63b32](https://github.com/sthalbert/Longue-Vue/commit/4b63b327e3256ab66ee8a8e2bf056d5f3a8d3014))
+* **api:** denormalize application_name on Workload and VM read paths ([e2ba3bb](https://github.com/sthalbert/Longue-Vue/commit/e2ba3bbe39cce421eb1494040a442ec5f287114b))
+* **test:** reuse vmAppBilling constant in workload application test ([8573c18](https://github.com/sthalbert/Longue-Vue/commit/8573c1822b324c6da66ea2388b35ddb9a1fc8a3f))
+
 ## [0.28.0](https://github.com/sthalbert/Longue-Vue/compare/v0.27.0...v0.28.0) (2026-05-24)
 
 
