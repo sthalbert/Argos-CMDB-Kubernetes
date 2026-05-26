@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.29.1](https://github.com/sthalbert/Longue-Vue/compare/v0.29.0...v0.29.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* **ui:** resolve all workload pages in NodeDetail lookup ([219784b](https://github.com/sthalbert/Longue-Vue/commit/219784b633bef7eecbf0544105d7d4a324724e5e))
+* **ui:** resolve all workload pages in NodeDetail lookup ([fd2eaba](https://github.com/sthalbert/Longue-Vue/commit/fd2eaba70eb2be6f8f1b17dca84e83ef1f22c6d4))
+
 ## [0.29.0](https://github.com/sthalbert/Longue-Vue/compare/v0.28.2...v0.29.0) (2026-05-26)
 
 
