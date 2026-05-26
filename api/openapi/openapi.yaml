@@ -2269,7 +2269,7 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
-  /v1/admin/image-versions/registries/{hostname}:
+  /v1/admin/image-versions/registries/{hostname}/{path_prefix}:
     patch:
       summary: Update a registry's rate limit, enabled flag, or notes
       tags: [admin, image-versions]
@@ -2282,6 +2282,11 @@ paths:
           in: path
           required: true
           schema: { type: string }
+        - name: path_prefix
+          in: path
+          required: true
+          schema: { type: string }
+          description: "URL-encoded path_prefix; use the literal '_root' for empty"
       requestBody:
         required: true
         content:
@@ -2313,6 +2318,11 @@ paths:
           in: path
           required: true
           schema: { type: string }
+        - name: path_prefix
+          in: path
+          required: true
+          schema: { type: string }
+          description: "URL-encoded path_prefix; use the literal '_root' for empty"
       responses:
         '204':
           description: No Content
