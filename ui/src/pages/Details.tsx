@@ -1197,8 +1197,20 @@ export function NodeDetail() {
   // 1. Fetch the node record itself.
   const node = useResource(() => api.getNode(id), [id, nonce]);
   // Also pull all workloads so we can attach name/kind to each pod's
-  // workload_id for the impact grouping.
-  const workloads = useResource(() => api.listWorkloads(), []);
+  // workload_id for the impact grouping. Walks every server page so the
+  // id→workload map stays complete past the first page (mirrors the
+  // fetchAllClusters pattern in Lists.tsx).
+  const workloads = useResource(async () => {
+    const items: api.Workload[] = [];
+    let cursor: string | undefined = undefined;
+    for (let i = 0; i < 1000; i++) {
+      const page = await api.listWorkloads({ cursor, limit: 500 });
+      items.push(...page.items);
+      if (!page.next_cursor) break;
+      cursor = page.next_cursor;
+    }
+    return items;
+  }, []);
 
   return (
     <>
@@ -1367,7 +1379,7 @@ export function NodeDetail() {
 
             <AsyncView state={workloads}>
               {(wls) => {
-                const wlById = new Map(wls.items.map((w) => [w.id, w]));
+                const wlById = new Map(wls.map((w) => [w.id, w]));
                 return <NodePodsSection nodeName={n.name} workloadsById={wlById} />;
               }}
             </AsyncView>
