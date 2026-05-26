@@ -6,6 +6,21 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.29.0](https://github.com/sthalbert/Longue-Vue/compare/v0.28.2...v0.29.0) (2026-05-26)
+
+
+### Features
+
+* **ui:** add Paginator component for panel pagination controls ([cd307db](https://github.com/sthalbert/Longue-Vue/commit/cd307dbb8642a2ce44465c927618b27ce2db9fef))
+* **ui:** add usePagedList hook for cursor-based panel pagination ([87f721a](https://github.com/sthalbert/Longue-Vue/commit/87f721a125c602d831162c5ac51a9c00d20faeeb))
+* **ui:** add usePageSize hook with localStorage persistence ([c9444f9](https://github.com/sthalbert/Longue-Vue/commit/c9444f919252457f49906a14b12bdc9459c40695))
+* **ui:** paginate all list pages via usePagedList ([e2ca0e3](https://github.com/sthalbert/Longue-Vue/commit/e2ca0e3e83ca9394e5c15ea67303ec2f9eed21e4))
+* **ui:** paginate ClusterDetail sub-sections (nodes, namespaces, pvs) ([0e710c4](https://github.com/sthalbert/Longue-Vue/commit/0e710c421b2d0e73b4e5cb380e0012bf41fdf195))
+* **ui:** paginate NamespaceDetail sub-sections ([1153034](https://github.com/sthalbert/Longue-Vue/commit/11530343035d67ea0a2cb7c9d5743b9431d2abde))
+* **ui:** paginate VirtualMachines list page ([e71a5b1](https://github.com/sthalbert/Longue-Vue/commit/e71a5b1930fbf631ee3a9c547960ca38ab2d28fc))
+* **ui:** paginate WorkloadDetail and NodeDetail pod sections ([0ba06ba](https://github.com/sthalbert/Longue-Vue/commit/0ba06bacfdf9a1332a90bd9c4ce88eae831d7d82))
+* **ui:** paginated panels ([709bccb](https://github.com/sthalbert/Longue-Vue/commit/709bccb29fe2994a0b2626f2444e11fc67d0d526))
+
 ## [0.28.2](https://github.com/sthalbert/Longue-Vue/compare/v0.28.1...v0.28.2) (2026-05-25)
 
 
