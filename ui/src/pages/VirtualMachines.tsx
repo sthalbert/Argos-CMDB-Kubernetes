@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
-import { useResource } from '../hooks';
-import { fetchAllPages } from '../lib/paginate';
+import { useResource, usePagedList } from '../hooks';
 import { isAdmin, useMe } from '../me';
-import { AsyncView, Dash } from '../components';
+import { Dash, Paginator } from '../components';
 import { useEntityTable } from '../components/column_filters';
 import { VirtualMachineIcon } from '../icons';
 
@@ -188,8 +187,8 @@ export default function VirtualMachines() {
   // mount; the request fans out in parallel with listVirtualMachines.
   const appsState = useResource(() => api.listDistinctVMApplications(), []);
 
-  const vmsState = useResource(
-    () => fetchAllPages((cursor) => api.listVirtualMachines({ ...filter, cursor, limit: 500 })),
+  const vmsList = usePagedList<api.VirtualMachine>(
+    (cursor, limit) => api.listVirtualMachines({ ...filter, cursor, limit }),
     [
       cloudAccountId,
       region,
@@ -224,54 +223,52 @@ export default function VirtualMachines() {
         Non-Kubernetes platform VMs catalogued by longue-vue-vm-collector (ADR-0015).
       </p>
 
-      <AsyncView state={vmsState}>
-        {(vms) => {
-          const all = vms.items;
-          // Summary card counts run over the unfiltered (server-side) list,
-          // so cards always reflect everything that matched the URL filters.
-          const counts: Record<PowerStateGroup, number> = {
-            running: 0,
-            stopped: 0,
-            terminated: 0,
-            error: 0,
-            other: 0,
-          };
-          for (const vm of all) counts[classify(vm.power_state)] += 1;
-          const pendingAccounts = accountList.filter((a) => a.status === 'pending_credentials').length;
+      {(() => {
+        const all = vmsList.items;
+        // Summary card counts run over the current page's items.
+        const counts: Record<PowerStateGroup, number> = {
+          running: 0,
+          stopped: 0,
+          terminated: 0,
+          error: 0,
+          other: 0,
+        };
+        for (const vm of all) counts[classify(vm.power_state)] += 1;
+        const pendingAccounts = accountList.filter((a) => a.status === 'pending_credentials').length;
 
-          // Apply client-side filters on top of the server-side ones.
-          // Role: split each VM's role string on `,` and match the
-          // selected role against any of the splits.
-          // Group: classify the power_state into running / stopped /
-          // terminated buckets for summary-card click.
-          const visible = all.filter((vm) => {
-            if (role && !splitRoles(vm.role).includes(role)) return false;
-            if (groupFilter && classify(vm.power_state) !== groupFilter) return false;
-            return true;
-          });
-          const sorted = [...visible].sort((a, b) => compare(a, b, sortKey, sortAsc));
+        // Apply client-side filters on top of the server-side ones.
+        // Role: split each VM's role string on `,` and match the
+        // selected role against any of the splits.
+        // Group: classify the power_state into running / stopped /
+        // terminated buckets for summary-card click.
+        const visible = all.filter((vm) => {
+          if (role && !splitRoles(vm.role).includes(role)) return false;
+          if (groupFilter && classify(vm.power_state) !== groupFilter) return false;
+          return true;
+        });
+        const sorted = [...visible].sort((a, b) => compare(a, b, sortKey, sortAsc));
 
-          // Region dropdown options: union of regions from cloud_accounts
-          // (admins only) and the currently-loaded VMs, plus the
-          // currently-selected region (so the user can always clear it
-          // even after a filter narrows the visible regions).
-          const regionSet = new Set<string>();
-          for (const a of accountList) if (a.region) regionSet.add(a.region);
-          for (const vm of all) if (vm.region) regionSet.add(vm.region);
-          if (region) regionSet.add(region);
-          const regions = Array.from(regionSet).sort();
+        // Region dropdown options: union of regions from cloud_accounts
+        // (admins only) and the currently-loaded VMs, plus the
+        // currently-selected region (so the user can always clear it
+        // even after a filter narrows the visible regions).
+        const regionSet = new Set<string>();
+        for (const a of accountList) if (a.region) regionSet.add(a.region);
+        for (const vm of all) if (vm.region) regionSet.add(vm.region);
+        if (region) regionSet.add(region);
+        const regions = Array.from(regionSet).sort();
 
-          // Role dropdown options: distinct individual roles seen on
-          // ingested VMs (comma-joined strings split into separate
-          // entries), plus the currently-selected role.
-          const roleSet = new Set<string>();
-          for (const vm of all) for (const r of splitRoles(vm.role)) roleSet.add(r);
-          if (role) roleSet.add(role);
-          const roles = Array.from(roleSet).sort();
+        // Role dropdown options: distinct individual roles seen on
+        // ingested VMs (comma-joined strings split into separate
+        // entries), plus the currently-selected role.
+        const roleSet = new Set<string>();
+        for (const vm of all) for (const r of splitRoles(vm.role)) roleSet.add(r);
+        if (role) roleSet.add(role);
+        const roles = Array.from(roleSet).sort();
 
-          return (
-            <>
-              {showAccountFilter && pendingAccounts > 0 && (
+        return (
+          <>
+            {showAccountFilter && pendingAccounts > 0 && (
                 <div className="vm-banner">
                   <strong>{pendingAccounts}</strong> cloud account
                   {pendingAccounts === 1 ? '' : 's'} pending credentials.{' '}
@@ -471,7 +468,19 @@ export default function VirtualMachines() {
                 </div>
               </div>
 
-              {sorted.length === 0 ? (
+              <Paginator
+                pageSize={vmsList.pageSize}
+                hasPrev={vmsList.hasPrev}
+                hasNext={vmsList.hasNext}
+                onPrev={vmsList.prev}
+                onNext={vmsList.next}
+                onPageSize={vmsList.setPageSize}
+              />
+              {vmsList.loading ? (
+                <p className="loading">Loading…</p>
+              ) : vmsList.error ? (
+                <div className="error">Failed to load: {vmsList.error}</div>
+              ) : sorted.length === 0 ? (
                 <p className="muted empty">No virtual machines match these filters.</p>
               ) : (
                 <div className="table-wrap">
@@ -635,8 +644,7 @@ export default function VirtualMachines() {
               )}
             </>
           );
-        }}
-      </AsyncView>
+        })()}
     </>
   );
 }

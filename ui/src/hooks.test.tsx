@@ -3,7 +3,8 @@ import { act, render, renderHook, screen, waitFor } from '@testing-library/react
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { type ReactNode, useState } from 'react';
 import { ApiError } from './api';
-import { useDebouncedValue, useResource, useResources } from './hooks';
+import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS, usePagedList } from './hooks';
+import type { PagedResponse } from './api';
 
 afterEach(() => vi.useRealTimers());
 
@@ -135,6 +136,106 @@ describe('useResources', () => {
       { wrapper: withRouter() },
     );
     await waitFor(() => expect(result.current.status).toBe('error'));
+  });
+});
+
+describe('usePageSize', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('defaults to 20', () => {
+    const { result } = renderHook(() => usePageSize());
+    expect(result.current[0]).toBe(20);
+  });
+
+  it('persists choice in localStorage', () => {
+    const { result } = renderHook(() => usePageSize());
+    act(() => result.current[1](50));
+    expect(localStorage.getItem('lv.ui.pageSize')).toBe('50');
+    const { result: r2 } = renderHook(() => usePageSize());
+    expect(r2.current[0]).toBe(50);
+  });
+
+  it('rejects values outside the allowed set', () => {
+    localStorage.setItem('lv.ui.pageSize', '37');
+    const { result } = renderHook(() => usePageSize());
+    expect(result.current[0]).toBe(20);
+  });
+
+  it('exposes the canonical option list', () => {
+    expect(PAGE_SIZE_OPTIONS).toEqual([20, 50, 100]);
+  });
+
+  it('syncs across hook instances via storage event', () => {
+    const { result: a } = renderHook(() => usePageSize());
+    const { result: b } = renderHook(() => usePageSize());
+    act(() => a.current[1](100));
+    expect(b.current[0]).toBe(100);
+  });
+});
+
+type Item = { id: string };
+
+function makeFetcher(pages: Array<PagedResponse<Item>>) {
+  const calls: Array<{ cursor: string | undefined; limit: number }> = [];
+  let idx = 0;
+  const fetcher = (cursor: string | undefined, limit: number) => {
+    calls.push({ cursor, limit });
+    const page = pages[Math.min(idx, pages.length - 1)];
+    idx++;
+    return Promise.resolve(page);
+  };
+  return { fetcher, calls, reset: () => { idx = 0; calls.length = 0; } };
+}
+
+describe('usePagedList', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('loads page 1 with the current pageSize and no cursor', async () => {
+    const { fetcher, calls } = makeFetcher([
+      { items: [{ id: 'a' }, { id: 'b' }], next_cursor: 'c1' },
+    ]);
+    const { result } = renderHook(() => usePagedList<Item>(fetcher, []), { wrapper: withRouter() });
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    expect(calls[0]).toEqual({ cursor: undefined, limit: 20 });
+    expect(result.current.hasPrev).toBe(false);
+    expect(result.current.hasNext).toBe(true);
+  });
+
+  it('next() advances using next_cursor and prev() returns', async () => {
+    const { fetcher } = makeFetcher([
+      { items: [{ id: 'a' }], next_cursor: 'c1' },
+      { items: [{ id: 'b' }], next_cursor: 'c2' },
+      { items: [{ id: 'a' }], next_cursor: 'c1' },
+    ]);
+    const { result } = renderHook(() => usePagedList<Item>(fetcher, []), { wrapper: withRouter() });
+    await waitFor(() => expect(result.current.items[0]?.id).toBe('a'));
+    act(() => result.current.next());
+    await waitFor(() => expect(result.current.items[0]?.id).toBe('b'));
+    expect(result.current.hasPrev).toBe(true);
+    act(() => result.current.prev());
+    await waitFor(() => expect(result.current.items[0]?.id).toBe('a'));
+    expect(result.current.hasPrev).toBe(false);
+  });
+
+  it('setPageSize resets to page 1', async () => {
+    const { fetcher, calls } = makeFetcher([
+      { items: [{ id: 'a' }], next_cursor: 'c1' },
+      { items: [{ id: 'b' }], next_cursor: 'c2' },
+      { items: [{ id: 'a' }], next_cursor: 'c1' },
+    ]);
+    const { result } = renderHook(() => usePagedList<Item>(fetcher, []), { wrapper: withRouter() });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    act(() => result.current.next());
+    await waitFor(() => expect(result.current.items[0]?.id).toBe('b'));
+    act(() => result.current.setPageSize(50));
+    await waitFor(() => expect(calls.at(-1)).toEqual({ cursor: undefined, limit: 50 }));
+    expect(result.current.hasPrev).toBe(false);
+  });
+
+  it('surfaces fetch errors', async () => {
+    const fetcher = () => Promise.reject(new Error('boom'));
+    const { result } = renderHook(() => usePagedList<Item>(fetcher, []), { wrapper: withRouter() });
+    await waitFor(() => expect(result.current.error).toBe('boom'));
   });
 });
 

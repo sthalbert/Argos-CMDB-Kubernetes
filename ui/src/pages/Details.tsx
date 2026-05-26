@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as api from '../api';
-import { useResource, useResources } from '../hooks';
+import { useResource, usePagedList } from '../hooks';
 import { useMe, isAdmin, canEdit } from '../me';
 import { ApplicationCard } from '../components/inventory/ApplicationCard';
 import { EffectiveDICTCard } from '../components/inventory/EffectiveDICTCard';
@@ -41,6 +41,7 @@ import {
   SectionTitle,
   Empty,
   WorkloadLink,
+  Paginator,
 } from '../components';
 
 // Inline status badge used in detail-page h2s. Same colour scheme as the
@@ -102,6 +103,158 @@ function TabBar({
   );
 }
 
+// --- ClusterDetail child sections -----------------------------------------
+
+function ClusterNamespacesSection({ clusterId }: { clusterId: string }) {
+  const list = usePagedList<api.Namespace>(
+    (cursor, limit) => api.listNamespaces({ cluster_id: clusterId, cursor, limit }),
+    [clusterId],
+  );
+  return (
+    <>
+      <SectionTitle count={list.items.length}>Namespaces</SectionTitle>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <p className="error">{list.error}</p>
+      ) : list.items.length === 0 ? (
+        <Empty message="No namespaces ingested yet." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phase</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((n) => (
+              <tr key={n.id}>
+                <td>
+                  <Link to={`/namespaces/${n.id}`}>
+                    <strong>{n.name}</strong>
+                  </Link>
+                </td>
+                <td>{n.phase || <Dash />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function ClusterNodesSection({ clusterId }: { clusterId: string }) {
+  const list = usePagedList<api.Node>(
+    (cursor, limit) => api.listNodes({ cluster_id: clusterId, cursor, limit }),
+    [clusterId],
+  );
+  return (
+    <>
+      <SectionTitle count={list.items.length}>Nodes</SectionTitle>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <p className="error">{list.error}</p>
+      ) : list.items.length === 0 ? (
+        <Empty message="No nodes ingested yet." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Kubelet</th>
+              <th>Arch</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((n) => (
+              <tr key={n.id}>
+                <td>
+                  <Link to={`/nodes/${n.id}`}>
+                    <strong>{n.display_name || n.name}</strong>
+                  </Link>
+                </td>
+                <td>{n.kubelet_version ? <code>{n.kubelet_version}</code> : <Dash />}</td>
+                <td>{n.architecture || <Dash />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function ClusterPVsSection({ clusterId }: { clusterId: string }) {
+  const list = usePagedList<api.PersistentVolume>(
+    (cursor, limit) => api.listPersistentVolumes({ cluster_id: clusterId, cursor, limit }),
+    [clusterId],
+  );
+  return (
+    <>
+      <SectionTitle count={list.items.length}>Persistent Volumes</SectionTitle>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <p className="error">{list.error}</p>
+      ) : list.items.length === 0 ? (
+        <Empty message="No PVs in this cluster." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Capacity</th>
+              <th>Storage class</th>
+              <th>Phase</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((pv) => (
+              <tr key={pv.id}>
+                <td>
+                  <Link to={`/persistentvolumes/${pv.id}`}>
+                    <strong>{pv.name}</strong>
+                  </Link>
+                </td>
+                <td>{pv.capacity ? <code>{pv.capacity}</code> : <Dash />}</td>
+                <td>{pv.storage_class_name || <Dash />}</td>
+                <td>{pv.phase || <Dash />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 export function ClusterDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -110,19 +263,11 @@ export function ClusterDetail() {
   const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState<ClusterTab>('overview');
   const reload = () => setNonce((n) => n + 1);
-  const state = useResources(
-    [
-      () => api.getCluster(id),
-      () => api.listNodes({ cluster_id: id }),
-      () => api.listNamespaces({ cluster_id: id }),
-      () => api.listPersistentVolumes({ cluster_id: id }),
-    ] as const,
-    [id, nonce],
-  );
+  const state = useResource(() => api.getCluster(id), [id, nonce]);
 
-  const handleDelete = async (cluster: api.Cluster, childCount: number) => {
+  const handleDelete = async (cluster: api.Cluster) => {
     const typed = prompt(
-      `This will permanently delete cluster "${cluster.name}" and all its ${childCount} child resources.\n\nType the cluster name to confirm:`,
+      `This will permanently delete cluster "${cluster.name}" and all its child resources.\n\nType the cluster name to confirm:`,
     );
     if (typed === null) return; // cancelled
     if (typed !== cluster.name) {
@@ -145,10 +290,7 @@ export function ClusterDetail() {
         <Link to="/clusters">Clusters</Link> / <span>this cluster</span>
       </div>
       <AsyncView state={state}>
-        {([cluster, nodes, namespaces, pvs]) => {
-          const childCount =
-            nodes.items.length + namespaces.items.length + pvs.items.length;
-          return (
+        {(cluster) => (
           <>
             <h2>
               <ClusterIcon size={20} /> {cluster.display_name || cluster.name} <LayerPill layer={cluster.layer} />
@@ -157,7 +299,7 @@ export function ClusterDetail() {
                   className="danger"
                   style={{ marginLeft: '1rem', fontSize: '0.85rem' }}
                   disabled={deleting}
-                  onClick={() => handleDelete(cluster, childCount)}
+                  onClick={() => handleDelete(cluster)}
                 >
                   {deleting ? 'Deleting…' : 'Delete cluster'}
                 </button>
@@ -188,89 +330,9 @@ export function ClusterDetail() {
 
                 <ClusterCuratedCard cluster={cluster} onSaved={reload} />
 
-                <SectionTitle count={namespaces.items.length}>Namespaces</SectionTitle>
-                {namespaces.items.length === 0 ? (
-                  <Empty message="No namespaces ingested yet." />
-                ) : (
-                  <table className="entities">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Phase</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {namespaces.items.map((n) => (
-                        <tr key={n.id}>
-                          <td>
-                            <Link to={`/namespaces/${n.id}`}>
-                              <strong>{n.name}</strong>
-                            </Link>
-                          </td>
-                          <td>{n.phase || <Dash />}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-
-                <SectionTitle count={nodes.items.length}>Nodes</SectionTitle>
-                {nodes.items.length === 0 ? (
-                  <Empty message="No nodes ingested yet." />
-                ) : (
-                  <table className="entities">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Kubelet</th>
-                        <th>Arch</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {nodes.items.map((n) => (
-                        <tr key={n.id}>
-                          <td>
-                            <Link to={`/nodes/${n.id}`}>
-                              <strong>{n.display_name || n.name}</strong>
-                            </Link>
-                          </td>
-                          <td>{n.kubelet_version ? <code>{n.kubelet_version}</code> : <Dash />}</td>
-                          <td>{n.architecture || <Dash />}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-
-                <SectionTitle count={pvs.items.length}>Persistent Volumes</SectionTitle>
-                {pvs.items.length === 0 ? (
-                  <Empty message="No PVs in this cluster." />
-                ) : (
-                  <table className="entities">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Capacity</th>
-                        <th>Storage class</th>
-                        <th>Phase</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pvs.items.map((pv) => (
-                        <tr key={pv.id}>
-                          <td>
-                            <Link to={`/persistentvolumes/${pv.id}`}>
-                              <strong>{pv.name}</strong>
-                            </Link>
-                          </td>
-                          <td>{pv.capacity ? <code>{pv.capacity}</code> : <Dash />}</td>
-                          <td>{pv.storage_class_name || <Dash />}</td>
-                          <td>{pv.phase || <Dash />}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                <ClusterNamespacesSection clusterId={id} />
+                <ClusterNodesSection clusterId={id} />
+                <ClusterPVsSection clusterId={id} />
               </>
             )}
 
@@ -278,8 +340,7 @@ export function ClusterDetail() {
 
             {activeTab === 'history' && <ClusterHistory clusterId={id} />}
           </>
-          );
-        }}
+        )}
       </AsyncView>
     </>
   );
@@ -287,31 +348,315 @@ export function ClusterDetail() {
 
 // --- Namespace detail -----------------------------------------------------
 
+// --- NamespaceDetail child sections ---------------------------------------
+
+function NamespaceWorkloadsSection({ namespaceId }: { namespaceId: string }) {
+  const list = usePagedList<api.Workload>(
+    (cursor, limit) => api.listWorkloads({ namespace_id: namespaceId, cursor, limit }),
+    [namespaceId],
+  );
+  return (
+    <>
+      <SectionTitle count={list.items.length}>Workloads</SectionTitle>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <p className="error">{list.error}</p>
+      ) : list.items.length === 0 ? (
+        <Empty message="None." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Kind</th>
+              <th>Ready</th>
+              <th>Containers</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((w) => (
+              <tr key={w.id}>
+                <td>
+                  <Link to={`/workloads/${w.id}`}>
+                    <strong>{w.name}</strong>
+                  </Link>
+                </td>
+                <td>
+                  <span className="pill">{w.kind}</span>
+                </td>
+                <td>
+                  {w.ready_replicas ?? '?'}
+                  <span className="muted">/{w.replicas ?? '?'}</span>
+                </td>
+                <td>
+                  {w.containers?.length ? (
+                    <code>{w.containers.map((c) => c.image).join(', ')}</code>
+                  ) : (
+                    <Dash />
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function NamespacePodsSection({ namespaceId }: { namespaceId: string }) {
+  const list = usePagedList<api.Pod>(
+    (cursor, limit) => api.listPods({ namespace_id: namespaceId, cursor, limit }),
+    [namespaceId],
+  );
+  return (
+    <>
+      <SectionTitle count={list.items.length}>Pods</SectionTitle>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <p className="error">{list.error}</p>
+      ) : list.items.length === 0 ? (
+        <Empty message="None." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phase</th>
+              <th>Node</th>
+              <th>Pod IP</th>
+              <th>Workload</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((p) => (
+              <tr key={p.id}>
+                <td>
+                  <Link to={`/pods/${p.id}`}>
+                    <strong>{p.name}</strong>
+                  </Link>
+                </td>
+                <td>{p.phase || <Dash />}</td>
+                <td>{p.node_name ? <code>{p.node_name}</code> : <Dash />}</td>
+                <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
+                <td>
+                  {p.workload_name ? (
+                    <Link to={`/workloads/${p.workload_id}`}>
+                      <strong>{p.workload_name}</strong>
+                    </Link>
+                  ) : p.workload_id ? (
+                    <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />
+                  ) : (
+                    <Dash />
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function NamespaceServicesSection({ namespaceId }: { namespaceId: string }) {
+  const list = usePagedList<api.Service>(
+    (cursor, limit) => api.listServices({ namespace_id: namespaceId, cursor, limit }),
+    [namespaceId],
+  );
+  return (
+    <>
+      <SectionTitle count={list.items.length}>Services</SectionTitle>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <p className="error">{list.error}</p>
+      ) : list.items.length === 0 ? (
+        <Empty message="None." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>ClusterIP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((s) => (
+              <tr key={s.id}>
+                <td>
+                  <Link to={`/services/${s.id}`}>
+                    <strong>{s.name}</strong>
+                  </Link>
+                </td>
+                <td>
+                  <span className="pill">{s.type || 'ClusterIP'}</span>
+                </td>
+                <td>{s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function NamespaceIngressesSection({ namespaceId }: { namespaceId: string }) {
+  const list = usePagedList<api.Ingress>(
+    (cursor, limit) => api.listIngresses({ namespace_id: namespaceId, cursor, limit }),
+    [namespaceId],
+  );
+  return (
+    <>
+      <SectionTitle count={list.items.length}>Ingresses</SectionTitle>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <p className="error">{list.error}</p>
+      ) : list.items.length === 0 ? (
+        <Empty message="None." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Class</th>
+              <th>Hosts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((i) => (
+              <tr key={i.id}>
+                <td>
+                  <Link to={`/ingresses/${i.id}`}>
+                    <strong>{i.name}</strong>
+                  </Link>
+                </td>
+                <td>{i.ingress_class_name || <Dash />}</td>
+                <td>
+                  {i.rules?.length ? (
+                    <code>
+                      {i.rules
+                        .map((r) => r.host)
+                        .filter(Boolean)
+                        .join(', ')}
+                    </code>
+                  ) : (
+                    <Dash />
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function NamespacePVCsSection({ namespaceId }: { namespaceId: string }) {
+  const list = usePagedList<api.PersistentVolumeClaim>(
+    (cursor, limit) => api.listPersistentVolumeClaims({ namespace_id: namespaceId, cursor, limit }),
+    [namespaceId],
+  );
+  return (
+    <>
+      <SectionTitle count={list.items.length}>Persistent Volume Claims</SectionTitle>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <p className="error">{list.error}</p>
+      ) : list.items.length === 0 ? (
+        <Empty message="None." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phase</th>
+              <th>Requested</th>
+              <th>Bound PV</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((pvc) => (
+              <tr key={pvc.id}>
+                <td>
+                  <Link to={`/persistentvolumeclaims/${pvc.id}`}>
+                    <strong>{pvc.name}</strong>
+                  </Link>
+                </td>
+                <td>{pvc.phase || <Dash />}</td>
+                <td>{pvc.requested_storage ? <code>{pvc.requested_storage}</code> : <Dash />}</td>
+                <td>{pvc.volume_name ? <code>{pvc.volume_name}</code> : <Dash />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 export function NamespaceDetail() {
   const { id = '' } = useParams();
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
-  const state = useResources(
-    [
-      () => api.getNamespace(id),
-      () => api.listWorkloads({ namespace_id: id }),
-      () => api.listPods({ namespace_id: id }),
-      () => api.listServices({ namespace_id: id }),
-      () => api.listIngresses({ namespace_id: id }),
-      () => api.listPersistentVolumeClaims({ namespace_id: id }),
-    ] as const,
-    [id, nonce],
-  );
+  const state = useResource(() => api.getNamespace(id), [id, nonce]);
 
   return (
     <>
       <div className="breadcrumb">
         <Link to="/namespaces">Namespaces</Link> /{' '}
-        {state.status === 'ready' && state.data[0].cluster_id && (
+        {state.status === 'ready' && state.data.cluster_id && (
           <>
             <ClusterLink
-              clusterId={state.data[0].cluster_id}
-              clusterName={state.data[0].cluster_name}
+              clusterId={state.data.cluster_id}
+              clusterName={state.data.cluster_name}
             />
             {' / '}
           </>
@@ -319,7 +664,7 @@ export function NamespaceDetail() {
         <span>this namespace</span>
       </div>
       <AsyncView state={state}>
-        {([ns, workloads, pods, services, ingresses, pvcs]) => (
+        {(ns) => (
           <>
             <h2>
               <NamespaceIcon size={20} /> {ns.name} <LayerPill layer={ns.layer} />
@@ -336,209 +681,14 @@ export function NamespaceDetail() {
             <NamespaceCuratedCard namespace={ns} onSaved={reload} />
 
             <p className="impact-callout">
-              <strong>All assets in this namespace</strong> — the "application = namespace"
-              view. {workloads.items.length} workloads, {pods.items.length} pods,{' '}
-              {services.items.length} services, {ingresses.items.length} ingresses,{' '}
-              {pvcs.items.length} PVCs.
+              <strong>All assets in this namespace</strong> — the "application = namespace" view.
             </p>
 
-            <SectionTitle count={workloads.items.length}>Workloads</SectionTitle>
-            {workloads.items.length === 0 ? (
-              <Empty message="None." />
-            ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Kind</th>
-                    <th>Ready</th>
-                    <th>Containers</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workloads.items.map((w) => (
-                    <tr key={w.id}>
-                      <td>
-                        <Link to={`/workloads/${w.id}`}>
-                          <strong>{w.name}</strong>
-                        </Link>
-                      </td>
-                      <td>
-                        <span className="pill">{w.kind}</span>
-                      </td>
-                      <td>
-                        {w.ready_replicas ?? '?'}
-                        <span className="muted">/{w.replicas ?? '?'}</span>
-                      </td>
-                      <td>
-                        {w.containers?.length ? (
-                          <code>{w.containers.map((c) => c.image).join(', ')}</code>
-                        ) : (
-                          <Dash />
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            <SectionTitle count={pods.items.length}>Pods</SectionTitle>
-            {pods.items.length === 0 ? (
-              <Empty message="None." />
-            ) : (
-              (() => {
-                // Build a workload_id -> workload lookup once per render
-                // so each pod row can resolve its workload name without
-                // a separate network call.
-                const wlByID = new Map(workloads.items.map((w) => [w.id, w]));
-                return (
-                  <table className="entities">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Phase</th>
-                        <th>Node</th>
-                        <th>Pod IP</th>
-                        <th>Workload</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pods.items.map((p) => {
-                        const wl = p.workload_id ? wlByID.get(p.workload_id) : undefined;
-                        return (
-                          <tr key={p.id}>
-                            <td>
-                              <Link to={`/pods/${p.id}`}>
-                                <strong>{p.name}</strong>
-                              </Link>
-                            </td>
-                            <td>{p.phase || <Dash />}</td>
-                            <td>{p.node_name ? <code>{p.node_name}</code> : <Dash />}</td>
-                            <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
-                            <td>
-                              {wl ? (
-                                <Link to={`/workloads/${wl.id}`}>
-                                  <strong>{wl.name}</strong>
-                                  {wl.kind && (
-                                    <span className="muted" style={{ marginLeft: '0.4rem', fontSize: '0.8rem' }}>
-                                      {wl.kind}
-                                    </span>
-                                  )}
-                                </Link>
-                              ) : p.workload_id ? (
-                                <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />
-                              ) : (
-                                <Dash />
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                );
-              })()
-            )}
-
-            <SectionTitle count={services.items.length}>Services</SectionTitle>
-            {services.items.length === 0 ? (
-              <Empty message="None." />
-            ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>ClusterIP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {services.items.map((s) => (
-                    <tr key={s.id}>
-                      <td>
-                        <Link to={`/services/${s.id}`}>
-                          <strong>{s.name}</strong>
-                        </Link>
-                      </td>
-                      <td>
-                        <span className="pill">{s.type || 'ClusterIP'}</span>
-                      </td>
-                      <td>{s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash />}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            <SectionTitle count={ingresses.items.length}>Ingresses</SectionTitle>
-            {ingresses.items.length === 0 ? (
-              <Empty message="None." />
-            ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Class</th>
-                    <th>Hosts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ingresses.items.map((i) => (
-                    <tr key={i.id}>
-                      <td>
-                        <Link to={`/ingresses/${i.id}`}>
-                          <strong>{i.name}</strong>
-                        </Link>
-                      </td>
-                      <td>{i.ingress_class_name || <Dash />}</td>
-                      <td>
-                        {i.rules?.length ? (
-                          <code>
-                            {i.rules
-                              .map((r) => r.host)
-                              .filter(Boolean)
-                              .join(', ')}
-                          </code>
-                        ) : (
-                          <Dash />
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            <SectionTitle count={pvcs.items.length}>Persistent Volume Claims</SectionTitle>
-            {pvcs.items.length === 0 ? (
-              <Empty message="None." />
-            ) : (
-              <table className="entities">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Phase</th>
-                    <th>Requested</th>
-                    <th>Bound PV</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pvcs.items.map((pvc) => (
-                    <tr key={pvc.id}>
-                      <td>
-                        <Link to={`/persistentvolumeclaims/${pvc.id}`}>
-                          <strong>{pvc.name}</strong>
-                        </Link>
-                      </td>
-                      <td>{pvc.phase || <Dash />}</td>
-                      <td>{pvc.requested_storage ? <code>{pvc.requested_storage}</code> : <Dash />}</td>
-                      <td>{pvc.volume_name ? <code>{pvc.volume_name}</code> : <Dash />}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <NamespaceWorkloadsSection namespaceId={id} />
+            <NamespacePodsSection namespaceId={id} />
+            <NamespaceServicesSection namespaceId={id} />
+            <NamespaceIngressesSection namespaceId={id} />
+            <NamespacePVCsSection namespaceId={id} />
           </>
         )}
       </AsyncView>
@@ -549,18 +699,87 @@ export function NamespaceDetail() {
 
 // --- Workload detail ------------------------------------------------------
 
+// --- WorkloadDetail child section -----------------------------------------
+
+function WorkloadPodsSection({ workloadId }: { workloadId: string }) {
+  const pods = usePagedList<api.Pod>(
+    (cursor, limit) => api.listPods({ workload_id: workloadId, cursor, limit }),
+    [workloadId],
+  );
+  // Nodes running this workload are derived from the current pods page only.
+  // This is intentional: pagination means we only see nodes for the visible page.
+  const nodes = Array.from(
+    new Set(pods.items.map((p) => p.node_name).filter(Boolean)),
+  ) as string[];
+
+  return (
+    <>
+      <SectionTitle count={pods.items.length}>Pods</SectionTitle>
+      <Paginator
+        pageSize={pods.pageSize}
+        hasPrev={pods.hasPrev}
+        hasNext={pods.hasNext}
+        onPrev={pods.prev}
+        onNext={pods.next}
+        onPageSize={pods.setPageSize}
+      />
+      {pods.loading ? (
+        <p className="loading">Loading…</p>
+      ) : pods.error ? (
+        <p className="error">{pods.error}</p>
+      ) : pods.items.length === 0 ? (
+        <Empty message="No pods currently point at this workload." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phase</th>
+              <th>Node</th>
+              <th>Pod IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pods.items.map((p) => (
+              <tr key={p.id}>
+                <td>
+                  <Link to={`/pods/${p.id}`}>
+                    <strong>{p.name}</strong>
+                  </Link>
+                </td>
+                <td>{p.phase || <Dash />}</td>
+                <td>
+                  {p.node_name ? <code>{p.node_name}</code> : <Dash />}
+                </td>
+                <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <SectionTitle count={nodes.length}>Nodes running this workload</SectionTitle>
+      {nodes.length === 0 ? (
+        <Empty message="No pods scheduled yet." />
+      ) : (
+        <ul className="node-list">
+          {nodes.map((n) => (
+            <li key={n}>
+              <code>{n}</code>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 export function WorkloadDetail() {
   const { id = '' } = useParams();
   const me = useMe();
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
   const workloadState = useResource(() => api.getWorkload(id), [id, nonce]);
-  // Fetch pods server-side filtered by workload_id so the result set
-  // is bounded to this workload's pods regardless of cluster size.
-  const podsState = useResource(
-    () => api.listPods({ workload_id: id }),
-    [id],
-  );
 
   return (
     <>
@@ -589,149 +808,96 @@ export function WorkloadDetail() {
       </div>
       <AsyncView state={workloadState}>
         {(workload) => (
-          <AsyncView state={podsState}>
-            {(pods) => {
-          const ownedPods = pods?.items ?? [];
-          const nodes = Array.from(new Set(ownedPods.map((p) => p.node_name).filter(Boolean))) as string[];
-          return (
-            <>
-              <h2>
-                <WorkloadIcon size={20} /> {workload.name} <LayerPill layer={workload.layer} />
-              </h2>
-              <dl className="kv-list">
-                <KV k="Kind" v={<span className="pill">{workload.kind}</span>} />
-                <KV
-                  k="Replicas"
-                  v={
-                    <>
-                      {workload.ready_replicas ?? '?'}
-                      <span className="muted">/{workload.replicas ?? '?'}</span>
-                    </>
-                  }
-                />
-                <KV
-                  k="Namespace"
-                  v={
-                    <Link to={`/namespaces/${workload.namespace_id}`}>
-                      {workload.namespace_name ?? (
-                        <span title="namespace row missing">(orphan)</span>
-                      )}
-                    </Link>
-                  }
-                />
-                <KV
-                  k="Cluster"
-                  v={<ClusterLink clusterId={workload.cluster_id} clusterName={workload.cluster_name} />}
-                />
-                <KV k="Labels" v={<Labels labels={workload.labels} />} />
-              </dl>
-
-              <ApplicationCard
-                linkedId={workload.application_id ?? null}
-                linkedName={workload.application_name ?? null}
-                onLink={async (appId) => {
-                  await api.updateWorkload(workload.id, { application_id: appId });
-                  reload();
-                }}
-                editable={canEdit(me)}
+          <>
+            <h2>
+              <WorkloadIcon size={20} /> {workload.name} <LayerPill layer={workload.layer} />
+            </h2>
+            <dl className="kv-list">
+              <KV k="Kind" v={<span className="pill">{workload.kind}</span>} />
+              <KV
+                k="Replicas"
+                v={
+                  <>
+                    {workload.ready_replicas ?? '?'}
+                    <span className="muted">/{workload.replicas ?? '?'}</span>
+                  </>
+                }
               />
-
-              <EffectiveDICTCard
-                dict={workload.effective_dict}
-                linkedAppId={workload.application_id ?? null}
-                linkedAppName={workload.application_name ?? null}
+              <KV
+                k="Namespace"
+                v={
+                  <Link to={`/namespaces/${workload.namespace_id}`}>
+                    {workload.namespace_name ?? (
+                      <span title="namespace row missing">(orphan)</span>
+                    )}
+                  </Link>
+                }
               />
+              <KV
+                k="Cluster"
+                v={<ClusterLink clusterId={workload.cluster_id} clusterName={workload.cluster_name} />}
+              />
+              <KV k="Labels" v={<Labels labels={workload.labels} />} />
+            </dl>
 
-              <p className="impact-callout">
-                <strong>All assets hosting this application</strong> — the "application ="
-                workload" view. {ownedPods.length} pods spread across {nodes.length} node
-                {nodes.length === 1 ? '' : 's'}.
-              </p>
+            <ApplicationCard
+              linkedId={workload.application_id ?? null}
+              linkedName={workload.application_name ?? null}
+              onLink={async (appId) => {
+                await api.updateWorkload(workload.id, { application_id: appId });
+                reload();
+              }}
+              editable={canEdit(me)}
+            />
 
-              <SectionTitle count={workload.containers?.length || 0}>
-                Containers (template)
-              </SectionTitle>
-              {!workload.containers?.length ? (
-                <Empty message="None." />
-              ) : (
-                <table className="entities">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Image</th>
-                      <th>Version</th>
-                      <th>Init</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {workload.containers.map((c) => {
-                      const info = workload.containers_versions?.[c.name]
-                      return (
-                        <tr key={c.name}>
-                          <td>
-                            <strong>{c.name}</strong>
-                          </td>
-                          <td>
-                            <code>{c.image}</code>
-                            <OriginLine image={c.image} info={info} />
-                          </td>
-                          <td><ContainerVersionBadge info={info ?? undefined} /></td>
-                          <td>{c.init ? 'yes' : <Dash />}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              )}
+            <EffectiveDICTCard
+              dict={workload.effective_dict}
+              linkedAppId={workload.application_id ?? null}
+              linkedAppName={workload.application_name ?? null}
+            />
 
-              <SectionTitle count={ownedPods.length}>Pods</SectionTitle>
-              {ownedPods.length === 0 ? (
-                <Empty message="No pods currently point at this workload." />
-              ) : (
-                <table className="entities">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Phase</th>
-                      <th>Node</th>
-                      <th>Pod IP</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ownedPods.map((p) => (
-                      <tr key={p.id}>
+            <p className="impact-callout">
+              <strong>All assets hosting this application</strong> — the "application = workload" view.
+            </p>
+
+            <SectionTitle count={workload.containers?.length || 0}>
+              Containers (template)
+            </SectionTitle>
+            {!workload.containers?.length ? (
+              <Empty message="None." />
+            ) : (
+              <table className="entities">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Image</th>
+                    <th>Version</th>
+                    <th>Init</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workload.containers.map((c) => {
+                    const info = workload.containers_versions?.[c.name]
+                    return (
+                      <tr key={c.name}>
                         <td>
-                          <Link to={`/pods/${p.id}`}>
-                            <strong>{p.name}</strong>
-                          </Link>
+                          <strong>{c.name}</strong>
                         </td>
-                        <td>{p.phase || <Dash />}</td>
                         <td>
-                          {p.node_name ? <code>{p.node_name}</code> : <Dash />}
+                          <code>{c.image}</code>
+                          <OriginLine image={c.image} info={info} />
                         </td>
-                        <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
+                        <td><ContainerVersionBadge info={info ?? undefined} /></td>
+                        <td>{c.init ? 'yes' : <Dash />}</td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
 
-              <SectionTitle count={nodes.length}>Nodes running this workload</SectionTitle>
-              {nodes.length === 0 ? (
-                <Empty message="No pods scheduled yet." />
-              ) : (
-                <ul className="node-list">
-                  {nodes.map((n) => (
-                    <li key={n}>
-                      <code>{n}</code>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          );
-        }}
-          </AsyncView>
+            <WorkloadPodsSection workloadId={id} />
+          </>
         )}
       </AsyncView>
       <ImpactSection entityType="workloads" entityId={id} />
@@ -868,22 +1034,168 @@ export function PodDetail() {
 
 // --- Node detail (impact analysis) ---------------------------------------
 
+// --- NodeDetail child section ---------------------------------------------
+
+function NodePodsSection({
+  nodeName,
+  workloadsById,
+}: {
+  nodeName: string;
+  workloadsById: Map<string, api.Workload>;
+}) {
+  const pods = usePagedList<api.Pod>(
+    (cursor, limit) => api.listPods({ node_name: nodeName, cursor, limit }),
+    [nodeName],
+  );
+
+  if (pods.loading) {
+    return <p className="loading">Loading…</p>;
+  }
+  if (pods.error) {
+    return <p className="error">{pods.error}</p>;
+  }
+
+  // Group pods by workload_id to give "if this node dies,
+  // workload X loses N pods" an immediate visual.
+  // Note: grouping operates on the current page only (by design — paginated).
+  const groups = new Map<string, api.Pod[]>();
+  const unowned: api.Pod[] = [];
+  for (const pod of pods.items) {
+    if (!pod.workload_id) {
+      unowned.push(pod);
+      continue;
+    }
+    const list = groups.get(pod.workload_id) || [];
+    list.push(pod);
+    groups.set(pod.workload_id, list);
+  }
+
+  return (
+    <>
+      <p className="impact-callout">
+        <strong>Impact analysis</strong> — if this node goes down,{' '}
+        {pods.items.length} pod{pods.items.length === 1 ? '' : 's'} across{' '}
+        {groups.size} workload{groups.size === 1 ? '' : 's'}
+        {unowned.length > 0 && ` (+ ${unowned.length} unmanaged)`} are lost
+        {(pods.hasPrev || pods.hasNext) ? ' (this page)' : ''}.
+      </p>
+
+      <SectionTitle count={groups.size}>
+        Affected workloads
+      </SectionTitle>
+      <Paginator
+        pageSize={pods.pageSize}
+        hasPrev={pods.hasPrev}
+        hasNext={pods.hasNext}
+        onPrev={pods.prev}
+        onNext={pods.next}
+        onPageSize={pods.setPageSize}
+      />
+      {groups.size === 0 ? (
+        <Empty message="No workload-owned pods on this node." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Workload</th>
+              <th>Kind</th>
+              <th>Pods on this node</th>
+              <th>Total replicas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...groups.entries()].map(([wid, list]) => {
+              const wl = workloadsById.get(wid);
+              return (
+                <tr key={wid}>
+                  <td>
+                    {wl ? (
+                      <Link to={`/workloads/${wl.id}`}>
+                        <strong>{wl.name}</strong>
+                      </Link>
+                    ) : (
+                      <IdLink to={`/workloads/${wid}`} id={wid} />
+                    )}
+                  </td>
+                  <td>
+                    {wl ? <span className="pill">{wl.kind}</span> : <Dash />}
+                  </td>
+                  <td>
+                    <strong>{list.length}</strong>
+                  </td>
+                  <td>
+                    {wl?.replicas != null ? (
+                      <>
+                        {list.length}
+                        <span className="muted">/{wl.replicas}</span>
+                      </>
+                    ) : (
+                      <Dash />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      <SectionTitle count={pods.items.length}>All pods on this node</SectionTitle>
+      {pods.items.length === 0 ? (
+        <Empty message="None." />
+      ) : (
+        <table className="entities">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phase</th>
+              <th>Workload</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pods.items.map((pod) => {
+              const wl = pod.workload_id ? workloadsById.get(pod.workload_id) : undefined;
+              return (
+                <tr key={pod.id}>
+                  <td>
+                    <Link to={`/pods/${pod.id}`}>
+                      <strong>{pod.name}</strong>
+                    </Link>
+                  </td>
+                  <td>{pod.phase || <Dash />}</td>
+                  <td>
+                    {wl ? (
+                      <Link to={`/workloads/${wl.id}`}>
+                        {wl.name}{' '}
+                        <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                          {wl.kind}
+                        </span>
+                      </Link>
+                    ) : pod.workload_id ? (
+                      <IdLink
+                        to={`/workloads/${pod.workload_id}`}
+                        id={pod.workload_id}
+                      />
+                    ) : (
+                      <Dash />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 export function NodeDetail() {
   const { id = '' } = useParams();
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
   // 1. Fetch the node record itself.
-  // 2. We need pods on this node, but we only have node.name (not node_name
-  //    is what pod rows carry). Fetch the node first, then filter pods by
-  //    node_name. The server-side ?node_name= filter makes this cheap.
   const node = useResource(() => api.getNode(id), [id, nonce]);
-  const pods = useResource(
-    async () => {
-      if (node.status !== 'ready') return null;
-      return api.listPods({ node_name: node.data.name });
-    },
-    [node.status === 'ready' ? node.data.name : ''],
-  );
   // Also pull all workloads so we can attach name/kind to each pod's
   // workload_id for the impact grouping.
   const workloads = useResource(() => api.listWorkloads(), []);
@@ -1053,138 +1365,10 @@ export function NodeDetail() {
 
             <LabelsCard labels={n.labels} />
 
-            <AsyncView state={pods}>
-              {(p) => {
-                if (p === null) return null;
-                return (
-                  <AsyncView state={workloads}>
-                    {(wls) => {
-                      const wlById = new Map(wls.items.map((w) => [w.id, w]));
-                      // Group pods by workload_id to give "if this node dies,
-                      // workload X loses N pods" an immediate visual.
-                      const groups = new Map<string, api.Pod[]>();
-                      const unowned: api.Pod[] = [];
-                      for (const pod of p.items) {
-                        if (!pod.workload_id) {
-                          unowned.push(pod);
-                          continue;
-                        }
-                        const list = groups.get(pod.workload_id) || [];
-                        list.push(pod);
-                        groups.set(pod.workload_id, list);
-                      }
-                      return (
-                        <>
-                          <p className="impact-callout">
-                            <strong>Impact analysis</strong> — if this node goes down,{' '}
-                            {p.items.length} pod{p.items.length === 1 ? '' : 's'} across{' '}
-                            {groups.size} workload{groups.size === 1 ? '' : 's'}
-                            {unowned.length > 0 && ` (+ ${unowned.length} unmanaged)`} are lost.
-                          </p>
-
-                          <SectionTitle count={groups.size}>
-                            Affected workloads
-                          </SectionTitle>
-                          {groups.size === 0 ? (
-                            <Empty message="No workload-owned pods on this node." />
-                          ) : (
-                            <table className="entities">
-                              <thead>
-                                <tr>
-                                  <th>Workload</th>
-                                  <th>Kind</th>
-                                  <th>Pods on this node</th>
-                                  <th>Total replicas</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {[...groups.entries()].map(([wid, list]) => {
-                                  const wl = wlById.get(wid);
-                                  return (
-                                    <tr key={wid}>
-                                      <td>
-                                        {wl ? (
-                                          <Link to={`/workloads/${wl.id}`}>
-                                            <strong>{wl.name}</strong>
-                                          </Link>
-                                        ) : (
-                                          <IdLink to={`/workloads/${wid}`} id={wid} />
-                                        )}
-                                      </td>
-                                      <td>
-                                        {wl ? <span className="pill">{wl.kind}</span> : <Dash />}
-                                      </td>
-                                      <td>
-                                        <strong>{list.length}</strong>
-                                      </td>
-                                      <td>
-                                        {wl?.replicas != null ? (
-                                          <>
-                                            {list.length}
-                                            <span className="muted">/{wl.replicas}</span>
-                                          </>
-                                        ) : (
-                                          <Dash />
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          )}
-
-                          <SectionTitle count={p.items.length}>All pods on this node</SectionTitle>
-                          {p.items.length === 0 ? (
-                            <Empty message="None." />
-                          ) : (
-                            <table className="entities">
-                              <thead>
-                                <tr>
-                                  <th>Name</th>
-                                  <th>Phase</th>
-                                  <th>Workload</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {p.items.map((pod) => {
-                                  const wl = pod.workload_id ? wlById.get(pod.workload_id) : undefined;
-                                  return (
-                                    <tr key={pod.id}>
-                                      <td>
-                                        <Link to={`/pods/${pod.id}`}>
-                                          <strong>{pod.name}</strong>
-                                        </Link>
-                                      </td>
-                                      <td>{pod.phase || <Dash />}</td>
-                                      <td>
-                                        {wl ? (
-                                          <Link to={`/workloads/${wl.id}`}>
-                                            {wl.name}{' '}
-                                            <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
-                                              {wl.kind}
-                                            </span>
-                                          </Link>
-                                        ) : pod.workload_id ? (
-                                          <IdLink
-                                            to={`/workloads/${pod.workload_id}`}
-                                            id={pod.workload_id}
-                                          />
-                                        ) : (
-                                          <Dash />
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          )}
-                        </>
-                      );
-                    }}
-                  </AsyncView>
-                );
+            <AsyncView state={workloads}>
+              {(wls) => {
+                const wlById = new Map(wls.items.map((w) => [w.id, w]));
+                return <NodePodsSection nodeName={n.name} workloadsById={wlById} />;
               }}
             </AsyncView>
           </>
@@ -1669,4 +1853,3 @@ export function PersistentVolumeClaimDetail() {
     </>
   );
 }
-
