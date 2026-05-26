@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.29.2](https://github.com/sthalbert/Longue-Vue/compare/v0.29.1...v0.29.2) (2026-05-26)
+
+
+### Bug Fixes
+
+* **api:** include path_prefix in image-registry PATCH/DELETE routes ([e2b7c6e](https://github.com/sthalbert/Longue-Vue/commit/e2b7c6eba243204627670c4e3e75903104ac459b))
+* **api:** include path_prefix in image-registry PATCH/DELETE routes ([231b055](https://github.com/sthalbert/Longue-Vue/commit/231b055928060dacbc5d990c21d0e2fbc9b250d1))
+
 ## [0.29.1](https://github.com/sthalbert/Longue-Vue/compare/v0.29.0...v0.29.1) (2026-05-26)
 
 
