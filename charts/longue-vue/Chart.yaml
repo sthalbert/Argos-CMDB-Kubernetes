@@ -5,7 +5,7 @@ description: >-
   qualification framework. Polls clusters and exposes a REST API and web UI.
 type: application
 version: 0.20.0
-appVersion: 0.29.0
+appVersion: 0.29.1
 home: https://github.com/sthalbert/longue-vue
 sources:
   - https://github.com/sthalbert/longue-vue
