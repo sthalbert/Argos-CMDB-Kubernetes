@@ -14,7 +14,12 @@ var errReplicaTargetNotFound = errors.New("replicates_from_hostname does not mat
 // literal "_root" sentinel to an empty string (the canonical form for
 // non-mirror / unscoped rows). Empty value is treated as "_root" too.
 func pathPrefixFromRequest(r *http.Request) string {
-	p := r.PathValue("path_prefix")
+	return decodePathPrefix(r.PathValue("path_prefix"))
+}
+
+// decodePathPrefix maps the "_root" sentinel (and the empty string) to the
+// canonical empty path_prefix used for non-mirror / unscoped rows.
+func decodePathPrefix(p string) string {
 	if p == "" || p == "_root" {
 		return ""
 	}
