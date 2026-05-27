@@ -894,7 +894,7 @@ var (
 	memOriginMappings   = map[string]ImageOriginMapping{}
 )
 
-func (m *memStore) ListImageOriginMappings(_ context.Context, p ListImageOriginMappingsParams) ([]ImageOriginMapping, string, error) {
+func (m *memStore) ListImageOriginMappings(_ context.Context, p StoreListImageOriginMappingsParams) ([]ImageOriginMapping, string, error) {
 	memOriginMappingsMu.Lock()
 	defer memOriginMappingsMu.Unlock()
 	all := make([]ImageOriginMapping, 0, len(memOriginMappings))

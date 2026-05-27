@@ -701,7 +701,7 @@ type Store interface {
 	DeleteImageOriginResolutionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
 
 	// Image origin mappings (ADR-0030).
-	ListImageOriginMappings(ctx context.Context, p ListImageOriginMappingsParams) (items []ImageOriginMapping, nextCursor string, err error)
+	ListImageOriginMappings(ctx context.Context, p StoreListImageOriginMappingsParams) (items []ImageOriginMapping, nextCursor string, err error)
 	GetImageOriginMapping(ctx context.Context, imageName string) (ImageOriginMapping, error)
 	CreateImageOriginMapping(ctx context.Context, in ImageOriginMappingCreate, createdBy string) (ImageOriginMapping, error)
 	PatchImageOriginMapping(ctx context.Context, imageName string, p ImageOriginMappingPatch, updatedBy string) (ImageOriginMapping, error)
@@ -967,40 +967,11 @@ type ImageOriginResolutionUpsert struct {
 	LastErrorAt     *time.Time
 }
 
-// ImageOriginMapping is one operator-declared (image_name → public_registry)
-// row consulted by the mirror resolver in priority over OCI annotation
-// fetch (ADR-0030). image_name is the bare repository path that appears
-// under a mirror row's path_prefix (e.g. "grafana/alloy"). public_registry
-// is a hostname-only value (e.g. "docker.io", "ghcr.io").
-type ImageOriginMapping struct {
-	ImageName      string    `json:"image_name"`
-	PublicRegistry string    `json:"public_registry"`
-	Notes          *string   `json:"notes,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	CreatedBy      *string   `json:"created_by,omitempty"`
-	UpdatedBy      *string   `json:"updated_by,omitempty"`
-}
-
-// ImageOriginMappingCreate is the POST body. created_by/updated_by are
-// filled in from the caller; never accepted from the client.
-type ImageOriginMappingCreate struct {
-	ImageName      string  `json:"image_name"`
-	PublicRegistry string  `json:"public_registry"`
-	Notes          *string `json:"notes,omitempty"`
-}
-
-// ImageOriginMappingPatch is the PATCH body (merge-patch). Pointer fields
-// distinguish "omitted" from "set to null". Notes set to an empty string
-// clears the column.
-type ImageOriginMappingPatch struct {
-	PublicRegistry *string `json:"public_registry,omitempty"`
-	Notes          *string `json:"notes,omitempty"`
-}
-
-// ListImageOriginMappingsParams carries cursor-based pagination and
-// optional filters. Limit <= 0 means "default" (resolved in the store).
-type ListImageOriginMappingsParams struct {
+// StoreListImageOriginMappingsParams carries cursor-based pagination and
+// optional filters for the store layer. Limit <= 0 means "default"
+// (resolved in the store). This is distinct from the codegen-produced
+// ListImageOriginMappingsParams which carries HTTP query-param pointers.
+type StoreListImageOriginMappingsParams struct {
 	Limit          int
 	Cursor         string
 	PublicRegistry string // exact match; empty = no filter

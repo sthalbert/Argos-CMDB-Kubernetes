@@ -150,7 +150,7 @@ const (
 // ListImageOriginMappings returns a cursor-paginated slice. The cursor is
 // the last row's image_name; pagination is keyset-style on the PK.
 func (p *PG) ListImageOriginMappings(
-	ctx context.Context, params api.ListImageOriginMappingsParams,
+	ctx context.Context, params api.StoreListImageOriginMappingsParams,
 ) ([]api.ImageOriginMapping, string, error) {
 	limit := params.Limit
 	if limit <= 0 {
