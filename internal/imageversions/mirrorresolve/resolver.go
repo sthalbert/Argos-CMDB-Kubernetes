@@ -60,6 +60,13 @@ type MirrorLookup interface {
 	FindMirror(ctx context.Context, hostname, imagePath string) (MirrorRow, bool, error)
 }
 
+// OriginLookup finds a manually-configured public origin registry for a bare
+// image name (path without the mirror's PathPrefix). Returns (registry, true)
+// when a mapping exists, ("", false) when none does.
+type OriginLookup interface {
+	FindOrigin(ctx context.Context, bareName string) (registry string, ok bool, err error)
+}
+
 // Resolver resolves a mirrored ref to its public origin. When the ref does
 // not match any mirror row, Resolve returns (ref, nil).
 type Resolver interface {
@@ -74,6 +81,7 @@ type Observer interface {
 // HTTPResolver implements Resolver against an OCI distribution v2 endpoint.
 type HTTPResolver struct {
 	Lookup  MirrorLookup
+	Origins OriginLookup
 	Client  *http.Client
 	Metrics Observer
 	Scheme  string // "https" by default; "http" for httptest
