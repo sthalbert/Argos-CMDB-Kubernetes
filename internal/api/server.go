@@ -1741,6 +1741,128 @@ func (s *Server) DeleteImageRegistry(ctx context.Context, req DeleteImageRegistr
 	return DeleteImageRegistry204Response{}, nil
 }
 
+// ── Image origin mappings (ADR-0030) ─────────────────────────────────
+
+// ListImageOriginMappings returns a cursor-paginated slice of mappings.
+func (s *Server) ListImageOriginMappings(ctx context.Context, req ListImageOriginMappingsRequestObject) (ListImageOriginMappingsResponseObject, error) {
+	params := StoreListImageOriginMappingsParams{}
+	if req.Params.Limit != nil {
+		params.Limit = *req.Params.Limit
+	}
+	if req.Params.Cursor != nil {
+		params.Cursor = *req.Params.Cursor
+	}
+	if req.Params.PublicRegistry != nil {
+		params.PublicRegistry = *req.Params.PublicRegistry
+	}
+	if req.Params.Q != nil {
+		params.Q = *req.Params.Q
+	}
+	items, next, err := s.store.ListImageOriginMappings(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	resp := ListImageOriginMappings200JSONResponse{Items: items}
+	if next != "" {
+		resp.NextCursor = &next
+	}
+	return resp, nil
+}
+
+// GetImageOriginMapping returns a single mapping by image_name.
+func (s *Server) GetImageOriginMapping(ctx context.Context, req GetImageOriginMappingRequestObject) (GetImageOriginMappingResponseObject, error) {
+	got, err := s.store.GetImageOriginMapping(ctx, req.ImageName)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return GetImageOriginMapping404ApplicationProblemPlusJSONResponse{
+			NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return GetImageOriginMapping200JSONResponse(got), nil
+}
+
+// CreateImageOriginMapping inserts a new (image_name, public_registry).
+func (s *Server) CreateImageOriginMapping(ctx context.Context, req CreateImageOriginMappingRequestObject) (CreateImageOriginMappingResponseObject, error) {
+	in := req.Body
+	if err := validateImageName(in.ImageName); err != nil {
+		return CreateImageOriginMapping400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Bad Request", err.Error())),
+		}, nil
+	}
+	if err := validatePublicRegistry(in.PublicRegistry); err != nil {
+		return CreateImageOriginMapping400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Bad Request", err.Error())),
+		}, nil
+	}
+	if err := validateNotes(in.Notes); err != nil {
+		return CreateImageOriginMapping400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Bad Request", err.Error())),
+		}, nil
+	}
+	caller := callerIDFromContext(ctx)
+	out, err := s.store.CreateImageOriginMapping(ctx,
+		ImageOriginMappingCreate{
+			ImageName:      in.ImageName,
+			PublicRegistry: in.PublicRegistry,
+			Notes:          in.Notes,
+		}, caller)
+	switch {
+	case errors.Is(err, ErrConflict):
+		return CreateImageOriginMapping409ApplicationProblemPlusJSONResponse{
+			ConflictApplicationProblemPlusJSONResponse(problemConflict(errors.New("image_name already exists"))),
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return CreateImageOriginMapping201JSONResponse(out), nil
+}
+
+// PatchImageOriginMapping applies a merge-patch.
+func (s *Server) PatchImageOriginMapping(ctx context.Context, req PatchImageOriginMappingRequestObject) (PatchImageOriginMappingResponseObject, error) {
+	p := req.Body
+	if p.PublicRegistry != nil {
+		if err := validatePublicRegistry(*p.PublicRegistry); err != nil {
+			return PatchImageOriginMapping400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Bad Request", err.Error())),
+			}, nil
+		}
+	}
+	if err := validateNotes(p.Notes); err != nil {
+		return PatchImageOriginMapping400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Bad Request", err.Error())),
+		}, nil
+	}
+	caller := callerIDFromContext(ctx)
+	out, err := s.store.PatchImageOriginMapping(ctx, req.ImageName,
+		ImageOriginMappingPatch{PublicRegistry: p.PublicRegistry, Notes: p.Notes},
+		caller)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return PatchImageOriginMapping404ApplicationProblemPlusJSONResponse{
+			NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return PatchImageOriginMapping200JSONResponse(out), nil
+}
+
+// DeleteImageOriginMapping removes a mapping by image_name.
+func (s *Server) DeleteImageOriginMapping(ctx context.Context, req DeleteImageOriginMappingRequestObject) (DeleteImageOriginMappingResponseObject, error) {
+	err := s.store.DeleteImageOriginMapping(ctx, req.ImageName)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return DeleteImageOriginMapping404ApplicationProblemPlusJSONResponse{
+			NotFoundApplicationProblemPlusJSONResponse(problemNotFound()),
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return DeleteImageOriginMapping204Response{}, nil
+}
+
 // clientIP returns the source IP for rate-limiting, audit logging and
 // session tracking. Wraps httputil.ClientIP, applying the server-scoped
 // trusted-proxy list. Returns the empty string when r.RemoteAddr is
