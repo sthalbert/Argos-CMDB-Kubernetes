@@ -871,7 +871,7 @@ export function WorkloadDetail() {
                   <tr>
                     <th>Name</th>
                     <th>Image</th>
-                    <th>Version</th>
+                    <th>Last version</th>
                     <th>Init</th>
                   </tr>
                 </thead>
@@ -887,7 +887,22 @@ export function WorkloadDetail() {
                           <code>{c.image}</code>
                           <OriginLine image={c.image} info={info} />
                         </td>
-                        <td><ContainerVersionBadge info={info ?? undefined} /></td>
+                        <td>
+                          {info?.latest_tag ? (
+                            <code
+                              className={info.is_behind ? 'pill status-bad' : 'pill status-ok'}
+                              title={
+                                info.is_behind
+                                  ? `Behind: latest available is ${info.latest_tag} (checked ${new Date(info.last_checked_at ?? '').toLocaleString()})`
+                                  : `Up to date (checked ${new Date(info.last_checked_at ?? '').toLocaleString()})`
+                              }
+                            >
+                              {info.latest_tag}
+                            </code>
+                          ) : (
+                            <ContainerVersionBadge info={info ?? undefined} />
+                          )}
+                        </td>
                         <td>{c.init ? 'yes' : <Dash />}</td>
                       </tr>
                     )
