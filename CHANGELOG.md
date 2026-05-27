@@ -6,6 +6,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.30.0](https://github.com/sthalbert/Longue-Vue/compare/v0.29.2...v0.30.0) (2026-05-27)
+
+
+### Features
+
+* **api:** add ImageOriginMapping types and Store interface methods ([195ea95](https://github.com/sthalbert/Longue-Vue/commit/195ea95370c6b7e7f7945b16e2cef7df1deba0c6))
+* **api:** add manual image origin mappings (ADR-0030) ([0e6a9d4](https://github.com/sthalbert/Longue-Vue/commit/0e6a9d4b999725bec4ca58eaa9a2c314b71b7cd3))
+* **api:** create handler with validation for image origin mappings ([b711699](https://github.com/sthalbert/Longue-Vue/commit/b7116991766d9598084d991bf8aed7a725956057))
+* **api:** list and Get for image origin mappings (ADR-0030) ([4315b4a](https://github.com/sthalbert/Longue-Vue/commit/4315b4a4651f8f6e8d33ee98f1dd4335e016f428))
+* **api:** openapi for image origin mappings + codegen (ADR-0030) ([3d52d98](https://github.com/sthalbert/Longue-Vue/commit/3d52d9825142ec1af0d9489cd9f1936033151386))
+* **api:** patch and Delete for image origin mappings ([565cfae](https://github.com/sthalbert/Longue-Vue/commit/565cfae1e4191f1418cbe1cec33b9d024ec2e364))
+* **db:** add image_origin_mappings table (ADR-0030) ([4fc0dc9](https://github.com/sthalbert/Longue-Vue/commit/4fc0dc9925261160fbc07779fa8905807398353a))
+* **imageversions:** store→OriginLookup adapter (ADR-0030) ([8e27d35](https://github.com/sthalbert/Longue-Vue/commit/8e27d35987bb14d79cbef592bc8792d101c86ec3))
+* **main:** wire OriginLookup into mirror resolver (ADR-0030) ([a3a5aa0](https://github.com/sthalbert/Longue-Vue/commit/a3a5aa0087f3b350792254cb471511e53239b2f4))
+* **resolver:** add OriginLookup interface and HTTPResolver field ([2471edb](https://github.com/sthalbert/Longue-Vue/commit/2471edb2d1bdace453f42b1d33c5f9500fadbc7b))
+* **resolver:** consult OriginLookup before OCI fetch (ADR-0030) ([e9a388d](https://github.com/sthalbert/Longue-Vue/commit/e9a388d2b8d007ca60f8244d357c5ac5f6b58ffe))
+* **store:** implement Create and Get for image origin mappings ([c7849f7](https://github.com/sthalbert/Longue-Vue/commit/c7849f7dc867a3d39a4266f68e0b12eddea9c65e))
+* **store:** implement FindImageOrigin hot-path lookup ([1c20103](https://github.com/sthalbert/Longue-Vue/commit/1c20103275041f07b246b702e30e642760a9c4c8))
+* **store:** implement paginated List for image origin mappings ([bdfb899](https://github.com/sthalbert/Longue-Vue/commit/bdfb899844fad4fcfa4f16a61e2914fae8c9af71))
+* **store:** implement Patch and Delete for image origin mappings ([1fea8ad](https://github.com/sthalbert/Longue-Vue/commit/1fea8ad1130628ee084bb7bbee8d3813c5f20314))
+* **store:** scaffold pg_image_origin_mappings file ([4fceb34](https://github.com/sthalbert/Longue-Vue/commit/4fceb34bf3999552e17349631aafc6eb28c410c4))
+
 ## [0.29.2](https://github.com/sthalbert/Longue-Vue/compare/v0.29.1...v0.29.2) (2026-05-26)
 
 
