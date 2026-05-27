@@ -30,7 +30,7 @@ func seedMapping(t *testing.T, srv *Server, imageName, registry string) {
 	body, _ := json.Marshal(map[string]string{
 		"image_name": imageName, "public_registry": registry,
 	})
-	req := httptest.NewRequest(http.MethodPost,
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
 		"/v1/admin/image-origin-mappings", strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -54,8 +54,8 @@ func TestImageOriginMappings_ListAndGet(t *testing.T) {
 	}
 
 	// List.
-	req := httptest.NewRequest(http.MethodGet,
-		"/v1/admin/image-origin-mappings", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/v1/admin/image-origin-mappings", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -72,8 +72,8 @@ func TestImageOriginMappings_ListAndGet(t *testing.T) {
 	}
 
 	// Get one.
-	req = httptest.NewRequest(http.MethodGet,
-		"/v1/admin/image-origin-mappings/grafana%2Falloy", nil)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/v1/admin/image-origin-mappings/grafana%2Falloy", http.NoBody)
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -81,8 +81,8 @@ func TestImageOriginMappings_ListAndGet(t *testing.T) {
 	}
 
 	// Get missing → 404.
-	req = httptest.NewRequest(http.MethodGet,
-		"/v1/admin/image-origin-mappings/does%2Fnot%2Fexist", nil)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/v1/admin/image-origin-mappings/does%2Fnot%2Fexist", http.NoBody)
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
@@ -96,7 +96,7 @@ func TestImageOriginMappings_Create(t *testing.T) {
 	mux := muxForTest(t, srv)
 
 	post := func(body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost,
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
 			"/v1/admin/image-origin-mappings", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -148,7 +148,7 @@ func TestImageOriginMappings_PatchAndDelete(t *testing.T) {
 	seedMapping(t, srv, "grafana/alloy", "docker.io")
 
 	patch := func(name, body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPatch,
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch,
 			"/v1/admin/image-origin-mappings/"+name, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -183,15 +183,15 @@ func TestImageOriginMappings_PatchAndDelete(t *testing.T) {
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodDelete,
-			"/v1/admin/image-origin-mappings/grafana%2Falloy", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete,
+			"/v1/admin/image-origin-mappings/grafana%2Falloy", http.NoBody)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 		if w.Code != http.StatusNoContent {
 			t.Fatalf("want 204, got %d", w.Code)
 		}
-		req = httptest.NewRequest(http.MethodDelete,
-			"/v1/admin/image-origin-mappings/grafana%2Falloy", nil)
+		req = httptest.NewRequestWithContext(t.Context(), http.MethodDelete,
+			"/v1/admin/image-origin-mappings/grafana%2Falloy", http.NoBody)
 		w = httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 		if w.Code != http.StatusNotFound {

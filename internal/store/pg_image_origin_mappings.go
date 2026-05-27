@@ -149,6 +149,8 @@ const (
 
 // ListImageOriginMappings returns a cursor-paginated slice. The cursor is
 // the last row's image_name; pagination is keyset-style on the PK.
+//
+//nolint:gocyclo // sequential filter assembly with cursor + 2 optional filters; flat is clearer than factored
 func (p *PG) ListImageOriginMappings(
 	ctx context.Context, params api.StoreListImageOriginMappingsParams,
 ) ([]api.ImageOriginMapping, string, error) {

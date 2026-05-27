@@ -13,7 +13,7 @@ import (
 // Mirror-side image names use lower-case by Docker convention; the spec
 // intentionally rejects '/' so callers cannot smuggle a path into the
 // registry field.
-var publicRegistryShape = regexp.MustCompile(`^[a-z0-9.-]+(:[0-9]+)?$`)
+var publicRegistryShape = regexp.MustCompile(`^[a-z0-9.-]+(:\d+)?$`)
 
 var (
 	errImageNameRequired       = errors.New("image_name is required")

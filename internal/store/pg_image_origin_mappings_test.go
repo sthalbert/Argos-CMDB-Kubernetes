@@ -39,6 +39,7 @@ func TestPG_FindImageOrigin(t *testing.T) {
 	})
 }
 
+//nolint:gocyclo // table-driven test with many subtests; each branch is trivial
 func TestPG_CreateAndGetImageOriginMapping(t *testing.T) {
 	ctx := context.Background()
 	pg := newTestPG(t)
@@ -80,6 +81,7 @@ func TestPG_CreateAndGetImageOriginMapping(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // table-driven test with many subtests; each branch is trivial
 func TestPG_PatchAndDeleteImageOriginMapping(t *testing.T) {
 	ctx := context.Background()
 	pg := newTestPG(t)
@@ -116,9 +118,9 @@ func TestPG_PatchAndDeleteImageOriginMapping(t *testing.T) {
 		if out.Notes == nil || *out.Notes != "owned by platform team" {
 			t.Fatalf("notes not set: %+v", out.Notes)
 		}
-		clear := ""
+		clearNotes := ""
 		out, err = pg.PatchImageOriginMapping(ctx, "grafana/alloy",
-			api.ImageOriginMappingPatch{Notes: &clear}, "user-bob")
+			api.ImageOriginMappingPatch{Notes: &clearNotes}, "user-bob")
 		if err != nil {
 			t.Fatalf("patch clear notes: %v", err)
 		}
@@ -149,6 +151,7 @@ func TestPG_PatchAndDeleteImageOriginMapping(t *testing.T) {
 	})
 }
 
+//nolint:gocognit,gocyclo // table-driven test with multiple subtests; each branch is trivial
 func TestPG_ListImageOriginMappings(t *testing.T) {
 	ctx := context.Background()
 	pg := newTestPG(t)
