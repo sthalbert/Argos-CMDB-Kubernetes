@@ -83,6 +83,10 @@ func (s *fakeStore) DeleteImageOriginResolutionsNotIn(_ context.Context, keep []
 	return 0, nil
 }
 
+func (s *fakeStore) FindImageOrigin(_ context.Context, _ string) (string, error) {
+	return "", api.ErrNotFound
+}
+
 type fakeLister struct {
 	byRepo map[string][]string
 	err    error

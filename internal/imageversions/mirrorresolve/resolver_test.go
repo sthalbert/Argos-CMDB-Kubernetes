@@ -17,7 +17,7 @@ type fakeLookup struct {
 	ok  bool
 }
 
-//nolint:gocritic // f is a test fixture; receiver copy is acceptable here
+//nolint:gocritic // method-on-map type returns interface tuple; renaming receiver hurts readability // f is a test fixture; receiver copy is acceptable here
 func (f fakeLookup) FindMirror(_ context.Context, _, _ string) (MirrorRow, bool, error) {
 	return f.row, f.ok, nil
 }
@@ -259,6 +259,87 @@ func TestHTTPResolver_ReplicaChain_TargetMissing(t *testing.T) {
 		"local.example.com/containers/sthalbert/x:1.0")
 	if !errors.Is(err, ErrReplicaTargetMissing) {
 		t.Fatalf("want ErrReplicaTargetMissing, got %v", err)
+	}
+}
+
+// fakeMirrorLookup is a map-keyed MirrorLookup keyed by key(hostname, imagePath).
+type fakeMirrorLookup map[string]MirrorRow
+
+func key(hostname, imagePath string) string { return hostname + "/" + imagePath }
+
+func (f fakeMirrorLookup) FindMirror(_ context.Context, hostname, imagePath string) (row MirrorRow, ok bool, err error) {
+	r, found := f[key(hostname, imagePath)]
+	return r, found, nil
+}
+
+// fakeOriginLookup is a map from bare image name to registry.
+type fakeOriginLookup map[string]string
+
+func (f fakeOriginLookup) FindOrigin(_ context.Context, bareName string) (publicRegistry string, ok bool, err error) {
+	reg, found := f[bareName]
+	return reg, found, nil
+}
+
+func TestResolve_ManualMappingHit(t *testing.T) {
+	lookup := fakeMirrorLookup{
+		key("registry.zex-integ.internal", "containers/grafana/alloy"): MirrorRow{
+			Hostname:   "registry.zex-integ.internal",
+			PathPrefix: "containers/",
+		},
+	}
+	r := &HTTPResolver{
+		Lookup:  lookup,
+		Origins: fakeOriginLookup{"grafana/alloy": "docker.io"},
+	}
+	got, err := r.Resolve(context.Background(),
+		"registry.zex-integ.internal/containers/grafana/alloy:v1.16.0")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	want := "docker.io/grafana/alloy:v1.16.0"
+	if got != want {
+		t.Fatalf("want %q, got %q", want, got)
+	}
+}
+
+// When the mirror lookup misses entirely, the OriginLookup MUST NOT be
+// consulted (we only know it's a known image once a mirror row matches).
+// This guards against accidentally short-circuiting passthrough refs.
+func TestResolve_NoMirrorRow_StillPassthrough(t *testing.T) {
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{}, // empty: no mirror row
+		Origins: fakeOriginLookup{"grafana/alloy": "docker.io"},
+	}
+	origin, err := r.Resolve(context.Background(), "nginx:latest")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if origin != "nginx:latest" {
+		t.Fatalf("want passthrough nginx:latest, got %q", origin)
+	}
+}
+
+// Mirror row hits but mapping misses → resolver continues to the OCI
+// fetch path. We verify the early-return is NOT taken by passing an empty
+// OriginLookup and a nil HTTP client: if the manual branch incorrectly
+// returned, the test would pass with the wrong result; if it correctly
+// falls through, the OCI fetch will fail (nil client) and surface as a
+// fetch_error sentinel.
+func TestResolve_ManualMappingMiss_FallsThrough(t *testing.T) {
+	lookup := fakeMirrorLookup{
+		key("registry.zex-integ.internal", "containers/grafana/alloy"): MirrorRow{
+			Hostname:   "registry.zex-integ.internal",
+			PathPrefix: "containers/",
+		},
+	}
+	r := &HTTPResolver{
+		Lookup:  lookup,
+		Origins: fakeOriginLookup{}, // empty: forces fall-through
+	}
+	_, err := r.Resolve(context.Background(),
+		"registry.zex-integ.internal/containers/grafana/alloy:v1.16.0")
+	if err == nil {
+		t.Fatalf("expected fall-through to OCI path (which fails with nil client), got nil err")
 	}
 }
 

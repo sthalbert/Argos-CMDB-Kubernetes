@@ -106,6 +106,14 @@ Single-row `settings` table (`id=1 CHECK`). Runtime toggles `eol_enabled`, `mcp_
 
 **Image versions enricher (`image_versions_enabled`, ADR-0022):** queries public registries for the latest tag of each container image used in workloads/pods. Default interval 24h (`LONGUE_VUE_IMAGE_VERSIONS_INTERVAL`). Allowlist of registries is in `image_versions_registries` (DB-backed, admin CRUD). Reuses the `eol.Annotation` shape so a richer V3 (EOL/CVE) is purely additive.
 
+**Manual origin mappings (ADR-0030, table `image_origin_mappings`).**
+Operator-curated `image_name → public_registry` dictionary consulted by
+the mirror resolver before OCI annotation fetch. CRUD via
+`/v1/admin/image-origin-mappings/*` (admin scope). The OCI fallback path
+(ADR-0026 / ADR-0028) stays in place for unmapped images. Metric
+`imageversions_mirror_resolve_total{result="ok_manual"}` distinguishes
+manual vs auto resolution.
+
 ## Collectors
 
 - `internal/collector/` — K8s pull. Multi-cluster via `LONGUE_VUE_COLLECTOR_CLUSTERS` JSON (legacy single-cluster vars still work). Reconcile is on by default; per-namespace for namespaced resources, cluster-scoped for nodes + PVs. Pods resolve `workload_id` by walking `ownerReferences` (RS→Deployment, or direct StatefulSet/DaemonSet).

@@ -1378,6 +1378,7 @@ func maybeStartImageVersionsEnricher(ctx context.Context, s api.Store) (*imageve
 	client := registry.NewClientWithObserver(ivMetrics)
 	resolver := &mirrorresolve.HTTPResolver{
 		Lookup:  imageversions.NewStoreMirrorLookup(s),
+		Origins: imageversions.NewStoreOriginLookup(s),
 		Metrics: imageversions.NewObserver(ivMetrics),
 	}
 	enricher := imageversions.NewEnricherWithResolver(s, client, resolver, interval, ivMetrics)

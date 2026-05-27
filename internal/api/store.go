@@ -700,6 +700,14 @@ type Store interface {
 	GetImageOriginResolution(ctx context.Context, mirrorImageRepo, variant string) (ImageOriginResolution, error)
 	DeleteImageOriginResolutionsNotIn(ctx context.Context, keep [][2]string) (int64, error)
 
+	// Image origin mappings (ADR-0030).
+	ListImageOriginMappings(ctx context.Context, p StoreListImageOriginMappingsParams) (items []ImageOriginMapping, nextCursor string, err error)
+	GetImageOriginMapping(ctx context.Context, imageName string) (ImageOriginMapping, error)
+	CreateImageOriginMapping(ctx context.Context, in ImageOriginMappingCreate, createdBy string) (ImageOriginMapping, error)
+	PatchImageOriginMapping(ctx context.Context, imageName string, p ImageOriginMappingPatch, updatedBy string) (ImageOriginMapping, error)
+	DeleteImageOriginMapping(ctx context.Context, imageName string) error
+	FindImageOrigin(ctx context.Context, imageName string) (publicRegistry string, err error)
+
 	// Application blocks (ADR-0029).
 	CreateApplicationBlock(ctx context.Context, in ApplicationBlockCreate) (ApplicationBlock, error)
 	GetApplicationBlock(ctx context.Context, id uuid.UUID) (ApplicationBlock, error)
@@ -957,6 +965,17 @@ type ImageOriginResolutionUpsert struct {
 	ResolvedAt      time.Time
 	LastError       *string
 	LastErrorAt     *time.Time
+}
+
+// StoreListImageOriginMappingsParams carries cursor-based pagination and
+// optional filters for the store layer. Limit <= 0 means "default"
+// (resolved in the store). This is distinct from the codegen-produced
+// ListImageOriginMappingsParams which carries HTTP query-param pointers.
+type StoreListImageOriginMappingsParams struct {
+	Limit          int
+	Cursor         string
+	PublicRegistry string // exact match; empty = no filter
+	Q              string // case-insensitive substring on image_name
 }
 
 // ContainersVersions maps container.name -> ContainerVersionInfo. Keys are

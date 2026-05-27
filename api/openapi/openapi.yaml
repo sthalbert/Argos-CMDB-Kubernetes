@@ -2372,6 +2372,109 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/admin/image-origin-mappings:
+    get:
+      summary: List operator-curated image_name → public_registry mappings (ADR-0030)
+      tags: [admin, image-origin-mappings]
+      operationId: listImageOriginMappings
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      parameters:
+        - { name: limit,  in: query, required: false, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { name: cursor, in: query, required: false, schema: { type: string } }
+        - { name: public_registry, in: query, required: false, schema: { type: string }, description: "Exact match filter" }
+        - { name: q,      in: query, required: false, schema: { type: string }, description: "Case-insensitive substring on image_name" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageOriginMappingList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      summary: Create an image_name → public_registry mapping (ADR-0030)
+      tags: [admin, image-origin-mappings]
+      operationId: createImageOriginMapping
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImageOriginMappingCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageOriginMapping' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/admin/image-origin-mappings/{image_name}:
+    parameters:
+      - name: image_name
+        in: path
+        required: true
+        schema: { type: string }
+        description: "URL-encoded bare image path (e.g. grafana%2Falloy)"
+    get:
+      summary: Get one image origin mapping
+      tags: [admin, image-origin-mappings]
+      operationId: getImageOriginMapping
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageOriginMapping' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Update an image origin mapping (merge-patch)
+      tags: [admin, image-origin-mappings]
+      operationId: patchImageOriginMapping
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImageOriginMappingPatch' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageOriginMapping' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete an image origin mapping
+      tags: [admin, image-origin-mappings]
+      operationId: deleteImageOriginMapping
+      security:
+        - BearerAuth: [admin]
+        - SessionCookie: [admin]
+      responses:
+        '204':
+          description: No Content
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/eol/extract:
     get:
       tags: [eol]
@@ -5692,6 +5795,47 @@ components:
           type: string
         auth_token:
           type: string
+
+    ImageOriginMapping:
+      type: object
+      required: [image_name, public_registry, created_at, updated_at]
+      properties:
+        image_name:
+          type: string
+          description: "Bare repository path that appears under the mirror's path_prefix (e.g. grafana/alloy)"
+        public_registry:
+          type: string
+          description: "Hostname-only public registry (e.g. docker.io, ghcr.io, quay.io)"
+        notes: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        created_by: { type: string, nullable: true }
+        updated_by: { type: string, nullable: true }
+
+    ImageOriginMappingCreate:
+      type: object
+      required: [image_name, public_registry]
+      properties:
+        image_name: { type: string, maxLength: 512 }
+        public_registry: { type: string, maxLength: 253 }
+        notes: { type: string }
+
+    ImageOriginMappingPatch:
+      type: object
+      properties:
+        public_registry: { type: string, maxLength: 253 }
+        notes: { type: string, nullable: true, description: "Empty string clears the column" }
+
+    ImageOriginMappingList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ImageOriginMapping' }
+        next_cursor:
+          type: string
+          nullable: true
 
     ImageVersionVariant:
       type: object

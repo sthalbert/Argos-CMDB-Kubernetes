@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -884,4 +885,124 @@ func (m *memStore) DeleteImageVersionsNotIn(_ context.Context, _ [][2]string) (i
 
 func (m *memStore) DistinctImageRefs(_ context.Context) ([]string, error) {
 	return []string{}, nil
+}
+
+// ── image_origin_mappings (ADR-0030) ─────────────────────────────────
+
+var (
+	memOriginMappingsMu sync.Mutex
+	memOriginMappings   = map[string]ImageOriginMapping{}
+)
+
+func (m *memStore) ListImageOriginMappings(_ context.Context, p StoreListImageOriginMappingsParams) ([]ImageOriginMapping, string, error) {
+	memOriginMappingsMu.Lock()
+	defer memOriginMappingsMu.Unlock()
+	all := make([]ImageOriginMapping, 0, len(memOriginMappings))
+	for _, v := range memOriginMappings {
+		if p.PublicRegistry != "" && v.PublicRegistry != p.PublicRegistry {
+			continue
+		}
+		if p.Q != "" && !strings.Contains(strings.ToLower(v.ImageName), strings.ToLower(p.Q)) {
+			continue
+		}
+		all = append(all, v)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ImageName < all[j].ImageName })
+	// cursor filter
+	if p.Cursor != "" {
+		idx := sort.Search(len(all), func(i int) bool { return all[i].ImageName > p.Cursor })
+		all = all[idx:]
+	}
+	limit := p.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	next := ""
+	if len(all) > limit {
+		next = all[limit-1].ImageName
+		all = all[:limit]
+	}
+	return all, next, nil
+}
+
+func (m *memStore) GetImageOriginMapping(_ context.Context, name string) (ImageOriginMapping, error) {
+	memOriginMappingsMu.Lock()
+	defer memOriginMappingsMu.Unlock()
+	v, ok := memOriginMappings[name]
+	if !ok {
+		return ImageOriginMapping{}, ErrNotFound
+	}
+	return v, nil
+}
+
+func (m *memStore) CreateImageOriginMapping(_ context.Context, in ImageOriginMappingCreate, createdBy string) (ImageOriginMapping, error) {
+	memOriginMappingsMu.Lock()
+	defer memOriginMappingsMu.Unlock()
+	if _, exists := memOriginMappings[in.ImageName]; exists {
+		return ImageOriginMapping{}, ErrConflict
+	}
+	now := time.Now().UTC()
+	row := ImageOriginMapping{
+		ImageName:      in.ImageName,
+		PublicRegistry: in.PublicRegistry,
+		Notes:          in.Notes,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		CreatedBy:      &createdBy,
+		UpdatedBy:      &createdBy,
+	}
+	memOriginMappings[in.ImageName] = row
+	return row, nil
+}
+
+func (m *memStore) PatchImageOriginMapping(_ context.Context, name string, p ImageOriginMappingPatch, updatedBy string) (ImageOriginMapping, error) {
+	memOriginMappingsMu.Lock()
+	defer memOriginMappingsMu.Unlock()
+	v, ok := memOriginMappings[name]
+	if !ok {
+		return ImageOriginMapping{}, ErrNotFound
+	}
+	if p.PublicRegistry != nil {
+		v.PublicRegistry = *p.PublicRegistry
+	}
+	if p.Notes != nil {
+		if *p.Notes == "" {
+			v.Notes = nil
+		} else {
+			n := *p.Notes
+			v.Notes = &n
+		}
+	}
+	v.UpdatedAt = time.Now().UTC()
+	v.UpdatedBy = &updatedBy
+	memOriginMappings[name] = v
+	return v, nil
+}
+
+func (m *memStore) DeleteImageOriginMapping(_ context.Context, name string) error {
+	memOriginMappingsMu.Lock()
+	defer memOriginMappingsMu.Unlock()
+	if _, ok := memOriginMappings[name]; !ok {
+		return ErrNotFound
+	}
+	delete(memOriginMappings, name)
+	return nil
+}
+
+func (m *memStore) FindImageOrigin(_ context.Context, name string) (string, error) {
+	memOriginMappingsMu.Lock()
+	defer memOriginMappingsMu.Unlock()
+	v, ok := memOriginMappings[name]
+	if !ok {
+		return "", ErrNotFound
+	}
+	return v.PublicRegistry, nil
+}
+
+// resetMemOriginMappings clears the package-level fake store. Call from
+// test setup if a previous test polluted the map.
+func resetMemOriginMappings() {
+	memOriginMappingsMu.Lock()
+	defer memOriginMappingsMu.Unlock()
+	memOriginMappings = map[string]ImageOriginMapping{}
 }

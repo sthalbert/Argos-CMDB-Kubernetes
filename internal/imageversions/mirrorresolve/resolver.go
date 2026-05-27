@@ -60,6 +60,13 @@ type MirrorLookup interface {
 	FindMirror(ctx context.Context, hostname, imagePath string) (MirrorRow, bool, error)
 }
 
+// OriginLookup finds a manually-configured public origin registry for a bare
+// image name (path without the mirror's PathPrefix). Returns (registry, true)
+// when a mapping exists, ("", false) when none does.
+type OriginLookup interface {
+	FindOrigin(ctx context.Context, bareName string) (registry string, ok bool, err error)
+}
+
 // Resolver resolves a mirrored ref to its public origin. When the ref does
 // not match any mirror row, Resolve returns (ref, nil).
 type Resolver interface {
@@ -74,6 +81,7 @@ type Observer interface {
 // HTTPResolver implements Resolver against an OCI distribution v2 endpoint.
 type HTTPResolver struct {
 	Lookup  MirrorLookup
+	Origins OriginLookup
 	Client  *http.Client
 	Metrics Observer
 	Scheme  string // "https" by default; "http" for httptest
@@ -109,6 +117,8 @@ func isAuthErr(err error) bool {
 }
 
 // Resolve implements Resolver.
+//
+//nolint:gocyclo // sequential pipeline: split → mirror lookup → replica swap → manual mapping → OCI fetch; flat is clearer than factored
 func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) {
 	started := h.now()
 
@@ -155,6 +165,23 @@ func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) 
 			return "", ErrChainTooDeep
 		}
 		row = upstream
+	}
+
+	// Manual origin mapping: if a curator has recorded the public registry
+	// for this image, return it immediately without an OCI round-trip.
+	if h.Origins != nil {
+		bareName := strings.TrimPrefix(imagePath, row.PathPrefix)
+		if reg, ok, oErr := h.Origins.FindOrigin(ctx, bareName); oErr == nil && ok {
+			var ref string
+			if tag != "" {
+				ref = reg + "/" + bareName + ":" + tag
+			} else {
+				ref = reg + "/" + bareName
+			}
+			h.observe("ok_manual", started)
+			return ref, nil
+		}
+		// Miss or error: fall through to OCI annotation path.
 	}
 
 	origin, result, err := h.resolveFromMirror(ctx, row, imagePath, tag)
