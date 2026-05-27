@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.30.1](https://github.com/sthalbert/Longue-Vue/compare/v0.30.0...v0.30.1) (2026-05-27)
+
+
+### Bug Fixes
+
+* **ui:** show latest_tag instead of behind badge in workload containe… ([6c9f340](https://github.com/sthalbert/Longue-Vue/commit/6c9f3405d0c540a4169e554a4ec7313702d346dc))
+* **ui:** show latest_tag instead of behind badge in workload containers table ([40a236f](https://github.com/sthalbert/Longue-Vue/commit/40a236fa0fa04adbad61c0e0b4a7808dd375d403))
+
 ## [0.30.0](https://github.com/sthalbert/Longue-Vue/compare/v0.29.2...v0.30.0) (2026-05-27)
 
 
