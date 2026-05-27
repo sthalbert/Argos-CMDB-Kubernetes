@@ -17,7 +17,7 @@ type fakeLookup struct {
 	ok  bool
 }
 
-//nolint:gocritic // f is a test fixture; receiver copy is acceptable here
+//nolint:gocritic // method-on-map type returns interface tuple; renaming receiver hurts readability // f is a test fixture; receiver copy is acceptable here
 func (f fakeLookup) FindMirror(_ context.Context, _, _ string) (MirrorRow, bool, error) {
 	return f.row, f.ok, nil
 }
@@ -267,19 +267,17 @@ type fakeMirrorLookup map[string]MirrorRow
 
 func key(hostname, imagePath string) string { return hostname + "/" + imagePath }
 
-//nolint:gocritic
-func (f fakeMirrorLookup) FindMirror(_ context.Context, hostname, imagePath string) (MirrorRow, bool, error) {
-	r, ok := f[key(hostname, imagePath)]
-	return r, ok, nil
+func (f fakeMirrorLookup) FindMirror(_ context.Context, hostname, imagePath string) (row MirrorRow, ok bool, err error) {
+	r, found := f[key(hostname, imagePath)]
+	return r, found, nil
 }
 
 // fakeOriginLookup is a map from bare image name to registry.
 type fakeOriginLookup map[string]string
 
-//nolint:gocritic
-func (f fakeOriginLookup) FindOrigin(_ context.Context, bareName string) (string, bool, error) {
-	reg, ok := f[bareName]
-	return reg, ok, nil
+func (f fakeOriginLookup) FindOrigin(_ context.Context, bareName string) (publicRegistry string, ok bool, err error) {
+	reg, found := f[bareName]
+	return reg, found, nil
 }
 
 func TestResolve_ManualMappingHit(t *testing.T) {

@@ -20,7 +20,7 @@ func NewStoreOriginLookup(s Store) mirrorresolve.OriginLookup {
 
 // FindOrigin implements mirrorresolve.OriginLookup. Returns ok=false on
 // api.ErrNotFound; bubbles up any other error.
-func (l storeOriginLookup) FindOrigin(ctx context.Context, imageName string) (string, bool, error) {
+func (l storeOriginLookup) FindOrigin(ctx context.Context, imageName string) (publicRegistry string, ok bool, err error) {
 	reg, err := l.s.FindImageOrigin(ctx, imageName)
 	if errors.Is(err, api.ErrNotFound) {
 		return "", false, nil

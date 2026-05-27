@@ -1745,7 +1745,9 @@ func (s *Server) DeleteImageRegistry(ctx context.Context, req DeleteImageRegistr
 // ── Image origin mappings (ADR-0030) ─────────────────────────────────
 
 // ListImageOriginMappings returns a cursor-paginated slice of mappings.
-func (s *Server) ListImageOriginMappings(ctx context.Context, req ListImageOriginMappingsRequestObject) (ListImageOriginMappingsResponseObject, error) {
+func (s *Server) ListImageOriginMappings(
+	ctx context.Context, req ListImageOriginMappingsRequestObject,
+) (ListImageOriginMappingsResponseObject, error) {
 	params := StoreListImageOriginMappingsParams{}
 	if req.Params.Limit != nil {
 		params.Limit = *req.Params.Limit
@@ -1771,7 +1773,9 @@ func (s *Server) ListImageOriginMappings(ctx context.Context, req ListImageOrigi
 }
 
 // GetImageOriginMapping returns a single mapping by image_name.
-func (s *Server) GetImageOriginMapping(ctx context.Context, req GetImageOriginMappingRequestObject) (GetImageOriginMappingResponseObject, error) {
+func (s *Server) GetImageOriginMapping(
+	ctx context.Context, req GetImageOriginMappingRequestObject,
+) (GetImageOriginMappingResponseObject, error) {
 	got, err := s.store.GetImageOriginMapping(ctx, req.ImageName)
 	switch {
 	case errors.Is(err, ErrNotFound):
@@ -1785,7 +1789,9 @@ func (s *Server) GetImageOriginMapping(ctx context.Context, req GetImageOriginMa
 }
 
 // CreateImageOriginMapping inserts a new (image_name, public_registry).
-func (s *Server) CreateImageOriginMapping(ctx context.Context, req CreateImageOriginMappingRequestObject) (CreateImageOriginMappingResponseObject, error) {
+func (s *Server) CreateImageOriginMapping(
+	ctx context.Context, req CreateImageOriginMappingRequestObject,
+) (CreateImageOriginMappingResponseObject, error) {
 	in := req.Body
 	if err := validateImageName(in.ImageName); err != nil {
 		return CreateImageOriginMapping400ApplicationProblemPlusJSONResponse{
@@ -1821,7 +1827,9 @@ func (s *Server) CreateImageOriginMapping(ctx context.Context, req CreateImageOr
 }
 
 // PatchImageOriginMapping applies a merge-patch.
-func (s *Server) PatchImageOriginMapping(ctx context.Context, req PatchImageOriginMappingRequestObject) (PatchImageOriginMappingResponseObject, error) {
+func (s *Server) PatchImageOriginMapping(
+	ctx context.Context, req PatchImageOriginMappingRequestObject,
+) (PatchImageOriginMappingResponseObject, error) {
 	p := req.Body
 	if p.PublicRegistry != nil {
 		if err := validatePublicRegistry(*p.PublicRegistry); err != nil {
@@ -1851,7 +1859,9 @@ func (s *Server) PatchImageOriginMapping(ctx context.Context, req PatchImageOrig
 }
 
 // DeleteImageOriginMapping removes a mapping by image_name.
-func (s *Server) DeleteImageOriginMapping(ctx context.Context, req DeleteImageOriginMappingRequestObject) (DeleteImageOriginMappingResponseObject, error) {
+func (s *Server) DeleteImageOriginMapping(
+	ctx context.Context, req DeleteImageOriginMappingRequestObject,
+) (DeleteImageOriginMappingResponseObject, error) {
 	err := s.store.DeleteImageOriginMapping(ctx, req.ImageName)
 	switch {
 	case errors.Is(err, ErrNotFound):

@@ -117,6 +117,8 @@ func isAuthErr(err error) bool {
 }
 
 // Resolve implements Resolver.
+//
+//nolint:gocyclo // sequential pipeline: split → mirror lookup → replica swap → manual mapping → OCI fetch; flat is clearer than factored
 func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) {
 	started := h.now()
 

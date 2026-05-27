@@ -8,6 +8,8 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+const testRegistryGHCR = "ghcr.io"
+
 func TestPG_FindImageOrigin(t *testing.T) {
 	ctx := context.Background()
 	pg := newTestPG(t)
@@ -94,13 +96,13 @@ func TestPG_PatchAndDeleteImageOriginMapping(t *testing.T) {
 	}
 
 	t.Run("patch registry only", func(t *testing.T) {
-		newReg := "ghcr.io"
+		newReg := testRegistryGHCR
 		out, err := pg.PatchImageOriginMapping(ctx, "grafana/alloy",
 			api.ImageOriginMappingPatch{PublicRegistry: &newReg}, "user-bob")
 		if err != nil {
 			t.Fatalf("patch: %v", err)
 		}
-		if out.PublicRegistry != "ghcr.io" {
+		if out.PublicRegistry != testRegistryGHCR {
 			t.Fatalf("want ghcr.io, got %q", out.PublicRegistry)
 		}
 		if out.UpdatedBy == nil || *out.UpdatedBy != "user-bob" {
@@ -130,7 +132,7 @@ func TestPG_PatchAndDeleteImageOriginMapping(t *testing.T) {
 	})
 
 	t.Run("patch missing → ErrNotFound", func(t *testing.T) {
-		newReg := "ghcr.io"
+		newReg := testRegistryGHCR
 		_, err := pg.PatchImageOriginMapping(ctx, "does/not/exist",
 			api.ImageOriginMappingPatch{PublicRegistry: &newReg}, "user-bob")
 		if !errors.Is(err, api.ErrNotFound) {
@@ -163,7 +165,7 @@ func TestPG_ListImageOriginMappings(t *testing.T) {
 		{"grafana/alloy", "docker.io"},
 		{"grafana/mimir", "docker.io"},
 		{"prometheus/prometheus", "quay.io"},
-		{"fluxcd/source-controller", "ghcr.io"},
+		{"fluxcd/source-controller", testRegistryGHCR},
 	}
 	for _, s := range seed {
 		if _, err := pg.CreateImageOriginMapping(ctx,
