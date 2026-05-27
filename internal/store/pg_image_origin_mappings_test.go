@@ -171,7 +171,7 @@ func TestPG_ListImageOriginMappings(t *testing.T) {
 	}
 
 	t.Run("no filter", func(t *testing.T) {
-		items, _, err := pg.ListImageOriginMappings(ctx, api.ListImageOriginMappingsParams{})
+		items, _, err := pg.ListImageOriginMappings(ctx, api.StoreListImageOriginMappingsParams{})
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
@@ -186,7 +186,7 @@ func TestPG_ListImageOriginMappings(t *testing.T) {
 
 	t.Run("filter by registry", func(t *testing.T) {
 		items, _, err := pg.ListImageOriginMappings(ctx,
-			api.ListImageOriginMappingsParams{PublicRegistry: "docker.io"})
+			api.StoreListImageOriginMappingsParams{PublicRegistry: "docker.io"})
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
@@ -197,7 +197,7 @@ func TestPG_ListImageOriginMappings(t *testing.T) {
 
 	t.Run("filter by q substring", func(t *testing.T) {
 		items, _, err := pg.ListImageOriginMappings(ctx,
-			api.ListImageOriginMappingsParams{Q: "grafana"})
+			api.StoreListImageOriginMappingsParams{Q: "grafana"})
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
@@ -208,7 +208,7 @@ func TestPG_ListImageOriginMappings(t *testing.T) {
 
 	t.Run("pagination", func(t *testing.T) {
 		page1, cursor, err := pg.ListImageOriginMappings(ctx,
-			api.ListImageOriginMappingsParams{Limit: 2})
+			api.StoreListImageOriginMappingsParams{Limit: 2})
 		if err != nil {
 			t.Fatalf("page1: %v", err)
 		}
@@ -216,7 +216,7 @@ func TestPG_ListImageOriginMappings(t *testing.T) {
 			t.Fatalf("want 2 + non-empty cursor, got %d / %q", len(page1), cursor)
 		}
 		page2, cursor2, err := pg.ListImageOriginMappings(ctx,
-			api.ListImageOriginMappingsParams{Limit: 2, Cursor: cursor})
+			api.StoreListImageOriginMappingsParams{Limit: 2, Cursor: cursor})
 		if err != nil {
 			t.Fatalf("page2: %v", err)
 		}
