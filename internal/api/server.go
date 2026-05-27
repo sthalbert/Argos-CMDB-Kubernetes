@@ -18,11 +18,12 @@ import (
 )
 
 var (
-	errRunbookURLInvalid             = errors.New("runbook_url is not a valid URL")
-	errRunbookURLScheme              = errors.New("runbook_url must use http or https scheme")
-	errImageVersionsDisabled         = errors.New("image_versions_enabled is false")
-	errImageVersionsEnricherMissing  = errors.New("enricher not available")
-	errImageRegistryHostnameConflict = errors.New("hostname already exists")
+	errRunbookURLInvalid              = errors.New("runbook_url is not a valid URL")
+	errRunbookURLScheme               = errors.New("runbook_url must use http or https scheme")
+	errImageVersionsDisabled          = errors.New("image_versions_enabled is false")
+	errImageVersionsEnricherMissing   = errors.New("enricher not available")
+	errImageRegistryHostnameConflict  = errors.New("hostname already exists")
+	errImageOriginMappingNameConflict = errors.New("image_name already exists")
 )
 
 // validateRunbookURL rejects runbook URLs that use a scheme other than
@@ -1811,7 +1812,7 @@ func (s *Server) CreateImageOriginMapping(ctx context.Context, req CreateImageOr
 	switch {
 	case errors.Is(err, ErrConflict):
 		return CreateImageOriginMapping409ApplicationProblemPlusJSONResponse{
-			ConflictApplicationProblemPlusJSONResponse(problemConflict(errors.New("image_name already exists"))),
+			ConflictApplicationProblemPlusJSONResponse(problemConflict(errImageOriginMappingNameConflict)),
 		}, nil
 	case err != nil:
 		return nil, fmt.Errorf("store: %w", err)

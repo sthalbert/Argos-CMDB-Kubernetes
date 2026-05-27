@@ -92,7 +92,7 @@ FROM image_origin_mappings WHERE image_name = $1`
 }
 
 // PatchImageOriginMapping applies a merge-patch. Only public_registry and
-// notes are patchable. notes='' clears the column. Returns ErrNotFound
+// notes are patchable. notes=” clears the column. Returns ErrNotFound
 // when no row matches.
 func (p *PG) PatchImageOriginMapping(
 	ctx context.Context, imageName string,
