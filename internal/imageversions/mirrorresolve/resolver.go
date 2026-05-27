@@ -165,6 +165,23 @@ func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) 
 		row = upstream
 	}
 
+	// Manual origin mapping: if a curator has recorded the public registry
+	// for this image, return it immediately without an OCI round-trip.
+	if h.Origins != nil {
+		bareName := strings.TrimPrefix(imagePath, row.PathPrefix)
+		if reg, ok, oErr := h.Origins.FindOrigin(ctx, bareName); oErr == nil && ok {
+			var ref string
+			if tag != "" {
+				ref = reg + "/" + bareName + ":" + tag
+			} else {
+				ref = reg + "/" + bareName
+			}
+			h.observe("ok_manual", started)
+			return ref, nil
+		}
+		// Miss or error: fall through to OCI annotation path.
+	}
+
 	origin, result, err := h.resolveFromMirror(ctx, row, imagePath, tag)
 	h.observe(result, started)
 	return origin, err
