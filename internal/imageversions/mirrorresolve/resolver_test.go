@@ -303,9 +303,11 @@ func TestResolve_ManualMappingHit(t *testing.T) {
 	}
 }
 
-// When the mirror lookup misses entirely, the OriginLookup MUST NOT be
-// consulted (we only know it's a known image once a mirror row matches).
-// This guards against accidentally short-circuiting passthrough refs.
+// "nginx:latest" has no slash, so splitRef returns ErrInvalidRef and Resolve
+// exits before reaching either the manual-mapping or mirror-lookup paths.
+// The passthrough here is caused by the unparseable ref shape, not by any
+// guarantee that OriginLookup is skipped when no mirror row exists (ADR-0031
+// pre-mirror lookup would consult OriginLookup for a parseable mirrored ref).
 func TestResolve_NoMirrorRow_StillPassthrough(t *testing.T) {
 	r := &HTTPResolver{
 		Lookup:  fakeMirrorLookup{}, // empty: no mirror row

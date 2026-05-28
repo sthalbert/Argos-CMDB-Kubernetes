@@ -224,6 +224,8 @@ func (h *HTTPResolver) tryManualMapping(ctx context.Context, imagePath, tag stri
 			}
 			return reg + "/" + candidate, true
 		}
+		// Suffix-match is intentional (ADR-0031): a mapping for "grafana/loki"
+		// rewrites any ref ending with that path. Curate the table accordingly.
 		i := strings.Index(candidate, "/")
 		if i < 0 {
 			return "", false
