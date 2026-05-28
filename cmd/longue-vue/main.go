@@ -1038,6 +1038,12 @@ type collectorEnvConfig struct {
 	interval     time.Duration
 	fetchTimeout time.Duration
 	reconcile    bool
+	// kubeQPS / kubeBurst override the client-go rate limiter. <=0 = use
+	// collector package defaults. Override via
+	// LONGUE_VUE_COLLECTOR_KUBE_QPS / _KUBE_BURST. Applies to every cluster
+	// declared in LONGUE_VUE_COLLECTOR_CLUSTERS.
+	kubeQPS   float32
+	kubeBurst int
 }
 
 // loadCollectorEnvConfig reads collector-specific env vars.
@@ -1054,10 +1060,20 @@ func loadCollectorEnvConfig() (collectorEnvConfig, error) {
 	if err != nil {
 		return collectorEnvConfig{}, err
 	}
+	kubeQPS, err := parseFloat32Env("LONGUE_VUE_COLLECTOR_KUBE_QPS", 0)
+	if err != nil {
+		return collectorEnvConfig{}, err
+	}
+	kubeBurst, err := parseIntEnv("LONGUE_VUE_COLLECTOR_KUBE_BURST", 0)
+	if err != nil {
+		return collectorEnvConfig{}, err
+	}
 	return collectorEnvConfig{
 		interval:     interval,
 		fetchTimeout: fetchTimeout,
 		reconcile:    reconcile,
+		kubeQPS:      kubeQPS,
+		kubeBurst:    kubeBurst,
 	}, nil
 }
 
@@ -1086,7 +1102,7 @@ func maybeStartCollectors(ctx context.Context, s api.Store) (func(), error) {
 
 	var wg sync.WaitGroup
 	for _, cfg := range clusters {
-		source, err := collector.NewKubeClient(cfg.Kubeconfig)
+		source, err := collector.NewKubeClientWithLimits(cfg.Kubeconfig, envCfg.kubeQPS, envCfg.kubeBurst)
 		if err != nil {
 			return nil, fmt.Errorf("init kube client for cluster %q: %w", cfg.Name, err)
 		}
@@ -1306,6 +1322,18 @@ func parseIntEnv(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
 	}
 	return n, nil
+}
+
+func parseFloat32Env(key string, fallback float32) (float32, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	f, err := strconv.ParseFloat(v, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
+	}
+	return float32(f), nil
 }
 
 // maybeStartEOLEnricher spawns the EOL enrichment goroutine (ADR-0012).

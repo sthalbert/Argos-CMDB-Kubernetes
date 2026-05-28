@@ -49,6 +49,12 @@ type collectorConfig struct {
 	interval     time.Duration
 	fetchTimeout time.Duration
 	reconcile    bool
+	// kubeQPS / kubeBurst tune the client-go rate limiter for calls from
+	// the collector to the local Kubernetes API. Defaults handled by the
+	// collector package; <=0 means "use default". Override via
+	// LONGUE_VUE_COLLECTOR_KUBE_QPS / _KUBE_BURST.
+	kubeQPS   float32
+	kubeBurst int
 }
 
 // loadCollectorConfig reads and validates all environment variables needed
@@ -79,6 +85,14 @@ func loadCollectorConfig() (collectorConfig, error) {
 	if err != nil {
 		return collectorConfig{}, err
 	}
+	kubeQPS, err := parseFloat32Env("LONGUE_VUE_COLLECTOR_KUBE_QPS", 0)
+	if err != nil {
+		return collectorConfig{}, err
+	}
+	kubeBurst, err := parseIntEnv("LONGUE_VUE_COLLECTOR_KUBE_BURST", 0)
+	if err != nil {
+		return collectorConfig{}, err
+	}
 
 	return collectorConfig{
 		serverURL:    serverURL,
@@ -88,6 +102,8 @@ func loadCollectorConfig() (collectorConfig, error) {
 		interval:     interval,
 		fetchTimeout: fetchTimeout,
 		reconcile:    reconcile,
+		kubeQPS:      kubeQPS,
+		kubeBurst:    kubeBurst,
 	}, nil
 }
 
@@ -113,7 +129,7 @@ func run() error {
 	}
 
 	// Build the Kubernetes source (in-cluster or kubeconfig).
-	source, err := collector.NewKubeClient(cfg.kubeconfig)
+	source, err := collector.NewKubeClientWithLimits(cfg.kubeconfig, cfg.kubeQPS, cfg.kubeBurst)
 	if err != nil {
 		return fmt.Errorf("init kube client: %w", err)
 	}
@@ -177,4 +193,28 @@ func parseBoolEnv(key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("parse %s=%q: %w", key, v, err)
 	}
 	return b, nil
+}
+
+func parseIntEnv(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
+	}
+	return n, nil
+}
+
+func parseFloat32Env(key string, fallback float32) (float32, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	f, err := strconv.ParseFloat(v, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
+	}
+	return float32(f), nil
 }

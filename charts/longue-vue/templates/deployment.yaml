@@ -89,6 +89,14 @@ spec:
               value: {{ .Values.collector.interval | quote }}
             - name: LONGUE_VUE_COLLECTOR_FETCH_TIMEOUT
               value: {{ .Values.collector.fetchTimeout | quote }}
+            {{- if .Values.collector.kubeQPS }}
+            - name: LONGUE_VUE_COLLECTOR_KUBE_QPS
+              value: {{ .Values.collector.kubeQPS | quote }}
+            {{- end }}
+            {{- if .Values.collector.kubeBurst }}
+            - name: LONGUE_VUE_COLLECTOR_KUBE_BURST
+              value: {{ .Values.collector.kubeBurst | quote }}
+            {{- end }}
             {{- if .Values.collector.clusters }}
             - name: LONGUE_VUE_COLLECTOR_CLUSTERS
               value: {{ .Values.collector.clusters | toJson | quote }}

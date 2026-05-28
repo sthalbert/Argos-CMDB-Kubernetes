@@ -106,15 +106,42 @@ type KubeClient struct {
 	clientset *kubernetes.Clientset
 }
 
-// NewKubeClient constructs a client. Resolution order:
+// Default client-go QPS/Burst for the collector. The upstream defaults
+// (5/10) are too low for a single tick that issues ~12 cluster-wide LISTs
+// in a tight loop — token starvation manifests as
+// "client rate limiter Wait returned an error: context deadline exceeded"
+// once any single list takes long enough to exhaust the burst window.
+// Operators override via LONGUE_VUE_COLLECTOR_KUBE_QPS / _KUBE_BURST.
+const (
+	DefaultKubeQPS   = 50
+	DefaultKubeBurst = 100
+)
+
+// NewKubeClient constructs a client with the default QPS/Burst. Resolution
+// order for the kubeconfig:
 //   - explicit kubeconfigPath when non-empty;
 //   - in-cluster config when running inside a pod;
 //   - the default kubectl loading rules (KUBECONFIG env var, then ~/.kube/config).
 func NewKubeClient(kubeconfigPath string) (*KubeClient, error) {
+	return NewKubeClientWithLimits(kubeconfigPath, DefaultKubeQPS, DefaultKubeBurst)
+}
+
+// NewKubeClientWithLimits is NewKubeClient with explicit client-go QPS/Burst.
+// Values <= 0 fall back to the defaults so a typo'd env var can't accidentally
+// pin the client to the upstream-default 5/10.
+func NewKubeClientWithLimits(kubeconfigPath string, qps float32, burst int) (*KubeClient, error) {
 	cfg, err := loadKubeConfig(kubeconfigPath)
 	if err != nil {
 		return nil, err
 	}
+	if qps <= 0 {
+		qps = DefaultKubeQPS
+	}
+	if burst <= 0 {
+		burst = DefaultKubeBurst
+	}
+	cfg.QPS = qps
+	cfg.Burst = burst
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes.NewForConfig: %w", err)
