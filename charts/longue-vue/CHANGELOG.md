@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.22.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.21.0...chart-longue-vue-v0.22.0) (2026-05-28)
+
+
+### Features
+
+* **api:** make ingest verify rate limit configurable via env ([017762e](https://github.com/sthalbert/Longue-Vue/commit/017762e4eb92785c2f76fb1375957aeb73055b9c))
+* **collector:** make client-go QPS/Burst configurable ([e208276](https://github.com/sthalbert/Longue-Vue/commit/e2082761f0b6a07d6d2c5a16ddafabc28ea9434f))
+* make ingest verify and collector kube rate limits configurable ([fc5ee8c](https://github.com/sthalbert/Longue-Vue/commit/fc5ee8cabcaa87c2c0455b94a9d6f873f1f0ca48))
+
 ## [0.21.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.20.0...chart-longue-vue-v0.21.0) (2026-05-27)
 
 
