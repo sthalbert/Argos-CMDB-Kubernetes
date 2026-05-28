@@ -6,6 +6,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.32.0](https://github.com/sthalbert/Longue-Vue/compare/v0.31.0...v0.32.0) (2026-05-28)
+
+
+### Features
+
+* **api:** make ingest verify rate limit configurable via env ([017762e](https://github.com/sthalbert/Longue-Vue/commit/017762e4eb92785c2f76fb1375957aeb73055b9c))
+* **collector:** make client-go QPS/Burst configurable ([e208276](https://github.com/sthalbert/Longue-Vue/commit/e2082761f0b6a07d6d2c5a16ddafabc28ea9434f))
+* make ingest verify and collector kube rate limits configurable ([fc5ee8c](https://github.com/sthalbert/Longue-Vue/commit/fc5ee8cabcaa87c2c0455b94a9d6f873f1f0ca48))
+
 ## [0.31.0](https://github.com/sthalbert/Longue-Vue/compare/v0.30.1...v0.31.0) (2026-05-28)
 
 

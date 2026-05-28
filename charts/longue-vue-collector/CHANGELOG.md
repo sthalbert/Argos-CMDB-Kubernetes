@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v0.5.0...chart-longue-vue-collector-v0.6.0) (2026-05-28)
+
+
+### Features
+
+* **collector:** make client-go QPS/Burst configurable ([e208276](https://github.com/sthalbert/Longue-Vue/commit/e2082761f0b6a07d6d2c5a16ddafabc28ea9434f))
+* make ingest verify and collector kube rate limits configurable ([fc5ee8c](https://github.com/sthalbert/Longue-Vue/commit/fc5ee8cabcaa87c2c0455b94a9d6f873f1f0ca48))
+
 ## [0.5.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v0.4.0...chart-longue-vue-collector-v0.5.0) (2026-05-27)
 
 
