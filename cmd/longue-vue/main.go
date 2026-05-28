@@ -65,7 +65,9 @@ var (
 	errTransportPostureRefused = errors.New("LONGUE_VUE_REQUIRE_HTTPS=true but neither native TLS " +
 		"(LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT + _KEY) nor a trusted-proxy + always-secure-cookie posture " +
 		"(LONGUE_VUE_TRUSTED_PROXIES non-empty AND LONGUE_VUE_SESSION_SECURE_COOKIE=always) is configured — see ADR-0017 §3")
-	errExtractMaxRowsInvalid = errors.New("LONGUE_VUE_EXTRACT_MAX_ROWS is not a positive integer")
+	errExtractMaxRowsInvalid       = errors.New("LONGUE_VUE_EXTRACT_MAX_ROWS is not a positive integer")
+	errVerifyRateLimitRPSInvalid   = errors.New("LONGUE_VUE_VERIFY_RATE_LIMIT_RPS is not a positive number")
+	errVerifyRateLimitBurstInvalid = errors.New("LONGUE_VUE_VERIFY_RATE_LIMIT_BURST is not a positive integer")
 )
 
 func main() {
@@ -109,6 +111,13 @@ type runConfig struct {
 	// extractMaxRows caps the number of rows returned by the /v1/*/extract
 	// endpoints. Defaults to 50 000; overridden via LONGUE_VUE_EXTRACT_MAX_ROWS.
 	extractMaxRows int
+	// verifyRateLimitRPS / Burst tune the per-IP /v1/auth/verify limiter
+	// (ADR-0016 §5). Since every push-collector verify hits longue-vue from
+	// the single ingest-gw pod IP, the defaults can become a bottleneck once
+	// many agents are deployed. Override via
+	// LONGUE_VUE_VERIFY_RATE_LIMIT_{RPS,BURST}.
+	verifyRateLimitRPS   float64
+	verifyRateLimitBurst int
 }
 
 // ingestListenerConfig captures the env-var surface for the ADR-0016
@@ -169,19 +178,38 @@ func loadRunConfig() (runConfig, error) {
 		extractMaxRows = n
 	}
 
+	verifyRPS := float64(api.DefaultVerifyRateLimitRPS)
+	if v := os.Getenv("LONGUE_VUE_VERIFY_RATE_LIMIT_RPS"); v != "" {
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil || n <= 0 {
+			return runConfig{}, fmt.Errorf("%w: LONGUE_VUE_VERIFY_RATE_LIMIT_RPS=%q", errVerifyRateLimitRPSInvalid, v)
+		}
+		verifyRPS = n
+	}
+	verifyBurst := api.DefaultVerifyRateLimitBurst
+	if v := os.Getenv("LONGUE_VUE_VERIFY_RATE_LIMIT_BURST"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return runConfig{}, fmt.Errorf("%w: LONGUE_VUE_VERIFY_RATE_LIMIT_BURST=%q", errVerifyRateLimitBurstInvalid, v)
+		}
+		verifyBurst = n
+	}
+
 	cfg := runConfig{
-		addr:            envOr("LONGUE_VUE_ADDR", ":8080"),
-		dsn:             dsn,
-		cookiePolicy:    cookiePolicy,
-		oidcCfg:         loadOIDCConfig(),
-		shutdownTimeout: shutdownTimeout,
-		autoMigrate:     autoMigrate,
-		ingest:          ingest,
-		publicTLSCert:   os.Getenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT"),
-		publicTLSKey:    os.Getenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY"),
-		trustedProxies:  trustedProxies,
-		requireHTTPS:    requireHTTPS,
-		extractMaxRows:  extractMaxRows,
+		addr:                 envOr("LONGUE_VUE_ADDR", ":8080"),
+		dsn:                  dsn,
+		cookiePolicy:         cookiePolicy,
+		oidcCfg:              loadOIDCConfig(),
+		shutdownTimeout:      shutdownTimeout,
+		autoMigrate:          autoMigrate,
+		ingest:               ingest,
+		publicTLSCert:        os.Getenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_CERT"),
+		publicTLSKey:         os.Getenv("LONGUE_VUE_PUBLIC_LISTEN_TLS_KEY"),
+		trustedProxies:       trustedProxies,
+		requireHTTPS:         requireHTTPS,
+		extractMaxRows:       extractMaxRows,
+		verifyRateLimitRPS:   verifyRPS,
+		verifyRateLimitBurst: verifyBurst,
 	}
 	if err := checkTransportPosture(&cfg); err != nil {
 		return runConfig{}, err
@@ -339,6 +367,8 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 
 	slog.Info("longue-vue config",
 		slog.Int("extract_max_rows", cfg.extractMaxRows),
+		slog.Float64("verify_rate_limit_rps", cfg.verifyRateLimitRPS),
+		slog.Int("verify_rate_limit_burst", cfg.verifyRateLimitBurst),
 	)
 	return serveAndShutdown(rootCtx, srv, ingestSrv, cfg.shutdownTimeout)
 }
@@ -560,7 +590,7 @@ func buildHTTPServer(
 		requireScope(auth.ScopeRead)(extractAuth(auditWrap(api.HandleEolExtract(pg, cfg.extractMaxRows)))))
 
 	loginLimiter := api.NewLoginRateLimiter()
-	verifyLimiter := api.NewVerifyRateLimiter()
+	verifyLimiter := api.NewVerifyRateLimiterWithLimits(cfg.verifyRateLimitRPS, cfg.verifyRateLimitBurst)
 	apiServer := api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter, verifyLimiter)
 	apiServer.SetTrustedProxies(cfg.trustedProxies)
 	apiServer.SetEnricher(imgVersionsEnricher)
@@ -753,7 +783,7 @@ func buildIngestServer(
 	}
 
 	loginLimiter := api.NewLoginRateLimiter() // unused on ingest, but Server requires non-nil
-	verifyLimiter := api.NewVerifyRateLimiter()
+	verifyLimiter := api.NewVerifyRateLimiterWithLimits(cfg.verifyRateLimitRPS, cfg.verifyRateLimitBurst)
 	ingestServer := api.NewServer(version, pg, cfg.cookiePolicy, oidcProvider, loginLimiter, verifyLimiter)
 	ingestServer.SetTrustedProxies(cfg.trustedProxies)
 	strict := api.NewStrictHandlerWithOptions(
@@ -1008,6 +1038,12 @@ type collectorEnvConfig struct {
 	interval     time.Duration
 	fetchTimeout time.Duration
 	reconcile    bool
+	// kubeQPS / kubeBurst override the client-go rate limiter. <=0 = use
+	// collector package defaults. Override via
+	// LONGUE_VUE_COLLECTOR_KUBE_QPS / _KUBE_BURST. Applies to every cluster
+	// declared in LONGUE_VUE_COLLECTOR_CLUSTERS.
+	kubeQPS   float32
+	kubeBurst int
 }
 
 // loadCollectorEnvConfig reads collector-specific env vars.
@@ -1024,10 +1060,20 @@ func loadCollectorEnvConfig() (collectorEnvConfig, error) {
 	if err != nil {
 		return collectorEnvConfig{}, err
 	}
+	kubeQPS, err := parseFloat32Env("LONGUE_VUE_COLLECTOR_KUBE_QPS", 0)
+	if err != nil {
+		return collectorEnvConfig{}, err
+	}
+	kubeBurst, err := parseIntEnv("LONGUE_VUE_COLLECTOR_KUBE_BURST", 0)
+	if err != nil {
+		return collectorEnvConfig{}, err
+	}
 	return collectorEnvConfig{
 		interval:     interval,
 		fetchTimeout: fetchTimeout,
 		reconcile:    reconcile,
+		kubeQPS:      kubeQPS,
+		kubeBurst:    kubeBurst,
 	}, nil
 }
 
@@ -1056,7 +1102,7 @@ func maybeStartCollectors(ctx context.Context, s api.Store) (func(), error) {
 
 	var wg sync.WaitGroup
 	for _, cfg := range clusters {
-		source, err := collector.NewKubeClient(cfg.Kubeconfig)
+		source, err := collector.NewKubeClientWithLimits(cfg.Kubeconfig, envCfg.kubeQPS, envCfg.kubeBurst)
 		if err != nil {
 			return nil, fmt.Errorf("init kube client for cluster %q: %w", cfg.Name, err)
 		}
@@ -1276,6 +1322,18 @@ func parseIntEnv(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
 	}
 	return n, nil
+}
+
+func parseFloat32Env(key string, fallback float32) (float32, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	f, err := strconv.ParseFloat(v, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
+	}
+	return float32(f), nil
 }
 
 // maybeStartEOLEnricher spawns the EOL enrichment goroutine (ADR-0012).

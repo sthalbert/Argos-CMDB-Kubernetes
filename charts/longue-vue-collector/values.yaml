@@ -59,6 +59,15 @@ interval: 5m
 fetchTimeout: 30s
 reconcile: true
 
+# client-go rate limiter for the collector → local Kubernetes API.
+# Upstream defaults (5/10) starve as soon as a tick fans out ~12 LISTs in a
+# row, surfacing as `client rate limiter Wait returned an error: context
+# deadline exceeded` in the collector logs. The collector binary applies
+# safer defaults (50 / 100). Raise these for clusters with many namespaces
+# or slow apiservers. Empty = use the binary's built-in defaults.
+kubeQPS: ""
+kubeBurst: ""
+
 # ── mTLS to longue-vue / DMZ gateway ─────────────────────────────────
 # Used together with serverURL pointing at the DMZ gateway (ADR-0016).
 # Leave existingSecret / caSecret empty to talk to longue-vue's public

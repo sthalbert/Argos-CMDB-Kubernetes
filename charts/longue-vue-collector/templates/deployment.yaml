@@ -44,6 +44,14 @@ spec:
               value: {{ .Values.fetchTimeout | quote }}
             - name: LONGUE_VUE_COLLECTOR_RECONCILE
               value: {{ .Values.reconcile | quote }}
+            {{- if .Values.kubeQPS }}
+            - name: LONGUE_VUE_COLLECTOR_KUBE_QPS
+              value: {{ .Values.kubeQPS | quote }}
+            {{- end }}
+            {{- if .Values.kubeBurst }}
+            - name: LONGUE_VUE_COLLECTOR_KUBE_BURST
+              value: {{ .Values.kubeBurst | quote }}
+            {{- end }}
             {{- if eq .Values.kubeconfig.mode "secret" }}
             - name: LONGUE_VUE_KUBECONFIG
               value: {{ .Values.kubeconfig.mountPath | quote }}

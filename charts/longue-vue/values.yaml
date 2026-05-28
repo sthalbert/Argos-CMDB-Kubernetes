@@ -71,6 +71,15 @@ server:
   #    sessionSecureCookie is "always" (trusted-proxy posture).
   requireHTTPS: false
 
+  # -- Per-IP rate limits for the ingest /v1/auth/verify endpoint (ADR-0016 §5).
+  #    Every push-collector verify reaches longue-vue from the single ingest-gw
+  #    pod IP, so the per-IP bucket is shared across all agents. Raise these
+  #    when adding many push-mode collectors. Defaults: 100 rps / burst 200.
+  #    Empty = use the built-in defaults.
+  verifyRateLimit:
+    rps: ""
+    burst: ""
+
 # -- Secret-encryption master key for cloud-account credentials (ADR-0015).
 # Required when the VM collector is in use; safe to leave empty otherwise.
 # The key is a base64-encoded 32-byte AES-256 master key used to envelope-
@@ -102,6 +111,12 @@ collector:
   fetchTimeout: "10s"
   # -- Delete rows that vanish from the live listing.
   reconcile: true
+  # -- client-go QPS/Burst for collector→K8s-API calls. Upstream defaults
+  #    (5/10) starve once a tick fans out ~12 LISTs; the binary applies
+  #    safer defaults (50/100). Override for very busy or slow apiservers.
+  #    Empty = use the binary's defaults.
+  kubeQPS: ""
+  kubeBurst: ""
   # -- Name of an existing Secret containing kubeconfig files.
   # Each key in the Secret is mounted as a file under /etc/longue-vue/kubeconfigs/.
   # Reference the mounted path in kubeconfig or clusters[].kubeconfig.
