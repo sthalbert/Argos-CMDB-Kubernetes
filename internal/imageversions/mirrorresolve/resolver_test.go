@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeLookup always returns the configured row.
@@ -362,5 +363,153 @@ func TestHTTPResolver_ReplicaChain_TooDeep(t *testing.T) {
 		"local.example.com/containers/sthalbert/x:1.0")
 	if !errors.Is(err, ErrChainTooDeep) {
 		t.Fatalf("want ErrChainTooDeep, got %v", err)
+	}
+}
+
+// New semantics (ADR-0031): the manual mapping table is consulted before
+// the FindMirror gate. A ref whose imagePath matches a mapping is
+// rewritten even when no mirror row exists for the hostname.
+func TestResolve_ManualMapping_PreMirror_FullPathMatch(t *testing.T) {
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{}, // no mirror rows at all
+		Origins: fakeOriginLookup{"grafana/loki": "docker.io"},
+	}
+	got, err := r.Resolve(context.Background(), "quay.io/grafana/loki:3.0")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	want := "docker.io/grafana/loki:3.0"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// Misconfigured Helm value: hostname is docker.io but the path includes
+// the private mirror's prefix. Strip-and-lookup should peel "containers/"
+// and match the bare "grafana/alloy" mapping.
+func TestResolve_ManualMapping_PreMirror_StripOneSegment(t *testing.T) {
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{}, // no mirror rows
+		Origins: fakeOriginLookup{"grafana/alloy": "ghcr.io"},
+	}
+	got, err := r.Resolve(context.Background(), "docker.io/containers/grafana/alloy:v1.16.1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	want := "ghcr.io/grafana/alloy:v1.16.1"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolve_ManualMapping_PreMirror_StripTwoSegments(t *testing.T) {
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{},
+		Origins: fakeOriginLookup{"foo/bar": "ghcr.io"},
+	}
+	got, err := r.Resolve(context.Background(), "mirror.priv/team/containers/foo/bar:1.2.3")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	want := "ghcr.io/foo/bar:1.2.3"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// Single-segment imagePath (no slash to strip). The mapping key matches
+// the whole path on the first iteration.
+func TestResolve_ManualMapping_PreMirror_SingleSegment(t *testing.T) {
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{},
+		Origins: fakeOriginLookup{"nginx": "docker.io"},
+	}
+	got, err := r.Resolve(context.Background(), "quay.io/nginx:1.27")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	want := "docker.io/nginx:1.27"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// When the ref carries a digest instead of a tag, splitRef returns tag="".
+// The rewrite must omit the trailing ":" — same shape as the existing
+// post-mirror manual branch in resolveFromMirror.
+func TestResolve_ManualMapping_PreMirror_DigestOnly(t *testing.T) {
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{},
+		Origins: fakeOriginLookup{"foo/bar": "ghcr.io"},
+	}
+	got, err := r.Resolve(context.Background(), "quay.io/foo/bar@sha256:0000000000000000000000000000000000000000000000000000000000000000")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	want := "ghcr.io/foo/bar"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// When Origins is nil (feature disabled / no admin mappings configured),
+// the resolver MUST behave exactly as before: passthrough when no mirror
+// row matches.
+func TestResolve_ManualMapping_PreMirror_OriginsNil_Passthrough(t *testing.T) {
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{},
+		Origins: nil,
+	}
+	got, err := r.Resolve(context.Background(), "quay.io/grafana/loki:3.0")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got != "quay.io/grafana/loki:3.0" {
+		t.Fatalf("got %q, want passthrough", got)
+	}
+}
+
+// erroringOriginLookup always returns an error. Used to verify the
+// pre-mirror lookup fails open: a transient store error must not abort
+// the resolve.
+type erroringOriginLookup struct{ err error }
+
+func (e erroringOriginLookup) FindOrigin(_ context.Context, _ string) (string, bool, error) {
+	return "", false, e.err
+}
+
+func TestResolve_ManualMapping_PreMirror_FindOriginError_FailsOpen(t *testing.T) {
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{}, // no mirror row → after fail-open, passthrough
+		Origins: erroringOriginLookup{err: errors.New("db boom")},
+	}
+	got, err := r.Resolve(context.Background(), "quay.io/grafana/loki:3.0")
+	if err != nil {
+		t.Fatalf("resolve must not return the store error: %v", err)
+	}
+	if got != "quay.io/grafana/loki:3.0" {
+		t.Fatalf("got %q, want passthrough on origins error", got)
+	}
+}
+
+// recordingObserver captures all observed results in order.
+type recordingObserver struct{ results []string }
+
+func (r *recordingObserver) ObserveResolve(result string, _ time.Duration) {
+	r.results = append(r.results, result)
+}
+
+func TestResolve_ManualMapping_PreMirror_EmitsOkManualMetric(t *testing.T) {
+	obs := &recordingObserver{}
+	r := &HTTPResolver{
+		Lookup:  fakeMirrorLookup{},
+		Origins: fakeOriginLookup{"grafana/loki": "docker.io"},
+		Metrics: obs,
+	}
+	if _, err := r.Resolve(context.Background(), "quay.io/grafana/loki:3.0"); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if len(obs.results) != 1 || obs.results[0] != "ok_manual" {
+		t.Fatalf("observer results = %v, want [ok_manual]", obs.results)
 	}
 }
