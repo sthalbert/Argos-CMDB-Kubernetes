@@ -70,6 +70,16 @@ spec:
             - name: LONGUE_VUE_REQUIRE_HTTPS
               value: "true"
             {{- end }}
+            {{- with .Values.server.verifyRateLimit }}
+            {{- if .rps }}
+            - name: LONGUE_VUE_VERIFY_RATE_LIMIT_RPS
+              value: {{ .rps | quote }}
+            {{- end }}
+            {{- if .burst }}
+            - name: LONGUE_VUE_VERIFY_RATE_LIMIT_BURST
+              value: {{ .burst | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.collector.enabled }}
             - name: LONGUE_VUE_COLLECTOR_ENABLED
               value: "true"

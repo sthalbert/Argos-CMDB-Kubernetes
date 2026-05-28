@@ -71,6 +71,15 @@ server:
   #    sessionSecureCookie is "always" (trusted-proxy posture).
   requireHTTPS: false
 
+  # -- Per-IP rate limits for the ingest /v1/auth/verify endpoint (ADR-0016 §5).
+  #    Every push-collector verify reaches longue-vue from the single ingest-gw
+  #    pod IP, so the per-IP bucket is shared across all agents. Raise these
+  #    when adding many push-mode collectors. Defaults: 100 rps / burst 200.
+  #    Empty = use the built-in defaults.
+  verifyRateLimit:
+    rps: ""
+    burst: ""
+
 # -- Secret-encryption master key for cloud-account credentials (ADR-0015).
 # Required when the VM collector is in use; safe to leave empty otherwise.
 # The key is a base64-encoded 32-byte AES-256 master key used to envelope-

@@ -58,22 +58,48 @@ func (rl *LoginRateLimiter) cleanup() {
 	}
 }
 
+// Default per-IP limits for the ingest /v1/auth/verify endpoint (ADR-0016 §5).
+// Generous enough that a healthy gateway never hits it, strict enough to make
+// a buggy build that bypassed the verify cache visible immediately. The
+// "source IP" in practice is always the gateway pod's IP since this listener
+// is only reachable across one mTLS hop — but with many push-collectors
+// fanning through a single gateway IP, operators may need to raise these via
+// LONGUE_VUE_VERIFY_RATE_LIMIT_{RPS,BURST}.
+const (
+	DefaultVerifyRateLimitRPS   = 100
+	DefaultVerifyRateLimitBurst = 200
+)
+
 // VerifyRateLimiter provides per-IP rate limiting for the ingest-listener
-// /v1/auth/verify endpoint (ADR-0016 §5). 100 req/s per source IP with a
-// burst of 200 — generous enough that a healthy gateway never hits it,
-// strict enough to make a buggy build that bypassed the verify cache
-// visible immediately. The "source IP" in practice is always the gateway
-// pod's IP since this listener is only reachable across one mTLS hop.
+// /v1/auth/verify endpoint (ADR-0016 §5).
 type VerifyRateLimiter struct {
 	mu       sync.Mutex
 	limiters map[string]*rlEntry
+	rps      rate.Limit
+	burst    int
 }
 
-// NewVerifyRateLimiter creates a rate limiter allowing 100 verify calls
-// per second per source IP with a burst of 200.
+// NewVerifyRateLimiter creates a rate limiter with the default 100 rps /
+// burst 200 per source IP. Kept for tests and call sites that don't need
+// to tune the limits.
 func NewVerifyRateLimiter() *VerifyRateLimiter {
+	return NewVerifyRateLimiterWithLimits(DefaultVerifyRateLimitRPS, DefaultVerifyRateLimitBurst)
+}
+
+// NewVerifyRateLimiterWithLimits creates a rate limiter with the given
+// per-IP rps and burst. Values <= 0 fall back to the defaults so a typo'd
+// env var can't accidentally disable the limiter.
+func NewVerifyRateLimiterWithLimits(rps float64, burst int) *VerifyRateLimiter {
+	if rps <= 0 {
+		rps = DefaultVerifyRateLimitRPS
+	}
+	if burst <= 0 {
+		burst = DefaultVerifyRateLimitBurst
+	}
 	rl := &VerifyRateLimiter{
 		limiters: make(map[string]*rlEntry),
+		rps:      rate.Limit(rps),
+		burst:    burst,
 	}
 	go rl.cleanup()
 	return rl
@@ -84,8 +110,7 @@ func (rl *VerifyRateLimiter) Allow(ip string) bool {
 	rl.mu.Lock()
 	e, ok := rl.limiters[ip]
 	if !ok {
-		// 100 tokens per second, burst of 200 — see ADR-0016 §5.
-		e = &rlEntry{lim: rate.NewLimiter(rate.Limit(100), 200)} //nolint:mnd // documented in ADR
+		e = &rlEntry{lim: rate.NewLimiter(rl.rps, rl.burst)}
 		rl.limiters[ip] = e
 	}
 	e.lastSeen = time.Now()
