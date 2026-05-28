@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -135,6 +136,19 @@ func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) 
 		return ref, nil
 	}
 
+	// ADR-0031: the operator-curated mapping table is consulted first.
+	// We try FindOrigin on the full imagePath, then strip one leading
+	// segment and retry, until a mapping matches or no slash remains.
+	// First hit wins and short-circuits the mirror lookup. Store errors
+	// are logged and fall through (fail-open) to preserve resolver
+	// availability when the mappings table is transiently unreachable.
+	if h.Origins != nil {
+		if rewritten, matched := h.tryManualMapping(ctx, imagePath, tag); matched {
+			h.observe("ok_manual", started)
+			return rewritten, nil
+		}
+	}
+
 	row, ok, err := h.Lookup.FindMirror(ctx, hostname, imagePath)
 	if err != nil {
 		h.observe("lookup_error", started)
@@ -187,6 +201,37 @@ func (h *HTTPResolver) Resolve(ctx context.Context, ref string) (string, error) 
 	origin, result, err := h.resolveFromMirror(ctx, row, imagePath, tag)
 	h.observe(result, started)
 	return origin, err
+}
+
+// tryManualMapping implements the ADR-0031 pre-mirror lookup. It returns
+// the rewritten ref and matched=true on the first FindOrigin hit while
+// progressively stripping leading segments from imagePath. On any
+// FindOrigin error it logs once and returns matched=false so the caller
+// falls through to the existing mirror/OCI flow.
+func (h *HTTPResolver) tryManualMapping(ctx context.Context, imagePath, tag string) (rewritten string, matched bool) {
+	candidate := imagePath
+	for {
+		reg, ok, err := h.Origins.FindOrigin(ctx, candidate)
+		if err != nil {
+			slog.Warn("mirrorresolve: manual mapping lookup failed",
+				slog.String("candidate", candidate),
+				slog.String("err", err.Error()))
+			return "", false
+		}
+		if ok {
+			if tag != "" {
+				return reg + "/" + candidate + ":" + tag, true
+			}
+			return reg + "/" + candidate, true
+		}
+		// Suffix-match is intentional (ADR-0031): a mapping for "grafana/loki"
+		// rewrites any ref ending with that path. Curate the table accordingly.
+		i := strings.Index(candidate, "/")
+		if i < 0 {
+			return "", false
+		}
+		candidate = candidate[i+1:]
+	}
 }
 
 // resolveFromMirror fetches the manifest from the mirror, applies the
