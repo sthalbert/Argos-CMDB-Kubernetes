@@ -386,13 +386,15 @@ func TestResolve_ManualMapping_PreMirror_FullPathMatch(t *testing.T) {
 	}
 }
 
+const ghcrIO = "ghcr.io"
+
 // Misconfigured Helm value: hostname is docker.io but the path includes
 // the private mirror's prefix. Strip-and-lookup should peel "containers/"
 // and match the bare "grafana/alloy" mapping.
 func TestResolve_ManualMapping_PreMirror_StripOneSegment(t *testing.T) {
 	r := &HTTPResolver{
 		Lookup:  fakeMirrorLookup{}, // no mirror rows
-		Origins: fakeOriginLookup{"grafana/alloy": "ghcr.io"},
+		Origins: fakeOriginLookup{"grafana/alloy": ghcrIO},
 	}
 	got, err := r.Resolve(context.Background(), "docker.io/containers/grafana/alloy:v1.16.1")
 	if err != nil {
@@ -407,7 +409,7 @@ func TestResolve_ManualMapping_PreMirror_StripOneSegment(t *testing.T) {
 func TestResolve_ManualMapping_PreMirror_StripTwoSegments(t *testing.T) {
 	r := &HTTPResolver{
 		Lookup:  fakeMirrorLookup{},
-		Origins: fakeOriginLookup{"foo/bar": "ghcr.io"},
+		Origins: fakeOriginLookup{"foo/bar": ghcrIO},
 	}
 	got, err := r.Resolve(context.Background(), "mirror.priv/team/containers/foo/bar:1.2.3")
 	if err != nil {
@@ -442,7 +444,7 @@ func TestResolve_ManualMapping_PreMirror_SingleSegment(t *testing.T) {
 func TestResolve_ManualMapping_PreMirror_DigestOnly(t *testing.T) {
 	r := &HTTPResolver{
 		Lookup:  fakeMirrorLookup{},
-		Origins: fakeOriginLookup{"foo/bar": "ghcr.io"},
+		Origins: fakeOriginLookup{"foo/bar": ghcrIO},
 	}
 	got, err := r.Resolve(context.Background(), "quay.io/foo/bar@sha256:0000000000000000000000000000000000000000000000000000000000000000")
 	if err != nil {
@@ -476,7 +478,7 @@ func TestResolve_ManualMapping_PreMirror_OriginsNil_Passthrough(t *testing.T) {
 // the resolve.
 type erroringOriginLookup struct{ err error }
 
-func (e erroringOriginLookup) FindOrigin(_ context.Context, _ string) (string, bool, error) {
+func (e erroringOriginLookup) FindOrigin(_ context.Context, _ string) (publicRegistry string, ok bool, err error) {
 	return "", false, e.err
 }
 
