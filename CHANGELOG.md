@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.31.0](https://github.com/sthalbert/Longue-Vue/compare/v0.30.1...v0.31.0) (2026-05-28)
+
+
+### Features
+
+* **imageversions:** make manual origin mappings authoritative (ADR-0031) ([92ec128](https://github.com/sthalbert/Longue-Vue/commit/92ec1284efd4975718f394164f955ca371375ecd))
+* **imageversions:** make manual origin mappings authoritative (ADR-0031) ([fcc653f](https://github.com/sthalbert/Longue-Vue/commit/fcc653fc5a288aa25fd57c10c9b02603fadd1f72))
+
 ## [0.30.1](https://github.com/sthalbert/Longue-Vue/compare/v0.30.0...v0.30.1) (2026-05-27)
 
 
