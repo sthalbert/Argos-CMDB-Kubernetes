@@ -781,8 +781,13 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 			if items[i].Containers != nil {
 				containers = *items[i].Containers
 			}
-			cv := map[string]ContainerVersionInfo(EnrichContainersVersions(ctx, s.store, containers))
-			items[i].ContainersVersions = &cv
+			// Only attach the field when something was actually enriched, so an
+			// included-but-unenrichable workload omits containers_versions
+			// rather than serialising it as null (schema is non-nullable).
+			if cv := EnrichContainersVersions(ctx, s.store, containers); cv != nil {
+				m := map[string]ContainerVersionInfo(cv)
+				items[i].ContainersVersions = &m
+			}
 		}
 	}
 	resp := WorkloadList{Items: items}

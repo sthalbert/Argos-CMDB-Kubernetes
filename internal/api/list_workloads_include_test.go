@@ -90,3 +90,48 @@ func TestListWorkloads_IncludeContainersVersions(t *testing.T) {
 		t.Errorf("containers_versions should be nil without ?include, got %v", *list2.Items[0].ContainersVersions)
 	}
 }
+
+// TestListWorkloads_IncludeNothingEnrichable verifies that requesting the
+// enrichment for a workload whose containers cannot be enriched (no matching
+// image_versions row) omits containers_versions entirely rather than
+// serialising it as null — the schema is non-nullable.
+func TestListWorkloads_IncludeNothingEnrichable(t *testing.T) {
+	ms := newMemStore()
+	s := NewServer("test", ms, auth.SecureNever, nil, NewLoginRateLimiter(), NewVerifyRateLimiter())
+	ctx := context.Background()
+
+	cluster, _, err := ms.EnsureCluster(ctx, ClusterCreate{Name: "wl-include-empty"})
+	if err != nil {
+		t.Fatalf("seed cluster: %v", err)
+	}
+	ns, err := ms.CreateNamespace(ctx, NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("seed namespace: %v", err)
+	}
+	// Container present, but no image_versions row exists for it → unenrichable.
+	containers := ContainerList{{"name": "web", "image": "nginx:1.25.3"}}
+	if _, err := ms.CreateWorkload(ctx, WorkloadCreate{
+		NamespaceId: *ns.Id,
+		Kind:        Deployment,
+		Name:        "web",
+		Containers:  &containers,
+	}); err != nil {
+		t.Fatalf("seed workload: %v", err)
+	}
+
+	inc := IncludeContainersVersions
+	resp, err := s.ListWorkloads(ctx, ListWorkloadsRequestObject{Params: ListWorkloadsParams{Include: &inc}})
+	if err != nil {
+		t.Fatalf("ListWorkloads (include, nothing enrichable): %v", err)
+	}
+	list, ok := resp.(ListWorkloads200JSONResponse)
+	if !ok {
+		t.Fatalf("expected 200, got %T", resp)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 workload, got %d", len(list.Items))
+	}
+	if list.Items[0].ContainersVersions != nil {
+		t.Errorf("containers_versions should be omitted when nothing is enrichable, got %v", *list.Items[0].ContainersVersions)
+	}
+}
