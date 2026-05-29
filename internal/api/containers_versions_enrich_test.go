@@ -27,19 +27,20 @@ func TestMinorDistanceStatus(t *testing.T) {
 		{"1.25.3", "3.4.0", "eol"},              // big major gap
 	}
 	for _, c := range cases {
-		got := minorDistanceStatus(mk(c.cur), mk(c.latest))
+		got := string(minorDistanceStatus(mk(c.cur), mk(c.latest)))
 		if got != c.want {
 			t.Errorf("minorDistanceStatus(%s,%s)=%q want %q", c.cur, c.latest, got, c.want)
 		}
 	}
 }
 
+//nolint:gocyclo // sequential subtests over independent image cases; flat is clearer than factored helpers.
 func TestEnrichContainersVersions(t *testing.T) {
 	t.Parallel()
 
 	s := newMemStore()
 	ctx := context.Background()
-	latest := "1.27.4"
+	latest := tagNginxLatest
 	_, err := s.UpsertImageVersion(ctx, ImageVersionUpsert{
 		ImageRepo:     "docker.io/library/nginx",
 		Variant:       "",
@@ -70,7 +71,7 @@ func TestEnrichContainersVersions(t *testing.T) {
 	if v.IsBehind == nil || !*v.IsBehind {
 		t.Errorf("web.IsBehind: want true (1.25.3 < 1.27.4)")
 	}
-	if v.EolStatus == nil || string(*v.EolStatus) != "eol" {
+	if v.EolStatus == nil || string(*v.EolStatus) != string(ContainerVersionInfoEolStatusEol) {
 		t.Errorf("web.EolStatus: want eol (1.25→1.27 = 2 minors), got %v", v.EolStatus)
 	}
 

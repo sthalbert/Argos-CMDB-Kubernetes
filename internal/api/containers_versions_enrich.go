@@ -49,20 +49,20 @@ func (v containerVersion) gt(other containerVersion) bool {
 // minorDistanceStatus maps the minor-version distance between the deployed
 // tag (cur) and the latest registry tag (latest) onto the traffic-light EOL
 // status (ADR-0032). Patch differences are ignored; any major gap is "eol".
-func minorDistanceStatus(cur, latest containerVersion) string {
+func minorDistanceStatus(cur, latest containerVersion) ContainerVersionInfoEolStatus {
 	if !latest.gt(cur) {
-		return "supported"
+		return ContainerVersionInfoEolStatusSupported
 	}
 	if semver.Major(latest.raw) != semver.Major(cur.raw) {
-		return "eol"
+		return ContainerVersionInfoEolStatusEol
 	}
 	switch latest.minor() - cur.minor() {
 	case 0:
-		return "supported"
+		return ContainerVersionInfoEolStatusSupported
 	case 1:
-		return "approaching_eol"
+		return ContainerVersionInfoEolStatusApproachingEol
 	default:
-		return "eol"
+		return ContainerVersionInfoEolStatusEol
 	}
 }
 
@@ -275,7 +275,7 @@ func lookupVersionRow(ctx context.Context, s containerVersionLookup, imageRepo s
 			continue
 		}
 		isBehind := latest.version.gt(cur.version)
-		status := ContainerVersionInfoEolStatus(minorDistanceStatus(cur.version, latest.version))
+		status := minorDistanceStatus(cur.version, latest.version)
 		return ContainerVersionInfo{
 			LatestTag:     row.LatestTag,
 			IsBehind:      &isBehind,

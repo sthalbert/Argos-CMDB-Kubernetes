@@ -13,6 +13,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
+//nolint:gocyclo // sequential seed + list + assertions; flat structure is clearer here.
 func TestListWorkloads_IncludeContainersVersions(t *testing.T) {
 	ms := newMemStore()
 	s := NewServer("test", ms, auth.SecureNever, nil, NewLoginRateLimiter(), NewVerifyRateLimiter())
@@ -36,7 +37,7 @@ func TestListWorkloads_IncludeContainersVersions(t *testing.T) {
 		t.Fatalf("seed workload: %v", err)
 	}
 
-	latest := "1.27.4"
+	latest := tagNginxLatest
 	if _, err := ms.UpsertImageVersion(ctx, ImageVersionUpsert{
 		ImageRepo:     "docker.io/library/nginx",
 		Variant:       "",
@@ -70,7 +71,7 @@ func TestListWorkloads_IncludeContainersVersions(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'web' container enriched, got %v", *cv)
 	}
-	if web.EolStatus == nil || string(*web.EolStatus) != "eol" {
+	if web.EolStatus == nil || string(*web.EolStatus) != string(ContainerVersionInfoEolStatusEol) {
 		t.Errorf("web.EolStatus: want eol (1.25 vs 1.27 = 2 minors), got %v", web.EolStatus)
 	}
 

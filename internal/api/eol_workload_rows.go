@@ -13,7 +13,7 @@ import (
 // the global EOL dashboard (ADR-0032). Only enriched containers (a non-nil
 // eol_status) contribute an image; the deployed tag is parsed here to derive
 // the repo and the major.minor cycle.
-func workloadToEolaggInput(w Workload) eolagg.WorkloadInput {
+func workloadToEolaggInput(w *Workload) eolagg.WorkloadInput {
 	in := eolagg.WorkloadInput{Name: w.Name}
 	if w.Id != nil {
 		in.ID = w.Id.String()
@@ -24,8 +24,16 @@ func workloadToEolaggInput(w Workload) eolagg.WorkloadInput {
 	if w.Containers == nil || w.ContainersVersions == nil {
 		return in
 	}
-	versions := *w.ContainersVersions
-	for _, c := range *w.Containers {
+	in.Images = enrichedWorkloadImages(*w.Containers, *w.ContainersVersions)
+	return in
+}
+
+// enrichedWorkloadImages turns a workload's containers + their enrichment into
+// the flat eolagg.WorkloadImage slice. Only containers with a populated
+// eol_status and a parseable image reference contribute a row.
+func enrichedWorkloadImages(containers ContainerList, versions map[string]ContainerVersionInfo) []eolagg.WorkloadImage {
+	var images []eolagg.WorkloadImage
+	for _, c := range containers {
 		name, _ := c["name"].(string)
 		img, _ := c["image"].(string)
 		if name == "" || img == "" {
@@ -35,26 +43,35 @@ func workloadToEolaggInput(w Workload) eolagg.WorkloadInput {
 		if !ok || cv.EolStatus == nil {
 			continue
 		}
-		ref, err := parseContainerRef(img)
-		if err != nil {
-			continue
+		if image, ok := containerToWorkloadImage(img, cv); ok {
+			images = append(images, image)
 		}
-		cur, err := parseContainerTag(ref.tag)
-		if err != nil {
-			continue
-		}
-		image := eolagg.WorkloadImage{
-			Repo:      ref.imageRepo,
-			Cycle:     strings.TrimPrefix(semver.MajorMinor(cur.version.raw), "v"),
-			EOLStatus: string(*cv.EolStatus),
-		}
-		if cv.LatestTag != nil {
-			image.LatestTag = *cv.LatestTag
-		}
-		if cv.LastCheckedAt != nil {
-			image.CheckedAt = cv.LastCheckedAt.Format("2006-01-02T15:04:05Z07:00")
-		}
-		in.Images = append(in.Images, image)
 	}
-	return in
+	return images
+}
+
+// containerToWorkloadImage parses a deployed image string + its enriched
+// container-version info into an eolagg.WorkloadImage. Returns ok=false when
+// the image reference or tag is not parseable.
+func containerToWorkloadImage(img string, cv ContainerVersionInfo) (eolagg.WorkloadImage, bool) {
+	ref, err := parseContainerRef(img)
+	if err != nil {
+		return eolagg.WorkloadImage{}, false
+	}
+	cur, err := parseContainerTag(ref.tag)
+	if err != nil {
+		return eolagg.WorkloadImage{}, false
+	}
+	image := eolagg.WorkloadImage{
+		Repo:      ref.imageRepo,
+		Cycle:     strings.TrimPrefix(semver.MajorMinor(cur.version.raw), "v"),
+		EOLStatus: string(*cv.EolStatus),
+	}
+	if cv.LatestTag != nil {
+		image.LatestTag = *cv.LatestTag
+	}
+	if cv.LastCheckedAt != nil {
+		image.CheckedAt = cv.LastCheckedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	return image, true
 }

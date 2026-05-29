@@ -54,8 +54,8 @@ func FlattenWorkloads(workloads []WorkloadInput) []Row {
 				byRepo[img.Repo] = cand
 			}
 		}
-		for _, row := range byRepo {
-			out = append(out, row)
+		for repo := range byRepo {
+			out = append(out, byRepo[repo])
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

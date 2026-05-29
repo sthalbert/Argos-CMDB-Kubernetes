@@ -81,6 +81,7 @@ func TestEolExtract_StatusFilter(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // straight-line seed + extract + assertions; flat structure is clearer here.
 func TestEolExtract_WorkloadRows(t *testing.T) {
 	latest := "2.17.1"
 	srv := newExtractTestServerSeeded(t, func(s *extractStubStore) {

@@ -88,7 +88,8 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		status := q.Get("status")
-		if status != "" && status != "eol" && status != "approaching_eol" && status != "supported" && status != extractStatusUnknown {
+		if status != "" && status != string(Eol) && status != string(ApproachingEol) &&
+			status != string(Supported) && status != extractStatusUnknown {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
@@ -131,7 +132,7 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		rows := eolagg.Flatten(toEolaggClusters(clusters), toEolaggNodes(nodes), toEolaggVMs(vms))
 
 		if entityType == "" || entityType == "workload" {
-			workloads, err := collectAllWorkloads(r.Context(), store)
+			wlRows, err := collectWorkloadEolRows(r.Context(), store)
 			if err != nil {
 				slog.Error("extract: list workloads", slog.Any("error", err))
 				SetAuditDetails(r.Context(), map[string]any{
@@ -141,17 +142,7 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 				return
 			}
-			wlInputs := make([]eolagg.WorkloadInput, 0, len(workloads))
-			for i := range workloads {
-				var containers []map[string]any
-				if workloads[i].Containers != nil {
-					containers = *workloads[i].Containers
-				}
-				cv := map[string]ContainerVersionInfo(EnrichContainersVersions(r.Context(), store, containers))
-				workloads[i].ContainersVersions = &cv
-				wlInputs = append(wlInputs, workloadToEolaggInput(workloads[i]))
-			}
-			rows = append(rows, eolagg.FlattenWorkloads(wlInputs)...)
+			rows = append(rows, wlRows...)
 		}
 
 		if entityType != "" {
@@ -641,6 +632,27 @@ func derefTimeStr(t *time.Time) string {
 
 func collectAllWorkloads(ctx context.Context, store ExtractStore) ([]Workload, error) {
 	return listAllWorkloadsByFilter(ctx, store, WorkloadListFilter{})
+}
+
+// collectWorkloadEolRows lists every workload, enriches each one's containers
+// with latest-tag/eol_status info, and flattens them into eolagg rows for the
+// global EOL dashboard extract (ADR-0032).
+func collectWorkloadEolRows(ctx context.Context, store ExtractStore) ([]eolagg.Row, error) {
+	workloads, err := collectAllWorkloads(ctx, store)
+	if err != nil {
+		return nil, err
+	}
+	wlInputs := make([]eolagg.WorkloadInput, 0, len(workloads))
+	for i := range workloads {
+		var containers []map[string]any
+		if workloads[i].Containers != nil {
+			containers = *workloads[i].Containers
+		}
+		cv := map[string]ContainerVersionInfo(EnrichContainersVersions(ctx, store, containers))
+		workloads[i].ContainersVersions = &cv
+		wlInputs = append(wlInputs, workloadToEolaggInput(&workloads[i]))
+	}
+	return eolagg.FlattenWorkloads(wlInputs), nil
 }
 
 // listAllWorkloadsByFilter paginates ListWorkloads with the given filter and

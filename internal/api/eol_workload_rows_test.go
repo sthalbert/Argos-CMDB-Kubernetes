@@ -7,6 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// tagNginxLatest is the shared "latest nginx tag" fixture literal (goconst).
+const tagNginxLatest = "1.27.4"
+
 func mustUUID(t *testing.T, s string) uuid.UUID {
 	t.Helper()
 	id, err := uuid.Parse(s)
@@ -28,7 +31,7 @@ func mustTime(t *testing.T, s string) time.Time {
 func TestWorkloadToEolaggInput(t *testing.T) {
 	cluster := "prod-eu"
 	id := mustUUID(t, "11111111-1111-1111-1111-111111111111")
-	latest := "1.27.4"
+	latest := tagNginxLatest
 	status := ContainerVersionInfoEolStatus("eol")
 	checked := mustTime(t, "2026-05-15T00:00:00Z")
 
@@ -45,8 +48,8 @@ func TestWorkloadToEolaggInput(t *testing.T) {
 		},
 	}
 
-	in := workloadToEolaggInput(w)
-	if in.Name != "api" || in.Cluster != "prod-eu" {
+	in := workloadToEolaggInput(&w)
+	if in.Name != "api" || in.Cluster != cluster {
 		t.Fatalf("entity fields: %+v", in)
 	}
 	if len(in.Images) != 1 {
@@ -68,7 +71,7 @@ func TestWorkloadToEolaggInput_NoEnrichedContainers(t *testing.T) {
 		},
 		// ContainersVersions nil / empty -> nothing enriched
 	}
-	in := workloadToEolaggInput(w)
+	in := workloadToEolaggInput(&w)
 	if len(in.Images) != 0 {
 		t.Fatalf("want 0 images for unenriched workload, got %d", len(in.Images))
 	}
@@ -87,7 +90,7 @@ func TestWorkloadToEolaggInput_NilLatestTag(t *testing.T) {
 			"web": {EolStatus: &status}, // LatestTag nil
 		},
 	}
-	in := workloadToEolaggInput(w)
+	in := workloadToEolaggInput(&w)
 	if len(in.Images) != 1 {
 		t.Fatalf("want 1 image, got %d", len(in.Images))
 	}
