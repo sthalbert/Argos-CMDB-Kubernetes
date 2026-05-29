@@ -151,3 +151,43 @@ describe('EOL Dashboard application column', () => {
     expect(screen.getByText('vault')).toBeInTheDocument();
   });
 });
+
+describe('EOL Dashboard workload image rows', () => {
+  it('renders workload image rows with traffic-light status', async () => {
+    server.use(
+      http.get('/v1/clusters', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/nodes', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/virtual-machines', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/applications', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/workloads', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'w1',
+              namespace_id: 'ns1',
+              kind: 'Deployment',
+              name: 'api',
+              cluster_name: 'prod-eu',
+              containers: [{ name: 'web', image: 'nginx:1.25.3' }],
+              containers_versions: {
+                web: {
+                  latest_tag: '1.27.4',
+                  is_behind: true,
+                  eol_status: 'eol',
+                  last_checked_at: '2026-05-15T00:00:00Z',
+                },
+              },
+              layer: 'collected',
+              created_at: '2026-05-15T00:00:00Z',
+              updated_at: '2026-05-15T00:00:00Z',
+            },
+          ],
+          next_cursor: null,
+        }),
+      ),
+    );
+    renderWithRouter(<EolDashboard />, { initialPath: '/eol' });
+    expect(await screen.findByText('api')).toBeInTheDocument();
+    expect(screen.getByText('nginx', { exact: false })).toBeInTheDocument();
+  });
+});
