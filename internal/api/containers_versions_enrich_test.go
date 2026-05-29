@@ -7,6 +7,33 @@ import (
 	"time"
 )
 
+func TestMinorDistanceStatus(t *testing.T) {
+	mk := func(s string) containerVersion {
+		pt, err := parseContainerTag(s)
+		if err != nil {
+			t.Fatalf("parse %q: %v", s, err)
+		}
+		return pt.version
+	}
+	cases := []struct {
+		cur, latest, want string
+	}{
+		{"1.25.3", "1.25.9", "supported"},       // patch only
+		{"1.25.3", "1.25.3", "supported"},       // equal
+		{"1.27.0", "1.25.9", "supported"},       // deployed ahead
+		{"1.25.3", "1.26.0", "approaching_eol"}, // one minor
+		{"1.25.3", "1.27.0", "eol"},             // two minors
+		{"1.25.3", "2.0.0", "eol"},              // major gap
+		{"1.25.3", "3.4.0", "eol"},              // big major gap
+	}
+	for _, c := range cases {
+		got := minorDistanceStatus(mk(c.cur), mk(c.latest))
+		if got != c.want {
+			t.Errorf("minorDistanceStatus(%s,%s)=%q want %q", c.cur, c.latest, got, c.want)
+		}
+	}
+}
+
 func TestEnrichContainersVersions(t *testing.T) {
 	t.Parallel()
 
@@ -42,6 +69,9 @@ func TestEnrichContainersVersions(t *testing.T) {
 	}
 	if v.IsBehind == nil || !*v.IsBehind {
 		t.Errorf("web.IsBehind: want true (1.25.3 < 1.27.4)")
+	}
+	if v.EolStatus == nil || string(*v.EolStatus) != "eol" {
+		t.Errorf("web.EolStatus: want eol (1.25→1.27 = 2 minors), got %v", v.EolStatus)
 	}
 
 	// "side" has a :latest tag — ParseImageRef rejects it (ErrSkip).
@@ -84,6 +114,9 @@ func TestEnrichContainersVersions_NotBehind(t *testing.T) {
 	}
 	if v.IsBehind == nil || *v.IsBehind {
 		t.Errorf("web.IsBehind: want false (1.25.3 == 1.25.3)")
+	}
+	if v.EolStatus == nil || string(*v.EolStatus) != "supported" {
+		t.Errorf("web.EolStatus: want supported (equal), got %v", v.EolStatus)
 	}
 }
 

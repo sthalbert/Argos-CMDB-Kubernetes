@@ -46,6 +46,37 @@ func (v containerVersion) gt(other containerVersion) bool {
 	return semver.Compare(v.raw, other.raw) > 0
 }
 
+// minorDistanceStatus maps the minor-version distance between the deployed
+// tag (cur) and the latest registry tag (latest) onto the traffic-light EOL
+// status (ADR-0032). Patch differences are ignored; any major gap is "eol".
+func minorDistanceStatus(cur, latest containerVersion) string {
+	if !latest.gt(cur) {
+		return "supported"
+	}
+	if semver.Major(latest.raw) != semver.Major(cur.raw) {
+		return "eol"
+	}
+	switch latest.minor() - cur.minor() {
+	case 0:
+		return "supported"
+	case 1:
+		return "approaching_eol"
+	default:
+		return "eol"
+	}
+}
+
+// minor returns the numeric minor component of the canonical "vX.Y.Z" form.
+func (v containerVersion) minor() int {
+	mm := semver.MajorMinor(v.raw) // "vX.Y"
+	dot := strings.LastIndex(mm, ".")
+	if dot < 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(mm[dot+1:])
+	return n
+}
+
 var (
 	semverPrefixRe = regexp.MustCompile(`^v?(\d+(?:\.\d+){0,2})`)
 
@@ -237,10 +268,12 @@ func lookupVersionRow(ctx context.Context, s Store, imageRepo string, cur contai
 			continue
 		}
 		isBehind := latest.version.gt(cur.version)
+		status := ContainerVersionInfoEolStatus(minorDistanceStatus(cur.version, latest.version))
 		return ContainerVersionInfo{
 			LatestTag:     row.LatestTag,
 			IsBehind:      &isBehind,
 			LastCheckedAt: &row.LastCheckedAt,
+			EolStatus:     &status,
 		}, true
 	}
 	return ContainerVersionInfo{}, false
