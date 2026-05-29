@@ -74,6 +74,10 @@ type extractStubStore struct {
 	vms          []api.VirtualMachine
 	accounts     []api.CloudAccount
 	applications map[uuid.UUID]string // app UUID → lowercased name
+
+	// imageVersions stubs image_versions rows keyed by repo, letting tests
+	// drive workload EOL enrichment in the EOL extract.
+	imageVersions map[string][]api.ImageVersionRow
 }
 
 // Stable UUIDs for the ADR-0029 application-link tests so they can be
@@ -271,6 +275,18 @@ func (s *extractStubStore) ListVirtualMachines(
 
 func (s *extractStubStore) ListCloudAccounts(_ context.Context, _ int, _ string) ([]api.CloudAccount, string, error) {
 	return s.accounts, "", nil
+}
+
+// GetImageOriginResolution: the extract stub carries no mirror resolutions,
+// so every lookup is a passthrough (ErrNotFound).
+func (s *extractStubStore) GetImageOriginResolution(_ context.Context, _, _ string) (api.ImageOriginResolution, error) {
+	return api.ImageOriginResolution{}, api.ErrNotFound
+}
+
+// GetImageVersionsByRepo: returns any stubbed image_versions rows for the
+// repo (none by default → workloads contribute no EOL rows).
+func (s *extractStubStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) ([]api.ImageVersionRow, error) {
+	return s.imageVersions[imageRepo], nil
 }
 
 func containsLower(haystack, needle string) bool {

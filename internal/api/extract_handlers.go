@@ -25,6 +25,11 @@ type ExtractStore interface {
 	ListPods(ctx context.Context, filter PodListFilter, limit int, cursor string) ([]Pod, string, error)
 	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, limit int, cursor string) ([]VirtualMachine, string, error)
 	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]CloudAccount, string, error)
+
+	// Container-version enrichment surface (used to attach EOL status to
+	// workload images for the EOL extract).
+	GetImageOriginResolution(ctx context.Context, mirrorImageRepo, variant string) (ImageOriginResolution, error)
+	GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]ImageVersionRow, error)
 }
 
 const extractPageSize = 200
@@ -74,12 +79,12 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		entityType := q.Get("entity_type")
-		if entityType != "" && entityType != "cluster" && entityType != "node" && entityType != "vm" {
+		if entityType != "" && entityType != "cluster" && entityType != "node" && entityType != "vm" && entityType != "workload" {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
 			metrics.ObserveExtract("eol", format, "denied", 0)
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "entity_type must be 'cluster', 'node', or 'vm'")
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "entity_type must be 'cluster', 'node', 'vm', or 'workload'")
 			return
 		}
 		status := q.Get("status")
@@ -124,6 +129,29 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		}
 
 		rows := eolagg.Flatten(toEolaggClusters(clusters), toEolaggNodes(nodes), toEolaggVMs(vms))
+
+		workloads, err := collectAllWorkloads(r.Context(), store)
+		if err != nil {
+			slog.Error("extract: list workloads", slog.Any("error", err))
+			SetAuditDetails(r.Context(), map[string]any{
+				"action": "extract", "page": "eol", "format": format, "outcome": "error",
+			})
+			metrics.ObserveExtract("eol", format, "error", 0)
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		wlInputs := make([]eolagg.WorkloadInput, 0, len(workloads))
+		for i := range workloads {
+			var containers []map[string]any
+			if workloads[i].Containers != nil {
+				containers = *workloads[i].Containers
+			}
+			cv := map[string]ContainerVersionInfo(EnrichContainersVersions(r.Context(), store, containers))
+			workloads[i].ContainersVersions = &cv
+			wlInputs = append(wlInputs, workloadToEolaggInput(workloads[i]))
+		}
+		rows = append(rows, eolagg.FlattenWorkloads(wlInputs)...)
+
 		if entityType != "" {
 			filtered := rows[:0]
 			for i := range rows {

@@ -175,9 +175,16 @@ func classifyTagSuffix(original, rest string) (variant string, err error) {
 	return suffix, nil
 }
 
+// containerVersionLookup is the minimal store surface the container-version
+// enrichment needs (mirror-origin resolution + the image_versions rows).
+type containerVersionLookup interface {
+	GetImageOriginResolution(ctx context.Context, mirrorImageRepo, variant string) (ImageOriginResolution, error)
+	GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]ImageVersionRow, error)
+}
+
 // EnrichContainersVersions joins each container's image string against the
 // image_versions store.
-func EnrichContainersVersions(ctx context.Context, s Store, containers []map[string]any) ContainersVersions {
+func EnrichContainersVersions(ctx context.Context, s containerVersionLookup, containers []map[string]any) ContainersVersions {
 	out := ContainersVersions{}
 	for _, c := range containers {
 		name, _ := c["name"].(string)
@@ -205,7 +212,7 @@ func EnrichContainersVersions(ctx context.Context, s Store, containers []map[str
 //     return origin_status="unresolved" with origin_error set, no badge.
 //  3. The image isn't in the resolutions table → fall through to direct
 //     lookup against image_versions (today's passthrough behavior).
-func lookupContainerVersion(ctx context.Context, s Store, img string) (ContainerVersionInfo, bool) {
+func lookupContainerVersion(ctx context.Context, s containerVersionLookup, img string) (ContainerVersionInfo, bool) {
 	ref, err := parseContainerRef(img)
 	if err != nil {
 		return ContainerVersionInfo{}, false
@@ -253,7 +260,7 @@ func lookupContainerVersion(ctx context.Context, s Store, img string) (Container
 // returns a populated ContainerVersionInfo (without origin fields).
 // Returns (zero, false) when no row matches or the row has no usable
 // latest_tag.
-func lookupVersionRow(ctx context.Context, s Store, imageRepo string, cur containerParsedTag) (ContainerVersionInfo, bool) {
+func lookupVersionRow(ctx context.Context, s containerVersionLookup, imageRepo string, cur containerParsedTag) (ContainerVersionInfo, bool) {
 	rows, err := s.GetImageVersionsByRepo(ctx, imageRepo)
 	if err != nil {
 		return ContainerVersionInfo{}, false
