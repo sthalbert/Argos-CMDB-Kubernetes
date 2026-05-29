@@ -177,7 +177,7 @@ describe('EOL Dashboard workload image rows', () => {
                   last_checked_at: '2026-05-15T00:00:00Z',
                 },
               },
-              layer: 'collected',
+              layer: 'applicative',
               created_at: '2026-05-15T00:00:00Z',
               updated_at: '2026-05-15T00:00:00Z',
             },
@@ -189,5 +189,10 @@ describe('EOL Dashboard workload image rows', () => {
     renderWithRouter(<EolDashboard />, { initialPath: '/eol' });
     expect(await screen.findByText('api')).toBeInTheDocument();
     expect(screen.getByText('nginx', { exact: false })).toBeInTheDocument();
+    // The latest tag is unique to this workload row — proves the row was built
+    // with the server-provided enrichment data.
+    expect(screen.getAllByText('1.27.4').length).toBeGreaterThan(0);
+    // eol_status='eol' must render the red traffic-light badge ("End of Life").
+    expect(screen.getAllByText('End of Life').length).toBeGreaterThan(0);
   });
 });
