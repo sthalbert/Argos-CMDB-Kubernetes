@@ -2498,7 +2498,7 @@ paths:
           name: entity_type
           schema:
             type: string
-            enum: [cluster, node, vm]
+            enum: [cluster, node, vm, workload]
         - in: query
           name: status
           schema:
@@ -5910,7 +5910,7 @@ components:
       type: object
       required: [entity_type, entity_id, entity_name, product, cycle, status]
       properties:
-        entity_type: { type: string, enum: [cluster, node, vm] }
+        entity_type: { type: string, enum: [cluster, node, vm, workload] }
         entity_id: { type: string }
         entity_name: { type: string }
         cluster: { type: string }
