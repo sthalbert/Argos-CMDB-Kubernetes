@@ -684,6 +684,17 @@ paths:
         - $ref: '#/components/parameters/WorkloadApplicationIdFilter'
         - $ref: '#/components/parameters/WorkloadApplicationNameFilter'
         - $ref: '#/components/parameters/WorkloadUnlinkedFilter'
+        - name: include
+          in: query
+          required: false
+          description: >-
+            Optional enrichment selector. Only 'containers_versions' is
+            recognised; it populates each item's containers_versions
+            (ADR-0022/0032). Omitted by default to keep list responses cheap.
+          schema:
+            type: string
+            enum: [containers_versions]
+            x-enum-varnames: [IncludeContainersVersions]
       responses:
         '200':
           description: Paged list of workloads.
@@ -2498,7 +2509,7 @@ paths:
           name: entity_type
           schema:
             type: string
-            enum: [cluster, node, vm]
+            enum: [cluster, node, vm, workload]
         - in: query
           name: status
           schema:
@@ -5680,6 +5691,15 @@ components:
           type: string
         is_behind:
           type: boolean
+        eol_status:
+          type: string
+          enum: [supported, approaching_eol, eol]
+          description: >-
+            Traffic-light freshness derived from the minor-version distance
+            between the deployed tag and latest_tag (ADR-0032): 'supported'
+            (same minor or only patch behind), 'approaching_eol' (one minor
+            behind), 'eol' (two or more minors behind, or any major gap).
+            Absent when the image is not enriched.
         last_checked_at:
           type: string
           format: date-time
@@ -5901,7 +5921,7 @@ components:
       type: object
       required: [entity_type, entity_id, entity_name, product, cycle, status]
       properties:
-        entity_type: { type: string, enum: [cluster, node, vm] }
+        entity_type: { type: string, enum: [cluster, node, vm, workload] }
         entity_id: { type: string }
         entity_name: { type: string }
         cluster: { type: string }

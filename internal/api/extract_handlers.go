@@ -25,6 +25,11 @@ type ExtractStore interface {
 	ListPods(ctx context.Context, filter PodListFilter, limit int, cursor string) ([]Pod, string, error)
 	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, limit int, cursor string) ([]VirtualMachine, string, error)
 	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]CloudAccount, string, error)
+
+	// Container-version enrichment surface (used to attach EOL status to
+	// workload images for the EOL extract).
+	GetImageOriginResolution(ctx context.Context, mirrorImageRepo, variant string) (ImageOriginResolution, error)
+	GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]ImageVersionRow, error)
 }
 
 const extractPageSize = 200
@@ -74,16 +79,17 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		entityType := q.Get("entity_type")
-		if entityType != "" && entityType != "cluster" && entityType != "node" && entityType != "vm" {
+		if entityType != "" && entityType != "cluster" && entityType != "node" && entityType != "vm" && entityType != "workload" {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
 			metrics.ObserveExtract("eol", format, "denied", 0)
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "entity_type must be 'cluster', 'node', or 'vm'")
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "entity_type must be 'cluster', 'node', 'vm', or 'workload'")
 			return
 		}
 		status := q.Get("status")
-		if status != "" && status != "eol" && status != "approaching_eol" && status != "supported" && status != extractStatusUnknown {
+		if status != "" && status != string(Eol) && status != string(ApproachingEol) &&
+			status != string(Supported) && status != extractStatusUnknown {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
@@ -124,6 +130,21 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		}
 
 		rows := eolagg.Flatten(toEolaggClusters(clusters), toEolaggNodes(nodes), toEolaggVMs(vms))
+
+		if entityType == "" || entityType == "workload" {
+			wlRows, err := collectWorkloadEolRows(r.Context(), store)
+			if err != nil {
+				slog.Error("extract: list workloads", slog.Any("error", err))
+				SetAuditDetails(r.Context(), map[string]any{
+					"action": "extract", "page": "eol", "format": format, "outcome": "error",
+				})
+				metrics.ObserveExtract("eol", format, "error", 0)
+				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+				return
+			}
+			rows = append(rows, wlRows...)
+		}
+
 		if entityType != "" {
 			filtered := rows[:0]
 			for i := range rows {
@@ -611,6 +632,27 @@ func derefTimeStr(t *time.Time) string {
 
 func collectAllWorkloads(ctx context.Context, store ExtractStore) ([]Workload, error) {
 	return listAllWorkloadsByFilter(ctx, store, WorkloadListFilter{})
+}
+
+// collectWorkloadEolRows lists every workload, enriches each one's containers
+// with latest-tag/eol_status info, and flattens them into eolagg rows for the
+// global EOL dashboard extract (ADR-0032).
+func collectWorkloadEolRows(ctx context.Context, store ExtractStore) ([]eolagg.Row, error) {
+	workloads, err := collectAllWorkloads(ctx, store)
+	if err != nil {
+		return nil, err
+	}
+	wlInputs := make([]eolagg.WorkloadInput, 0, len(workloads))
+	for i := range workloads {
+		var containers []map[string]any
+		if workloads[i].Containers != nil {
+			containers = *workloads[i].Containers
+		}
+		cv := map[string]ContainerVersionInfo(EnrichContainersVersions(ctx, store, containers))
+		workloads[i].ContainersVersions = &cv
+		wlInputs = append(wlInputs, workloadToEolaggInput(&workloads[i]))
+	}
+	return eolagg.FlattenWorkloads(wlInputs), nil
 }
 
 // listAllWorkloadsByFilter paginates ListWorkloads with the given filter and

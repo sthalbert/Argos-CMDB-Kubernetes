@@ -658,7 +658,7 @@ func TestApplicationEOL_MergesWorkloadAndVMAppEntry(t *testing.T) {
 	}
 	// The VM-app entry's real annotation (eol) should win over the
 	// workload's image-versions "outdated".
-	if row.EOLStatus != "eol" {
+	if row.EOLStatus != string(ApplicationEOLRowEolStatusEol) {
 		t.Errorf("eol_status = %q want eol", row.EOLStatus)
 	}
 	if len(row.Sources) != 2 {

@@ -730,6 +730,8 @@ func (s *Server) DeletePod(ctx context.Context, req DeletePodRequestObject) (Del
 
 // ListWorkloads returns a paged list of workloads, optionally filtered by
 // namespace_id and/or kind.
+//
+//nolint:gocritic // req is passed by value to satisfy the oapi-codegen ServerInterface signature.
 func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObject) (ListWorkloadsResponseObject, error) {
 	limit := 0
 	if req.Params.Limit != nil {
@@ -773,6 +775,9 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 	// ADR-0029 §6: project the read-only inherited DICT. Bulk-fetches the
 	// distinct linked applications in one query (no N+1).
 	decorateWorkloadsDICT(ctx, s.store, items)
+	// ADR-0022/0032: opt-in per-container latest-tag + eol_status enrichment.
+	// Off by default so plain list responses stay cheap.
+	s.enrichWorkloadsContainersVersions(ctx, req.Params.Include, items)
 	resp := WorkloadList{Items: items}
 	if next != "" {
 		resp.NextCursor = &next
@@ -1872,6 +1877,27 @@ func (s *Server) DeleteImageOriginMapping(
 		return nil, fmt.Errorf("store: %w", err)
 	}
 	return DeleteImageOriginMapping204Response{}, nil
+}
+
+// enrichWorkloadsContainersVersions attaches the opt-in containers_versions
+// enrichment (ADR-0022/0032) to each workload in place when include selects
+// it. The field is only set when something was actually enriched, so an
+// included-but-unenrichable workload omits containers_versions rather than
+// serialising it as null (the schema is non-nullable).
+func (s *Server) enrichWorkloadsContainersVersions(ctx context.Context, include *ListWorkloadsParamsInclude, items []Workload) {
+	if include == nil || *include != IncludeContainersVersions {
+		return
+	}
+	for i := range items {
+		var containers []map[string]any
+		if items[i].Containers != nil {
+			containers = *items[i].Containers
+		}
+		if cv := EnrichContainersVersions(ctx, s.store, containers); cv != nil {
+			m := map[string]ContainerVersionInfo(cv)
+			items[i].ContainersVersions = &m
+		}
+	}
 }
 
 // clientIP returns the source IP for rate-limiting, audit logging and

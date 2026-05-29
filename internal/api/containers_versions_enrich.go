@@ -46,6 +46,37 @@ func (v containerVersion) gt(other containerVersion) bool {
 	return semver.Compare(v.raw, other.raw) > 0
 }
 
+// minorDistanceStatus maps the minor-version distance between the deployed
+// tag (cur) and the latest registry tag (latest) onto the traffic-light EOL
+// status (ADR-0032). Patch differences are ignored; any major gap is "eol".
+func minorDistanceStatus(cur, latest containerVersion) ContainerVersionInfoEolStatus {
+	if !latest.gt(cur) {
+		return ContainerVersionInfoEolStatusSupported
+	}
+	if semver.Major(latest.raw) != semver.Major(cur.raw) {
+		return ContainerVersionInfoEolStatusEol
+	}
+	switch latest.minor() - cur.minor() {
+	case 0:
+		return ContainerVersionInfoEolStatusSupported
+	case 1:
+		return ContainerVersionInfoEolStatusApproachingEol
+	default:
+		return ContainerVersionInfoEolStatusEol
+	}
+}
+
+// minor returns the numeric minor component of the canonical "vX.Y.Z" form.
+func (v containerVersion) minor() int {
+	mm := semver.MajorMinor(v.raw) // "vX.Y"
+	dot := strings.LastIndex(mm, ".")
+	if dot < 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(mm[dot+1:])
+	return n
+}
+
 var (
 	semverPrefixRe = regexp.MustCompile(`^v?(\d+(?:\.\d+){0,2})`)
 
@@ -144,9 +175,16 @@ func classifyTagSuffix(original, rest string) (variant string, err error) {
 	return suffix, nil
 }
 
+// containerVersionLookup is the minimal store surface the container-version
+// enrichment needs (mirror-origin resolution + the image_versions rows).
+type containerVersionLookup interface {
+	GetImageOriginResolution(ctx context.Context, mirrorImageRepo, variant string) (ImageOriginResolution, error)
+	GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]ImageVersionRow, error)
+}
+
 // EnrichContainersVersions joins each container's image string against the
 // image_versions store.
-func EnrichContainersVersions(ctx context.Context, s Store, containers []map[string]any) ContainersVersions {
+func EnrichContainersVersions(ctx context.Context, s containerVersionLookup, containers []map[string]any) ContainersVersions {
 	out := ContainersVersions{}
 	for _, c := range containers {
 		name, _ := c["name"].(string)
@@ -174,7 +212,7 @@ func EnrichContainersVersions(ctx context.Context, s Store, containers []map[str
 //     return origin_status="unresolved" with origin_error set, no badge.
 //  3. The image isn't in the resolutions table → fall through to direct
 //     lookup against image_versions (today's passthrough behavior).
-func lookupContainerVersion(ctx context.Context, s Store, img string) (ContainerVersionInfo, bool) {
+func lookupContainerVersion(ctx context.Context, s containerVersionLookup, img string) (ContainerVersionInfo, bool) {
 	ref, err := parseContainerRef(img)
 	if err != nil {
 		return ContainerVersionInfo{}, false
@@ -222,7 +260,7 @@ func lookupContainerVersion(ctx context.Context, s Store, img string) (Container
 // returns a populated ContainerVersionInfo (without origin fields).
 // Returns (zero, false) when no row matches or the row has no usable
 // latest_tag.
-func lookupVersionRow(ctx context.Context, s Store, imageRepo string, cur containerParsedTag) (ContainerVersionInfo, bool) {
+func lookupVersionRow(ctx context.Context, s containerVersionLookup, imageRepo string, cur containerParsedTag) (ContainerVersionInfo, bool) {
 	rows, err := s.GetImageVersionsByRepo(ctx, imageRepo)
 	if err != nil {
 		return ContainerVersionInfo{}, false
@@ -237,10 +275,12 @@ func lookupVersionRow(ctx context.Context, s Store, imageRepo string, cur contai
 			continue
 		}
 		isBehind := latest.version.gt(cur.version)
+		status := minorDistanceStatus(cur.version, latest.version)
 		return ContainerVersionInfo{
 			LatestTag:     row.LatestTag,
 			IsBehind:      &isBehind,
 			LastCheckedAt: &row.LastCheckedAt,
+			EolStatus:     &status,
 		}, true
 	}
 	return ContainerVersionInfo{}, false

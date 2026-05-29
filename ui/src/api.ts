@@ -716,6 +716,7 @@ export function listWorkloads(filter?: {
   image?: string;
   cursor?: string;
   limit?: number;
+  include?: 'containers_versions';
 }) {
   return request<PagedResponse<Workload>>('/v1/workloads' + query({ limit: 200, ...filter }));
 }
@@ -1347,6 +1348,7 @@ export interface ContainerVersionInfo {
   latest_tag?: string;
   is_behind?: boolean;
   last_checked_at?: string;
+  eol_status?: 'supported' | 'approaching_eol' | 'eol';
   // Origin fields. Absent on passthrough images. Present on mirrored refs.
   origin_image_repo?: string;
   origin_status?: 'resolved' | 'unresolved';

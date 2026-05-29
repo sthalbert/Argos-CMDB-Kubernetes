@@ -19,7 +19,20 @@ import (
 // and an injected viewer caller.
 func newExtractTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	return newExtractTestServerSeeded(t, nil)
+}
+
+// newExtractTestServerSeeded builds the stub store, applies an optional
+// seed mutation (e.g. populating imageVersions), then mounts the same three
+// extract routes as newExtractTestServer. The mux captures the store by
+// reference and GetImageVersionsByRepo reads the map at request time, so a
+// seed applied before the GET is observed by the handler.
+func newExtractTestServerSeeded(t *testing.T, seed func(*extractStubStore)) *httptest.Server {
+	t.Helper()
 	store := newExtractStubStore()
+	if seed != nil {
+		seed(store)
+	}
 	const maxRows = 50000
 	mux := http.NewServeMux()
 	wrap := func(h http.HandlerFunc) http.Handler {
@@ -74,6 +87,10 @@ type extractStubStore struct {
 	vms          []api.VirtualMachine
 	accounts     []api.CloudAccount
 	applications map[uuid.UUID]string // app UUID → lowercased name
+
+	// imageVersions stubs image_versions rows keyed by repo, letting tests
+	// drive workload EOL enrichment in the EOL extract.
+	imageVersions map[string][]api.ImageVersionRow
 }
 
 // Stable UUIDs for the ADR-0029 application-link tests so they can be
@@ -271,6 +288,18 @@ func (s *extractStubStore) ListVirtualMachines(
 
 func (s *extractStubStore) ListCloudAccounts(_ context.Context, _ int, _ string) ([]api.CloudAccount, string, error) {
 	return s.accounts, "", nil
+}
+
+// GetImageOriginResolution: the extract stub carries no mirror resolutions,
+// so every lookup is a passthrough (ErrNotFound).
+func (s *extractStubStore) GetImageOriginResolution(_ context.Context, _, _ string) (api.ImageOriginResolution, error) {
+	return api.ImageOriginResolution{}, api.ErrNotFound
+}
+
+// GetImageVersionsByRepo: returns any stubbed image_versions rows for the
+// repo (none by default → workloads contribute no EOL rows).
+func (s *extractStubStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) ([]api.ImageVersionRow, error) {
+	return s.imageVersions[imageRepo], nil
 }
 
 func containsLower(haystack, needle string) bool {
