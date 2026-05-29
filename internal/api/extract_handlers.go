@@ -130,27 +130,29 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 
 		rows := eolagg.Flatten(toEolaggClusters(clusters), toEolaggNodes(nodes), toEolaggVMs(vms))
 
-		workloads, err := collectAllWorkloads(r.Context(), store)
-		if err != nil {
-			slog.Error("extract: list workloads", slog.Any("error", err))
-			SetAuditDetails(r.Context(), map[string]any{
-				"action": "extract", "page": "eol", "format": format, "outcome": "error",
-			})
-			metrics.ObserveExtract("eol", format, "error", 0)
-			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
-			return
-		}
-		wlInputs := make([]eolagg.WorkloadInput, 0, len(workloads))
-		for i := range workloads {
-			var containers []map[string]any
-			if workloads[i].Containers != nil {
-				containers = *workloads[i].Containers
+		if entityType == "" || entityType == "workload" {
+			workloads, err := collectAllWorkloads(r.Context(), store)
+			if err != nil {
+				slog.Error("extract: list workloads", slog.Any("error", err))
+				SetAuditDetails(r.Context(), map[string]any{
+					"action": "extract", "page": "eol", "format": format, "outcome": "error",
+				})
+				metrics.ObserveExtract("eol", format, "error", 0)
+				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+				return
 			}
-			cv := map[string]ContainerVersionInfo(EnrichContainersVersions(r.Context(), store, containers))
-			workloads[i].ContainersVersions = &cv
-			wlInputs = append(wlInputs, workloadToEolaggInput(workloads[i]))
+			wlInputs := make([]eolagg.WorkloadInput, 0, len(workloads))
+			for i := range workloads {
+				var containers []map[string]any
+				if workloads[i].Containers != nil {
+					containers = *workloads[i].Containers
+				}
+				cv := map[string]ContainerVersionInfo(EnrichContainersVersions(r.Context(), store, containers))
+				workloads[i].ContainersVersions = &cv
+				wlInputs = append(wlInputs, workloadToEolaggInput(workloads[i]))
+			}
+			rows = append(rows, eolagg.FlattenWorkloads(wlInputs)...)
 		}
-		rows = append(rows, eolagg.FlattenWorkloads(wlInputs)...)
 
 		if entityType != "" {
 			filtered := rows[:0]

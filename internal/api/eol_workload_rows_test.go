@@ -57,3 +57,44 @@ func TestWorkloadToEolaggInput(t *testing.T) {
 		t.Errorf("image = %+v", img)
 	}
 }
+
+func TestWorkloadToEolaggInput_NoEnrichedContainers(t *testing.T) {
+	id := mustUUID(t, "22222222-2222-2222-2222-222222222222")
+	w := Workload{
+		Id:   &id,
+		Name: "api",
+		Containers: &ContainerList{
+			{"name": "web", "image": "nginx:1.25.3"},
+		},
+		// ContainersVersions nil / empty -> nothing enriched
+	}
+	in := workloadToEolaggInput(w)
+	if len(in.Images) != 0 {
+		t.Fatalf("want 0 images for unenriched workload, got %d", len(in.Images))
+	}
+}
+
+func TestWorkloadToEolaggInput_NilLatestTag(t *testing.T) {
+	id := mustUUID(t, "33333333-3333-3333-3333-333333333333")
+	status := ContainerVersionInfoEolStatus("approaching_eol")
+	w := Workload{
+		Id:   &id,
+		Name: "api",
+		Containers: &ContainerList{
+			{"name": "web", "image": "nginx:1.25.3"},
+		},
+		ContainersVersions: &map[string]ContainerVersionInfo{
+			"web": {EolStatus: &status}, // LatestTag nil
+		},
+	}
+	in := workloadToEolaggInput(w)
+	if len(in.Images) != 1 {
+		t.Fatalf("want 1 image, got %d", len(in.Images))
+	}
+	if in.Images[0].LatestTag != "" {
+		t.Errorf("want empty LatestTag, got %q", in.Images[0].LatestTag)
+	}
+	if in.Images[0].EOLStatus != "approaching_eol" {
+		t.Errorf("want approaching_eol, got %q", in.Images[0].EOLStatus)
+	}
+}
