@@ -6,6 +6,9 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sthalbert/longue-vue/internal/api"
 )
 
 func TestEolExtract_CSV_HappyPath(t *testing.T) {
@@ -75,6 +78,49 @@ func TestEolExtract_StatusFilter(t *testing.T) {
 		if r["status"] != "eol" {
 			t.Errorf("non-EOL row in filtered output: %v", r)
 		}
+	}
+}
+
+func TestEolExtract_WorkloadRows(t *testing.T) {
+	latest := "2.17.1"
+	srv := newExtractTestServerSeeded(t, func(s *extractStubStore) {
+		s.imageVersions = map[string][]api.ImageVersionRow{
+			"docker.io/library/log4j": {{
+				ImageRepo: "docker.io/library/log4j", Variant: "", Registry: "docker.io",
+				LatestTag: &latest, Source: "registry", LastCheckedAt: time.Now().UTC(),
+			}},
+		}
+	})
+	defer srv.Close()
+
+	status, _, body := getWithAuth(t, srv.URL+"/v1/eol/extract?format=json&entity_type=workload")
+	if status != 200 {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("body not JSON: %v\n%s", err, body)
+	}
+	if len(rows) == 0 {
+		t.Fatalf("expected at least one workload row, got none: %s", body)
+	}
+	for _, r := range rows {
+		if r["entity_type"] != "workload" {
+			t.Errorf("entity_type filter leaked a non-workload row: %v", r)
+		}
+	}
+	// The log4j-app workload (log4j:2.15 vs latest 2.17.1 = 2 minors) -> eol.
+	found := false
+	for _, r := range rows {
+		if r["entity_name"] == "log4j-app" && r["status"] == "eol" {
+			found = true
+			if r["product"] != "docker.io/library/log4j" {
+				t.Errorf("product = %v, want docker.io/library/log4j", r["product"])
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("did not find log4j-app workload row with status=eol: %s", body)
 	}
 }
 

@@ -19,7 +19,20 @@ import (
 // and an injected viewer caller.
 func newExtractTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	return newExtractTestServerSeeded(t, nil)
+}
+
+// newExtractTestServerSeeded builds the stub store, applies an optional
+// seed mutation (e.g. populating imageVersions), then mounts the same three
+// extract routes as newExtractTestServer. The mux captures the store by
+// reference and GetImageVersionsByRepo reads the map at request time, so a
+// seed applied before the GET is observed by the handler.
+func newExtractTestServerSeeded(t *testing.T, seed func(*extractStubStore)) *httptest.Server {
+	t.Helper()
 	store := newExtractStubStore()
+	if seed != nil {
+		seed(store)
+	}
 	const maxRows = 50000
 	mux := http.NewServeMux()
 	wrap := func(h http.HandlerFunc) http.Handler {
