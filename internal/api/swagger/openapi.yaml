@@ -684,6 +684,17 @@ paths:
         - $ref: '#/components/parameters/WorkloadApplicationIdFilter'
         - $ref: '#/components/parameters/WorkloadApplicationNameFilter'
         - $ref: '#/components/parameters/WorkloadUnlinkedFilter'
+        - name: include
+          in: query
+          required: false
+          description: >-
+            Optional enrichment selector. Only 'containers_versions' is
+            recognised; it populates each item's containers_versions
+            (ADR-0022/0032). Omitted by default to keep list responses cheap.
+          schema:
+            type: string
+            enum: [containers_versions]
+            x-enum-varnames: [IncludeContainersVersions]
       responses:
         '200':
           description: Paged list of workloads.

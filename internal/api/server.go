@@ -773,6 +773,18 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 	// ADR-0029 §6: project the read-only inherited DICT. Bulk-fetches the
 	// distinct linked applications in one query (no N+1).
 	decorateWorkloadsDICT(ctx, s.store, items)
+	// ADR-0022/0032: opt-in per-container latest-tag + eol_status enrichment.
+	// Off by default so plain list responses stay cheap.
+	if req.Params.Include != nil && *req.Params.Include == IncludeContainersVersions {
+		for i := range items {
+			var containers []map[string]any
+			if items[i].Containers != nil {
+				containers = *items[i].Containers
+			}
+			cv := map[string]ContainerVersionInfo(EnrichContainersVersions(ctx, s.store, containers))
+			items[i].ContainersVersions = &cv
+		}
+	}
 	resp := WorkloadList{Items: items}
 	if next != "" {
 		resp.NextCursor = &next
