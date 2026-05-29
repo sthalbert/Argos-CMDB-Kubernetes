@@ -8,7 +8,7 @@ description: >-
   release contains only what belongs in that cluster.
 type: application
 version: 0.6.0
-appVersion: 0.32.0
+appVersion: 0.33.0
 home: https://github.com/sthalbert/longue-vue
 sources:
   - https://github.com/sthalbert/longue-vue

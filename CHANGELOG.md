@@ -6,6 +6,30 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [0.33.0](https://github.com/sthalbert/Longue-Vue/compare/v0.32.0...v0.33.0) (2026-05-29)
+
+
+### Features
+
+* **api:** add eol_status to ContainerVersionInfo schema ([49e1e2a](https://github.com/sthalbert/Longue-Vue/commit/49e1e2aa4ec38fb13835a797ebeec3c4ae2ed639))
+* **api:** add workload image rows to /v1/eol/extract ([616a652](https://github.com/sthalbert/Longue-Vue/commit/616a652742aef6681ba27e727adb72071c14117b))
+* **api:** compute minor-distance eol_status for container versions ([fcdb7ee](https://github.com/sthalbert/Longue-Vue/commit/fcdb7eec9262803e58b9d0e1f7d50fc3c07180e0))
+* **api:** opt-in containers_versions enrichment on workload list ([4721e46](https://github.com/sthalbert/Longue-Vue/commit/4721e46188ae714852b95d8d162c7508e9201fb2))
+* **eolagg:** synthesise image EOL rows in FlattenWorkloads ([ed92bbe](https://github.com/sthalbert/Longue-Vue/commit/ed92bbe3242806bb613e885f9905dcf094f56b62))
+* **eol:** surface k8s workload image freshness in global dashboard ([9cfdcf1](https://github.com/sthalbert/Longue-Vue/commit/9cfdcf140fca3cd074a57196546209b717fb22ce))
+* **ui:** show workload image EOL rows in the dashboard ([03c1d36](https://github.com/sthalbert/Longue-Vue/commit/03c1d3660008217ff40b9d5cbca805e3d3007bad))
+
+
+### Bug Fixes
+
+* **api:** add workload to eol extract entity_type enum ([727115a](https://github.com/sthalbert/Longue-Vue/commit/727115a3cd048cb9caf79417b41d2b97c3bdb9cd))
+* **api:** omit containers_versions when nothing enrichable on list ([051eb8b](https://github.com/sthalbert/Longue-Vue/commit/051eb8bb8fba507375b61daa3083d36846f848bd))
+
+
+### Performance Improvements
+
+* **api:** skip workload enrichment when entity_type excludes workloads ([90bbd3a](https://github.com/sthalbert/Longue-Vue/commit/90bbd3aff4cf4c9c03ef477530bc512a4a6adbe6))
+
 ## [0.32.0](https://github.com/sthalbert/Longue-Vue/compare/v0.31.0...v0.32.0) (2026-05-28)
 
 
