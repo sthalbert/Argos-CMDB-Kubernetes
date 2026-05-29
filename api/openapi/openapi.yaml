@@ -5680,6 +5680,15 @@ components:
           type: string
         is_behind:
           type: boolean
+        eol_status:
+          type: string
+          enum: [supported, approaching_eol, eol]
+          description: >-
+            Traffic-light freshness derived from the minor-version distance
+            between the deployed tag and latest_tag (ADR-0032): 'supported'
+            (same minor or only patch behind), 'approaching_eol' (one minor
+            behind), 'eol' (two or more minors behind, or any major gap).
+            Absent when the image is not enriched.
         last_checked_at:
           type: string
           format: date-time
