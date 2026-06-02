@@ -1139,7 +1139,14 @@ func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepName
 
 // DeleteNamespacesNotIn mirrors DeleteNodesNotIn: soft-deletes namespaces of
 // the given cluster not in keepNames and not already terminated. Per
-// ADR-0021 §5.
+// ADR-0021 §5. For each soft-deleted namespace, this mirrors
+// SoftDeleteNamespace by cascade-soft-deleting its live workloads and
+// hard-deleting its unhistoried children (pods, services, ingresses, PVCs)
+// — otherwise workloads in a vanished namespace would linger forever in
+// list/EOL outputs because reconcileWorkloads only walks namespaces that
+// were present in the current tick.
+//
+//nolint:gocyclo // cascade + history capture adds branches; mirrors SoftDeleteNamespace
 func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -1161,6 +1168,43 @@ func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, kee
 		return 0, fmt.Errorf("scan namespaces to soft-delete: %w", err)
 	}
 
+	actor := timetravel.ActorFromContext(ctx)
+
+	// Per-namespace cascade: capture each namespace's live workload IDs
+	// before mutating, hard-delete unhistoried children, soft-delete
+	// workloads, then capture workload snapshots so history reflects the
+	// final terminated state.
+	wlIDsByNS := make(map[uuid.UUID][]uuid.UUID, len(toDelete))
+	for _, nsID := range toDelete {
+		wlIDs, err := liveWorkloadIDsForNamespace(ctx, tx, nsID)
+		if err != nil {
+			return 0, fmt.Errorf("list workloads for soft-delete namespace %s: %w", nsID, err)
+		}
+		wlIDsByNS[nsID] = wlIDs
+
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM pods WHERE namespace_id = $1`, nsID); err != nil {
+			return 0, fmt.Errorf("cascade-delete pods for %s: %w", nsID, err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM services WHERE namespace_id = $1`, nsID); err != nil {
+			return 0, fmt.Errorf("cascade-delete services for %s: %w", nsID, err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM ingresses WHERE namespace_id = $1`, nsID); err != nil {
+			return 0, fmt.Errorf("cascade-delete ingresses for %s: %w", nsID, err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM persistent_volume_claims WHERE namespace_id = $1`, nsID); err != nil {
+			return 0, fmt.Errorf("cascade-delete persistent_volume_claims for %s: %w", nsID, err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
+			   WHERE namespace_id = $1 AND terminated_at IS NULL`, nsID); err != nil {
+			return 0, fmt.Errorf("soft-delete workloads for %s: %w", nsID, err)
+		}
+	}
+
 	tag, err := tx.Exec(ctx,
 		`UPDATE namespaces
 		    SET terminated_at = NOW(), updated_at = NOW()
@@ -1173,8 +1217,12 @@ func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, kee
 		return 0, fmt.Errorf("soft-delete namespaces not in: %w", err)
 	}
 
-	actor := timetravel.ActorFromContext(ctx)
 	for _, nsID := range toDelete {
+		for _, wlID := range wlIDsByNS[nsID] {
+			if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
+				_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+			}
+		}
 		if snap, err := namespaceRowMapNoLock(ctx, tx, nsID); err == nil {
 			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, nsID, nil, snap, changeTypeSoftDelete, actor)
 		}

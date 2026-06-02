@@ -732,6 +732,7 @@ func TestPGUpsertWorkload_ResurrectsTerminated(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises cascade across multiple kinds
 func TestPGDeleteNamespacesNotIn(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -744,6 +745,47 @@ func TestPGDeleteNamespacesNotIn(t *testing.T) {
 		if _, err := pg.CreateNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: name}); err != nil {
 			t.Fatalf("create %s: %v", name, err)
 		}
+	}
+
+	// Seed a workload + pod + service + ingress + PVC in the namespace
+	// that will be reconciled away, plus a workload in a kept namespace,
+	// so we can prove the cascade scope.
+	var extraNS, defaultNS api.Namespace
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT id, name FROM namespaces WHERE cluster_id=$1 AND name='extra'`,
+		*cluster.Id).Scan(&extraNS.Id, &extraNS.Name); err != nil {
+		t.Fatalf("lookup extra ns: %v", err)
+	}
+	if err := pg.pool.QueryRow(ctx,
+		`SELECT id, name FROM namespaces WHERE cluster_id=$1 AND name='default'`,
+		*cluster.Id).Scan(&defaultNS.Id, &defaultNS.Name); err != nil {
+		t.Fatalf("lookup default ns: %v", err)
+	}
+	extraWL, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *extraNS.Id, Kind: "Deployment", Name: "doomed",
+	})
+	if err != nil {
+		t.Fatalf("upsert extra workload: %v", err)
+	}
+	keptWL, _, err := pg.UpsertWorkload(ctx, api.WorkloadCreate{
+		NamespaceId: *defaultNS.Id, Kind: "Deployment", Name: "kept",
+	})
+	if err != nil {
+		t.Fatalf("upsert kept workload: %v", err)
+	}
+	if _, err := pg.CreatePod(ctx, api.PodCreate{NamespaceId: *extraNS.Id, Name: "doomed-pod"}); err != nil {
+		t.Fatalf("create pod: %v", err)
+	}
+	if _, err := pg.CreateService(ctx, api.ServiceCreate{NamespaceId: *extraNS.Id, Name: "doomed-svc"}); err != nil {
+		t.Fatalf("create service: %v", err)
+	}
+	if _, err := pg.CreateIngress(ctx, api.IngressCreate{NamespaceId: *extraNS.Id, Name: "doomed-ing"}); err != nil {
+		t.Fatalf("create ingress: %v", err)
+	}
+	if _, err := pg.CreatePersistentVolumeClaim(ctx, api.PersistentVolumeClaimCreate{
+		NamespaceId: *extraNS.Id, Name: "doomed-pvc",
+	}); err != nil {
+		t.Fatalf("create pvc: %v", err)
 	}
 
 	deleted, err := pg.DeleteNamespacesNotIn(ctx, *cluster.Id, []string{"default", "kube-system"})
@@ -763,6 +805,41 @@ func TestPGDeleteNamespacesNotIn(t *testing.T) {
 	}
 	if live != 2 {
 		t.Errorf("live=%d, want 2", live)
+	}
+
+	// Cascade: the doomed workload must be soft-deleted; the kept workload
+	// in the surviving namespace must remain live.
+	var extraTerm *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM workloads WHERE id=$1", *extraWL.Id).Scan(&extraTerm); err != nil {
+		t.Fatalf("query extra workload: %v", err)
+	}
+	if extraTerm == nil {
+		t.Errorf("expected doomed workload to be soft-deleted")
+	}
+	var keptTerm *time.Time
+	if err := pg.pool.QueryRow(ctx,
+		"SELECT terminated_at FROM workloads WHERE id=$1", *keptWL.Id).Scan(&keptTerm); err != nil {
+		t.Fatalf("query kept workload: %v", err)
+	}
+	if keptTerm != nil {
+		t.Errorf("kept workload terminated_at=%v, want nil", keptTerm)
+	}
+
+	// Unhistoried children must be hard-deleted.
+	for _, q := range []struct{ name, sql string }{
+		{"pods", "SELECT COUNT(*) FROM pods WHERE namespace_id=$1"},
+		{"services", "SELECT COUNT(*) FROM services WHERE namespace_id=$1"},
+		{"ingresses", "SELECT COUNT(*) FROM ingresses WHERE namespace_id=$1"},
+		{"pvcs", "SELECT COUNT(*) FROM persistent_volume_claims WHERE namespace_id=$1"},
+	} {
+		var n int
+		if err := pg.pool.QueryRow(ctx, q.sql, *extraNS.Id).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", q.name, err)
+		}
+		if n != 0 {
+			t.Errorf("%s left in vanished namespace: %d, want 0", q.name, n)
+		}
 	}
 }
 
