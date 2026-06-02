@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.23.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.22.0...chart-longue-vue-v0.23.0) (2026-06-02)
+
+
+### Features
+
+* **api:** create handler with validation for image origin mappings ([94bcf62](https://github.com/sthalbert/Longue-Vue/commit/94bcf62ddaaf56356ccf83e9d8ae5b41c0b8960f))
+* **api:** make ingest verify rate limit configurable via env ([811db87](https://github.com/sthalbert/Longue-Vue/commit/811db87d040cef5b89b2d30f4cbae3de185e3ba7))
+* **api:** patch and Delete for image origin mappings ([e9a8155](https://github.com/sthalbert/Longue-Vue/commit/e9a8155ed2c33f7e351ecd2c77318e1f960014eb))
+* **auth:** per-account login lockout + admin rescue ([48580fc](https://github.com/sthalbert/Longue-Vue/commit/48580fc5be9dc1f6bb50e9e2c637d3ea3313d67a))
+* **chart:** expose adminRescuePassword on longue-vue chart ([204d7cd](https://github.com/sthalbert/Longue-Vue/commit/204d7cdbe78a095ad092ccf9674d32f6f0445144))
+* **chart:** expose mcp.allowPlaintext for local/dev clusters without TLS ([6fd05c9](https://github.com/sthalbert/Longue-Vue/commit/6fd05c93876bc694bc733e5c483bb1b86b022c94))
+* **collector:** make client-go QPS/Burst configurable ([35a9eaa](https://github.com/sthalbert/Longue-Vue/commit/35a9eaa70954a2a923ec774eec7c5740c3d3d15a))
+* container image versions enrichment (ADR-0022) ([8f5ddaf](https://github.com/sthalbert/Longue-Vue/commit/8f5ddafcad8dff20de1091c65a0616cb1cf64300))
+* make ingest verify and collector kube rate limits configurable ([b1e489b](https://github.com/sthalbert/Longue-Vue/commit/b1e489b464acca793aa6e732eb3b79cce8923fd8))
+* **store:** implement Create and Get for image origin mappings ([fc35177](https://github.com/sthalbert/Longue-Vue/commit/fc35177018a21f8beb1b024e9b0fffef707cae81))
+* **store:** implement paginated List for image origin mappings ([31994cb](https://github.com/sthalbert/Longue-Vue/commit/31994cbaba0cf0717ddc2c5c09de894e14258ec5))
+* **store:** implement Patch and Delete for image origin mappings ([fcb618d](https://github.com/sthalbert/Longue-Vue/commit/fcb618dea86e72fa29749454239ee37cb56f1940))
+* **ui:** paginate NamespaceDetail sub-sections ([e24016d](https://github.com/sthalbert/Longue-Vue/commit/e24016d9f038c04956270f78526af8e1416f9154))
+* **ui:** paginate WorkloadDetail and NodeDetail pod sections ([41d3e29](https://github.com/sthalbert/Longue-Vue/commit/41d3e29dbd34ee37d184115291b41ed9b417b495))
+
+
+### Bug Fixes
+
+* **security:** clear initial security-scan baseline ([31bb496](https://github.com/sthalbert/Longue-Vue/commit/31bb4967b90dbdec68352b2c7456baf03521b33f))
+
 ## [0.22.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.21.0...chart-longue-vue-v0.22.0) (2026-05-28)
 
 

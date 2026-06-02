@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v0.6.0...chart-longue-vue-collector-v0.7.0) (2026-06-02)
+
+
+### Features
+
+* **api:** create handler with validation for image origin mappings ([94bcf62](https://github.com/sthalbert/Longue-Vue/commit/94bcf62ddaaf56356ccf83e9d8ae5b41c0b8960f))
+* **api:** patch and Delete for image origin mappings ([e9a8155](https://github.com/sthalbert/Longue-Vue/commit/e9a8155ed2c33f7e351ecd2c77318e1f960014eb))
+* **collector:** make client-go QPS/Burst configurable ([35a9eaa](https://github.com/sthalbert/Longue-Vue/commit/35a9eaa70954a2a923ec774eec7c5740c3d3d15a))
+* make ingest verify and collector kube rate limits configurable ([b1e489b](https://github.com/sthalbert/Longue-Vue/commit/b1e489b464acca793aa6e732eb3b79cce8923fd8))
+* **store:** implement Create and Get for image origin mappings ([fc35177](https://github.com/sthalbert/Longue-Vue/commit/fc35177018a21f8beb1b024e9b0fffef707cae81))
+* **store:** implement paginated List for image origin mappings ([31994cb](https://github.com/sthalbert/Longue-Vue/commit/31994cbaba0cf0717ddc2c5c09de894e14258ec5))
+* **store:** implement Patch and Delete for image origin mappings ([fcb618d](https://github.com/sthalbert/Longue-Vue/commit/fcb618dea86e72fa29749454239ee37cb56f1940))
+* **ui:** paginate NamespaceDetail sub-sections ([e24016d](https://github.com/sthalbert/Longue-Vue/commit/e24016d9f038c04956270f78526af8e1416f9154))
+* **ui:** paginate WorkloadDetail and NodeDetail pod sections ([41d3e29](https://github.com/sthalbert/Longue-Vue/commit/41d3e29dbd34ee37d184115291b41ed9b417b495))
+
+
+### Bug Fixes
+
+* change argos by server in values ([ea27568](https://github.com/sthalbert/Longue-Vue/commit/ea27568c6ff3f7953268da8d49e8c9808b0b673d))
+* change argos by server in values ([e82db59](https://github.com/sthalbert/Longue-Vue/commit/e82db5933e3dbc027fff9b31ef936b65effec72f))
+* **longue-vue-collector:** clarify I/O-bound comment in values.yaml ([aa06d50](https://github.com/sthalbert/Longue-Vue/commit/aa06d505785057450290dc61e81b4c22c88beb76))
+* **longue-vue-collector:** clarify I/O-bound comment in values.yaml ([f513650](https://github.com/sthalbert/Longue-Vue/commit/f51365083355925eda31bfc6e6384ba64af2fe9c))
+
 ## [0.6.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v0.5.0...chart-longue-vue-collector-v0.6.0) (2026-05-28)
 
 
