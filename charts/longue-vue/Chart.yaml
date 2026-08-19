@@ -4,8 +4,8 @@ description: >-
   A CMDB for Kubernetes environments aligned with the ANSSI SecNumCloud
   qualification framework. Polls clusters and exposes a REST API and web UI.
 type: application
-version: 0.26.1
-appVersion: 1.12.2
+version: 0.27.0
+appVersion: 1.13.0
 home: https://github.com/sthalbert/longue-vue
 sources:
   - https://github.com/sthalbert/longue-vue

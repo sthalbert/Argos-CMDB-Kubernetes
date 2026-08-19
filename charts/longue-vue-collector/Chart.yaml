@@ -7,8 +7,8 @@ description: >-
   Ships independently of the umbrella `longue-vue` chart so the source-cluster
   release contains only what belongs in that cluster.
 type: application
-version: 2.1.2
-appVersion: 1.12.2
+version: 2.2.0
+appVersion: 1.13.0
 home: https://github.com/sthalbert/longue-vue
 sources:
   - https://github.com/sthalbert/longue-vue

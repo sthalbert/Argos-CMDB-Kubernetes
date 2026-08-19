@@ -6,6 +6,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.13.0](https://github.com/sthalbert/Longue-Vue/compare/v1.12.2...v1.13.0) (2026-08-19)
+
+
+### Features
+
+* **kyverno:** add Kyverno policy inventory and Policies view (ADR-0043) ([67c9f9e](https://github.com/sthalbert/Longue-Vue/commit/67c9f9e8a44a651f002209caa605d1f1c53b2afb))
+* **kyverno:** add Kyverno policy inventory and Policies view (ADR-0043) ([23bf66e](https://github.com/sthalbert/Longue-Vue/commit/23bf66ee24fba2376cb7b0a102efb80cb5baff08))
+
+
+### Bug Fixes
+
+* **api:** re-sync embedded swagger copy and align spec with review fixes ([a987299](https://github.com/sthalbert/Longue-Vue/commit/a9872998ac097f2a4f0e9fced5d1ad0de3af7ad1))
+* **api:** resolve duplicate DELETE route registration panic at startup ([befc48b](https://github.com/sthalbert/Longue-Vue/commit/befc48b63f7ab6be280806d556882a94b04b9070))
+* **api:** validate policy enums, keep scope_kind verbatim, centralize policies gate ([116bdb0](https://github.com/sthalbert/Longue-Vue/commit/116bdb0920540f679004335f4a4155691d0e7a3e))
+* **collector,api:** address adversarial-verification findings on the review fixes ([0bb438a](https://github.com/sthalbert/Longue-Vue/commit/0bb438a0ef394dadadd3fe01e6bc6aa02d9ffa2a))
+* **collector:** kyverno action classification, RBAC skip, count clamping, JSON-null handling ([d08e73c](https://github.com/sthalbert/Longue-Vue/commit/d08e73c4d34b60bb82f3b4be2c7b594ff9292444))
+* **lint:** bring the Kyverno feature to zero golangci-lint findings ([72984fc](https://github.com/sthalbert/Longue-Vue/commit/72984fcd18398716087559e96794fecd0a5d74ec))
+* **seed-demo:** skip policy seeding on any failed enable, not just 403 ([7f51f72](https://github.com/sthalbert/Longue-Vue/commit/7f51f72d08bd9e6c45588a4efede239bb8bc3244))
+* **settings:** drop the unconsumed policy_prometheus_url column ([ea47770](https://github.com/sthalbert/Longue-Vue/commit/ea4777065eca5d4e366662a307fa4953983c13fa))
+* **store:** default results_raw to [], case-insensitive scope_kind filter, A-to-Z default sort ([580ecaf](https://github.com/sthalbert/Longue-Vue/commit/580ecaf6edc7fcc03a26c4a88ef0154d180a66ee))
+* **ui:** make the policies feature-disabled banner actually reachable ([a71b8ed](https://github.com/sthalbert/Longue-Vue/commit/a71b8ed03a6d3fb210deac8cd0133617c19c4260))
+
 ## [1.12.2](https://github.com/sthalbert/Longue-Vue/compare/v1.12.1...v1.12.2) (2026-08-17)
 
 
