@@ -31,6 +31,7 @@ export interface EntityListPageProps<T> {
   ) => Promise<api.PagedResponse<T>>;
   columns: EntityColumn<T>[];
   rowKey: (item: T) => string;
+  errorRenderer?: (err: unknown) => React.ReactNode | undefined;
 }
 
 export function EntityListPage<T>({
@@ -41,6 +42,7 @@ export function EntityListPage<T>({
   fetchPage,
   columns,
   rowKey,
+  errorRenderer,
 }: EntityListPageProps<T>) {
   const controls = useListControls();
   const list = usePagedList<T>(
@@ -68,7 +70,12 @@ export function EntityListPage<T>({
       {list.loading ? (
         <p className="loading">Loading…</p>
       ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
+        // errorRenderer receives the original thrown value (errorCause)
+        // so it can branch on typed errors; the fallback div shows the
+        // flattened message.
+        errorRenderer?.(list.errorCause ?? list.error) ?? (
+          <div className="error">Failed to load: {list.error}</div>
+        )
       ) : list.items.length === 0 ? (
         <Empty message={emptyMessage} />
       ) : (

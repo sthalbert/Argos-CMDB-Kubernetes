@@ -17,10 +17,6 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-// intPtr is a small helper for the *int DICT fields. Keeping it
-// test-local avoids polluting api/* with a generic pointer helper.
-func intPtr(i int) *int { return &i }
-
 // appNameVault is the canonical fixture application name reused throughout
 // this test file. Hoisted to a const so goconst stays happy as new tests
 // across the package also seed "vault".

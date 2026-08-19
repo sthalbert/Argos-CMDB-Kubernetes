@@ -301,9 +301,246 @@ post /v1/persistentvolumeclaims "{
 }" >/dev/null
 echo "pv/pvc seeded"
 
+echo "=== policies ==="
+# Check if policies are already enabled; if not, try to enable them.
+PE_STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "${AUTH_ARGS[@]}" \
+    "${BASE}/v1/cluster-policies?limit=1")
+if [ "$PE_STATUS" = "200" ]; then
+    echo "policies_enabled: already on"
+else
+    STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "${AUTH_ARGS[@]}" \
+        -X PATCH -H "$CT" \
+        -d '{"policies_enabled":true}' \
+        "${BASE}/v1/admin/settings")
+    case "$STATUS" in
+    2*)
+        echo "policies_enabled → $STATUS (enabled)"
+        ;;
+    *)
+        # Any failed enable (403 non-admin, 401 expired session, 404
+        # older server, 000 connection error, ...) leaves the feature
+        # off: every policy POST below would 409 silently, so skip to
+        # the summary instead of pretending the seed succeeded.
+        if [ "$STATUS" = "403" ]; then
+            echo "policies_enabled → 403 (set LONGUE_VUE_POLICIES_ENABLED=true at boot, or use an admin token)" >&2
+        else
+            echo "policies_enabled → $STATUS (enable failed)" >&2
+        fi
+        echo "skipping policy seeding" >&2
+        echo
+        echo "=== summary ==="
+        for kind in clusters nodes namespaces workloads pods services ingresses persistentvolumes persistentvolumeclaims cluster-policies policy-reports; do
+            count=$(curl -sS "${AUTH_ARGS[@]}" "${BASE}/v1/${kind}?limit=200" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('items',[])))" 2>/dev/null || echo "?")
+            printf "  %-25s %s\n" "$kind" "$count"
+        done
+        exit 0
+        ;;
+    esac
+fi
+
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Cluster-scoped ClusterPolicies (prod)
+post /v1/cluster-policies "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"name\":\"disallow-latest-tag\",
+  \"resource_type\":\"ClusterPolicy\",
+  \"scope\":\"cluster\",
+  \"description\":\"Disallow the latest tag on container images\",
+  \"category\":\"Best Practices\",
+  \"severity\":\"medium\",
+  \"action\":\"enforce\",
+  \"failure_policy\":\"Fail\",
+  \"background\":true,
+  \"rule_types\":[\"validate\"],
+  \"rules_count\":1,
+  \"target_resources\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\"],
+  \"ready\":true,
+  \"spec_raw\":{\"rules\":[{\"name\":\"disallow-latest-tag\",\"match\":{\"resources\":{\"kinds\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\"]}},\"validate\":{\"pattern\":{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"image\":\"!*:latest\"}]}}}}}}]},
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+
+post /v1/cluster-policies "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"name\":\"require-resource-requests\",
+  \"resource_type\":\"ClusterPolicy\",
+  \"scope\":\"cluster\",
+  \"description\":\"Require CPU and memory requests on every pod\",
+  \"category\":\"Best Practices\",
+  \"severity\":\"high\",
+  \"action\":\"enforce\",
+  \"failure_policy\":\"Fail\",
+  \"background\":true,
+  \"rule_types\":[\"validate\"],
+  \"rules_count\":2,
+  \"target_resources\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\",\"Job\"],
+  \"ready\":true,
+  \"spec_raw\":{\"rules\":[{\"name\":\"cpu-requests\",\"match\":{\"resources\":{\"kinds\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\",\"Job\"]}},\"validate\":{\"pattern\":{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"resources\":{\"requests\":{\"cpu\":\"?*\"}}}]}}}}}, {\"name\":\"memory-requests\",\"match\":{\"resources\":{\"kinds\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\",\"Job\"]}},\"validate\":{\"pattern\":{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"resources\":{\"requests\":{\"memory\":\"?*\"}}}]}}}}}}]},
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+
+post /v1/cluster-policies "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"name\":\"restrict-nodeport\",
+  \"resource_type\":\"ClusterPolicy\",
+  \"scope\":\"cluster\",
+  \"description\":\"Disallow NodePort services in production\",
+  \"category\":\"Security\",
+  \"severity\":\"high\",
+  \"action\":\"enforce\",
+  \"failure_policy\":\"Ignore\",
+  \"background\":true,
+  \"rule_types\":[\"validate\"],
+  \"rules_count\":1,
+  \"target_resources\":[\"Service\"],
+  \"ready\":true,
+  \"spec_raw\":{\"rules\":[{\"name\":\"restrict-nodeport\",\"match\":{\"resources\":{\"kinds\":[\"Service\"]}},\"validate\":{\"message\":\"NodePort services are forbidden in production\",\"pattern\":{\"spec\":{\"type\":\"!NodePort\"}}}}]},
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+
+post /v1/cluster-policies "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"name\":\"check-secrets\",
+  \"resource_type\":\"ClusterPolicy\",
+  \"scope\":\"cluster\",
+  \"description\":\"Ensure secrets are mounted as volumes, not env vars\",
+  \"category\":\"Security\",
+  \"severity\":\"critical\",
+  \"action\":\"enforce\",
+  \"failure_policy\":\"Fail\",
+  \"background\":true,
+  \"rule_types\":[\"validate\"],
+  \"rules_count\":1,
+  \"target_resources\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\"],
+  \"ready\":true,
+  \"spec_raw\":{\"rules\":[{\"name\":\"secrets-as-volumes\",\"match\":{\"resources\":{\"kinds\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\"]}},\"validate\":{\"message\":\"Secrets must be mounted as volumes, not as environment variables\",\"pattern\":{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"envFrom\":[{\"secretRef\":null}]}]}}}}}}]},
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+
+post /v1/cluster-policies "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"name\":\"add-safe-to-evict\",
+  \"resource_type\":\"ClusterPolicy\",
+  \"scope\":\"cluster\",
+  \"description\":\"Annotate pods without PDB as safe-to-evict\",
+  \"category\":\"Best Practices\",
+  \"severity\":\"low\",
+  \"action\":\"audit\",
+  \"failure_policy\":\"Ignore\",
+  \"background\":true,
+  \"rule_types\":[\"mutate\"],
+  \"rules_count\":1,
+  \"target_resources\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\"],
+  \"ready\":true,
+  \"spec_raw\":{\"rules\":[{\"name\":\"add-safe-to-evict\",\"match\":{\"resources\":{\"kinds\":[\"Deployment\",\"StatefulSet\",\"DaemonSet\"]}},\"mutate\":{\"patchStrategicMerge\":{\"metadata\":{\"annotations\":{\"cluster-autoscaler.kubernetes.io/safe-to-evict\":\"true\"}}}}}]},
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+
+# Namespaced Policies (prod / shop)
+post /v1/cluster-policies "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"namespace_id\":\"$SHOP_PROD\",
+  \"name\":\"require-shop-labels\",
+  \"resource_type\":\"Policy\",
+  \"scope\":\"namespace\",
+  \"description\":\"Require app and tier labels on shop resources\",
+  \"category\":\"Best Practices\",
+  \"severity\":\"medium\",
+  \"action\":\"enforce\",
+  \"failure_policy\":\"Fail\",
+  \"background\":true,
+  \"rule_types\":[\"validate\"],
+  \"rules_count\":2,
+  \"target_resources\":[\"Deployment\",\"StatefulSet\"],
+  \"ready\":true,
+  \"spec_raw\":{\"rules\":[{\"name\":\"require-app-label\",\"match\":{\"resources\":{\"kinds\":[\"Deployment\",\"StatefulSet\"]}},\"validate\":{\"message\":\"app label is required\",\"pattern\":{\"metadata\":{\"labels\":{\"app\":\"?*\"}}}}}, {\"name\":\"require-tier-label\",\"match\":{\"resources\":{\"kinds\":[\"Deployment\",\"StatefulSet\"]}},\"validate\":{\"message\":\"tier label is required\",\"pattern\":{\"metadata\":{\"labels\":{\"tier\":\"?*\"}}}}}]},
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+
+post /v1/cluster-policies "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"namespace_id\":\"$PLATFORM_PROD\",
+  \"name\":\"restrict-platform-ns\",
+  \"resource_type\":\"Policy\",
+  \"scope\":\"namespace\",
+  \"description\":\"Restrict privileged containers in platform namespace\",
+  \"category\":\"Security\",
+  \"severity\":\"high\",
+  \"action\":\"audit\",
+  \"failure_policy\":\"Ignore\",
+  \"background\":true,
+  \"rule_types\":[\"validate\"],
+  \"rules_count\":1,
+  \"target_resources\":[\"Deployment\"],
+  \"ready\":true,
+  \"spec_raw\":{\"rules\":[{\"name\":\"restrict-privileged\",\"match\":{\"resources\":{\"kinds\":[\"Deployment\"]}},\"validate\":{\"message\":\"Privileged containers are forbidden\",\"pattern\":{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"securityContext\":{\"privileged\":false}}]}}}}}}]},
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+echo "cluster policies seeded"
+
+# Cluster-scoped ClusterPolicyReport (prod)
+post /v1/policy-reports "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"name\":\"clusterpolicyreport\",
+  \"summary_pass\":4,
+  \"summary_fail\":2,
+  \"summary_warn\":0,
+  \"summary_error\":0,
+  \"summary_skip\":0,
+  \"results_raw\":[
+    {\"policy\":\"disallow-latest-tag\",\"rule\":\"disallow-latest-tag\",\"resource\":{\"kind\":\"Deployment\",\"namespace\":\"shop\",\"name\":\"web\"},\"result\":\"pass\",\"severity\":\"medium\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"require-resource-requests\",\"rule\":\"cpu-requests\",\"resource\":{\"kind\":\"Deployment\",\"namespace\":\"shop\",\"name\":\"api\"},\"result\":\"fail\",\"severity\":\"high\",\"message\":\"cpu requests missing\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"require-resource-requests\",\"rule\":\"memory-requests\",\"resource\":{\"kind\":\"StatefulSet\",\"namespace\":\"shop\",\"name\":\"postgres\"},\"result\":\"pass\",\"severity\":\"high\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"restrict-nodeport\",\"rule\":\"restrict-nodeport\",\"resource\":{\"kind\":\"Service\",\"namespace\":\"kube-system\",\"name\":\"ingress-nginx-controller\"},\"result\":\"pass\",\"severity\":\"high\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"check-secrets\",\"rule\":\"secrets-as-volumes\",\"resource\":{\"kind\":\"Deployment\",\"namespace\":\"shop\",\"name\":\"api\"},\"result\":\"fail\",\"severity\":\"critical\",\"message\":\"secret referenced in env\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"check-secrets\",\"rule\":\"secrets-as-volumes\",\"resource\":{\"kind\":\"StatefulSet\",\"namespace\":\"monitoring\",\"name\":\"prometheus\"},\"result\":\"pass\",\"severity\":\"critical\",\"timestamp\":\"$NOW\"}
+  ],
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+
+# Namespaced PolicyReports (prod / shop, platform)
+post /v1/policy-reports "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"namespace_id\":\"$SHOP_PROD\",
+  \"name\":\"policyreport\",
+  \"scope_kind\":\"Namespace\",
+  \"scope_name\":\"shop\",
+  \"summary_pass\":2,
+  \"summary_fail\":2,
+  \"summary_warn\":0,
+  \"summary_error\":0,
+  \"summary_skip\":1,
+  \"results_raw\":[
+    {\"policy\":\"require-shop-labels\",\"rule\":\"require-app-label\",\"resource\":{\"kind\":\"Deployment\",\"namespace\":\"shop\",\"name\":\"web\"},\"result\":\"pass\",\"severity\":\"medium\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"require-shop-labels\",\"rule\":\"require-tier-label\",\"resource\":{\"kind\":\"Deployment\",\"namespace\":\"shop\",\"name\":\"web\"},\"result\":\"pass\",\"severity\":\"medium\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"require-shop-labels\",\"rule\":\"require-app-label\",\"resource\":{\"kind\":\"StatefulSet\",\"namespace\":\"shop\",\"name\":\"postgres\"},\"result\":\"fail\",\"severity\":\"medium\",\"message\":\"app label missing\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"require-shop-labels\",\"rule\":\"require-tier-label\",\"resource\":{\"kind\":\"Deployment\",\"namespace\":\"shop\",\"name\":\"api\"},\"result\":\"fail\",\"severity\":\"medium\",\"message\":\"tier label missing\",\"timestamp\":\"$NOW\"},
+    {\"policy\":\"disallow-latest-tag\",\"rule\":\"disallow-latest-tag\",\"resource\":{\"kind\":\"Deployment\",\"namespace\":\"shop\",\"name\":\"web\"},\"result\":\"skip\",\"severity\":\"medium\",\"timestamp\":\"$NOW\"}
+  ],
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+
+post /v1/policy-reports "{
+  \"cluster_id\":\"$PROD_ID\",
+  \"namespace_id\":\"$PLATFORM_PROD\",
+  \"name\":\"policyreport\",
+  \"scope_kind\":\"Namespace\",
+  \"scope_name\":\"platform\",
+  \"summary_pass\":0,
+  \"summary_fail\":0,
+  \"summary_warn\":1,
+  \"summary_error\":0,
+  \"summary_skip\":0,
+  \"results_raw\":[
+    {\"policy\":\"restrict-platform-ns\",\"rule\":\"restrict-privileged\",\"resource\":{\"kind\":\"Deployment\",\"namespace\":\"platform\",\"name\":\"cert-manager\"},\"result\":\"warn\",\"severity\":\"high\",\"message\":\"review privileged setting\",\"timestamp\":\"$NOW\"}
+  ],
+  \"reconcile_seen_at\":\"$NOW\"
+}" >/dev/null
+echo "policy reports seeded"
+
 echo
 echo "=== summary ==="
-for kind in clusters nodes namespaces workloads pods services ingresses persistentvolumes persistentvolumeclaims; do
-    count=$(curl -sS "${AUTH_ARGS[@]}" "${BASE}/v1/${kind}?limit=200" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['items']))")
+for kind in clusters nodes namespaces workloads pods services ingresses persistentvolumes persistentvolumeclaims cluster-policies policy-reports; do
+    count=$(curl -sS "${AUTH_ARGS[@]}" "${BASE}/v1/${kind}?limit=200" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('items',[])))" 2>/dev/null || echo "?")
     printf "  %-25s %s\n" "$kind" "$count"
 done

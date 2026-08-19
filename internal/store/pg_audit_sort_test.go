@@ -26,7 +26,7 @@ func seedAuditEvent(t *testing.T, pg *PG, action string, occurredAt time.Time) {
 		HTTPMethod: "POST",
 		HTTPPath:   "/v1/test",
 		HTTPStatus: 200,
-		Source:     "api",
+		Source:     api.SourceAPI,
 	}
 	if err := pg.InsertAuditEvent(context.Background(), in); err != nil {
 		t.Fatalf("seedAuditEvent(%q): %v", action, err)

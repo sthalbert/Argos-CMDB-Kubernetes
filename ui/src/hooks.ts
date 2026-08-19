@@ -130,6 +130,10 @@ export type PagedListState<T> = {
   items: T[];
   loading: boolean;
   error: string | null;
+  // errorCause keeps the original thrown value so callers can branch on
+  // typed errors (e.g. a feature-disabled 409); error is its flattened
+  // message for plain display.
+  errorCause: unknown;
   pageSize: PageSize;
   setPageSize: (n: PageSize) => void;
   hasPrev: boolean;
@@ -151,6 +155,7 @@ export function usePagedList<T>(
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorCause, setErrorCause] = useState<unknown>(null);
   const navigate = useNavigate();
 
   const cursor = stack.length === 0 ? undefined : stack[stack.length - 1];
@@ -159,6 +164,7 @@ export function usePagedList<T>(
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setErrorCause(null);
     fetchPage(cursor, pageSize)
       .then((page) => {
         if (cancelled) return;
@@ -173,6 +179,7 @@ export function usePagedList<T>(
           return;
         }
         setError(err instanceof Error ? err.message : String(err));
+        setErrorCause(err);
         setLoading(false);
       });
     return () => {
@@ -189,6 +196,7 @@ export function usePagedList<T>(
     items,
     loading,
     error,
+    errorCause,
     pageSize,
     setPageSize: (n) => {
       setStack([]);

@@ -28,7 +28,7 @@ function SettingsForm({
   const [error, setError] = useState('');
 
   const toggle = async (
-    field: 'eol_enabled' | 'mcp_enabled' | 'image_versions_enabled' | 'flow_matrix_enabled',
+    field: 'eol_enabled' | 'mcp_enabled' | 'image_versions_enabled' | 'flow_matrix_enabled' | 'policies_enabled',
   ) => {
     setSaving(field);
     setError('');
@@ -71,6 +71,13 @@ function SettingsForm({
         enabled={settings.flow_matrix_enabled}
         saving={saving === 'flow_matrix_enabled'}
         onToggle={() => toggle('flow_matrix_enabled')}
+      />
+      <SettingToggle
+        label="Kyverno policies"
+        description="Inventories Kyverno ClusterPolicies, Policies, PolicyReports and ClusterPolicyReports. Powers the Policies view in the sidebar."
+        enabled={settings.policies_enabled}
+        saving={saving === 'policies_enabled'}
+        onToggle={() => toggle('policies_enabled')}
       />
       <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
         Last updated: {new Date(settings.updated_at).toLocaleString()}

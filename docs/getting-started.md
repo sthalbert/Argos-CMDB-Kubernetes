@@ -75,7 +75,7 @@ curl -sS -b /tmp/longue-vue.cookies -X POST http://localhost:8080/v1/admin/token
   -d '{"name":"seed","scopes":["read","write","delete"]}'
 # Copy the "token" value from the response.
 
-LONGUE_VUE_URL=http://localhost:8080 LONGUE_VUE_TOKEN=longue_vue_pat_... ./scripts/seed-demo.sh
+LONGUE_VUE_BASE=http://localhost:8080 LONGUE_VUE_TOKEN=longue_vue_pat_... ./scripts/seed-demo.sh
 ```
 
 Refresh the UI -- you should see clusters, namespaces, workloads, pods, services, and ingresses.

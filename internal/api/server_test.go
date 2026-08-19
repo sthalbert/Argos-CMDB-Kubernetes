@@ -65,6 +65,8 @@ type memStore struct {
 	registries        map[[2]string]ImageRegistry         // keyed by [hostname, path_prefix]; image_versions_registries
 	imageVersions     map[[2]string]ImageVersionRow       // keyed by [imageRepo, variant]
 	originResolutions map[[2]string]ImageOriginResolution // keyed by [mirrorImageRepo, variant]; image_origin_resolutions
+	clusterPolicies   map[uuid.UUID]ClusterPolicyRow      // Kyverno cluster policies (ADR-0043)
+	policyReports     map[uuid.UUID]PolicyReportRow       // Kyverno policy reports (ADR-0043)
 }
 
 func newMemStore() *memStore {
@@ -91,6 +93,8 @@ func newMemStore() *memStore {
 		registries:        make(map[[2]string]ImageRegistry),
 		imageVersions:     make(map[[2]string]ImageVersionRow),
 		originResolutions: make(map[[2]string]ImageOriginResolution),
+		clusterPolicies:   make(map[uuid.UUID]ClusterPolicyRow),
+		policyReports:     make(map[uuid.UUID]PolicyReportRow),
 	}
 }
 

@@ -28,6 +28,7 @@ import {
   PersistentVolumeClaimDetail,
 } from './pages/Details';
 import EolDashboard from './pages/EolDashboard';
+import { ClusterPolicies, PolicyReports } from './pages/Policies';
 import Flows from './pages/Flows';
 import VirtualMachines from './pages/VirtualMachines';
 import VirtualMachineDetail from './pages/VirtualMachineDetail';
@@ -53,7 +54,7 @@ import { MeProvider } from './me';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon,
   ServiceIcon, IngressIcon, VolumeIcon, SearchIcon, EolIcon, ContainerImageIcon, AdminIcon,
-  VirtualMachineIcon, FlowsIcon,
+  VirtualMachineIcon, FlowsIcon, PolicyIcon,
 } from './icons';
 
 // --- auth gate ----------------------------------------------------------
@@ -153,6 +154,8 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           {link('/nodes', 'Nodes', NodeIcon)}
           {link('/workloads', 'Workloads', WorkloadIcon)}
           {link('/pods', 'Pods', PodIcon)}
+          {link('/cluster-policies', 'Policies', PolicyIcon)}
+          {link('/policy-reports', 'Policy Reports', PolicyIcon)}
           {link('/services', 'Services', ServiceIcon)}
           {link('/ingresses', 'Ingresses', IngressIcon)}
           {link('/persistentvolumes', 'PVs', VolumeIcon)}
@@ -249,6 +252,9 @@ export default function App() {
 
       <Route path="/pods" element={authed(<Pods />)} />
       <Route path="/pods/:id" element={authed(<PodDetail />)} />
+
+      <Route path="/cluster-policies" element={authed(<ClusterPolicies />)} />
+      <Route path="/policy-reports" element={authed(<PolicyReports />)} />
 
       <Route path="/services" element={authed(<Services />)} />
       <Route path="/services/:id" element={authed(<ServiceDetail />)} />

@@ -17,6 +17,7 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 		time_travel_enabled, time_travel_retention_days, time_travel_reaper_enabled,
 		image_versions_enabled,
 		flow_matrix_enabled,
+		policies_enabled,
 		updated_at FROM settings WHERE id = 1`
 	var s api.Settings
 	if err := p.pool.QueryRow(ctx, q).Scan(
@@ -24,6 +25,7 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 		&s.TimeTravelEnabled, &s.TimeTravelRetentionDays, &s.TimeTravelReaperEnabled,
 		&s.ImageVersionsEnabled,
 		&s.FlowMatrixEnabled,
+		&s.PoliciesEnabled,
 		&s.UpdatedAt,
 	); err != nil {
 		return api.Settings{}, fmt.Errorf("get settings: %w", err)
@@ -32,6 +34,8 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 }
 
 // UpdateSettings applies the merge-patch on the settings row.
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Settings, error) {
 	sets := make([]string, 0, 6)
 	args := make([]any, 0, 6)
@@ -72,7 +76,11 @@ func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Sett
 		args = append(args, *in.FlowMatrixEnabled)
 		idx++
 	}
-
+	if in.PoliciesEnabled != nil {
+		sets = append(sets, fmt.Sprintf("policies_enabled=$%d", idx))
+		args = append(args, *in.PoliciesEnabled)
+		idx++
+	}
 	if len(sets) == 0 {
 		return p.GetSettings(ctx)
 	}

@@ -43,7 +43,7 @@ func (p *PG) InsertAuditEvent(ctx context.Context, in api.AuditEventInsert) erro
 		// Migration default + back-compat for callers built before ADR-0016
 		// added the column. The CHECK constraint on the column rejects any
 		// other empty / unknown value, so always emit a known label here.
-		source = "api"
+		source = api.AuditSourceAPI
 	}
 	// nullable string columns: store empty strings as SQL NULL so filter
 	// queries on IS NULL stay clean.

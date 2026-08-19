@@ -914,6 +914,22 @@ func (f *fakeKubeSource) ListAllNetworkPolicies(_ context.Context) ([]collector.
 	return nil, nil
 }
 
+func (f *fakeKubeSource) ListKyvernoClusterPolicies(_ context.Context) ([]collector.KyvernoClusterPolicyInfo, error) {
+	return nil, nil
+}
+
+func (f *fakeKubeSource) ListKyvernoPolicies(_ context.Context) ([]collector.KyvernoClusterPolicyInfo, error) {
+	return nil, nil
+}
+
+func (f *fakeKubeSource) ListKyvernoPolicyReports(_ context.Context) ([]collector.KyvernoPolicyReportInfo, error) {
+	return nil, nil
+}
+
+func (f *fakeKubeSource) ListKyvernoClusterPolicyReports(_ context.Context) ([]collector.KyvernoPolicyReportInfo, error) {
+	return nil, nil
+}
+
 // notifyingStore wraps a CmdbStore and closes tickDone after the first
 // successful UpsertPersistentVolumeClaim, which is the last write in a tick.
 type notifyingStore struct {

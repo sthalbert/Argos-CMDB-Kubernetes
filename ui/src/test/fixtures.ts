@@ -361,6 +361,7 @@ export const fixtureSettings: Settings = {
   mcp_enabled: false,
   image_versions_enabled: false,
   flow_matrix_enabled: false,
+  policies_enabled: false,
   updated_at: '2025-01-01T00:00:00Z',
 };
 

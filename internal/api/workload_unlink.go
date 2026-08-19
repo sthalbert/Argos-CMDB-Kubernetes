@@ -83,7 +83,7 @@ func explicitNullJSONField(body []byte, key string) bool {
 	if !ok {
 		return false
 	}
-	return string(bytes.TrimSpace(v)) == "null"
+	return string(bytes.TrimSpace(v)) == jsonNullLiteral
 }
 
 // workloadClearApplicationFromCtx reports whether DetectWorkloadUnlinkMiddleware

@@ -23,21 +23,21 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - `migrations/` — goose-style timestamped SQL, embedded.
 - `ui/` — SPA; `make ui-build` produces `ui/dist/` for embed. `noui` build tag skips it.
 - `charts/` — one Helm chart per binary (ADR-0018). `deploy/` Kustomize is examples only.
-- `docs/adr/` — ADRs are the canonical source for *why*; this file should not duplicate them.
+- `docs/adr/` — ADRs are the canonical source for _why_; this file should not duplicate them.
 
 ## Commands
 
-| Command | Purpose |
-|---|---|
-| `make build` | Build binary (requires `make ui-build` first) |
-| `make build-noui` | Build without UI (no Node needed) |
-| `make test` | `go test -race` + coverage |
-| `make test-one TEST=Name` | Single test |
-| `make check` | fmt + vet + lint + test (CI-equivalent) |
-| `make ui-dev` | Vite on :5173, proxies `/v1` + `/healthz` + `/metrics` to :8080 |
-| `make ui-build` / `ui-check` / `ui-install` | UI build / typecheck / `npm ci` |
-| `make swagger-sync` | Copy `api/openapi/openapi.yaml` → `internal/api/swagger/openapi.yaml` |
-| `make swagger-sync-check` | CI guard: fails if the embedded copy drifted from source |
+| Command                                     | Purpose                                                               |
+| ------------------------------------------- | --------------------------------------------------------------------- |
+| `make build`                                | Build binary (requires `make ui-build` first)                         |
+| `make build-noui`                           | Build without UI (no Node needed)                                     |
+| `make test`                                 | `go test -race` + coverage                                            |
+| `make test-one TEST=Name`                   | Single test                                                           |
+| `make check`                                | fmt + vet + lint + test (CI-equivalent)                               |
+| `make ui-dev`                               | Vite on :5173, proxies `/v1` + `/healthz` + `/metrics` to :8080       |
+| `make ui-build` / `ui-check` / `ui-install` | UI build / typecheck / `npm ci`                                       |
+| `make swagger-sync`                         | Copy `api/openapi/openapi.yaml` → `internal/api/swagger/openapi.yaml` |
+| `make swagger-sync-check`                   | CI guard: fails if the embedded copy drifted from source              |
 
 ## Key conventions
 
@@ -46,6 +46,7 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - **Updates**: merge-patch via PATCH; collector tick writes only its own fields, leaving curated metadata alone.
 - **JSONB**: heterogeneous specs (workload `spec`, `containers`, `conditions`, `taints`, `load_balancer`, `applications`, `annotations`).
 - **FK chain**: `clusters` → `namespaces`/`nodes`/`persistent_volumes` → `pods`/`workloads`/`services`/`ingresses`/`pvcs`, all `ON DELETE CASCADE`. `pods.workload_id` and `pvcs.bound_volume_id` are `ON DELETE SET NULL`.
+- **Kyverno policies (ADR-0043)**: `cluster_policies` + `policy_reports` tables, gated by `policies_enabled` setting (default off, seeded from `LONGUE_VUE_POLICIES_ENABLED`). When off, all policy endpoints return 409. UI has a Policies sidebar page with 409 banner. Two POST endpoints (`POST /v1/cluster-policies`, `POST /v1/policy-reports`) use a `source` discriminator column (`'collector'`/`'api'`) so the reconcile sweep only deletes collector-originated rows.
 - **Reconcile semantics**: only run after a successful list; transient API errors must never wipe the store. Workload reconcile keys on `(kind, name)`.
 - **VMs vs nodes**: `virtual_machines` is a separate top-level table from `nodes`; dedup on POST checks `provider_id` substring against `nodes`.
 
@@ -103,7 +104,7 @@ no dependency on the React SPA bundle.
 
 ## Settings + feature toggles
 
-Single-row `settings` table (`id=1 CHECK`). Runtime toggles `eol_enabled`, `mcp_enabled` (admin scope, hand-written `GET`/`PATCH /v1/admin/settings`, not in OpenAPI). Env vars seed the initial value.
+Single-row `settings` table (`id=1 CHECK`). Runtime toggles `eol_enabled`, `mcp_enabled`, `policies_enabled` (admin scope, hand-written `GET`/`PATCH /v1/admin/settings`, not in OpenAPI). Env vars seed the initial value. `policies_enabled` (default off, seeded from `LONGUE_VUE_POLICIES_ENABLED`) gates all Kyverno policy endpoints (409 when off).
 
 **Image versions enricher (`image_versions_enabled`, ADR-0022):** queries public registries for the latest tag of each container image used in workloads/pods. Default interval 24h (`LONGUE_VUE_IMAGE_VERSIONS_INTERVAL`). Allowlist of registries is in `image_versions_registries` (DB-backed, admin CRUD). Computes a `freshness` field (`up_to_date` / `outdated` / `far_behind` / `unknown`) based on minor/major version distance — see ADR-0041. This replaces the former `eol_status` field on `ContainerVersionInfo`. Freshness is surfaced via `GET /v1/container-freshness` and the Container Freshness UI page (`/container-freshness`); it does **not** appear in the EOL dashboard or extract.
 

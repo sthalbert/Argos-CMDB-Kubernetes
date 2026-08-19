@@ -45,6 +45,15 @@ output-options:
     - FlowMatrixPortRange
     - FlowMatrixSource
     - FlowMatrixWarning
+    # ADR-0043: Kyverno policy-view schemas are hand-written
+    # (ClusterPolicyRow, PolicyReportRow in store.go; ClusterPolicyCreate,
+    # PolicyReportCreate in the handler files). Excluding them prevents
+    # codegen from emitting parallel structs that conflict with the
+    # hand-written types and miss the Source/provenance field.
+    - ClusterPolicy
+    - ClusterPolicyCreate
+    - PolicyReport
+    - PolicyReportCreate
   exclude-operation-ids:
     # The extract endpoints are hand-written handlers mounted directly on
     # the mux in cmd/longue-vue/main.go. Documented in openapi.yaml so
@@ -117,6 +126,19 @@ output-options:
     - importFlowReferences
     - updateFlowReference
     - deleteFlowReference
+    # ADR-0043: Kyverno policy-view endpoints are hand-written handlers
+    # (cluster_policy_handlers.go, policy_report_handlers.go) gated on
+    # settings.policies_enabled. Documented in openapi.yaml so they appear
+    # in Swagger UI; excluded from the strict-server interface to avoid
+    # double registration and duplicate-type conflicts.
+    - listClusterPolicies
+    - createClusterPolicy
+    - getClusterPolicy
+    - deleteClusterPolicy
+    - listPolicyReports
+    - createPolicyReport
+    - getPolicyReport
+    - deletePolicyReport
 generate:
   models: true
   std-http-server: true

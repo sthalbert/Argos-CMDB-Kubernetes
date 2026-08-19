@@ -348,6 +348,10 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 		return fmt.Errorf("flow matrix setting: %w", err)
 	}
 
+	if err := seedPoliciesSetting(rootCtx, pg); err != nil {
+		return fmt.Errorf("policies setting: %w", err)
+	}
+
 	drainMCP, err := maybeStartMCPServer(rootCtx, pg)
 	if err != nil {
 		return err
@@ -609,6 +613,26 @@ func buildHTTPServer(
 	// and POST /v1/network-policies/reconcile (delete scope) are served by the
 	// codegen router (HandlerWithOptions above) which sets BearerAuthScopes in
 	// context and applies the shared AuthMiddleware + AuditMiddleware chain.
+
+	// Kyverno policies — read + write endpoints (ADR-0043). POST routes
+	// accept externally-authored rows (source='api'); collector sweep
+	// skips API-sourced rows via the source discriminator column.
+	mux.Handle("POST /v1/cluster-policies",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreateClusterPolicy(pg)))))
+	mux.Handle("GET /v1/cluster-policies",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListClusterPolicies(pg)))))
+	mux.Handle("GET /v1/cluster-policies/{id}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetClusterPolicy(pg)))))
+	mux.Handle("POST /v1/policy-reports",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreatePolicyReport(pg)))))
+	mux.Handle("GET /v1/policy-reports",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListPolicyReports(pg)))))
+	mux.Handle("GET /v1/policy-reports/{id}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetPolicyReport(pg)))))
+	mux.Handle("DELETE /v1/cluster-policies/{id}",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleDeleteClusterPolicy(pg)))))
+	mux.Handle("DELETE /v1/policy-reports/{id}",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleDeletePolicyReport(pg)))))
 
 	// Per-asset derived network-rules (flow-matrix P1, Tasks 20 + 21).
 	mux.Handle("GET /v1/workloads/{id}/network-rules",
@@ -1431,6 +1455,24 @@ func seedFlowMatrixSetting(ctx context.Context, s api.Store) error {
 	}
 	if _, err := s.UpdateSettings(ctx, api.SettingsPatch{FlowMatrixEnabled: &enabled}); err != nil {
 		slog.Warn("flow matrix: failed to seed settings from env", slog.Any("error", err))
+	}
+	return nil
+}
+
+// seedPoliciesSetting seeds the `policies_enabled` DB setting from the
+// LONGUE_VUE_POLICIES_ENABLED env var when explicitly set, mirroring the
+// seed-once semantics of the flow-matrix / EOL / MCP toggles (ADR-0043 IMP-002).
+func seedPoliciesSetting(ctx context.Context, s api.Store) error {
+	envVal := os.Getenv("LONGUE_VUE_POLICIES_ENABLED")
+	if envVal == "" {
+		return nil
+	}
+	enabled, err := strconv.ParseBool(envVal)
+	if err != nil {
+		return fmt.Errorf("parse LONGUE_VUE_POLICIES_ENABLED=%q: %w", envVal, err)
+	}
+	if _, err := s.UpdateSettings(ctx, api.SettingsPatch{PoliciesEnabled: &enabled}); err != nil {
+		slog.Warn("policies: failed to seed settings from env", slog.Any("error", err))
 	}
 	return nil
 }

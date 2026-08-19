@@ -215,6 +215,19 @@ export function FlowsIcon(props: IconProps) {
   );
 }
 
+// PolicyIcon — shield with checkmark glyph for Kyverno policies view.
+// Distinct from AdminIcon (shield with check) by using a document/policy
+// overlay: a scroll-like shape suggesting a ruleset or policy document.
+export function PolicyIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3 L4 6 V12 C4 17 8 20 12 21 C16 20 20 17 20 12 V6 Z" />
+      <line x1={9} y1={10} x2={15} y2={10} />
+      <line x1={9} y1={13} x2={13} y2={13} />
+    </Svg>
+  );
+}
+
 // Entity type → icon lookup for tables and headers.
 const ENTITY_ICONS: Record<string, React.FC<IconProps>> = {
   cluster: ClusterIcon,

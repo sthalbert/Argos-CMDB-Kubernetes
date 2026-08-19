@@ -25,7 +25,7 @@ func classifyPVCFKError(err error, namespaceID uuid.UUID, boundVolumeID *uuid.UU
 		return nil
 	}
 	if strings.Contains(pgErr.ConstraintName, "bound_volume_id") {
-		target := "<nil>"
+		target := nilUUIDDisplay
 		if boundVolumeID != nil {
 			target = boundVolumeID.String()
 		}

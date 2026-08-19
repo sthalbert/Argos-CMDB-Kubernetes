@@ -27,4 +27,14 @@ rules:
       - ingresses
       - networkpolicies
     verbs: ["list"]
+  - apiGroups: ["kyverno.io"]
+    resources:
+      - clusterpolicies
+      - policies
+    verbs: ["list"]
+  - apiGroups: ["wgpolicyk8s.io"]
+    resources:
+      - policyreports
+      - clusterpolicyreports
+    verbs: ["list"]
 {{- end }}

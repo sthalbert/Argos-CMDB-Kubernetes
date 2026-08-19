@@ -291,6 +291,7 @@ export interface Settings {
   mcp_enabled: boolean;
   image_versions_enabled: boolean;
   flow_matrix_enabled: boolean;
+  policies_enabled: boolean;
   updated_at: string;
 }
 
@@ -299,6 +300,7 @@ export interface SettingsPatch {
   mcp_enabled?: boolean;
   image_versions_enabled?: boolean;
   flow_matrix_enabled?: boolean;
+  policies_enabled?: boolean;
 }
 
 export function getSettings() {
@@ -789,6 +791,71 @@ export function listPersistentVolumeClaims(filter?: { namespace_id?: string; cur
 }
 export function getPersistentVolumeClaim(id: string) {
   return request<PersistentVolumeClaim>(`/v1/persistentvolumeclaims/${id}`);
+}
+
+// --- Kyverno policies (ADR-0043) ----------------------------------------
+
+export interface ClusterPolicy {
+  id: string;
+  cluster_id: string;
+  namespace_id?: string | null;
+  name: string;
+  resource_type: string;
+  scope: string;
+  description?: string | null;
+  category?: string | null;
+  severity?: string | null;
+  action?: string | null;
+  failure_policy?: string | null;
+  background?: boolean | null;
+  rule_types?: string[] | null;
+  rules_count?: number | null;
+  target_resources?: string[] | null;
+  key_exclusions?: string[] | null;
+  ready?: boolean | null;
+  annotations?: Record<string, unknown> | null;
+  spec_raw?: unknown;
+  reconcile_seen_at: string;
+}
+
+export interface PolicyReport {
+  id: string;
+  cluster_id: string;
+  namespace_id?: string | null;
+  name: string;
+  scope_kind?: string | null;
+  scope_name?: string | null;
+  summary_pass?: number | null;
+  summary_fail?: number | null;
+  summary_warn?: number | null;
+  summary_error?: number | null;
+  summary_skip?: number | null;
+  reconcile_seen_at: string;
+}
+
+export function listClusterPolicies(filter?: {
+  cluster_id?: string;
+  action?: string;
+  severity?: string;
+  failure_policy?: string;
+  cursor?: string;
+  limit?: number;
+} & ListControlParams) {
+  return request<PagedResponse<ClusterPolicy>>(
+    '/v1/cluster-policies' + query({ limit: 200, ...filter }),
+  );
+}
+
+export function listPolicyReports(filter?: {
+  cluster_id?: string;
+  scope_kind?: string;
+  scope_name?: string;
+  cursor?: string;
+  limit?: number;
+} & ListControlParams) {
+  return request<PagedResponse<PolicyReport>>(
+    '/v1/policy-reports' + query({ limit: 200, ...filter }),
+  );
 }
 
 export interface Health {

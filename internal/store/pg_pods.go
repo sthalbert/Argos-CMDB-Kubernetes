@@ -78,7 +78,7 @@ func classifyPodFKError(err error, namespaceID uuid.UUID, workloadID *uuid.UUID)
 		return nil
 	}
 	if strings.Contains(pgErr.ConstraintName, "workload_id") {
-		target := "<nil>"
+		target := nilUUIDDisplay
 		if workloadID != nil {
 			target = workloadID.String()
 		}

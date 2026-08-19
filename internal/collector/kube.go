@@ -4,10 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"math"
+	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -107,7 +115,8 @@ func netv1Backend(b *networkingv1.IngressBackend) map[string]interface{} {
 // clientset is stored as kubernetes.Interface so the fake clientset from
 // k8s.io/client-go/kubernetes/fake can be injected in tests.
 type KubeClient struct {
-	clientset kubernetes.Interface
+	clientset     kubernetes.Interface
+	dynamicClient dynamic.Interface
 }
 
 // Default client-go QPS/Burst for the collector. The upstream defaults
@@ -150,7 +159,11 @@ func NewKubeClientWithLimits(kubeconfigPath string, qps float32, burst int) (*Ku
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes.NewForConfig: %w", err)
 	}
-	return &KubeClient{clientset: cs}, nil
+	dc, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("dynamic.NewForConfig: %w", err)
+	}
+	return &KubeClient{clientset: cs, dynamicClient: dc}, nil
 }
 
 func loadKubeConfig(kubeconfigPath string) (*rest.Config, error) {
@@ -835,4 +848,666 @@ func convertNetPolRule(peers []networkingv1.NetworkPolicyPeer, ports []networkin
 		}
 	}
 	return out
+}
+
+// Kyverno GVR constants — used by the four List methods below.
+var (
+	gvrClusterPolicy       = schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}
+	gvrPolicy              = schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "policies"}
+	gvrPolicyReport        = schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "policyreports"}
+	gvrClusterPolicyReport = schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"}
+)
+
+// kyvernoListSkip reports whether a list error means the CRD is absent
+// (Kyverno not installed on the cluster) — the only case where an empty
+// success is correct: rows legitimately disappear on the next sweep.
+// An RBAC 403 must NOT take this path (the policies still exist, we
+// just cannot see them); kyvernoListError maps it to
+// errKyvernoListForbidden so the tick skips both collection and sweep.
+func kyvernoListSkip(err error, gvr schema.GroupVersionResource) bool {
+	if apierrors.IsNotFound(err) {
+		slog.Debug("collector: kyverno CRD not found; skipping",
+			slog.String("gvr", gvr.String()))
+		return true
+	}
+	return false
+}
+
+// kyvernoListError wraps a non-skippable Kyverno list error: a 403
+// becomes errKyvernoListForbidden (the state of any collector
+// ServiceAccount or kubeconfig that predates the Kyverno clusterrole
+// rules), anything else is wrapped verbatim.
+func kyvernoListError(err error, gvr schema.GroupVersionResource) error {
+	if apierrors.IsForbidden(err) {
+		return fmt.Errorf("%w: %s — grant the collector credentials the list verb: %v",
+			errKyvernoListForbidden, gvr.String(), err)
+	}
+	return fmt.Errorf("list %s: %w", gvr.String(), err)
+}
+
+// ListKyvernoClusterPolicies returns every Kyverno ClusterPolicy (cluster-scoped)
+// visible through the configured kubeconfig. Paginates via Limit/Continue to
+// handle clusters with many policies. ADR-0043.
+func (k *KubeClient) ListKyvernoClusterPolicies(ctx context.Context) ([]KyvernoClusterPolicyInfo, error) {
+	var out []KyvernoClusterPolicyInfo
+	opts := metav1.ListOptions{Limit: 500}
+	for {
+		list, err := k.dynamicClient.Resource(gvrClusterPolicy).List(ctx, opts)
+		if err != nil {
+			if kyvernoListSkip(err, gvrClusterPolicy) {
+				return out, nil
+			}
+			return nil, kyvernoListError(err, gvrClusterPolicy)
+		}
+		for i := range list.Items {
+			info, err := convertKyvernoPolicy(&list.Items[i], "ClusterPolicy", "cluster")
+			if err != nil {
+				return nil, fmt.Errorf("convert kyverno clusterpolicy %s: %w", list.Items[i].GetName(), err)
+			}
+			out = append(out, info)
+		}
+		if list.GetContinue() == "" {
+			break
+		}
+		opts.Continue = list.GetContinue()
+	}
+	return out, nil
+}
+
+// ListKyvernoPolicies returns every Kyverno Policy (namespaced) visible through
+// the configured kubeconfig, across all namespaces. Paginated. ADR-0043.
+func (k *KubeClient) ListKyvernoPolicies(ctx context.Context) ([]KyvernoClusterPolicyInfo, error) {
+	var out []KyvernoClusterPolicyInfo
+	opts := metav1.ListOptions{Limit: 500}
+	for {
+		list, err := k.dynamicClient.Resource(gvrPolicy).List(ctx, opts)
+		if err != nil {
+			if kyvernoListSkip(err, gvrPolicy) {
+				return out, nil
+			}
+			return nil, kyvernoListError(err, gvrPolicy)
+		}
+		for i := range list.Items {
+			info, err := convertKyvernoPolicy(&list.Items[i], "Policy", "namespace")
+			if err != nil {
+				return nil, fmt.Errorf("convert kyverno policy %s/%s: %w", list.Items[i].GetNamespace(), list.Items[i].GetName(), err)
+			}
+			out = append(out, info)
+		}
+		if list.GetContinue() == "" {
+			break
+		}
+		opts.Continue = list.GetContinue()
+	}
+	return out, nil
+}
+
+// ListKyvernoPolicyReports returns every PolicyReport (namespaced) visible
+// through the configured kubeconfig, across all namespaces. Paginated. ADR-0043.
+func (k *KubeClient) ListKyvernoPolicyReports(ctx context.Context) ([]KyvernoPolicyReportInfo, error) {
+	var out []KyvernoPolicyReportInfo
+	opts := metav1.ListOptions{Limit: 500}
+	for {
+		list, err := k.dynamicClient.Resource(gvrPolicyReport).List(ctx, opts)
+		if err != nil {
+			if kyvernoListSkip(err, gvrPolicyReport) {
+				return out, nil
+			}
+			return nil, kyvernoListError(err, gvrPolicyReport)
+		}
+		for i := range list.Items {
+			info, err := convertKyvernoPolicyReport(&list.Items[i])
+			if err != nil {
+				return nil, fmt.Errorf("convert kyverno policyreport %s/%s: %w", list.Items[i].GetNamespace(), list.Items[i].GetName(), err)
+			}
+			out = append(out, info)
+		}
+		if list.GetContinue() == "" {
+			break
+		}
+		opts.Continue = list.GetContinue()
+	}
+	return out, nil
+}
+
+// ListKyvernoClusterPolicyReports returns every ClusterPolicyReport (cluster-scoped)
+// visible through the configured kubeconfig. Paginated. ADR-0043.
+func (k *KubeClient) ListKyvernoClusterPolicyReports(ctx context.Context) ([]KyvernoPolicyReportInfo, error) {
+	var out []KyvernoPolicyReportInfo
+	opts := metav1.ListOptions{Limit: 500}
+	for {
+		list, err := k.dynamicClient.Resource(gvrClusterPolicyReport).List(ctx, opts)
+		if err != nil {
+			if kyvernoListSkip(err, gvrClusterPolicyReport) {
+				return out, nil
+			}
+			return nil, kyvernoListError(err, gvrClusterPolicyReport)
+		}
+		for i := range list.Items {
+			info, err := convertKyvernoPolicyReport(&list.Items[i])
+			if err != nil {
+				return nil, fmt.Errorf("convert kyverno clusterpolicyreport %s: %w", list.Items[i].GetName(), err)
+			}
+			out = append(out, info)
+		}
+		if list.GetContinue() == "" {
+			break
+		}
+		opts.Continue = list.GetContinue()
+	}
+	return out, nil
+}
+
+// convertKyvernoPolicy maps an Unstructured Kyverno ClusterPolicy/Policy to
+// KyvernoClusterPolicyInfo, extracting all fields per ADR-0043 §5.
+func convertKyvernoPolicy(obj *unstructured.Unstructured, resourceType, scope string) (KyvernoClusterPolicyInfo, error) {
+	ann := obj.GetAnnotations()
+	spec, err := json.Marshal(obj.Object["spec"])
+	if err != nil {
+		return KyvernoClusterPolicyInfo{}, fmt.Errorf("marshal spec: %w", err)
+	}
+	annotations, _ := json.Marshal(ann)
+
+	info := KyvernoClusterPolicyInfo{
+		Name:         obj.GetName(),
+		Namespace:    obj.GetNamespace(),
+		ResourceType: resourceType,
+		Scope:        scope,
+		Annotations:  annotations,
+		SpecRaw:      spec,
+	}
+
+	if v, ok := ann["policies.kyverno.io/description"]; ok && v != "" {
+		info.Description = &v
+	}
+
+	if v, ok := ann["policies.kyverno.io/category"]; ok && v != "" {
+		info.Category = &v
+	}
+
+	if v, ok := ann["policies.kyverno.io/severity"]; ok && v != "" {
+		l := strings.ToLower(v)
+		info.Severity = &l
+	}
+
+	info.Action = kyvernoAction(obj)
+	info.FailurePolicy = kyvernoFailurePolicy(obj)
+	info.Background = kyvernoBackground(obj)
+	info.RuleTypes = kyvernoRuleTypes(obj)
+	info.RulesCount = kyvernoRulesCount(obj)
+	info.TargetResources = kyvernoTargetResources(obj)
+	info.KeyExclusions = kyvernoKeyExclusions(obj)
+	info.Ready = kyvernoReady(obj)
+
+	if info.Description == nil {
+		info.Description = kyvernoDescriptionFallback(obj)
+	}
+
+	return info, nil
+}
+
+const (
+	kyvernoActionEnforce = "enforce"
+	kyvernoActionAudit   = "audit"
+)
+
+// kyvernoAction extracts spec.validationFailureAction (always a string in
+// Kyverno >=1.10: "enforce" or "audit"). If any rule overrides to "enforce"
+// (via spec-level validationFailureActionOverrides, per-rule
+// validate.failureAction/failureActionOverrides, or per-entry
+// verifyImages failureAction/failureActionOverrides in Kyverno >=1.13),
+// the policy-level action is promoted to "enforce" (most restrictive
+// wins). Returns nil for a policy with no validation semantics at all
+// (mutate-/generate-only — verifyImages counts as validation): the
+// kubebuilder default "audit" would fabricate an enforcement posture
+// such a policy doesn't have. Result is lowercased. ADR-0043 §5.
+//
+//nolint:gocyclo // most-restrictive-wins scan across three override sources
+func kyvernoAction(obj *unstructured.Unstructured) *string {
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	vfa, _ := spec["validationFailureAction"].(string)
+	overrides, _ := spec["validationFailureActionOverrides"].([]interface{})
+	rules, _ := spec["rules"].([]interface{})
+
+	// validate AND verifyImages rules are both governed by
+	// validationFailureAction; only a policy with neither (mutate-/
+	// generate-only) has no enforcement posture at all.
+	hasValidationSemantics := false
+	for _, r := range rules {
+		rm, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, ok := rm["validate"]; ok {
+			hasValidationSemantics = true
+			break
+		}
+		if _, ok := rm["verifyImages"]; ok {
+			hasValidationSemantics = true
+			break
+		}
+	}
+	if vfa == "" && len(overrides) == 0 && !hasValidationSemantics {
+		return nil
+	}
+	if vfa == "" {
+		// Kyverno <1.10 doesn't set validationFailureAction in the spec;
+		// the kubebuilder default is "audit". Fall through to check
+		// overrides/per-rule actions before returning.
+		vfa = kyvernoActionAudit
+	}
+	action := strings.ToLower(vfa)
+
+	if action == kyvernoActionEnforce {
+		return &action
+	}
+
+	if kyvernoOverridesEnforce(overrides) {
+		return ptrLower(kyvernoActionEnforce)
+	}
+
+	for _, r := range rules {
+		rm, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if kyvernoValidateRuleEnforces(rm) || kyvernoVerifyImagesEnforces(rm) {
+			return ptrLower(kyvernoActionEnforce)
+		}
+	}
+
+	return &action
+}
+
+// kyvernoVerifyImagesEnforces reports whether one rule's verifyImages
+// entries enforce — via per-entry failureAction or
+// failureActionOverrides (Kyverno >=1.13).
+func kyvernoVerifyImagesEnforces(rm map[string]interface{}) bool {
+	entries, _ := rm["verifyImages"].([]interface{})
+	for _, e := range entries {
+		em, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if fa, ok := em["failureAction"].(string); ok && strings.EqualFold(fa, kyvernoActionEnforce) {
+			return true
+		}
+		faOverrides, _ := em["failureActionOverrides"].([]interface{})
+		if kyvernoOverridesEnforce(faOverrides) {
+			return true
+		}
+	}
+	return false
+}
+
+// kyvernoOverridesEnforce reports whether any entry of a
+// validationFailureActionOverrides-style list carries an enforce action.
+func kyvernoOverridesEnforce(overrides []interface{}) bool {
+	for _, o := range overrides {
+		om, ok := o.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if a, ok := om["action"].(string); ok && strings.EqualFold(a, kyvernoActionEnforce) {
+			return true
+		}
+	}
+	return false
+}
+
+// kyvernoValidateRuleEnforces reports whether one rule's validate block
+// enforces — via failureAction or failureActionOverrides (Kyverno >=1.13).
+func kyvernoValidateRuleEnforces(rm map[string]interface{}) bool {
+	v, ok := rm["validate"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	if fa, ok := v["failureAction"].(string); ok && strings.EqualFold(fa, kyvernoActionEnforce) {
+		return true
+	}
+	faOverrides, _ := v["failureActionOverrides"].([]interface{})
+	return kyvernoOverridesEnforce(faOverrides)
+}
+
+func ptrLower(s string) *string {
+	l := strings.ToLower(s)
+	return &l
+}
+
+// kyvernoFailurePolicy extracts spec.webhookConfiguration.failurePolicy,
+// falling back to the deprecated spec.failurePolicy. ADR-0043 §5.
+func kyvernoFailurePolicy(obj *unstructured.Unstructured) *string {
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	if wh, ok := spec["webhookConfiguration"].(map[string]interface{}); ok {
+		if fp, ok := wh["failurePolicy"].(string); ok && fp != "" {
+			return &fp
+		}
+	}
+	if fp, ok := spec["failurePolicy"].(string); ok && fp != "" {
+		return &fp
+	}
+	return nil
+}
+
+// kyvernoBackground extracts spec.background (default true when absent).
+func kyvernoBackground(obj *unstructured.Unstructured) *bool {
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if !ok {
+		b := true
+		return &b
+	}
+	if v, ok := spec["background"].(bool); ok {
+		return &v
+	}
+	b := true
+	return &b
+}
+
+// kyvernoRuleTypes returns distinct rule types present in spec.rules[].
+// Keys: validate, mutate, generate, verifyImages. ADR-0043 §5.
+func kyvernoRuleTypes(obj *unstructured.Unstructured) []string {
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	rules, ok := spec["rules"].([]interface{})
+	if !ok {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	for _, r := range rules {
+		rm, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"validate", "mutate", "generate", "verifyImages"} {
+			if _, exists := rm[key]; exists {
+				seen[key] = struct{}{}
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for _, key := range []string{"validate", "mutate", "generate", "verifyImages"} {
+		if _, exists := seen[key]; exists {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// kyvernoRulesCount returns len(spec.rules). ADR-0043 §5.
+func kyvernoRulesCount(obj *unstructured.Unstructured) int {
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if !ok {
+		return 0
+	}
+	rules, ok := spec["rules"].([]interface{})
+	if !ok {
+		return 0
+	}
+	return len(rules)
+}
+
+// kyvernoTargetResources returns distinct union of
+// spec.rules[].match.any[].resources.kinds[] and
+// spec.rules[].match.all[].resources.kinds[]. ADR-0043 §5.
+//
+//nolint:gocognit,gocyclo // nested unstructured-map walk; each level is one trivial type assertion
+func kyvernoTargetResources(obj *unstructured.Unstructured) []string {
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	rules, ok := spec["rules"].([]interface{})
+	if !ok {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	for _, r := range rules {
+		rm, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		match, ok := rm["match"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for _, matchKey := range []string{"any", "all"} {
+			matchItems, ok := match[matchKey].([]interface{})
+			if !ok {
+				continue
+			}
+			for _, item := range matchItems {
+				im, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				resources, ok := im["resources"].(map[string]interface{})
+				if !ok {
+					continue
+				}
+				kinds, ok := resources["kinds"].([]interface{})
+				if !ok {
+					continue
+				}
+				for _, k := range kinds {
+					if s, ok := k.(string); ok && s != "" {
+						seen[s] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// kyvernoKeyExclusions returns distinct exclusion entries (capped at 10),
+// sorted for deterministic output. Prefixes: "kind:" for resource kinds,
+// "ns:" for namespaces. ADR-0043 §5.
+//
+//nolint:gocognit,gocyclo // nested unstructured-map walk; each level is one trivial type assertion
+func kyvernoKeyExclusions(obj *unstructured.Unstructured) []string {
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	rules, ok := spec["rules"].([]interface{})
+	if !ok {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	for _, r := range rules {
+		rm, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		exclude, ok := rm["exclude"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for _, excKey := range []string{"any", "all"} {
+			excItems, ok := exclude[excKey].([]interface{})
+			if !ok {
+				continue
+			}
+			for _, item := range excItems {
+				im, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				resources, ok := im["resources"].(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if kinds, ok := resources["kinds"].([]interface{}); ok {
+					for _, k := range kinds {
+						if s, ok := k.(string); ok && s != "" {
+							seen["kind:"+s] = struct{}{}
+						}
+					}
+				}
+				if namespaces, ok := resources["namespaces"].([]interface{}); ok {
+					for _, ns := range namespaces {
+						if s, ok := ns.(string); ok && s != "" {
+							seen["ns:"+s] = struct{}{}
+						}
+					}
+				}
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	if len(out) > 10 {
+		out = out[:10]
+	}
+	return out
+}
+
+// kyvernoReady returns true if status.conditions[type=="Ready"].status == "True",
+// false otherwise, nil if status is absent. ADR-0043 §5.
+func kyvernoReady(obj *unstructured.Unstructured) *bool {
+	status, ok := obj.Object["status"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	conditions, ok := status["conditions"].([]interface{})
+	if !ok {
+		return nil
+	}
+	for _, c := range conditions {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, ok := cm["type"].(string); ok && t == "Ready" {
+			v := cm["status"] == "True"
+			return &v
+		}
+	}
+	return nil
+}
+
+// kyvernoDescriptionFallback extracts the first non-empty line of
+// spec.rules[0].validate.message when the description annotation is absent.
+// ADR-0043 §5.
+func kyvernoDescriptionFallback(obj *unstructured.Unstructured) *string {
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	rules, ok := spec["rules"].([]interface{})
+	if !ok || len(rules) == 0 {
+		return nil
+	}
+	first, ok := rules[0].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	validate, ok := first["validate"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	msg, ok := validate["message"].(string)
+	if !ok || msg == "" {
+		return nil
+	}
+	for _, line := range splitLines(msg) {
+		if line != "" {
+			return &line
+		}
+	}
+	return nil
+}
+
+// convertKyvernoPolicyReport maps an Unstructured PolicyReport/ClusterPolicyReport
+// to KyvernoPolicyReportInfo. ADR-0043 §5.
+func convertKyvernoPolicyReport(obj *unstructured.Unstructured) (KyvernoPolicyReportInfo, error) {
+	results, err := json.Marshal(obj.Object["results"])
+	if err != nil {
+		return KyvernoPolicyReportInfo{}, fmt.Errorf("marshal results: %w", err)
+	}
+
+	info := KyvernoPolicyReportInfo{
+		Name:       obj.GetName(),
+		Namespace:  obj.GetNamespace(),
+		ResultsRaw: results,
+	}
+
+	if scope, ok := obj.Object["scope"].(map[string]interface{}); ok {
+		if k, ok := scope["kind"].(string); ok {
+			info.ScopeKind = &k
+		}
+		if n, ok := scope["name"].(string); ok {
+			info.ScopeName = &n
+		}
+	}
+
+	if summary, ok := obj.Object["summary"].(map[string]interface{}); ok {
+		info.SummaryPass = jsonInt(summary, "pass")
+		info.SummaryFail = jsonInt(summary, "fail")
+		info.SummaryWarn = jsonInt(summary, "warn")
+		info.SummaryError = jsonInt(summary, "error")
+		info.SummarySkip = jsonInt(summary, "skip")
+	}
+
+	return info, nil
+}
+
+// jsonInt extracts an int from a map[string]interface{} key, tolerating
+// both float64 (JSON default) and int. Values are clamped to
+// [0, math.MaxInt32]: summary counts are non-negative by contract (the
+// POST handler enforces the same rule), the columns are INTEGER, and an
+// out-of-range float64→int conversion is implementation-defined in Go.
+func jsonInt(m map[string]interface{}, key string) int {
+	clamp := func(v float64) int {
+		if v < 0 {
+			return 0
+		}
+		if v > math.MaxInt32 {
+			return math.MaxInt32
+		}
+		return int(v)
+	}
+	switch v := m[key].(type) {
+	case int:
+		return clamp(float64(v))
+	case int64:
+		return clamp(float64(v))
+	case float64:
+		return clamp(v)
+	}
+	return 0
+}
+
+// splitLines splits a string into lines without allocating a slice for
+// the common single-line case.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var lines []string
+	start := 0
+	for i := range len(s) {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	lines = append(lines, s[start:])
+	return lines
 }

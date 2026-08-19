@@ -12,6 +12,19 @@ import (
 	"github.com/sthalbert/longue-vue/internal/secrets"
 )
 
+// Source discriminators for reconcilable rows. Collector-originated rows
+// are swept on each tick; API-originated rows survive reconcile.
+const (
+	SourceCollector = "collector"
+	SourceAPI       = "api"
+)
+
+// AuditSourceAPI discriminates API-originated audit_events.source rows
+// (ADR-0016; the column also admits "ingest_gw" and "system"). Separate
+// from the Kyverno reconcilable-source constants to avoid cross-domain
+// coupling — the values happen to overlap but the domains are distinct.
+const AuditSourceAPI = "api"
+
 // Sentinel errors returned by Store implementations. Handlers translate these
 // into RFC 7807 responses with the matching HTTP status.
 var (
@@ -131,6 +144,7 @@ type Store interface {
 	ApplicationStore
 	SecurityGroupStore
 	NetworkPolicyStore
+	KyvernoStore
 	FlowStore
 
 	// Ping verifies that the underlying database is reachable.
@@ -1202,6 +1216,7 @@ type Settings struct {
 	TimeTravelReaperEnabled bool      `json:"time_travel_reaper_enabled"`
 	ImageVersionsEnabled    bool      `json:"image_versions_enabled"`
 	FlowMatrixEnabled       bool      `json:"flow_matrix_enabled"`
+	PoliciesEnabled         bool      `json:"policies_enabled"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
@@ -1215,6 +1230,7 @@ type SettingsPatch struct {
 	TimeTravelReaperEnabled *bool `json:"time_travel_reaper_enabled,omitempty"`
 	ImageVersionsEnabled    *bool `json:"image_versions_enabled,omitempty"`
 	FlowMatrixEnabled       *bool `json:"flow_matrix_enabled,omitempty"`
+	PoliciesEnabled         *bool `json:"policies_enabled,omitempty"`
 }
 
 // ImageVersionRow is a row from image_versions — one (image_repo, variant) pair
@@ -1327,4 +1343,182 @@ type AuditEventFilter struct {
 	Source *string
 	Since  *time.Time
 	Until  *time.Time
+}
+
+// ClusterPolicyRow is one row from the cluster_policies table — a collected
+// Kyverno ClusterPolicy (namespace_id=NULL, scope="cluster") or namespaced
+// Policy (namespace_id set, scope="namespace"). ADR-0043.
+type ClusterPolicyRow struct {
+	ID              uuid.UUID       `json:"id"`
+	ClusterID       uuid.UUID       `json:"cluster_id"`
+	NamespaceID     *uuid.UUID      `json:"namespace_id,omitempty"`
+	Name            string          `json:"name"`
+	ResourceType    string          `json:"resource_type"`
+	Scope           string          `json:"scope"`
+	Description     *string         `json:"description,omitempty"`
+	Category        *string         `json:"category,omitempty"`
+	Severity        *string         `json:"severity,omitempty"`
+	Action          *string         `json:"action,omitempty"`
+	FailurePolicy   *string         `json:"failure_policy,omitempty"`
+	Background      *bool           `json:"background,omitempty"`
+	RuleTypes       []string        `json:"rule_types,omitempty"`
+	RulesCount      *int            `json:"rules_count,omitempty"`
+	TargetResources []string        `json:"target_resources,omitempty"`
+	KeyExclusions   []string        `json:"key_exclusions,omitempty"`
+	Ready           *bool           `json:"ready,omitempty"`
+	Annotations     json.RawMessage `json:"annotations,omitempty"`
+	SpecRaw         json.RawMessage `json:"spec_raw"`
+	Source          string          `json:"source"`
+	ReconcileSeenAt time.Time       `json:"reconcile_seen_at"`
+}
+
+// PolicyReportRow is one row from the policy_reports table — a collected
+// Kyverno PolicyReport (namespaced) or ClusterPolicyReport (cluster-scoped).
+// ADR-0043.
+type PolicyReportRow struct {
+	ID              uuid.UUID       `json:"id"`
+	ClusterID       uuid.UUID       `json:"cluster_id"`
+	NamespaceID     *uuid.UUID      `json:"namespace_id,omitempty"`
+	Name            string          `json:"name"`
+	ScopeKind       *string         `json:"scope_kind,omitempty"`
+	ScopeName       *string         `json:"scope_name,omitempty"`
+	SummaryPass     int             `json:"summary_pass"`
+	SummaryFail     int             `json:"summary_fail"`
+	SummaryWarn     int             `json:"summary_warn"`
+	SummaryError    int             `json:"summary_error"`
+	SummarySkip     int             `json:"summary_skip"`
+	ResultsRaw      json.RawMessage `json:"results_raw,omitempty"`
+	Source          string          `json:"source"`
+	ReconcileSeenAt time.Time       `json:"reconcile_seen_at"`
+}
+
+// ClusterPolicyListFilter — nil fields are ignored; set fields AND-combine.
+type ClusterPolicyListFilter struct {
+	ClusterID     *uuid.UUID
+	NamespaceID   *uuid.UUID
+	Name          *string
+	ResourceType  *string
+	Action        *string
+	Severity      *string
+	FailurePolicy *string
+	Category      *string
+}
+
+// PolicyReportListFilter — nil fields are ignored; set fields AND-combine.
+type PolicyReportListFilter struct {
+	ClusterID   *uuid.UUID
+	NamespaceID *uuid.UUID
+	Name        *string
+	ScopeKind   *string
+	ScopeName   *string
+}
+
+// ClusterPolicyCreate is the request body for POST /v1/cluster-policies.
+// Only the fields required for creation are exposed; server-generated
+// fields (id, reconcile_seen_at, source) are set by the handler.
+type ClusterPolicyCreate struct {
+	ClusterID       uuid.UUID       `json:"cluster_id"`
+	NamespaceID     *uuid.UUID      `json:"namespace_id,omitempty"`
+	Name            string          `json:"name"`
+	ResourceType    string          `json:"resource_type"`
+	Scope           string          `json:"scope"`
+	Description     *string         `json:"description,omitempty"`
+	Category        *string         `json:"category,omitempty"`
+	Severity        *string         `json:"severity,omitempty"`
+	Action          *string         `json:"action,omitempty"`
+	FailurePolicy   *string         `json:"failure_policy,omitempty"`
+	Background      *bool           `json:"background,omitempty"`
+	RuleTypes       []string        `json:"rule_types,omitempty"`
+	RulesCount      *int            `json:"rules_count,omitempty"`
+	TargetResources []string        `json:"target_resources,omitempty"`
+	KeyExclusions   []string        `json:"key_exclusions,omitempty"`
+	Ready           *bool           `json:"ready,omitempty"`
+	Annotations     json.RawMessage `json:"annotations,omitempty"`
+	SpecRaw         json.RawMessage `json:"spec_raw"`
+}
+
+// PolicyReportCreate is the request body for POST /v1/policy-reports.
+// Only the fields required for creation are exposed; server-generated
+// fields (id, reconcile_seen_at, source) are set by the handler.
+type PolicyReportCreate struct {
+	ClusterID    uuid.UUID       `json:"cluster_id"`
+	NamespaceID  *uuid.UUID      `json:"namespace_id,omitempty"`
+	Name         string          `json:"name"`
+	ScopeKind    *string         `json:"scope_kind,omitempty"`
+	ScopeName    *string         `json:"scope_name,omitempty"`
+	SummaryPass  int             `json:"summary_pass"`
+	SummaryFail  int             `json:"summary_fail"`
+	SummaryWarn  int             `json:"summary_warn"`
+	SummaryError int             `json:"summary_error"`
+	SummarySkip  int             `json:"summary_skip"`
+	ResultsRaw   json.RawMessage `json:"results_raw,omitempty"`
+}
+
+// KyvernoStore covers Kyverno ClusterPolicy and PolicyReport rows
+// (ADR-0043).
+type KyvernoStore interface {
+	// --- Cluster policies -------------------------------------------------
+
+	// GetClusterPolicy fetches a cluster policy by stable UUID.
+	// Returns ErrNotFound when the row is absent.
+	GetClusterPolicy(ctx context.Context, id uuid.UUID) (ClusterPolicyRow, error)
+
+	// ListClusterPolicies returns a paged list of cluster policies matching
+	// filter, sorted per page.Sort/page.Order. Satisfies ADR-0042.
+	ListClusterPolicies(
+		ctx context.Context,
+		filter ClusterPolicyListFilter,
+		page ListPage,
+	) ([]ClusterPolicyRow, string, error)
+
+	// UpsertClusterPolicy upserts by (cluster_id, namespace_id, name).
+	// Returns the stable row UUID. The canonical write path (ADR-0043).
+	UpsertClusterPolicy(ctx context.Context, cp ClusterPolicyRow) (uuid.UUID, error)
+
+	// DeleteClusterScopedPoliciesNotIn removes every cluster-scoped policy
+	// (namespace_id IS NULL) for the given cluster whose ID is NOT in
+	// keepIDs. Returns the count of deleted rows.
+	DeleteClusterScopedPoliciesNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error)
+
+	// DeleteClusterPoliciesByNamespace removes every namespaced policy in
+	// the given cluster+namespace whose ID is NOT in keepIDs. Only collector-originated
+	// rows are affected. Unknown-namespace policies survive because they are
+	// never swept. Returns the count of deleted rows.
+	DeleteClusterPoliciesByNamespace(ctx context.Context, clusterID uuid.UUID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error)
+
+	// DeleteClusterPolicy removes a single API-managed cluster policy by UUID.
+	// Returns ErrNotFound if the row does not exist or has source='collector'.
+	DeleteClusterPolicy(ctx context.Context, id uuid.UUID) error
+
+	// --- Policy reports ---------------------------------------------------
+
+	// GetPolicyReport fetches a policy report by stable UUID.
+	// Returns ErrNotFound when the row is absent.
+	GetPolicyReport(ctx context.Context, id uuid.UUID) (PolicyReportRow, error)
+
+	// ListPolicyReports returns a paged list of policy reports matching
+	// filter, sorted per page.Sort/page.Order. Satisfies ADR-0042.
+	ListPolicyReports(
+		ctx context.Context,
+		filter PolicyReportListFilter,
+		page ListPage,
+	) ([]PolicyReportRow, string, error)
+
+	// UpsertPolicyReport upserts by (cluster_id, namespace_id, name).
+	// Returns the stable row UUID. The canonical write path (ADR-0043).
+	UpsertPolicyReport(ctx context.Context, pr PolicyReportRow) (uuid.UUID, error)
+
+	// DeleteClusterScopedPolicyReportsNotIn removes every cluster-scoped report
+	// (namespace_id IS NULL) for the given cluster whose ID is NOT in keepIDs.
+	// Returns the count of deleted rows.
+	DeleteClusterScopedPolicyReportsNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error)
+
+	// DeletePolicyReportsByNamespace removes every namespaced report in
+	// the given cluster+namespace whose ID is NOT in keepIDs. Only collector-originated
+	// rows are affected. Returns the count of deleted rows.
+	DeletePolicyReportsByNamespace(ctx context.Context, clusterID uuid.UUID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error)
+
+	// DeletePolicyReport removes a single API-managed policy report by UUID.
+	// Returns ErrNotFound if the row does not exist or has source='collector'.
+	DeletePolicyReport(ctx context.Context, id uuid.UUID) error
 }

@@ -105,6 +105,7 @@ var testSpec = sortSpec{
 		"created_at": {expr: "n.created_at", kind: sortTime},
 		"name":       {expr: "LOWER(n.name)", kind: sortText},
 		"zone":       {expr: "LOWER(n.zone)", kind: sortText, nullable: true},
+		"priority":   {expr: "n.priority", kind: sortInt, nullable: true},
 	},
 	defaultKey: "created_at",
 }
@@ -232,6 +233,51 @@ func TestKeysetCond(t *testing.T) {
 	if conds[0] != wantDesc {
 		t.Errorf("nullable desc cond = %q, want %q", conds[0], wantDesc)
 	}
+
+	// Non-nullable int asc → row-value comparison, arg parsed as int.
+	// (We temporarily make priority non-nullable for this sub-test by
+	// constructing a local sortColumn.)
+	intCol := sortColumn{expr: "n.priority", kind: sortInt}
+	intVal := "7"
+	conds, args = []string{}, []any{}
+	if err := keysetCond(intCol, "n.id", dirAsc, &intVal, id, &conds, &args); err != nil {
+		t.Fatal(err)
+	}
+	if conds[0] != "(n.priority, n.id) > ($1, $2)" {
+		t.Errorf("int asc cond = %v", conds)
+	}
+	if len(args) != 2 || args[0] != 7 {
+		t.Errorf("int asc args = %v, want [7, uuid]", args)
+	}
+
+	// Nullable int with value → OR-form including IS NULL.
+	conds, args = []string{}, []any{}
+	if err := keysetCond(testSpec.columns["priority"], "n.id", dirAsc, &intVal, id, &conds, &args); err != nil {
+		t.Fatal(err)
+	}
+	wantInt := "(n.priority > $1 OR (n.priority = $1 AND n.id > $2) OR n.priority IS NULL)"
+	if conds[0] != wantInt {
+		t.Errorf("nullable int asc cond = %q, want %q", conds[0], wantInt)
+	}
+
+	// Bad int value in cursor → ErrInvalidCursor.
+	badInt := "not-an-int"
+	conds, args = []string{}, []any{}
+	if err := keysetCond(intCol, "n.id", dirAsc, &badInt, id, &conds, &args); !errors.Is(err, api.ErrInvalidCursor) {
+		t.Errorf("bad int: err=%v, want ErrInvalidCursor", err)
+	}
+
+	// Nullable int, cursor in NULL region (val nil).
+	conds, args = []string{}, []any{}
+	if err := keysetCond(testSpec.columns["priority"], "n.id", dirAsc, nil, id, &conds, &args); err != nil {
+		t.Fatal(err)
+	}
+	if conds[0] != "(n.priority IS NULL AND n.id > $1)" {
+		t.Errorf("nullable int null-region cond = %q", conds[0])
+	}
+	if len(args) != 1 {
+		t.Errorf("nullable int null-region args = %v, want 1", args)
+	}
 }
 
 func TestClampLimit(t *testing.T) {
@@ -266,5 +312,54 @@ func TestSortVals(t *testing.T) {
 	}
 	if got := sortValTime(&ts); got == nil || *got != "2026-01-02T03:04:05.000000006Z" {
 		t.Errorf("sortValTime = %v, want RFC3339Nano string", got)
+	}
+}
+
+func TestSortValInt(t *testing.T) {
+	if got := sortValInt(nil); got != nil {
+		t.Errorf("sortValInt(nil) = %v, want nil", got)
+	}
+	n := 42
+	if got := sortValInt(&n); got == nil || *got != "42" {
+		t.Errorf("sortValInt = %v, want 42", got)
+	}
+}
+
+func TestBoolToIntPtr(t *testing.T) {
+	if got := boolToIntPtr(nil); got != nil {
+		t.Errorf("boolToIntPtr(nil) = %v, want nil", got)
+	}
+	tBool := true
+	if got := boolToIntPtr(&tBool); got == nil || *got != 1 {
+		t.Errorf("boolToIntPtr(true) = %v, want 1", got)
+	}
+	fBool := false
+	if got := boolToIntPtr(&fBool); got == nil || *got != 0 {
+		t.Errorf("boolToIntPtr(false) = %v, want 0", got)
+	}
+}
+
+func TestSeverityRank(t *testing.T) {
+	if got := severityRank(nil); got == nil || *got != -1 {
+		t.Errorf("severityRank(nil) = %v, want -1", got)
+	}
+	for _, tc := range []struct {
+		in   string
+		want int
+	}{
+		{"critical", 4},
+		{"high", 3},
+		{"medium", 2},
+		{"low", 1},
+		{"info", 0},
+		{"unknown", -1},
+		{"", -1},
+		{"CRITICAL", 4},
+		{"High", 3},
+	} {
+		got := severityRank(&tc.in)
+		if got == nil || *got != tc.want {
+			t.Errorf("severityRank(%q) = %v, want %d", tc.in, got, tc.want)
+		}
 	}
 }

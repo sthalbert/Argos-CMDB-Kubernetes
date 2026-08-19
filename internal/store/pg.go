@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -307,6 +308,7 @@ type sortKind int
 const (
 	sortTime sortKind = iota
 	sortText
+	sortInt
 )
 
 // dirAsc / dirDesc are the two order= directions accepted by list
@@ -328,25 +330,32 @@ type sortColumn struct {
 
 // sortSpec is a per-entity allowlist of sortable columns. defaultKey
 // names the column used when the request carries no sort parameter,
-// preserving the entity's historical implicit order.
+// preserving the entity's historical implicit order. defaultDir sets
+// that implicit order's direction; empty means "desc", which fits the
+// timestamp defaultKeys most entities use — name-keyed entities set
+// "asc" so an unsorted list reads A→Z.
 type sortSpec struct {
 	columns    map[string]sortColumn
 	defaultKey string
+	defaultDir string
 }
 
 // resolve validates page.Sort/page.Order against the allowlist.
-// "" Sort → (defaultKey, "desc"): unsorted requests keep the
-// historical order. "" Order with an explicit Sort → "asc".
+// "" Sort → (defaultKey, defaultDir): unsorted requests keep the
+// entity's implicit order. "" Order with an explicit Sort → "asc".
 func (s sortSpec) resolve(page api.ListPage) (key string, col sortColumn, dir string, err error) {
 	key = page.Sort
 	dir = page.Order
 	if key == "" {
 		key = s.defaultKey
 		// order= is documented as ignored when sort= is absent — the
-		// historical implicit order (DESC) always applies. This also
+		// entity's implicit order always applies. This also
 		// deliberately skips order validation: ?order=garbage without
 		// sort= is ignored, not a 400.
-		dir = dirDesc
+		dir = s.defaultDir
+		if dir == "" {
+			dir = dirDesc
+		}
 	} else if dir == "" {
 		dir = dirAsc
 	}
@@ -397,6 +406,12 @@ func keysetCond(col sortColumn, idExpr, dir string, val *string, id uuid.UUID, c
 		arg = ts
 	case sortText:
 		arg = *val
+	case sortInt:
+		n, err := strconv.Atoi(*val)
+		if err != nil {
+			return fmt.Errorf("%w: cursor int: %v", api.ErrInvalidCursor, err)
+		}
+		arg = n
 	}
 	*args = append(*args, arg)
 	vIdx := len(*args)
@@ -414,6 +429,10 @@ func keysetCond(col sortColumn, idExpr, dir string, val *string, id uuid.UUID, c
 	*conds = append(*conds, fmt.Sprintf("(%s, %s) %s ($%d, $%d)", col.expr, idExpr, op, vIdx, idIdx))
 	return nil
 }
+
+// nilUUIDDisplay renders an absent optional UUID FK in the
+// classify*FKError messages.
+const nilUUIDDisplay = "<nil>"
 
 // clampLimit applies the package-wide limit defaults (default 50,
 // entity-specific hard cap).
@@ -446,6 +465,26 @@ func sortValTime(t *time.Time) *string {
 	}
 	v := t.UTC().Format(time.RFC3339Nano)
 	return &v
+}
+
+func sortValInt(i *int) *string {
+	if i == nil {
+		return nil
+	}
+	v := strconv.Itoa(*i)
+	return &v
+}
+
+func intPtr(v int) *int { return &v }
+
+func boolToIntPtr(b *bool) *int {
+	if b == nil {
+		return nil
+	}
+	if *b {
+		return intPtr(1)
+	}
+	return intPtr(0)
 }
 
 // isUniqueViolation reports whether err is a PostgreSQL unique-constraint

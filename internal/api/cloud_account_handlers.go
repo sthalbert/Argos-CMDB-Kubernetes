@@ -104,7 +104,7 @@ type jsonTime struct {
 
 // UnmarshalJSON implements json.Unmarshaler for jsonTime, tolerating null.
 func (t *jsonTime) UnmarshalJSON(b []byte) error {
-	if len(b) == 0 || string(b) == "null" {
+	if len(b) == 0 || string(b) == jsonNullLiteral {
 		return nil
 	}
 	t.Value = strings.Trim(string(b), `"`)
