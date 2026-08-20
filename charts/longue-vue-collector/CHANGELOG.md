@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v2.1.2...chart-longue-vue-collector-v2.2.0) (2026-08-19)
+
+
+### Features
+
+* **kyverno:** add Kyverno policy inventory and Policies view (ADR-0043) ([67c9f9e](https://github.com/sthalbert/Longue-Vue/commit/67c9f9e8a44a651f002209caa605d1f1c53b2afb))
+* **kyverno:** add Kyverno policy inventory and Policies view (ADR-0043) ([23bf66e](https://github.com/sthalbert/Longue-Vue/commit/23bf66ee24fba2376cb7b0a102efb80cb5baff08))
+
 ## [2.1.2](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v2.1.1...chart-longue-vue-collector-v2.1.2) (2026-08-17)
 
 

@@ -8,8 +8,8 @@ description: >-
   into the trusted zone. Ships independently of the umbrella `longue-vue` chart
   so the DMZ release contains only what should be in the DMZ.
 type: application
-version: 0.6.2
-appVersion: 1.12.2
+version: 0.7.0
+appVersion: 1.13.0
 home: https://github.com/sthalbert/longue-vue
 sources:
   - https://github.com/sthalbert/longue-vue
