@@ -1181,8 +1181,6 @@ func jsonResult(v any) (*mcp.CallToolResult, error) {
 // storeError maps store errors to user-facing MCP tool errors.
 // ErrNotFound becomes "X not found"; all other errors are logged
 // server-side and masked with a generic message.
-//
-//nolint:unparam // error is always nil by design — errors become tool results.
 func storeError(entity string, err error) (*mcp.CallToolResult, error) {
 	if errors.Is(err, api.ErrNotFound) {
 		return mcp.NewToolResultError(fmt.Sprintf("%s not found", entity)), nil

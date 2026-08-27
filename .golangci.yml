@@ -1,5 +1,4 @@
 version: "2"
-
 linters:
   default: none
   enable:
@@ -39,7 +38,6 @@ linters:
     - unused
     - wrapcheck
     - funcorder
-
   settings:
     errchkjson:
       check-error-free-encoding: true
@@ -51,6 +49,17 @@ linters:
         - (*database/sql.DB).Close
         - (io.Closer).Close
         - (net.Conn).Close
+    goconst:
+      ignore-tests: true
+      # goconst 1.10+ (golangci-lint 2.12+) extended detection to composite
+      # literals and map keys, which flags idiomatic JSON/map key strings
+      # repo-wide ("items", "action", ...). Scope it back to the contexts
+      # where a named constant actually helps (assignments, comparisons,
+      # case clauses, returns).
+      exclude-types:
+        - Call # goconst default
+        - CompositeLit
+      ignore-map-keys: true
     gocritic:
       enabled-tags:
         - diagnostic
@@ -93,7 +102,6 @@ linters:
     funcorder:
       constructor: true
       struct-method: true
-
   exclusions:
     generated: lax
     rules:
@@ -101,19 +109,19 @@ linters:
           - err113
           - maintidx
         path: (.+)_test.go
+      # The collector intentionally still reads the deprecated
+      # KubeProxyVersion node field (its value is what the CMDB records).
       - linters:
           - staticcheck
-        text: "SA1019: n.Status.NodeInfo.KubeProxyVersion is deprecated"
+        text: "SA1019: .+KubeProxyVersion is deprecated"
         path: internal/collector/kube.go
     paths:
       - third_party$
       - builtin$
       - examples$
-
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-
 formatters:
   enable:
     - gci

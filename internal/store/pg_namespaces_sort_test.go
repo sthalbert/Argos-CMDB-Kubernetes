@@ -63,7 +63,7 @@ func TestListNamespacesSortByName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("desc: %v", err)
 	}
-	if items[0].Name != "gamma" { //nolint:goconst // test fixture; constant would reduce readability
+	if items[0].Name != "gamma" {
 		t.Errorf("desc first = %s, want gamma", items[0].Name)
 	}
 }
