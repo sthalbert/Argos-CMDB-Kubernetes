@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.13.1](https://github.com/sthalbert/Longue-Vue/compare/v1.13.0...v1.13.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* **deps:** bump golang.org/x/mod to v0.40.0 (CVE-2026-56864, CVE-2026-56865) ([dbe55f6](https://github.com/sthalbert/Longue-Vue/commit/dbe55f68dafdd805a17ffb805dd25e391d4cee16))
+* **deps:** bump golang.org/x/mod to v0.40.0 (CVE-2026-56864, CVE-2026-56865) ([22ce915](https://github.com/sthalbert/Longue-Vue/commit/22ce915954302d743ca0f8b992bb58c72671f740))
+
 ## [1.13.0](https://github.com/sthalbert/Longue-Vue/compare/v1.12.2...v1.13.0) (2026-08-19)
 
 
