@@ -58,6 +58,17 @@ linters:
         - performance
         - opinionated
         - experimental
+    goconst:
+      # goconst 1.10 (golangci-lint 2.12) extended detection to composite
+      # literals and map keys, which flags idiomatic JSON/map key strings
+      # repo-wide ("items", "action", ...). Scope it back to the contexts
+      # where a named constant actually helps (assignments, comparisons,
+      # case clauses, returns) using the knobs added by goconst 1.11.
+      exclude-types:
+        - Call # goconst default
+        - CompositeLit
+      ignore-map-keys: true
+      ignore-tests: true
     gocyclo:
       min-complexity: 10
     nolintlint:
@@ -103,7 +114,7 @@ linters:
         path: (.+)_test.go
       - linters:
           - staticcheck
-        text: "SA1019: n.Status.NodeInfo.KubeProxyVersion is deprecated"
+        text: "SA1019: .+KubeProxyVersion is deprecated"
         path: internal/collector/kube.go
     paths:
       - third_party$

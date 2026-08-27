@@ -283,7 +283,7 @@ func buildNodeUpdateSets(in *api.NodeUpdate) (sets []string, args []any, err err
 	}
 	addPtr := func(column string, ptr any) {
 		v := reflect.ValueOf(ptr)
-		if v.Kind() == reflect.Ptr && !v.IsNil() {
+		if v.Kind() == reflect.Pointer && !v.IsNil() {
 			add(column, v.Elem().Interface())
 		}
 	}
@@ -317,7 +317,7 @@ func buildNodeUpdateSets(in *api.NodeUpdate) (sets []string, args []any, err err
 			return
 		}
 		v := reflect.ValueOf(ptr)
-		if v.Kind() != reflect.Ptr || v.IsNil() {
+		if v.Kind() != reflect.Pointer || v.IsNil() {
 			return
 		}
 		b, err := marshal()
