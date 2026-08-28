@@ -1217,6 +1217,7 @@ type Settings struct {
 	ImageVersionsEnabled    bool      `json:"image_versions_enabled"`
 	FlowMatrixEnabled       bool      `json:"flow_matrix_enabled"`
 	PoliciesEnabled         bool      `json:"policies_enabled"`
+	ClusterStaleAfterDays   int       `json:"cluster_stale_after_days"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
@@ -1231,6 +1232,7 @@ type SettingsPatch struct {
 	ImageVersionsEnabled    *bool `json:"image_versions_enabled,omitempty"`
 	FlowMatrixEnabled       *bool `json:"flow_matrix_enabled,omitempty"`
 	PoliciesEnabled         *bool `json:"policies_enabled,omitempty"`
+	ClusterStaleAfterDays   *int  `json:"cluster_stale_after_days,omitempty"`
 }
 
 // ImageVersionRow is a row from image_versions — one (image_repo, variant) pair
