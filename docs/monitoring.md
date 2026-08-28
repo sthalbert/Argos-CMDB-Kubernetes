@@ -174,6 +174,24 @@ Fire if any resource kind has not been polled in 10 minutes:
     description: "No successful poll in the last 10 minutes."
 ```
 
+### Stale clusters (server-side)
+
+Fire when any cluster exceeds the `cluster_stale_after_days` threshold.
+Unlike `longue_vue_collector_last_poll_timestamp_seconds` (which lives in
+the collector's own registry in push mode), this gauge is computed by the
+server and covers pull and push collectors alike:
+
+```yaml
+- alert: LongueVueClusterStale
+  expr: longue_vue_clusters_stale > 0
+  for: 30m
+  labels:
+    severity: warning
+  annotations:
+    summary: "{{ $value }} longue-vue cluster(s) with no collector heartbeat"
+    description: "Check /clusters with the 'Stale only' filter, or longue_vue_cluster_last_seen_timestamp_seconds for the culprit."
+```
+
 ### Collector errors
 
 Fire if the collector encounters persistent errors:

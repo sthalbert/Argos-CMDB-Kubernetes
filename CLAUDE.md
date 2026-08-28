@@ -120,6 +120,7 @@ manual vs auto resolution.
 
 - `internal/collector/` — K8s pull + push. Same package, two consumers (`cmd/longue-vue` in-process, `cmd/longue-vue-collector` via apiclient through ingest GW). Multi-cluster via `LONGUE_VUE_COLLECTOR_CLUSTERS` JSON (legacy single-cluster vars still work). Reconcile is on by default; per-namespace for namespaced resources, cluster-scoped for nodes + PVs. Pods resolve `workload_id` by walking `ownerReferences` (RS→Deployment, or direct StatefulSet/DaemonSet). NetworkPolicy collection works in both modes since ADR-0038.
 - `internal/vmcollector/` — push-mode. `Provider` interface in `provider/`; Outscale impl + fake. `apiclient/` mirrors the K8s collector's CA/mTLS/proxy transport. `filter/` is a cheap pre-filter; server-side `nodes.provider_id` dedup is canonical. Private Prometheus registry.
+- **Cluster staleness (ADR-0044)**: every `EnsureCluster` refreshes `clusters.last_seen_at` (timetravel-excluded); `stale` is derived at read time from `settings.cluster_stale_after_days` (default 7, 0=off, env seed `LONGUE_VUE_CLUSTER_STALE_AFTER_DAYS`), filterable via `stale=` on `GET /v1/clusters`. No-op ensure ticks are audit-skipped.
 
 ## Curated metadata pattern
 
