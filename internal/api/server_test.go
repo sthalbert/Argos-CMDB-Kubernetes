@@ -128,7 +128,11 @@ func (m *memStore) EnsureCluster(_ context.Context, in ClusterCreate) (Cluster, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if existingID, exists := m.byName[in.Name]; exists {
-		return m.byID[existingID], false, nil
+		c := m.byID[existingID]
+		hb := time.Now().UTC()
+		c.LastSeenAt = &hb
+		m.byID[existingID] = c
+		return c, false, nil
 	}
 	id := uuid.New()
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -150,6 +154,7 @@ func (m *memStore) EnsureCluster(_ context.Context, in ClusterCreate) (Cluster, 
 		Annotations:       in.Annotations,
 		CreatedAt:         &now,
 		UpdatedAt:         &now,
+		LastSeenAt:        &now,
 	}
 	m.byID[id] = c
 	m.byName[in.Name] = id
@@ -203,6 +208,16 @@ func (m *memStore) ListClusters(_ context.Context, filter ClusterListFilter, pag
 			}
 		}
 		out = append(out, c)
+	}
+	if filter.Stale != nil {
+		kept := out[:0]
+		for _, c := range out {
+			isStale := c.LastSeenAt != nil && c.LastSeenAt.Before(filter.StaleCutoff)
+			if isStale == *filter.Stale {
+				kept = append(kept, c)
+			}
+		}
+		out = kept
 	}
 	if len(out) > limit {
 		out = out[:limit]
