@@ -137,7 +137,7 @@ paths:
       summary: List clusters
       operationId: listClusters
       description: |
-        Sortable keys: name, environment, provider, region, kubernetes_version, created_at, updated_at
+        Sortable keys: name, environment, provider, region, kubernetes_version, created_at, updated_at, last_seen_at
       security:
         - BearerAuth: [read]
       parameters:
@@ -145,6 +145,19 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/IncludeTerminated"
         - $ref: "#/components/parameters/NameFilter"
+        - name: stale
+          in: query
+          required: false
+          description: |
+            Filter on the derived staleness state. `true` returns only
+            clusters whose collector heartbeat (`last_seen_at`) is older
+            than the `cluster_stale_after_days` admin setting; `false`
+            returns only fresh clusters; omitted applies no staleness
+            filter. When the feature is disabled (threshold 0),
+            `stale=true` matches nothing and `stale=false` matches
+            everything.
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/SortKey"
         - $ref: "#/components/parameters/SortOrder"
       responses:
@@ -5272,6 +5285,23 @@ components:
               type: string
               format: date-time
               readOnly: true
+            last_seen_at:
+              type: string
+              format: date-time
+              readOnly: true
+              description: |
+                Collector heartbeat: refreshed on every successful collector
+                tick for this cluster (in-process pull, or push mode via
+                POST /v1/clusters through the ingest gateway). Also set on
+                creation.
+            stale:
+              type: boolean
+              readOnly: true
+              description: |
+                Derived at read time: true when `last_seen_at` is older
+                than the `cluster_stale_after_days` admin setting. Always
+                false when the feature is disabled (threshold 0). Set by
+                the server; never persisted.
 
     ClusterList:
       description: Paged list of clusters.
