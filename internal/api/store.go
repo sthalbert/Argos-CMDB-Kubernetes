@@ -157,6 +157,14 @@ type Store interface {
 type ClusterListFilter struct {
 	Name              *string
 	IncludeTerminated bool
+	// Stale filters on the derived staleness state: true keeps only
+	// clusters whose last_seen_at is strictly older than StaleCutoff,
+	// false keeps only fresh ones. StaleCutoff must be set whenever
+	// Stale is non-nil; handlers compute it from the
+	// cluster_stale_after_days setting and leave Stale nil when the
+	// feature is disabled.
+	Stale       *bool
+	StaleCutoff time.Time
 }
 
 // ClusterStore covers cluster CRUD, the idempotent EnsureCluster, and the

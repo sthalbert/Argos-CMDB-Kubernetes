@@ -67,7 +67,7 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 	// Branch RESTORE: terminated row exists → clear terminated_at + history.
 	if prevID != nil && prevTerminatedAt != nil {
 		if _, err := tx.Exec(ctx,
-			`UPDATE clusters SET terminated_at = NULL, updated_at = $1 WHERE id = $2`,
+			`UPDATE clusters SET terminated_at = NULL, updated_at = $1, last_seen_at = $1 WHERE id = $2`,
 			now, *prevID); err != nil {
 			return api.Cluster{}, false, fmt.Errorf("restore cluster: %w", err)
 		}
@@ -84,8 +84,15 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 		return restored, false, nil
 	}
 
-	// Branch NO-OP: live row exists → return as-is.
+	// Branch NO-OP: live row exists → refresh the collector heartbeat only.
+	// last_seen_at is timetravel-excluded (watched.go), so this write never
+	// creates a history row, and updated_at keeps meaning "data changed".
 	if prevID != nil {
+		if _, err := tx.Exec(ctx,
+			`UPDATE clusters SET last_seen_at = $1 WHERE id = $2`,
+			now, *prevID); err != nil {
+			return api.Cluster{}, false, fmt.Errorf("touch cluster heartbeat: %w", err)
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return api.Cluster{}, false, fmt.Errorf("commit ensure cluster (existing): %w", err)
 		}
@@ -103,8 +110,8 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 			id, name, display_name, environment, provider, region,
 			kubernetes_version, api_endpoint, labels,
 			owner, criticality, notes, runbook_url, annotations,
-			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+			created_at, updated_at, last_seen_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $15)
 		ON CONFLICT (name) DO NOTHING
 		RETURNING id
 	`
@@ -140,6 +147,7 @@ func (p *PG) EnsureCluster(ctx context.Context, in api.ClusterCreate) (api.Clust
 			Annotations:       in.Annotations,
 			CreatedAt:         &now,
 			UpdatedAt:         &now,
+			LastSeenAt:        &now,
 		}, true, nil
 	case errors.Is(scanErr, pgx.ErrNoRows):
 		// Race: a concurrent tx inserted between our pre-snapshot and INSERT.
@@ -163,7 +171,7 @@ func (p *PG) GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error) 
 		SELECT id, name, display_name, environment, provider, region,
 		       kubernetes_version, api_endpoint, labels,
 		       owner, criticality, notes, runbook_url, annotations,
-		       created_at, updated_at
+		       created_at, updated_at, last_seen_at
 		FROM clusters
 		WHERE id = $1
 	`
@@ -184,7 +192,7 @@ func (p *PG) GetClusterByName(ctx context.Context, name string) (api.Cluster, er
 		SELECT id, name, display_name, environment, provider, region,
 		       kubernetes_version, api_endpoint, labels,
 		       owner, criticality, notes, runbook_url, annotations,
-		       created_at, updated_at
+		       created_at, updated_at, last_seen_at
 		FROM clusters
 		WHERE name = $1
 	`
@@ -209,6 +217,7 @@ var clusterSortSpec = sortSpec{
 		sortKeyKubernetesVersion: {expr: "LOWER(kubernetes_version)", kind: sortText, nullable: true},
 		sortKeyCreatedAt:         {expr: "created_at", kind: sortTime},
 		sortKeyUpdatedAt:         {expr: "updated_at", kind: sortTime},
+		sortKeyLastSeenAt:        {expr: "last_seen_at", kind: sortTime},
 	},
 	defaultKey: sortKeyCreatedAt,
 }
@@ -227,6 +236,8 @@ func clusterSortVal(c *api.Cluster, key string) *string {
 		return sortValText(c.KubernetesVersion)
 	case sortKeyUpdatedAt:
 		return sortValTime(c.UpdatedAt)
+	case sortKeyLastSeenAt:
+		return sortValTime(c.LastSeenAt)
 	default:
 		return sortValTime(c.CreatedAt)
 	}
@@ -248,7 +259,7 @@ func (p *PG) ListClusters(ctx context.Context, filter api.ClusterListFilter, pag
 	sb.WriteString(`SELECT id, name, display_name, environment, provider, region,
 	       kubernetes_version, api_endpoint, labels,
 	       owner, criticality, notes, runbook_url, annotations,
-	       created_at, updated_at
+	       created_at, updated_at, last_seen_at
 	FROM clusters`)
 	args := make([]any, 0, 5)
 	conds := make([]string, 0, 3)
@@ -263,6 +274,15 @@ func (p *PG) ListClusters(ctx context.Context, filter api.ClusterListFilter, pag
 			"(LOWER(name) LIKE $%d ESCAPE '\\' OR LOWER(COALESCE(display_name,'')) LIKE $%d ESCAPE '\\')",
 			idx, idx,
 		))
+	}
+	if filter.Stale != nil {
+		args = append(args, filter.StaleCutoff)
+		idx := len(args)
+		if *filter.Stale {
+			conds = append(conds, fmt.Sprintf("last_seen_at < $%d", idx))
+		} else {
+			conds = append(conds, fmt.Sprintf("last_seen_at >= $%d", idx))
+		}
 	}
 	if page.Cursor != "" {
 		val, cid, err := decodeListCursor(page.Cursor, key, dir)
@@ -636,6 +656,7 @@ func scanCluster(row pgx.Row) (api.Cluster, error) {
 		id                uuid.UUID
 		createdAt         time.Time
 		updatedAt         time.Time
+		lastSeenAt        time.Time
 		displayName       sql.NullString
 		environment       sql.NullString
 		provider          sql.NullString
@@ -655,7 +676,7 @@ func scanCluster(row pgx.Row) (api.Cluster, error) {
 		&kubernetesVersion, &apiEndpoint,
 		&labelsJSON,
 		&owner, &criticality, &notes, &runbookURL, &annotationsJSON,
-		&createdAt, &updatedAt,
+		&createdAt, &updatedAt, &lastSeenAt,
 	); err != nil {
 		return api.Cluster{}, fmt.Errorf("scan cluster: %w", err)
 	}
@@ -663,6 +684,7 @@ func scanCluster(row pgx.Row) (api.Cluster, error) {
 	c.Id = &id
 	c.CreatedAt = &createdAt
 	c.UpdatedAt = &updatedAt
+	c.LastSeenAt = &lastSeenAt
 	c.DisplayName = nullableString(displayName)
 	c.Environment = nullableString(environment)
 	c.Provider = nullableString(provider)
