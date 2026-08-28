@@ -2,11 +2,11 @@
 // with per-entity column configs — sortable headers, search input, and
 // pagination come for free. Adding a new kind means adding one config here.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import * as api from '../api';
 import { useResource } from '../hooks';
-import { Dash, IdLink, LayerPill, LoadBalancerAddresses, NamespaceLink } from '../components';
+import { Dash, formatTs, IdLink, LayerPill, LoadBalancerAddresses, NamespaceLink } from '../components';
 import { EntityListPage } from '../components/EntityListPage';
 import {
   ClusterIcon, NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
@@ -14,14 +14,30 @@ import {
 } from '../icons';
 
 export function Clusters() {
+  const [staleFilter, setStaleFilter] = useState<'all' | 'stale' | 'active'>('all');
+  const stale = staleFilter === 'all' ? undefined : staleFilter === 'stale';
   return (
     <EntityListPage<api.Cluster>
       title="Clusters"
       icon={<ClusterIcon size={20} />}
       storageKey="lists.clusters"
       emptyMessage="No clusters yet. Connect a collector to start populating your inventory."
-      fetchPage={(params, cursor, limit) => api.listClusters({ ...params, cursor, limit })}
+      fetchPage={(params, cursor, limit) => api.listClusters({ ...params, stale, cursor, limit })}
       rowKey={(c) => c.id}
+      extraDeps={[staleFilter]}
+      extraFilters={
+        <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          Status
+          <select
+            value={staleFilter}
+            onChange={(e) => setStaleFilter(e.target.value as 'all' | 'stale' | 'active')}
+          >
+            <option value="all">All</option>
+            <option value="stale">Stale only</option>
+            <option value="active">Active only</option>
+          </select>
+        </label>
+      }
       columns={[
         {
           key: 'name',
@@ -48,6 +64,17 @@ export function Clusters() {
           label: 'K8s version',
           sortKey: 'kubernetes_version',
           render: (c) => (c.kubernetes_version ? <code>{c.kubernetes_version}</code> : <Dash />),
+        },
+        {
+          key: 'last_seen',
+          label: 'Last seen',
+          sortKey: 'last_seen_at',
+          render: (c) => (
+            <>
+              {c.stale && <span className="pill status-bad">stale</span>}{' '}
+              {c.last_seen_at ? formatTs(c.last_seen_at) : <Dash />}
+            </>
+          ),
         },
         { key: 'layer', label: 'Layer', render: (c) => <LayerPill layer={c.layer} /> },
       ]}

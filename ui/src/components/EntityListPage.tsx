@@ -32,6 +32,10 @@ export interface EntityListPageProps<T> {
   columns: EntityColumn<T>[];
   rowKey: (item: T) => string;
   errorRenderer?: (err: unknown) => React.ReactNode | undefined;
+  /** Extra filter controls rendered beside the search input. */
+  extraFilters?: React.ReactNode;
+  /** Reload dependencies for caller-owned filters (e.g. a stale toggle). */
+  extraDeps?: unknown[];
 }
 
 export function EntityListPage<T>({
@@ -43,11 +47,13 @@ export function EntityListPage<T>({
   columns,
   rowKey,
   errorRenderer,
+  extraFilters,
+  extraDeps,
 }: EntityListPageProps<T>) {
   const controls = useListControls();
   const list = usePagedList<T>(
     (cursor, limit) => fetchPage(controls.params, cursor, limit),
-    controls.deps,
+    [...controls.deps, ...(extraDeps ?? [])],
   );
   const tableRef = useEntityTable(storageKey);
 
@@ -58,6 +64,7 @@ export function EntityListPage<T>({
       </h2>
       <div className="vm-filters">
         <SearchInput value={controls.nameInput} onChange={controls.setNameInput} />
+        {extraFilters}
       </div>
       <Paginator
         pageSize={list.pageSize}

@@ -5,6 +5,16 @@ import { PAGE_SIZE_OPTIONS, type PageSize } from './hooks';
 // Muted dash used where a field is null / absent.
 export const Dash = () => <span className="muted">—</span>;
 
+/** Locale-formatted timestamp; empty string for null/undefined. */
+export function formatTs(ts?: string | null): string {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return ts;
+  }
+}
+
 // Layer pill — subtle background, always visible.
 export const LayerPill = ({ layer }: { layer: string }) => (
   <span className="pill">{layer}</span>
