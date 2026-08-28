@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/metrics"
 	"github.com/sthalbert/longue-vue/internal/timetravel"
 )
 
@@ -715,4 +716,29 @@ func scanCluster(row pgx.Row) (api.Cluster, error) {
 		}
 	}
 	return c, nil
+}
+
+// ClusterHeartbeats returns (name, last_seen_at) for every live cluster,
+// feeding the metrics refresher. Terminated clusters are excluded — their
+// silence is expected.
+func (p *PG) ClusterHeartbeats(ctx context.Context) ([]metrics.ClusterHeartbeat, error) {
+	rows, err := p.pool.Query(ctx,
+		`SELECT name, last_seen_at FROM clusters WHERE terminated_at IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("query cluster heartbeats: %w", err)
+	}
+	defer rows.Close()
+
+	var out []metrics.ClusterHeartbeat
+	for rows.Next() {
+		var hb metrics.ClusterHeartbeat
+		if err := rows.Scan(&hb.Name, &hb.LastSeenAt); err != nil {
+			return nil, fmt.Errorf("scan cluster heartbeat: %w", err)
+		}
+		out = append(out, hb)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cluster heartbeats: %w", err)
+	}
+	return out, nil
 }
