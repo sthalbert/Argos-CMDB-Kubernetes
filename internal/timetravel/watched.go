@@ -93,6 +93,9 @@ var ExcludedFields = map[string][]string{
 		"display_name",
 		"api_endpoint",
 		"labels",
+		// collector heartbeat — clock field refreshed every tick, never
+		// history-worthy (would write one clusters_history row per tick)
+		"last_seen_at",
 	},
 	KindNamespace: {
 		"id",
