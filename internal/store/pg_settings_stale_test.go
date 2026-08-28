@@ -9,6 +9,16 @@ import (
 
 func TestSettingsClusterStaleAfterDays(t *testing.T) {
 	pg := newTestPG(t)
+	// newTestPG's own t.Cleanup (registered inside newTestPG, before
+	// returning pg) closes the pool and runs LIFO-after this one, so
+	// this cleanup runs first, while the pool is still open, restoring
+	// the shared settings singleton for subsequent test runs.
+	t.Cleanup(func() {
+		seven := 7
+		if _, err := pg.UpdateSettings(context.Background(), api.SettingsPatch{ClusterStaleAfterDays: &seven}); err != nil {
+			t.Logf("cleanup: restore cluster_stale_after_days: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	s, err := pg.GetSettings(ctx)
