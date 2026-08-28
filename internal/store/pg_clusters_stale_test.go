@@ -20,6 +20,7 @@ func ageHeartbeat(t *testing.T, pg *PG, name string, days int) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple heartbeat/filter branches
 func TestEnsureClusterRefreshesHeartbeat(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -39,6 +40,9 @@ func TestEnsureClusterRefreshesHeartbeat(t *testing.T) {
 	}
 	prevUpdated := *aged.UpdatedAt
 
+	var histBefore int
+	_ = pg.pool.QueryRow(ctx, `SELECT COUNT(*) FROM clusters_history WHERE entity_id = $1`, *aged.Id).Scan(&histBefore)
+
 	// NO-OP ensure must refresh the heartbeat without touching updated_at.
 	refreshed, wasCreated, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "hb-cluster"})
 	if err != nil || wasCreated {
@@ -49,6 +53,12 @@ func TestEnsureClusterRefreshesHeartbeat(t *testing.T) {
 	}
 	if !refreshed.UpdatedAt.Equal(prevUpdated) {
 		t.Fatalf("no-op ensure moved updated_at: %v -> %v", prevUpdated, *refreshed.UpdatedAt)
+	}
+
+	var histAfter int
+	_ = pg.pool.QueryRow(ctx, `SELECT COUNT(*) FROM clusters_history WHERE entity_id = $1`, *aged.Id).Scan(&histAfter)
+	if histAfter != histBefore {
+		t.Fatalf("no-op ensure wrote history: %d -> %d rows", histBefore, histAfter)
 	}
 
 	// RESTORE branch refreshes the heartbeat too.
@@ -65,6 +75,7 @@ func TestEnsureClusterRefreshesHeartbeat(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // integration test exercises multiple heartbeat/filter branches
 func TestListClustersStaleFilterAndSort(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

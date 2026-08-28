@@ -17,7 +17,7 @@ import (
 
 type hbFakeStore struct{ hbs []metrics.ClusterHeartbeat }
 
-func (f *hbFakeStore) DICTCoverageCounts(context.Context) (int, int, int, error) {
+func (f *hbFakeStore) DICTCoverageCounts(context.Context) (application, workload, none int, err error) {
 	return 0, 0, 0, nil
 }
 

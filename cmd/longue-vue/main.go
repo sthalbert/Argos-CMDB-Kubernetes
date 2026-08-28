@@ -1481,6 +1481,10 @@ func seedPoliciesSetting(ctx context.Context, s api.Store) error {
 	return nil
 }
 
+// errClusterStaleDaysInvalid is the static sentinel wrapped into the
+// boot-failure error returned by seedClusterStaleSetting (err113).
+var errClusterStaleDaysInvalid = errors.New("must be an integer >= 0")
+
 // seedClusterStaleSetting seeds `cluster_stale_after_days` from the
 // LONGUE_VUE_CLUSTER_STALE_AFTER_DAYS env var when explicitly set,
 // mirroring seedFlowMatrixSetting. 0 disables the derived stale status.
@@ -1491,7 +1495,7 @@ func seedClusterStaleSetting(ctx context.Context, s api.Store) error {
 	}
 	days, err := strconv.Atoi(envVal)
 	if err != nil || days < 0 {
-		return fmt.Errorf("parse LONGUE_VUE_CLUSTER_STALE_AFTER_DAYS=%q: must be an integer >= 0", envVal)
+		return fmt.Errorf("parse LONGUE_VUE_CLUSTER_STALE_AFTER_DAYS=%q: %w", envVal, errClusterStaleDaysInvalid)
 	}
 	if _, err := s.UpdateSettings(ctx, api.SettingsPatch{ClusterStaleAfterDays: &days}); err != nil {
 		slog.Warn("cluster staleness: failed to seed settings from env", slog.Any("error", err))

@@ -16,7 +16,7 @@ func TestSettingsClusterStaleAfterDays(t *testing.T) {
 	t.Cleanup(func() {
 		seven := 7
 		if _, err := pg.UpdateSettings(context.Background(), api.SettingsPatch{ClusterStaleAfterDays: &seven}); err != nil {
-			t.Logf("cleanup: restore cluster_stale_after_days: %v", err)
+			t.Errorf("cleanup: restore cluster_stale_after_days: %v", err)
 		}
 	})
 	ctx := context.Background()

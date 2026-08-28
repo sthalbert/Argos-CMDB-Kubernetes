@@ -16,13 +16,14 @@ func newStaleTestServer(days int) (*Server, *memStore) {
 }
 
 // ageMemCluster rewinds the in-memory heartbeat.
-func ageMemCluster(ms *memStore, c Cluster, days int) {
+func ageMemCluster(ms *memStore, c *Cluster, days int) {
 	past := time.Now().UTC().AddDate(0, 0, -days)
 	stored := ms.byID[*c.Id]
 	stored.LastSeenAt = &past
 	ms.byID[*c.Id] = stored
 }
 
+//nolint:gocyclo // integration test exercises decoration + filter branches
 func TestListClusters_StaleDecorationAndFilter(t *testing.T) {
 	s, ms := newStaleTestServer(7)
 	ctx := context.Background()
@@ -38,13 +39,16 @@ func TestListClusters_StaleDecorationAndFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure old: %v", err)
 	}
-	ageMemCluster(ms, old, 10)
+	ageMemCluster(ms, &old, 10)
 
 	resp, err := s.ListClusters(ctx, ListClustersRequestObject{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	list := resp.(ListClusters200JSONResponse)
+	list, ok := resp.(ListClusters200JSONResponse)
+	if !ok {
+		t.Fatalf("unexpected response type %T", resp)
+	}
 	if len(list.Items) != 2 {
 		t.Fatalf("unfiltered list: got %d items, want 2", len(list.Items))
 	}
@@ -62,7 +66,10 @@ func TestListClusters_StaleDecorationAndFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list stale=true: %v", err)
 	}
-	list = resp.(ListClusters200JSONResponse)
+	list, ok = resp.(ListClusters200JSONResponse)
+	if !ok {
+		t.Fatalf("unexpected response type %T", resp)
+	}
 	if len(list.Items) != 1 || list.Items[0].Name != "old" {
 		t.Fatalf("stale=true: got %+v, want only 'old'", list.Items)
 	}
@@ -76,13 +83,16 @@ func TestListClusters_FeatureDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	ageMemCluster(ms, c, 100)
+	ageMemCluster(ms, &c, 100)
 
 	resp, err := s.ListClusters(ctx, ListClustersRequestObject{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	list := resp.(ListClusters200JSONResponse)
+	list, ok := resp.(ListClusters200JSONResponse)
+	if !ok {
+		t.Fatalf("unexpected response type %T", resp)
+	}
 	if len(list.Items) != 1 || list.Items[0].Stale == nil || *list.Items[0].Stale {
 		t.Fatalf("disabled: stale must be false, got %+v", list.Items)
 	}
@@ -94,7 +104,10 @@ func TestListClusters_FeatureDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list stale=true disabled: %v", err)
 	}
-	list = resp.(ListClusters200JSONResponse)
+	list, ok = resp.(ListClusters200JSONResponse)
+	if !ok {
+		t.Fatalf("unexpected response type %T", resp)
+	}
 	if len(list.Items) != 0 {
 		t.Fatalf("disabled + stale=true: want empty page, got %d items", len(list.Items))
 	}
@@ -108,13 +121,17 @@ func TestGetCluster_StaleDecoration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	ageMemCluster(ms, c, 10)
+	ageMemCluster(ms, &c, 10)
 
 	resp, err := s.GetCluster(ctx, GetClusterRequestObject{Id: *c.Id})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	got := Cluster(resp.(GetCluster200JSONResponse))
+	typed, ok := resp.(GetCluster200JSONResponse)
+	if !ok {
+		t.Fatalf("unexpected response type %T", resp)
+	}
+	got := Cluster(typed)
 	if got.Stale == nil || !*got.Stale {
 		t.Fatalf("detail: stale=%v, want true", got.Stale)
 	}
