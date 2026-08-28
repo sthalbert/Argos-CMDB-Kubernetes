@@ -34,6 +34,8 @@ The endpoint is unauthenticated to match standard Prometheus scraping. If your t
 | `longue_vue_collector_reconciled_total` | counter | `cluster`, `resource` | Cumulative count of entities removed by reconciliation. |
 | `longue_vue_collector_errors_total` | counter | `cluster`, `resource`, `phase` | Collector errors. `phase` is `list`, `upsert`, `reconcile`, or `lookup`. |
 | `longue_vue_collector_last_poll_timestamp_seconds` | gauge | `cluster`, `resource` | Unix timestamp of the last successful poll. |
+| `longue_vue_cluster_last_seen_timestamp_seconds` | gauge | `cluster` | Unix timestamp of the last collector heartbeat per cluster. Server-side authority (ADR-0044); unlike the collector-registry gauge above, this covers push mode too. |
+| `longue_vue_clusters_stale` | gauge | -- | Clusters whose collector heartbeat exceeds the `cluster_stale_after_days` staleness threshold (0 while the feature is disabled). |
 
 The `resource` label is one of: `version`, `cluster`, `nodes`, `namespaces`, `pods`, `workloads`, `services`, `ingresses`, `persistentvolumes`, `persistentvolumeclaims`, `replicasets`.
 

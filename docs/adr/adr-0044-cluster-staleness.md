@@ -81,3 +81,23 @@ days (SNC inventory hygiene).
   applies to live rows only (heartbeat query excludes terminated).
 
 - Old collectors need no change: the heartbeat is entirely server-side.
+
+## References
+
+- **REF-001**: ADR-0024 — Audit no-op write filtering for SecNumCloud
+  trail compactness (the `SetAuditSkip` mechanism the no-op ensure
+  tick now calls, per decision item 5) —
+  `docs/adr/adr-0024-audit-no-op-write-filtering.md`
+- **REF-002**: ADR-0042 — Uniform list search & sort contract (the
+  `stale=` filter and `last_seen_at` sort key join this existing
+  list/filter/sort contract rather than inventing a parallel one) —
+  `docs/adr/adr-0042-uniform-list-search-sort.md`
+- **REF-003**: ADR-0015 — VM collector for non-Kubernetes platform
+  infrastructure (`cloud_accounts.last_seen_at` heartbeat is the
+  precedent this ADR generalises to clusters) —
+  `docs/adr/adr-0015-vm-collector-for-non-kubernetes-platform-vms.md`
+- **REF-004**: ADR-0021 — Time-travel snapshots for SecNumCloud asset
+  history (watched vs. excluded fields and the soft-delete/restore
+  history-row contract that `last_seen_at`'s ExcludedFields
+  classification and the RESTORE-ensure trade-off in decision item 5
+  build on) — `docs/adr/adr-0021-time-travel-snapshots.md`
