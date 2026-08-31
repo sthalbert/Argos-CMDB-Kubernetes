@@ -17,6 +17,7 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 		time_travel_enabled, time_travel_retention_days, time_travel_reaper_enabled,
 		image_versions_enabled,
 		flow_matrix_enabled,
+		cluster_stale_after_days,
 		policies_enabled,
 		updated_at FROM settings WHERE id = 1`
 	var s api.Settings
@@ -25,6 +26,7 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 		&s.TimeTravelEnabled, &s.TimeTravelRetentionDays, &s.TimeTravelReaperEnabled,
 		&s.ImageVersionsEnabled,
 		&s.FlowMatrixEnabled,
+		&s.ClusterStaleAfterDays,
 		&s.PoliciesEnabled,
 		&s.UpdatedAt,
 	); err != nil {
@@ -74,6 +76,11 @@ func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Sett
 	if in.FlowMatrixEnabled != nil {
 		sets = append(sets, fmt.Sprintf("flow_matrix_enabled=$%d", idx))
 		args = append(args, *in.FlowMatrixEnabled)
+		idx++
+	}
+	if in.ClusterStaleAfterDays != nil {
+		sets = append(sets, fmt.Sprintf("cluster_stale_after_days=$%d", idx))
+		args = append(args, *in.ClusterStaleAfterDays)
 		idx++
 	}
 	if in.PoliciesEnabled != nil {

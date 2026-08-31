@@ -128,7 +128,11 @@ func (m *memStore) EnsureCluster(_ context.Context, in ClusterCreate) (Cluster, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if existingID, exists := m.byName[in.Name]; exists {
-		return m.byID[existingID], false, nil
+		c := m.byID[existingID]
+		hb := time.Now().UTC()
+		c.LastSeenAt = &hb
+		m.byID[existingID] = c
+		return c, false, nil
 	}
 	id := uuid.New()
 	now := time.Now().UTC().Add(time.Duration(m.createdN) * time.Nanosecond)
@@ -150,6 +154,7 @@ func (m *memStore) EnsureCluster(_ context.Context, in ClusterCreate) (Cluster, 
 		Annotations:       in.Annotations,
 		CreatedAt:         &now,
 		UpdatedAt:         &now,
+		LastSeenAt:        &now,
 	}
 	m.byID[id] = c
 	m.byName[in.Name] = id
@@ -181,6 +186,38 @@ var fakeClusterSortKeys = map[string]bool{
 	"region": true, "kubernetes_version": true, "created_at": true, "updated_at": true,
 }
 
+// filterClustersByStale keeps only the clusters whose derived staleness
+// (LastSeenAt strictly before cutoff) matches stale. Split out of
+// memStore.ListClusters to keep that function's cyclomatic complexity down.
+func filterClustersByStale(items []Cluster, stale bool, cutoff time.Time) []Cluster {
+	kept := items[:0]
+	for i := range items {
+		isStale := items[i].LastSeenAt != nil && items[i].LastSeenAt.Before(cutoff)
+		if isStale == stale {
+			kept = append(kept, items[i])
+		}
+	}
+	return kept
+}
+
+// filterClustersByName keeps only the clusters whose name or display name
+// contains the (already lower-cased) needle. Split out of memStore.ListClusters
+// to keep that function's cyclomatic complexity down.
+func filterClustersByName(items []Cluster, needle string) []Cluster {
+	if needle == "" {
+		return items
+	}
+	kept := items[:0]
+	for i := range items {
+		nameMatch := strings.Contains(strings.ToLower(items[i].Name), needle)
+		displayMatch := items[i].DisplayName != nil && strings.Contains(strings.ToLower(*items[i].DisplayName), needle)
+		if nameMatch || displayMatch {
+			kept = append(kept, items[i])
+		}
+	}
+	return kept
+}
+
 func (m *memStore) ListClusters(_ context.Context, filter ClusterListFilter, page ListPage) ([]Cluster, string, error) {
 	if !fakeClusterSortKeys[page.Sort] {
 		return nil, "", ErrInvalidSort
@@ -191,18 +228,16 @@ func (m *memStore) ListClusters(_ context.Context, filter ClusterListFilter, pag
 	if limit <= 0 {
 		limit = 50
 	}
+	// memStore doesn't track terminated_at; IncludeTerminated is accepted but a no-op.
 	out := make([]Cluster, 0, len(m.byID))
 	for _, c := range m.byID { //nolint:gocritic // acceptable copy in test code
-		// memStore doesn't track terminated_at; IncludeTerminated is accepted but a no-op.
-		if filter.Name != nil && *filter.Name != "" {
-			lower := strings.ToLower(*filter.Name)
-			nameMatch := strings.Contains(strings.ToLower(c.Name), lower)
-			displayMatch := c.DisplayName != nil && strings.Contains(strings.ToLower(*c.DisplayName), lower)
-			if !nameMatch && !displayMatch {
-				continue
-			}
-		}
 		out = append(out, c)
+	}
+	if filter.Name != nil {
+		out = filterClustersByName(out, strings.ToLower(*filter.Name))
+	}
+	if filter.Stale != nil {
+		out = filterClustersByStale(out, *filter.Stale, filter.StaleCutoff)
 	}
 	if len(out) > limit {
 		out = out[:limit]

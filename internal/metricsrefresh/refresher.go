@@ -25,6 +25,9 @@ type Store interface {
 	// (has_block, has_dict) plus the total application_blocks count
 	// (ADR-0029 §9).
 	ApplicationMetricCounts(ctx context.Context) (buckets []metrics.ApplicationCount, blocks int, err error)
+	// ClusterHeartbeats returns each live cluster's name + last_seen_at
+	// for the heartbeat gauges.
+	ClusterHeartbeats(ctx context.Context) ([]metrics.ClusterHeartbeat, error)
 }
 
 // Refresher periodically recomputes store-derived gauges.
@@ -85,6 +88,7 @@ func (r *Refresher) refresh(ctx context.Context) {
 		metrics.SetApplicationBlocksTotal(blocks)
 	}
 
+	r.refreshClusterHeartbeats(ctx)
 	r.refreshFlows(ctx)
 }
 
@@ -135,4 +139,38 @@ func (r *Refresher) refreshFlows(ctx context.Context) {
 		metrics.SetFlowReferenceRows(cid.String(), len(inputs.References))
 		metrics.SetFlowDanglingRefs(cid.String(), len(warnings))
 	}
+}
+
+// refreshClusterHeartbeats exports the per-cluster heartbeat gauges and
+// the stale-count gauge. The count needs the cluster_stale_after_days
+// setting, read through flowStore (nil only for narrow test fakes — the
+// per-cluster timestamps are still exported in that case).
+func (r *Refresher) refreshClusterHeartbeats(ctx context.Context) {
+	hbs, err := r.store.ClusterHeartbeats(ctx)
+	if err != nil {
+		slog.Warn("metrics refresher: cluster heartbeats query failed", slog.Any("error", err))
+		return
+	}
+	metrics.SetClusterHeartbeats(hbs)
+
+	if r.flowStore == nil {
+		return
+	}
+	st, err := r.flowStore.GetSettings(ctx)
+	if err != nil {
+		slog.Warn("metrics refresher: settings query failed for stale count", slog.Any("error", err))
+		return
+	}
+	if st.ClusterStaleAfterDays <= 0 {
+		metrics.SetClustersStale(0)
+		return
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -st.ClusterStaleAfterDays)
+	n := 0
+	for _, hb := range hbs {
+		if hb.LastSeenAt.Before(cutoff) {
+			n++
+		}
+	}
+	metrics.SetClustersStale(n)
 }

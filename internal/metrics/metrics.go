@@ -247,6 +247,23 @@ var (
 		Name: "longue_vue_flow_dangling_references",
 		Help: "Reference rows whose endpoint no longer resolves, per cluster.",
 	}, []string{"cluster"})
+
+	// clusterLastSeen exports each cluster's collector heartbeat. This is
+	// the server-side authority: the collector-side
+	// longue_vue_collector_last_poll_timestamp_seconds lives in the
+	// collector's own registry in push mode and cannot drive server-side
+	// alerting.
+	clusterLastSeen = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "longue_vue_cluster_last_seen_timestamp_seconds",
+		Help: "Unix timestamp of the last collector heartbeat per cluster.",
+	}, []string{"cluster"})
+
+	// clustersStale counts clusters whose heartbeat is older than the
+	// cluster_stale_after_days setting (0 while the feature is disabled).
+	clustersStale = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "longue_vue_clusters_stale",
+		Help: "Clusters whose collector heartbeat exceeds the staleness threshold.",
+	})
 )
 
 func init() {
@@ -284,6 +301,8 @@ func init() {
 		flowStates,
 		flowReferenceRows,
 		flowDanglingRefs,
+		clusterLastSeen,
+		clustersStale,
 	)
 }
 
@@ -314,6 +333,27 @@ func ResetFlowGauges() {
 	flowStates.Reset()
 	flowReferenceRows.Reset()
 	flowDanglingRefs.Reset()
+}
+
+// ClusterHeartbeat is one live cluster's heartbeat, fed to
+// SetClusterHeartbeats by the periodic metrics-refresh loop.
+type ClusterHeartbeat struct {
+	Name       string
+	LastSeenAt time.Time
+}
+
+// SetClusterHeartbeats replaces the per-cluster heartbeat series.
+// Reset-then-set so renamed or deleted clusters drop their series.
+func SetClusterHeartbeats(rows []ClusterHeartbeat) {
+	clusterLastSeen.Reset()
+	for _, r := range rows {
+		clusterLastSeen.WithLabelValues(r.Name).Set(float64(r.LastSeenAt.Unix()))
+	}
+}
+
+// SetClustersStale sets the stale-cluster count gauge.
+func SetClustersStale(n int) {
+	clustersStale.Set(float64(n))
 }
 
 // SetDICTCoverage sets the per-source workload effective-DICT coverage gauge

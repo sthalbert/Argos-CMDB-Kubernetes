@@ -45,7 +45,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function query(params?: Record<string, string | number | undefined | null>): string {
+function query(params?: Record<string, string | number | boolean | undefined | null>): string {
   if (!params) return '';
   const entries = Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
@@ -365,6 +365,9 @@ export interface Cluster {
   notes?: string | null;
   runbook_url?: string | null;
   annotations?: Record<string, string> | null;
+  // Collector heartbeat + derived staleness (server-computed, read-only).
+  last_seen_at?: string | null;
+  stale?: boolean;
   layer: Layer;
   created_at: string;
   updated_at: string;
@@ -709,7 +712,7 @@ export interface PersistentVolumeClaim {
 
 // Endpoints ---------------------------------------------------------------
 
-export function listClusters(filter?: { cursor?: string; limit?: number } & ListControlParams) {
+export function listClusters(filter?: { cursor?: string; limit?: number; stale?: boolean } & ListControlParams) {
   return request<PagedResponse<Cluster>>('/v1/clusters' + query({ limit: 200, ...filter }));
 }
 export function getCluster(id: string) {

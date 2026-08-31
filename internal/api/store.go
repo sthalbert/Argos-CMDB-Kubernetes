@@ -157,6 +157,14 @@ type Store interface {
 type ClusterListFilter struct {
 	Name              *string
 	IncludeTerminated bool
+	// Stale filters on the derived staleness state: true keeps only
+	// clusters whose last_seen_at is strictly older than StaleCutoff,
+	// false keeps only fresh ones. StaleCutoff must be set whenever
+	// Stale is non-nil; handlers compute it from the
+	// cluster_stale_after_days setting and leave Stale nil when the
+	// feature is disabled.
+	Stale       *bool
+	StaleCutoff time.Time
 }
 
 // ClusterStore covers cluster CRUD, the idempotent EnsureCluster, and the
@@ -1217,6 +1225,7 @@ type Settings struct {
 	ImageVersionsEnabled    bool      `json:"image_versions_enabled"`
 	FlowMatrixEnabled       bool      `json:"flow_matrix_enabled"`
 	PoliciesEnabled         bool      `json:"policies_enabled"`
+	ClusterStaleAfterDays   int       `json:"cluster_stale_after_days"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
@@ -1231,6 +1240,7 @@ type SettingsPatch struct {
 	ImageVersionsEnabled    *bool `json:"image_versions_enabled,omitempty"`
 	FlowMatrixEnabled       *bool `json:"flow_matrix_enabled,omitempty"`
 	PoliciesEnabled         *bool `json:"policies_enabled,omitempty"`
+	ClusterStaleAfterDays   *int  `json:"cluster_stale_after_days,omitempty"`
 }
 
 // ImageVersionRow is a row from image_versions — one (image_repo, variant) pair

@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import * as api from '../../api';
 import { useResource, usePagedList, useLocalListControls } from '../../hooks';
-import { AsyncView, Dash, KV, SectionTitle } from '../../components';
+import { AsyncView, Dash, formatTs, KV, SectionTitle } from '../../components';
 import { CuratedMetadataCard } from '../../components/inventory/CuratedMetadataCard';
 import { ListSection } from '../../components/ListSection';
 import { CloudAccountStatusBadge } from './CloudAccounts';
@@ -15,15 +15,6 @@ import { CloudAccountStatusBadge } from './CloudAccounts';
 // server's memory, so this page never displays it. The AK is shown in
 // truncated form (last 4 chars) so admins can confirm rotation visually
 // without leaking the full value into screenshots / browser history.
-
-function formatTs(ts?: string | null): string {
-  if (!ts) return '';
-  try {
-    return new Date(ts).toLocaleString();
-  } catch {
-    return ts;
-  }
-}
 
 function maskAccessKey(ak?: string | null): string {
   if (!ak) return '';

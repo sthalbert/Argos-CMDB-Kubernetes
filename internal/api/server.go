@@ -191,6 +191,18 @@ func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject
 		filter.IncludeTerminated = *req.Params.IncludeTerminated
 	}
 
+	cutoff, staleEnabled := s.clusterStaleCutoff(ctx)
+	if req.Params.Stale != nil {
+		if staleEnabled {
+			v := *req.Params.Stale
+			filter.Stale = &v
+			filter.StaleCutoff = cutoff
+		} else if *req.Params.Stale {
+			// Feature disabled: nothing is stale by definition.
+			return ListClusters200JSONResponse(ClusterList{Items: []Cluster{}}), nil
+		}
+	}
+
 	items, next, err := s.store.ListClusters(ctx, filter, page)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
@@ -201,7 +213,7 @@ func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject
 		return nil, storeErr("listClusters", err)
 	}
 	for i := range items {
-		items[i] = withClusterLayer(items[i])
+		items[i] = withClusterStaleness(withClusterLayer(items[i]), cutoff, staleEnabled)
 	}
 	resp := ClusterList{Items: items}
 	if next != "" {
@@ -234,6 +246,16 @@ func (s *Server) CreateCluster(ctx context.Context, req CreateClusterRequestObje
 		return nil, fmt.Errorf("createCluster: %w", err)
 	}
 	c = withClusterLayer(c)
+	cutoff, staleEnabled := s.clusterStaleCutoff(ctx)
+	c = withClusterStaleness(c, cutoff, staleEnabled)
+	if !created {
+		// Steady-state collector tick: the ensure only refreshed the
+		// last_seen_at heartbeat. Drop the per-tick audit row (ADR-0024,
+		// same as CreateNode's OutcomeNoChange). Trade-off: the rare
+		// RESTORE ensure is also skipped here — the resurrection stays
+		// traceable via its clusters_history `restore` row.
+		SetAuditSkip(ctx)
+	}
 
 	loc := "/v1/clusters/"
 	if c.Id != nil {
@@ -262,7 +284,8 @@ func (s *Server) GetCluster(ctx context.Context, req GetClusterRequestObject) (G
 		}
 		return nil, fmt.Errorf("getCluster: %w", err)
 	}
-	return GetCluster200JSONResponse(withClusterLayer(c)), nil
+	cutoff, staleEnabled := s.clusterStaleCutoff(ctx)
+	return GetCluster200JSONResponse(withClusterStaleness(withClusterLayer(c), cutoff, staleEnabled)), nil
 }
 
 // UpdateCluster applies merge-patch updates to a cluster.
@@ -281,7 +304,8 @@ func (s *Server) UpdateCluster(ctx context.Context, req UpdateClusterRequestObje
 		}
 		return nil, fmt.Errorf("updateCluster: %w", err)
 	}
-	return UpdateCluster200JSONResponse(withClusterLayer(c)), nil
+	cutoff, staleEnabled := s.clusterStaleCutoff(ctx)
+	return UpdateCluster200JSONResponse(withClusterStaleness(withClusterLayer(c), cutoff, staleEnabled)), nil
 }
 
 // DeleteCluster removes a cluster. Before deleting, it snapshots the

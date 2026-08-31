@@ -10,7 +10,7 @@ import { ClusterCuratedCard } from '../cluster_curated';
 import { ImpactSection } from '../ImpactGraph';
 import { ClusterHistory } from '../ClusterHistory';
 import { ClusterIcon } from '../../icons';
-import { AsyncView, Dash, KV, Labels, LayerPill } from '../../components';
+import { AsyncView, Dash, formatTs, KV, Labels, LayerPill } from '../../components';
 import { ListSection } from '../../components/ListSection';
 import { TabBar } from './shared';
 
@@ -149,6 +149,14 @@ export function ClusterDetail() {
           <>
             <h2>
               <ClusterIcon size={20} /> {cluster.display_name || cluster.name} <LayerPill layer={cluster.layer} />
+              {cluster.stale && (
+                <span
+                  className="pill status-bad"
+                  title={`No collector signal since ${formatTs(cluster.last_seen_at)}`}
+                >
+                  stale
+                </span>
+              )}
               {isAdmin(me) && (
                 <button
                   className="danger"
@@ -180,6 +188,7 @@ export function ClusterDetail() {
                   <KV k="Region" v={cluster.region} />
                   <KV k="K8s version" v={cluster.kubernetes_version && <code>{cluster.kubernetes_version}</code>} />
                   <KV k="API endpoint" v={cluster.api_endpoint && <code>{cluster.api_endpoint}</code>} />
+                  <KV k="Last seen" v={cluster.last_seen_at ? formatTs(cluster.last_seen_at) : undefined} />
                   <KV k="Labels" v={<Labels labels={cluster.labels} />} />
                 </dl>
 
