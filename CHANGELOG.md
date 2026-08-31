@@ -6,6 +6,20 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.14.0](https://github.com/sthalbert/Longue-Vue/compare/v1.13.1...v1.14.0) (2026-08-31)
+
+
+### Features
+
+* **api:** declare cluster last_seen_at/stale fields and stale list filter ([8d5a2eb](https://github.com/sthalbert/Longue-Vue/commit/8d5a2eb0085a50e27d21f3872783a2e860ad1553))
+* **api:** derived cluster stale status, stale list filter, no-op tick audit skip ([92debce](https://github.com/sthalbert/Longue-Vue/commit/92debce8ef043b5185d5a6be8b7ec0b60fdeef49))
+* **clusters:** add last_seen_at heartbeat column and staleness threshold setting ([6225bbb](https://github.com/sthalbert/Longue-Vue/commit/6225bbbc07d30f4536e136e268e59515ac0273f4))
+* **clusters:** staleness heartbeat and derived stale status ([3a53573](https://github.com/sthalbert/Longue-Vue/commit/3a53573b195a85f0dd8b405edba35b879e0bc0b4))
+* **metrics:** server-side cluster heartbeat and stale-count gauges ([f72c24a](https://github.com/sthalbert/Longue-Vue/commit/f72c24a3f3365dcea235fb46966b0cc6a40b8fa6))
+* **settings:** add cluster_stale_after_days runtime setting with env seed ([94cbe3d](https://github.com/sthalbert/Longue-Vue/commit/94cbe3d676471a950c0b38794fd56ee9a587b7d1))
+* **store:** cluster heartbeat writes, stale list filter, last_seen_at sort ([4c16b01](https://github.com/sthalbert/Longue-Vue/commit/4c16b01db0d9bd5ba728d7904a2b03e2d04daf4e))
+* **ui:** cluster staleness badge, last-seen column, stale filter ([796c3a4](https://github.com/sthalbert/Longue-Vue/commit/796c3a489fac7f4229a9793d4309f9c501e0039b))
+
 ## [1.13.1](https://github.com/sthalbert/Longue-Vue/compare/v1.13.0...v1.13.1) (2026-08-27)
 
 
